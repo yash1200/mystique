@@ -332,3 +332,7 @@ _(empty — move tickets here when ready for review)_
 | TODO | 30+ |
 
 Update this file when starting/finishing work (move the full ticket block between sections).
+
+### T-FE-TEST — Test connection FE → BE
+- **Priority:** P0 · **Tags:** `FE` `BE` · **Status:** Deployed
+- **Description:** Test connection invokes backend plugins; success shows latency + server version; failure shows error. Connect on detail reuses the same path.

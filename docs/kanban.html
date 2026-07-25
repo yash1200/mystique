@@ -331,6 +331,15 @@
      */
     const TICKETS = [
       {
+        id: "T-FE-TEST",
+        title: "Test connection wired FE → BE",
+        column: "deployed",
+        tags: ["fe", "be", "p0"],
+        description: "Test connection button calls test_engine_connection IPC; shows established/failed with latency and server version. Connect on detail uses the same path.",
+        related: "engines.ts · NewConnectionPanel · ConnectionManager::test_connection",
+      },
+
+      {
         id: "T-BE-POOL",
         title: "Engine connection pools (Postgres/SQLite/Mongo)",
         column: "deployed",

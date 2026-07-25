@@ -59,11 +59,22 @@ impl ConnectionManager {
         self.registry.list()
     }
 
+    /// Always returns a structured [`TestResult`] (never fails the API envelope for connect errors).
+    /// `ok: true` means the engine accepted the credentials and answered a ping/version probe.
     pub async fn test_connection(&self, req: &OpenSessionRequest) -> ConnectorResult<TestResult> {
-        let connector = self
-            .registry
-            .get(&req.engine)
-            .ok_or_else(|| ConnectorError::InvalidConfig(format!("unknown engine `{}`", req.engine)))?;
+        let start = std::time::Instant::now();
+        let connector = match self.registry.get(&req.engine) {
+            Some(c) => c,
+            None => {
+                return Ok(TestResult {
+                    ok: false,
+                    engine: req.engine.clone(),
+                    server_version: None,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    message: format!("Unknown engine `{}`", req.engine),
+                });
+            }
+        };
 
         let config = ConnectionConfig {
             engine: req.engine.clone(),
@@ -71,7 +82,23 @@ impl ConnectionManager {
             password: req.password.clone(),
             pool: req.pool.clone().unwrap_or_default(),
         };
-        connector.test_connection(&config).await
+
+        match connector.test_connection(&config).await {
+            Ok(mut result) => {
+                // Ensure latency is populated even if plugin left it at 0
+                if result.latency_ms == 0 {
+                    result.latency_ms = start.elapsed().as_millis() as u64;
+                }
+                Ok(result)
+            }
+            Err(e) => Ok(TestResult {
+                ok: false,
+                engine: req.engine.clone(),
+                server_version: None,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: e.to_string(),
+            }),
+        }
     }
 
     pub async fn open_session(&self, req: OpenSessionRequest) -> ConnectorResult<SessionInfo> {

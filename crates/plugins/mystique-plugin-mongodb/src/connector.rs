@@ -39,7 +39,7 @@ async fn build_client(config: &ConnectionConfig) -> ConnectorResult<Client> {
         options.max_idle_time = Some(Duration::from_secs(config.pool.idle_timeout_secs));
     }
 
-    // Auth from fields if not in URI
+    // Auth from fields if not already embedded in URI
     let user = config.str_field("username");
     let password = config
         .password
@@ -49,12 +49,13 @@ async fn build_client(config: &ConnectionConfig) -> ConnectorResult<Client> {
         let mut cred = Credential::default();
         cred.username = Some(username);
         cred.password = Some(password);
-        if let Some(auth_db) = config
-            .str_field("authSource")
-            .or_else(|| config.str_field("database"))
-        {
-            cred.source = Some(auth_db);
-        }
+        // Prefer explicit authSource; default to admin (root-style users), not the app DB name.
+        cred.source = Some(
+            config
+                .str_field("authSource")
+                .or_else(|| config.str_field("auth_source"))
+                .unwrap_or_else(|| "admin".into()),
+        );
         options.credential = Some(cred);
     }
 
@@ -195,5 +196,47 @@ impl DatabaseConnector for MongoConnector {
             config.pool.max_size,
             default_db,
         )))
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    use mystique_connector_api::PoolConfig;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_connection_against_local_docker() {
+        // Skip if mongo isn't up
+        let config = ConnectionConfig {
+            engine: "mongodb".into(),
+            plugin_config: json!({
+                "host": "127.0.0.1",
+                "port": 27017,
+                "database": "mystique_dev",
+                "username": "abc",
+                "authSource": "admin"
+            }),
+            password: Some("abc".into()),
+            pool: PoolConfig {
+                max_size: 2,
+                min_idle: 0,
+                acquire_timeout_ms: 5000,
+                idle_timeout_secs: 30,
+            },
+        };
+        let connector = MongoConnector;
+        match connector.test_connection(&config).await {
+            Ok(r) => {
+                assert!(r.ok, "expected ok: {}", r.message);
+                println!("ok latency={}ms version={:?}", r.latency_ms, r.server_version);
+            }
+            Err(e) => {
+                // Environment without docker mongo
+                eprintln!("skip/fail: {e}");
+                // Fail hard only if connection refused isn't the issue - always assert for CI local
+                panic!("mongo test_connection failed: {e}");
+            }
+        }
     }
 }

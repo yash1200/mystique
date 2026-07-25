@@ -20,8 +20,11 @@
 
   interface Props {
     connection: ConnectionProfile;
+    testing?: boolean;
     onedit?: () => void;
     onconnect?: () => void;
+    /** Live BE connectivity check (does not open a full session). */
+    ontest?: () => void | Promise<void>;
     onduplicate?: () => void;
     ondelete?: () => void;
     onbacktonew?: () => void;
@@ -29,8 +32,10 @@
 
   let {
     connection,
+    testing = false,
     onedit,
     onconnect,
+    ontest,
     onduplicate,
     ondelete,
     onbacktonew,
@@ -153,11 +158,22 @@
           </div>
         </div>
         <Inline gap="sm" justify="end">
-          <Button variant="ghost" onclick={onedit}>Edit</Button>
-          <Button variant="ghost" onclick={onduplicate}>Duplicate</Button>
-          <Button variant="danger-ghost" onclick={ondelete}>Delete</Button>
-          <Button variant="primary" onclick={onconnect}>
-            {status === "connected" ? "Open workspace" : "Connect"}
+          <Button variant="ghost" onclick={onedit} disabled={testing}>Edit</Button>
+          <Button variant="ghost" onclick={onduplicate} disabled={testing}>Duplicate</Button>
+          <Button variant="danger-ghost" onclick={ondelete} disabled={testing}>Delete</Button>
+          {#if ontest}
+            <Button variant="secondary" onclick={ontest} disabled={testing}>
+              {testing ? "Testing…" : "Test connection"}
+            </Button>
+          {/if}
+          <Button variant="primary" onclick={onconnect} disabled={testing}>
+            {#if testing}
+              Checking…
+            {:else if status === "connected"}
+              Reconnect
+            {:else}
+              Connect
+            {/if}
           </Button>
         </Inline>
       </div>
@@ -199,8 +215,12 @@
     </div>
 
     <p class="mt-5 text-caption text-fg-muted">
-      Profile is stored in local SQLite. Live engine connect ships with the
-      Postgres plugin.
+      Profile is stored in local SQLite. <strong class="font-medium text-fg-secondary">Test connection</strong>
+      and <strong class="font-medium text-fg-secondary">Connect</strong> call the
+      backend engine plugins and report whether the database is reachable.
+      {#if connection.passwordSet}
+        Re-enter the password in Edit if the test fails without a live secret.
+      {/if}
       <button
         type="button"
         class="border-none bg-transparent p-0 text-caption text-accent hover:underline"

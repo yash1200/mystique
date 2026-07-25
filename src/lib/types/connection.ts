@@ -184,11 +184,12 @@ export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
     colorId: "teal",
     host: engine === "sqlite" ? "" : "127.0.0.1",
     port: port || 5432,
-    database: "",
+    // Sensible local defaults for quick test-connection
+    database: engine === "mongodb" ? "mystique_dev" : "",
     path: "",
     uri: "",
-    username: "",
-    password: "",
+    username: engine === "mongodb" ? "abc" : "",
+    password: engine === "mongodb" ? "abc" : "",
     ssl: false,
     readOnly: true,
     environment: "local",
@@ -258,38 +259,46 @@ export function draftFromProfile(profile: ConnectionProfile): ConnectionFormDraf
   };
 }
 
+/** Build engine `pluginConfig` JSON from a form draft (shared by save + test). */
+export function pluginConfigFromDraft(draft: ConnectionFormDraft): PluginConfig {
+  if (draft.engine === "sqlite") {
+    return {
+      path: draft.path.trim() || draft.database.trim(),
+    };
+  }
+  if (draft.engine === "mongodb") {
+    const cfg: PluginConfig = {
+      host: draft.host.trim() || "127.0.0.1",
+      port: Number(draft.port) || 27017,
+      database: draft.database.trim() || "mystique_dev",
+      username: draft.username.trim() || undefined,
+      ssl: draft.ssl,
+      sslMode: draft.ssl ? "require" : "disable",
+      // Root-style users authenticate against admin
+      authSource: "admin",
+    };
+    if (draft.uri.trim()) {
+      cfg.uri = draft.uri.trim();
+    }
+    return cfg;
+  }
+  // postgres (default relational network)
+  return {
+    host: draft.host.trim(),
+    port: Number(draft.port) || 5432,
+    database: draft.database.trim(),
+    username: draft.username.trim(),
+    ssl: draft.ssl,
+    sslMode: draft.ssl ? "require" : "disable",
+  };
+}
+
 /** Build SaveConnectionInput from the form draft (engine-aware plugin_config). */
 export function saveInputFromDraft(
   draft: ConnectionFormDraft,
   options?: { id?: string; existingPasswordSet?: boolean },
 ): SaveConnectionInput {
-  let pluginConfig: PluginConfig;
-
-  if (draft.engine === "sqlite") {
-    pluginConfig = {
-      path: draft.path.trim() || draft.database.trim(),
-    };
-  } else if (draft.engine === "mongodb") {
-    pluginConfig = {
-      host: draft.host.trim(),
-      port: Number(draft.port) || 27017,
-      database: draft.database.trim(),
-      username: draft.username.trim(),
-      uri: draft.uri.trim() || undefined,
-      ssl: draft.ssl,
-      sslMode: draft.ssl ? "require" : "disable",
-    };
-  } else {
-    // postgres (default relational network)
-    pluginConfig = {
-      host: draft.host.trim(),
-      port: Number(draft.port) || 5432,
-      database: draft.database.trim(),
-      username: draft.username.trim(),
-      ssl: draft.ssl,
-      sslMode: draft.ssl ? "require" : "disable",
-    };
-  }
+  const pluginConfig = pluginConfigFromDraft(draft);
 
   const input: SaveConnectionInput = {
     id: options?.id ?? null,

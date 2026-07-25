@@ -39,7 +39,10 @@
     /** Return to engine picker (create flow only). */
     onback?: () => void;
     onsave?: (draft: ConnectionFormDraft) => void | Promise<void>;
-    ontest?: () => void;
+    /** Live connectivity check against BE engine plugins. */
+    ontest?: (draft: ConnectionFormDraft) => void | Promise<void>;
+    testing?: boolean;
+    testResult?: { ok: boolean; message: string } | null;
   }
 
   let {
@@ -50,6 +53,8 @@
     onback,
     onsave,
     ontest,
+    testing = false,
+    testResult = null,
   }: Props = $props();
 
   let name = $state("");
@@ -110,6 +115,53 @@
     }
   });
 
+
+  function currentDraft(): ConnectionFormDraft {
+    return {
+      name: name.trim(),
+      engine,
+      colorId,
+      host: host.trim(),
+      port: Number(port) || selectedEngine?.defaultPort || 5432,
+      database: database.trim(),
+      path: path.trim(),
+      uri: uri.trim(),
+      username: username.trim(),
+      password,
+      ssl,
+      readOnly,
+      environment,
+      notes: notes.trim(),
+    };
+  }
+
+  function validateForTest(): string | null {
+    if (engine === "sqlite") {
+      if (!path.trim()) return "SQLite database file path is required.";
+    } else if (engine === "mongodb") {
+      if (!uri.trim() && !host.trim()) {
+        return "Provide a MongoDB URI or host.";
+      }
+    } else if (!host.trim() || !database.trim()) {
+      return "Host and database are required.";
+    }
+    return null;
+  }
+
+  async function runTest() {
+    formError = null;
+    const err = validateForTest();
+    if (err) {
+      formError = err;
+      return;
+    }
+    try {
+      await ontest?.(currentDraft());
+    } catch (e) {
+      formError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   async function submit(e: Event) {
     e.preventDefault();
     formError = null;
@@ -163,7 +215,7 @@
     title={isEdit ? "Edit connection" : "Connection details"}
     description={isEdit
       ? "Update connection details. Leave password blank to keep the existing secret."
-      : "Fill in how Mystique should reach this database. Saving profiles is local for now — live connect comes with engine plugins."}
+      : "Fill in how Mystique should reach this database. Use Test connection to verify reachability via the backend engine plugins."}
   >
     {#snippet actions()}
       {#if !isEdit && onback}
@@ -352,12 +404,25 @@
         <Alert tone="danger">{formError}</Alert>
       {/if}
 
+      {#if testResult}
+        <Alert tone={testResult.ok ? "success" : "danger"}>
+          {testResult.message}
+        </Alert>
+      {/if}
+
       <Inline gap="sm" justify="end">
         {#if oncancel}
-          <Button variant="ghost" onclick={oncancel} disabled={saving}>Cancel</Button>
+          <Button variant="ghost" onclick={oncancel} disabled={saving || testing}>Cancel</Button>
         {/if}
-        <Button variant="ghost" onclick={ontest} disabled={saving}>Test connection</Button>
-        <Button type="submit" variant="primary" disabled={saving}>
+        <Button
+          type="button"
+          variant="secondary"
+          onclick={runTest}
+          disabled={saving || testing || !ontest}
+        >
+          {testing ? "Testing…" : "Test connection"}
+        </Button>
+        <Button type="submit" variant="primary" disabled={saving || testing}>
           {saving ? "Saving…" : isEdit ? "Update connection" : "Save connection"}
         </Button>
       </Inline>

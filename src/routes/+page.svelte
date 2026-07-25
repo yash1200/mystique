@@ -16,13 +16,18 @@
     saveProfile,
     touchProfileConnected,
   } from "$lib/api/profiles";
+  import { testEngineConnection } from "$lib/api/engines";
   import { isTauri } from "$lib/api/tauri";
   import type {
     ConnectionFormDraft,
     ConnectionProfile,
     EngineId,
   } from "$lib/types/connection";
-  import { saveInputFromDraft } from "$lib/types/connection";
+  import {
+    draftFromProfile,
+    pluginConfigFromDraft,
+    saveInputFromDraft,
+  } from "$lib/types/connection";
 
   type ThemePref = "light" | "dark" | "system";
   type ToastState = {
@@ -43,6 +48,9 @@
   let editing = $state(false);
   let loading = $state(true);
   let saving = $state(false);
+  let testing = $state(false);
+  /** Last live connectivity result from BE (shown on the form). */
+  let testResult = $state<{ ok: boolean; message: string } | null>(null);
   let loadError = $state<string | null>(null);
   let themePref = $state<ThemePref>("dark");
   let toast = $state<ToastState>(null);
@@ -127,11 +135,13 @@
     selectedId = null;
     createStep = "pick-engine";
     draftEngine = null;
+    testResult = null;
   }
 
   function pickEngine(engine: EngineId) {
     draftEngine = engine;
     createStep = "form";
+    testResult = null;
   }
 
   function backToEnginePicker() {
@@ -144,6 +154,63 @@
     if (!selected) return;
     editing = true;
     creating = false;
+    testResult = null;
+  }
+
+  /**
+   * Live connectivity check via backend engine plugins.
+   * Reports established / failed clearly (toast + form banner).
+   */
+  async function handleTestConnection(draft: ConnectionFormDraft) {
+    testResult = null;
+
+    if (!isTauri()) {
+      const msg =
+        "Backend not available. Run with `yarn tauri dev` (or `npm run tauri dev`) to test a real database connection.";
+      testResult = { ok: false, message: msg };
+      showToast("warning", msg);
+      return;
+    }
+
+    testing = true;
+    try {
+      const pluginConfig = pluginConfigFromDraft(draft);
+      // Prefer URI password when embedded; otherwise send form password
+      const password =
+        draft.password.trim().length > 0 ? draft.password : null;
+
+      const result = await testEngineConnection({
+        engine: String(draft.engine),
+        pluginConfig,
+        password,
+        pool: {
+          maxSize: 2,
+          minIdle: 0,
+          acquireTimeoutMs: 8000,
+          idleTimeoutSecs: 30,
+        },
+      });
+
+      if (result.ok) {
+        const version = result.serverVersion
+          ? ` · ${result.serverVersion}`
+          : "";
+        const msg = `Connection established to ${result.engine} (${result.latencyMs}ms)${version}. ${result.message}`;
+        testResult = { ok: true, message: msg };
+        showToast("success", `Connected to ${result.engine} (${result.latencyMs}ms)`);
+      } else {
+        const msg = `Connection failed: ${result.message}`;
+        testResult = { ok: false, message: msg };
+        showToast("danger", msg);
+      }
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      const msg = `Connection failed: ${raw}`;
+      testResult = { ok: false, message: msg };
+      showToast("danger", msg);
+    } finally {
+      testing = false;
+    }
   }
 
   function cancelForm() {
@@ -257,22 +324,68 @@
 
   async function connectSelected() {
     if (!selected) return;
+    if (!isTauri()) {
+      showToast(
+        "warning",
+        "Backend not available. Run with `yarn tauri dev` to open a live session.",
+      );
+      return;
+    }
+
+    testing = true;
+    testResult = null;
     try {
+      // Live test first — proves the DB is reachable with stored config.
+      // Passwords are not yet loaded from keychain; if password is required,
+      // edit the profile and re-enter it, or put credentials in the URI.
+      const draft = draftFromProfile(selected);
+      const pluginConfig = {
+        ...pluginConfigFromDraft(draft),
+        ...(selected.pluginConfig ?? {}),
+      };
+
+      const result = await testEngineConnection({
+        engine: String(selected.engine),
+        pluginConfig,
+        password: draft.password || null,
+        pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
+      });
+
+      if (!result.ok) {
+        connections = connections.map((c) =>
+          c.id === selected.id ? { ...c, status: "error" as const } : c,
+        );
+        const msg = `Could not establish connection: ${result.message}`;
+        testResult = { ok: false, message: msg };
+        showToast("danger", msg);
+        return;
+      }
+
       const updated = await touchProfileConnected(selected.id);
       connections = connections.map((c) =>
         c.id === updated.id
           ? { ...updated, status: "connected" as const }
           : c,
       );
+      const version = result.serverVersion ? ` · ${result.serverVersion}` : "";
       showToast(
-        "info",
-        `Marked “${updated.name}” connected (live engine session not wired yet).`,
+        "success",
+        `Connection established to ${result.engine} (${result.latencyMs}ms)${version}`,
       );
+      testResult = {
+        ok: true,
+        message: `Connection established (${result.latencyMs}ms)${version}`,
+      };
     } catch (err) {
+      connections = connections.map((c) =>
+        c.id === selected.id ? { ...c, status: "error" as const } : c,
+      );
       showToast(
         "danger",
         err instanceof Error ? err.message : String(err),
       );
+    } finally {
+      testing = false;
     }
   }
 
@@ -377,32 +490,32 @@
           initial={null}
           lockedEngine={draftEngine}
           {saving}
+          {testing}
+          {testResult}
           oncancel={connections.length > 0 ? cancelForm : undefined}
           onback={backToEnginePicker}
           onsave={saveConnection}
-          ontest={() =>
-            showToast(
-              "info",
-              "Test connection will run when the engine plugin is wired (FE only for now).",
-            )}
+          ontest={handleTestConnection}
         />
       {:else if editing && selected}
         <NewConnectionPanel
           initial={selected}
           lockedEngine={selected.engine}
           {saving}
+          {testing}
+          {testResult}
           oncancel={cancelForm}
           onsave={saveConnection}
-          ontest={() =>
-            showToast(
-              "info",
-              "Test connection will run when the engine plugin is wired (FE only for now).",
-            )}
+          ontest={handleTestConnection}
         />
       {:else if selected}
         <ConnectionDetail
           connection={selected}
+          {testing}
           onconnect={connectSelected}
+          ontest={async () => {
+            await handleTestConnection(draftFromProfile(selected));
+          }}
           onduplicate={duplicateSelected}
           ondelete={deleteSelected}
           onedit={startEdit}
