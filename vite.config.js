@@ -27,8 +27,13 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. ignore paths Vite doesn't need for HMR (avoids Windows EBUSY
+      // crashes when docs/lockers like OneDrive hold a file open)
+      ignored: [
+        "**/src-tauri/**",
+        "**/docs/**",
+        "**/*.md",
+      ],
     },
   },
 }));
