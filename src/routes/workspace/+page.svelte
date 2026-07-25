@@ -1,0 +1,99 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
+  import { workspaceSession } from "$lib/stores/workspace-session.svelte";
+  import { listProfiles } from "$lib/api/profiles";
+  import type { ConnectionProfile } from "$lib/types/connection";
+
+  type ThemePref = "light" | "dark" | "system";
+
+  let ready = $state(false);
+  let bootError = $state<string | null>(null);
+
+  function resolveTheme(pref: ThemePref): "light" | "dark" {
+    if (pref === "system") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+    return pref;
+  }
+
+  function applyTheme(pref: ThemePref) {
+    document.documentElement.dataset.theme = resolveTheme(pref);
+    document.documentElement.dataset.density = "compact";
+  }
+
+  /**
+   * Ensure the connection from ?c= is in the session store.
+   * If the user landed without connecting, load profile and open a mock session.
+   */
+  async function ensureSessionFromQuery() {
+    const connectionId = page.url.searchParams.get("c");
+    if (!connectionId) {
+      if (workspaceSession.sessions.length === 0) {
+        await goto("/");
+        return;
+      }
+      return;
+    }
+
+    if (workspaceSession.sessions.some((s) => s.profile.id === connectionId)) {
+      workspaceSession.setActiveConnection(connectionId);
+      return;
+    }
+
+    try {
+      const rows = await listProfiles();
+      const profile: ConnectionProfile | undefined = rows.find(
+        (r) => r.id === connectionId,
+      );
+      if (!profile) {
+        bootError = "Connection not found.";
+        return;
+      }
+      workspaceSession.connect({ ...profile, status: "connected" });
+    } catch (e) {
+      bootError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  onMount(() => {
+    let stored: ThemePref = "dark";
+    try {
+      const raw = localStorage.getItem("mystique-theme");
+      if (raw === "light" || raw === "dark" || raw === "system") stored = raw;
+    } catch {
+      /* ignore */
+    }
+    applyTheme(stored);
+
+    (async () => {
+      await ensureSessionFromQuery();
+      if (workspaceSession.sessions.length === 0 && !bootError) {
+        await goto("/");
+        return;
+      }
+      ready = true;
+    })();
+  });
+</script>
+
+{#if bootError}
+  <div class="flex h-screen items-center justify-center bg-app p-6">
+    <div class="max-w-md text-center">
+      <p class="text-body text-danger">{bootError}</p>
+      <a class="mt-3 inline-block text-body text-accent" href="/">Back to home</a>
+    </div>
+  </div>
+{:else if ready}
+  <WorkspaceShell />
+{:else}
+  <div
+    class="flex h-screen items-center justify-center bg-app text-caption text-fg-muted"
+  >
+    Opening workspace…
+  </div>
+{/if}

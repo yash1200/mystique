@@ -185,6 +185,12 @@
   height: 2.75rem;
 }
 
+/* Workspace pane footers (sessions · explorer · data grid) — keep aligned */
+@utility h-statusbar {
+  height: 2.75rem; /* 44px — matches h-topbar */
+  min-height: 2.75rem;
+}
+
 @utility min-h-row {
   min-height: var(--row-height);
 }

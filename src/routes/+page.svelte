@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
   import ConnectionDetail from "$lib/components/home/ConnectionDetail.svelte";
   import NewConnectionPanel from "$lib/components/home/NewConnectionPanel.svelte";
@@ -16,6 +17,7 @@
   } from "$lib/api/profiles";
   import { testEngineConnection } from "$lib/api/engines";
   import { isTauri } from "$lib/api/tauri";
+  import { workspaceSession } from "$lib/stores/workspace-session.svelte";
   import type {
     ConnectionFormDraft,
     ConnectionProfile,
@@ -319,13 +321,24 @@
     }
   }
 
+  async function openWorkspace(profile: ConnectionProfile) {
+    workspaceSession.connect({ ...profile, status: "connected" });
+    await goto(`/workspace?c=${encodeURIComponent(profile.id)}`);
+  }
+
   async function connectSelected() {
     if (!selected) return;
+
+    // FE preview: open workspace with dummy tables (no live engine).
     if (!isTauri()) {
-      showToast(
-        "warning",
-        "Backend not available. Run with `yarn tauri dev` to open a live session.",
+      connections = connections.map((c) =>
+        c.id === selected.id ? { ...c, status: "connected" as const } : c,
       );
+      showToast(
+        "info",
+        "Opening workspace with sample data (FE preview — run `yarn tauri dev` for live DB).",
+      );
+      await openWorkspace(selected);
       return;
     }
 
@@ -375,6 +388,7 @@
         ok: true,
         message: `Connection established (${result.latencyMs}ms)${version}`,
       };
+      await openWorkspace({ ...updated, status: "connected" });
     } catch (err) {
       connections = connections.map((c) =>
         c.id === selected.id ? { ...c, status: "error" as const } : c,
