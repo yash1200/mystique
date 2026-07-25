@@ -6,7 +6,6 @@
   } from "$lib/types/connection";
   import {
     Badge,
-    Button,
     ContentPanel,
     PageHeader,
   } from "$lib/components/ui";
@@ -16,16 +15,11 @@
     /** Currently highlighted engine (keyboard / click preview). */
     selectedEngine?: EngineId | null;
     onselect: (engine: EngineId) => void;
-    oncancel?: () => void;
-    /** Show cancel when user already has connections. */
-    showCancel?: boolean;
   }
 
   let {
     selectedEngine = null,
     onselect,
-    oncancel,
-    showCancel = false,
   }: Props = $props();
 
   const engines = $derived(selectableEngines());
@@ -65,11 +59,11 @@
         aria-selected={active}
         class={cn(
           "group flex min-h-[11rem] flex-col rounded-xl border bg-panel p-4 text-left transition-colors duration-150",
-          "hover:border-line-strong hover:bg-hover",
           "focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-2",
+          // Selected: stable border (no ring + hover border fight)
           active
-            ? "border-accent bg-accent-muted ring-1 ring-accent/40"
-            : "border-line",
+            ? "border-accent bg-accent-muted hover:border-accent hover:bg-accent-muted"
+            : "border-line hover:border-line-strong hover:bg-hover",
         )}
         onclick={() => onselect(eng.id)}
         onkeydown={(e) => onKeySelect(e, eng.id)}
@@ -110,10 +104,4 @@
     More engines (MySQL, Cassandra, DynamoDB, …) will appear here as connectors ship.
     Connection profiles stay on this machine; live connect lands with each engine plugin.
   </p>
-
-  {#if showCancel && oncancel}
-    <div class="mt-5 flex justify-end">
-      <Button variant="ghost" onclick={oncancel}>Cancel</Button>
-    </div>
-  {/if}
 </ContentPanel>

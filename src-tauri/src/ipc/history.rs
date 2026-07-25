@@ -8,7 +8,11 @@ pub fn append_query_history(
     state: State<'_, AppState>,
     input: AppendHistoryInput,
 ) -> Result<QueryHistoryItem, String> {
-    state.services.history().append(input).map_err(Into::into)
+    state
+        .services
+        .history()
+        .append(input)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -22,7 +26,7 @@ pub fn list_query_history(
         .services
         .history()
         .list_for_connection(&connection_id, limit)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -35,7 +39,7 @@ pub fn list_recent_query_history(
         .services
         .history()
         .list_recent(limit)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -47,7 +51,7 @@ pub fn clear_query_history(
         .services
         .history()
         .clear_for_connection(&connection_id)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -56,5 +60,5 @@ pub fn retain_query_history(state: State<'_, AppState>, keep: i64) -> Result<usi
         .services
         .history()
         .retain_latest(keep)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }

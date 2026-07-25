@@ -20,6 +20,7 @@
     type = "button",
     class: className = "",
     disabled = false,
+    onclick,
     children,
     ...rest
   }: Props = $props();
@@ -52,6 +53,7 @@
     className,
   )}
   {disabled}
+  {onclick}
   {...rest}
 >
   {@render children?.()}

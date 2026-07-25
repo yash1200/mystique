@@ -107,11 +107,15 @@ export async function saveProfile(
 }
 
 export async function deleteProfile(id: string): Promise<void> {
+  if (!id?.trim()) {
+    throw new Error("Connection id is required to delete.");
+  }
   if (!isTauri()) {
     writeLocal(readLocal().filter((r) => r.id !== id));
     return;
   }
-  await invoke("delete_profile", { id });
+  // Backend returns true on success (empty () can be awkward for some clients).
+  await invoke<boolean>("delete_profile", { id });
 }
 
 export async function touchProfileConnected(

@@ -12,7 +12,7 @@ pub fn list_query_groups(
         .services
         .query_library()
         .list_groups(&connection_id)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -24,7 +24,7 @@ pub fn save_query_group(
         .services
         .query_library()
         .save_group(input)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -33,7 +33,7 @@ pub fn delete_query_group(state: State<'_, AppState>, id: String) -> Result<(), 
         .services
         .query_library()
         .delete_group(&id)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -45,7 +45,7 @@ pub fn list_saved_queries(
         .services
         .query_library()
         .list_queries(&connection_id)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -54,7 +54,7 @@ pub fn save_query(state: State<'_, AppState>, input: SaveQueryInput) -> Result<S
         .services
         .query_library()
         .save_query(input)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -63,5 +63,5 @@ pub fn delete_saved_query(state: State<'_, AppState>, id: String) -> Result<(), 
         .services
         .query_library()
         .delete_query(&id)
-        .map_err(Into::into)
+        .map_err(|e| e.to_string())
 }

@@ -22,7 +22,8 @@
 <div
   class={cn(
     "flex min-w-0 items-stretch gap-2",
-    tinted && selected && "conn-tint",
+    // Parent list item owns the selected background tint to avoid double layers.
+    tinted && !selected && "conn-tint",
     className,
   )}
   style="--connection-color: {color}"

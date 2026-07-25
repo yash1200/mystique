@@ -160,7 +160,13 @@
         <Inline gap="sm" justify="end">
           <Button variant="ghost" onclick={onedit} disabled={testing}>Edit</Button>
           <Button variant="ghost" onclick={onduplicate} disabled={testing}>Duplicate</Button>
-          <Button variant="danger-ghost" onclick={ondelete} disabled={testing}>Delete</Button>
+          <Button
+            variant="danger-ghost"
+            disabled={testing}
+            onclick={() => ondelete?.()}
+          >
+            Delete
+          </Button>
           {#if ontest}
             <Button variant="secondary" onclick={ontest} disabled={testing}>
               {testing ? "Testing…" : "Test connection"}

@@ -1,8 +1,6 @@
 //! Engine catalog + pooled session IPC (API-shaped).
 
-use mystique_core::{
-    EngineDescriptor, OpenSessionRequest, PoolStatus, SessionInfo, TestResult,
-};
+use mystique_core::{EngineDescriptor, OpenSessionRequest, PoolStatus, SessionInfo, TestResult};
 use tauri::State;
 
 use crate::AppState;
@@ -78,9 +76,7 @@ pub async fn engine_session_pool_status(
 }
 
 #[tauri::command]
-pub async fn list_engine_sessions(
-    state: State<'_, AppState>,
-) -> Result<Vec<SessionInfo>, String> {
+pub async fn list_engine_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     Ok(state.services.connections().list_sessions().await)
 }
 

@@ -6,7 +6,6 @@
   import EnginePicker from "$lib/components/home/EnginePicker.svelte";
   import {
     Button,
-    EmptyState,
     ThemeToggle,
     Toast,
   } from "$lib/components/ui";
@@ -93,6 +92,16 @@
     }, 3600);
   }
 
+  /** Home default: nothing selected → create-connection flow. */
+  function enterCreateMode() {
+    selectedId = null;
+    creating = true;
+    editing = false;
+    createStep = "pick-engine";
+    draftEngine = null;
+    testResult = null;
+  }
+
   async function refreshList(preferSelectId?: string | null) {
     const rows = await listProfiles();
     connections = rows.map((r) => ({
@@ -101,23 +110,15 @@
         connections.find((c) => c.id === r.id)?.status ?? "disconnected",
     }));
     if (preferSelectId && connections.some((c) => c.id === preferSelectId)) {
+      // After save/duplicate: show the new/updated profile detail.
       selectedId = preferSelectId;
       creating = false;
       editing = false;
       createStep = "pick-engine";
       draftEngine = null;
-    } else if (selectedId && !connections.some((c) => c.id === selectedId)) {
-      selectedId = null;
-      creating = connections.length === 0;
-      createStep = "pick-engine";
-      draftEngine = null;
-      editing = false;
-    } else if (connections.length === 0) {
-      creating = true;
-      createStep = "pick-engine";
-      draftEngine = null;
-      editing = false;
-      selectedId = null;
+    } else if (!selectedId || !connections.some((c) => c.id === selectedId)) {
+      // No valid selection → always land on create home (never empty state).
+      enterCreateMode();
     }
   }
 
@@ -126,16 +127,12 @@
     editing = false;
     createStep = "pick-engine";
     draftEngine = null;
+    testResult = null;
     selectedId = id;
   }
 
   function startCreate() {
-    creating = true;
-    editing = false;
-    selectedId = null;
-    createStep = "pick-engine";
-    draftEngine = null;
-    testResult = null;
+    enterCreateMode();
   }
 
   function pickEngine(engine: EngineId) {
@@ -214,23 +211,20 @@
   }
 
   function cancelForm() {
+    // Leave edit → back to that connection's detail.
     if (editing && selectedId) {
       editing = false;
       creating = false;
       return;
     }
+    // Leave form → engine picker (still create mode, no selection).
     if (creating && createStep === "form") {
       createStep = "pick-engine";
+      testResult = null;
       return;
     }
-    creating = false;
-    editing = false;
-    createStep = "pick-engine";
-    draftEngine = null;
-    if (!selectedId && connections.length === 0) {
-      creating = true;
-      createStep = "pick-engine";
-    }
+    // Engine picker / anything else with no selection → stay on create home.
+    enterCreateMode();
   }
 
   async function saveConnection(draft: ConnectionFormDraft) {
@@ -270,27 +264,50 @@
     }
   }
 
-  async function deleteSelected() {
-    if (!selected) return;
-    const name = selected.name;
-    const id = selected.id;
-    if (!confirm(`Delete connection “${name}”? This cannot be undone.`)) {
-      return;
+  let deleting = $state(false);
+  /** In-app confirm — `window.confirm` often opens *behind* the Tauri window on macOS. */
+  let pendingDelete = $state<{ id: string; name: string } | null>(null);
+
+  function requestDeleteSelected() {
+    if (!selected || deleting) return;
+    pendingDelete = { id: selected.id, name: selected.name };
+  }
+
+  function cancelPendingDelete() {
+    if (deleting) return;
+    pendingDelete = null;
+  }
+
+  function formatInvokeError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      const o = err as Record<string, unknown>;
+      if (typeof o.message === "string") return o.message;
+      try {
+        return JSON.stringify(err);
+      } catch {
+        /* fall through */
+      }
     }
+    return String(err);
+  }
+
+  async function confirmDeleteSelected() {
+    if (!pendingDelete) return;
+    const { id, name } = pendingDelete;
+    deleting = true;
     try {
       await deleteProfile(id);
-      connections = connections.filter((c) => c.id !== id);
-      selectedId = null;
-      editing = false;
-      creating = true;
-      createStep = "pick-engine";
-      draftEngine = null;
+      // Re-fetch from SQLite so UI matches disk (do not only filter local state).
+      await refreshList();
+      // refreshList clears invalid selection → create mode.
+      pendingDelete = null;
       showToast("info", `Deleted “${name}”.`);
     } catch (err) {
-      showToast(
-        "danger",
-        err instanceof Error ? err.message : String(err),
-      );
+      showToast("danger", formatInvokeError(err));
+    } finally {
+      deleting = false;
     }
   }
 
@@ -411,15 +428,8 @@
       loadError = null;
       try {
         await refreshList();
-        if (connections.length === 0) {
-          creating = true;
-          createStep = "pick-engine";
-          selectedId = null;
-        } else {
-          creating = true;
-          createStep = "pick-engine";
-          selectedId = null;
-        }
+        // Always open home with no selection in create mode.
+        enterCreateMode();
         if (!isTauri()) {
           // Soft notice only — FE localStorage still works.
           loadError = null;
@@ -482,8 +492,6 @@
         <EnginePicker
           selectedEngine={draftEngine}
           onselect={pickEngine}
-          oncancel={connections.length > 0 ? cancelForm : undefined}
-          showCancel={connections.length > 0}
         />
       {:else if creating && createStep === "form" && draftEngine}
         <NewConnectionPanel
@@ -517,22 +525,57 @@
             await handleTestConnection(draftFromProfile(selected));
           }}
           onduplicate={duplicateSelected}
-          ondelete={deleteSelected}
+          ondelete={requestDeleteSelected}
           onedit={startEdit}
           onbacktonew={startCreate}
         />
       {:else}
-        <EmptyState
-          title="No connection selected"
-          description="Choose one from the left rail, or create a new connection."
-        >
-          {#snippet actions()}
-            <Button variant="primary" onclick={startCreate}>New connection</Button>
-          {/snippet}
-        </EmptyState>
+        <!-- Fallback: never show empty “no selection”; always create home. -->
+        <EnginePicker
+          selectedEngine={draftEngine}
+          onselect={pickEngine}
+        />
       {/if}
     </div>
   </main>
+
+  {#if pendingDelete}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        class="absolute inset-0 border-none bg-app/70"
+        aria-label="Dismiss delete dialog"
+        onclick={cancelPendingDelete}
+        disabled={deleting}
+      ></button>
+      <div
+        class="relative z-10 w-full max-w-md rounded-xl border border-line bg-elevated p-5 shadow-md"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-conn-title"
+      >
+        <h2 id="delete-conn-title" class="m-0 text-title font-semibold text-fg">
+          Delete connection?
+        </h2>
+        <p class="mt-2 text-body text-fg-secondary">
+          Delete “{pendingDelete.name}”? Saved queries for this connection will
+          also be removed. This cannot be undone.
+        </p>
+        <div class="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onclick={cancelPendingDelete} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onclick={confirmDeleteSelected}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if toast}
     <Toast message={toast.message} tone={toast.kind} />

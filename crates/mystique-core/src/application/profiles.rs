@@ -23,6 +23,12 @@ impl ProfileService<'_> {
 
     pub fn delete(&self, id: &str) -> AppResult<()> {
         // Future: also delete keychain entry for secret_ref.
+        let id = id.trim();
+        if id.is_empty() {
+            return Err(crate::error::AppError::Invalid(
+                "connection id is required".into(),
+            ));
+        }
         self.db.with_conn(|c| repo::connections::delete(c, id))
     }
 
