@@ -57,7 +57,7 @@ export interface TestResult {
 
 function requireTauri() {
   if (!isTauri()) {
-    throw new Error("Engine pool API requires Tauri (`yarn tauri dev`).");
+    throw new Error("Engine pool API requires Tauri (`npm run tauri dev`).");
   }
 }
 

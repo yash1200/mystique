@@ -1,4 +1,4 @@
-/** True when running inside the Tauri webview (not plain browser `yarn dev`). */
+/** True when running inside the Tauri webview (not plain browser `npm run dev`). */
 export function isTauri(): boolean {
   return (
     typeof window !== "undefined" &&

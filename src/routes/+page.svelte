@@ -166,7 +166,7 @@
 
     if (!isTauri()) {
       const msg =
-        "Backend not available. Run with `yarn tauri dev` (or `npm run tauri dev`) to test a real database connection.";
+        "Backend not available. Run with `npm run tauri dev` to test a real database connection.";
       testResult = { ok: false, message: msg };
       showToast("warning", msg);
       return;
