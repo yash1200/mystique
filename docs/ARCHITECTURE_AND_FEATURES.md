@@ -484,7 +484,7 @@ Aligned with PRD functional requirements; updated for **Phase 1 = PostgreSQL**.
 - CSV **import**
 - SSH tunnel, IAM auth
 - Team cloud sync, collaboration
-- AI assist, MCP
+- AI agent / MCP (post–studio core; see PRD §6.2 / FEATURES §1.12)
 - Column View (may return later; not PRD V1 center)
 - Mobile
 
@@ -516,7 +516,11 @@ Aligned with PRD functional requirements; updated for **Phase 1 = PostgreSQL**.
 
 ### 7.4 Later
 
-Cassandra/Keyspaces, DynamoDB, Redis, warehouses, schema diff, CSV import, web client against same core API, AI assist (never auto-run destructive SQL), ER design → DDL.
+| Area | Notes |
+| ---- | ----- |
+| **AI agent & MCP** | MCP = full product API tools; embedded + external agents; connection policy first ([`FEATURES.md`](./FEATURES.md) §1.12, PRD §7.7). Later: MCP as own principal (keys + fine-grained grants) |
+| Further engines | Cassandra/Keyspaces, DynamoDB, Redis, warehouses |
+| Product | Schema diff, web client on same core API, ER design → DDL |
 
 ---
 

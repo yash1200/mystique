@@ -6,7 +6,7 @@
 | -------------------------- | --------------------------------------------------------------- |
 | **Product name**           | **MystiqueDB** (working subtitle: Universal Database Studio)    |
 | **Document type**          | Product Requirements Document                                   |
-| **Version**                | 1.3                                                             |
+| **Version**                | 1.4                                                             |
 | **Status**                 | Draft for alignment · implemented in this repo                  |
 | **Last updated**           | 2026-07-26                                                      |
 | **Primary platforms**      | Desktop application (primary), Web client (future-friendly API) |
@@ -114,6 +114,22 @@ A **studio for data systems**: select engine → connect → explore structure, 
 4. Connect to SQLite file and inspect schema + data offline
 5. Connect to Mongo and see collections + inferred document shape + inferred refs in Model view
 6. (Later) Cassandra key model; AWS-managed variants of the above
+
+### 4.4 Agent & MCP use cases (accepted)
+
+Same product capabilities as the UI, driven by embedded chat or an external MCP client (e.g. IDE agent):
+
+| Area | Example outcome |
+| ---- | --------------- |
+| **Connections & settings** | “Connect this Postgres using the project env—call it `dev-api`” without copy-pasting the form; rename, read-only, disconnect; app prefs |
+| **Read** | Live answers and schema orientation (“open orders older than 7 days”, “what touches `users`?”) |
+| **Write** | Patch/seed **writable** DBs with the same policy and confirms as the UI |
+| **Export / import** | Export table/result to file; import CSV/TSV with map + preview |
+| **Manage** | Saved queries per connection, history, tidy profiles |
+
+**Permissions (now):** follow the **connection** and product API—same rules as a human in the UI. Details: [`FEATURES.md`](./FEATURES.md) §1.12.
+
+**Permissions (future):** MCP may become its own principal (see §6.3)—separate keys and fine-grained grants, not only “whatever the desktop user can do.”
 
 ---
 
@@ -277,12 +293,14 @@ SQLite remains a useful local connector later; not a V1 marketing target.
 | **AWS (thin)**              | Connection presets for RDS Postgres/MySQL (host/SSL); Secrets Manager optional                                                   |
 | **Auth**                    | SSH tunnel; SSL cert modes; keychain secrets                                                                                     |
 | **Writes expansion**        | Controlled DELETE; row edit/insert modals; confirm UX for destructive ops                                                        |
+| **AI agent & MCP**          | MCP server = full product API; embedded agent + external MCP clients; local + cloud LLM providers; opt-in, audited               |
 | **Quality**                 | Integration tests per connector + policy golden cases; result streaming/cancel                                                   |
 
 **Next non-goals**
 
 - Full Compass/DataGrip parity
 - Multi-user SaaS control plane (unless product pivots)
+- MCP as a bypass of connection policy or secret extraction into model context
 
 ---
 
@@ -296,9 +314,8 @@ SQLite remains a useful local connector later; not a V1 marketing target.
 | **Warehouses**            | Redshift/BigQuery/Snowflake-style read exploration                          |
 | **Graph DBs**             | Neo4j as separate model language                                            |
 | **Team / cloud product**  | Hosted API, SSO, shared read-only roles, org audit                          |
-| **AI assist (optional)**  | Natural language → query draft; schema Q&A (never auto-run destructive SQL) |
+| **MCP as a principal**    | Treat MCP clients as a **separate user**: own API keys, optional RBAC-style grants (which connections, read vs write, import/export, app manage), revoke/rotate without changing the human UI session |
 | **Web client**            | Same API as desktop; browser UI in Svelte                                   |
-| **Import**                | CSV import into tables (permissioned)                                       |
 | **Compare**               | Schema diff across environments                                             |
 | **ER design mode**        | Edit model and generate DDL (relational only)—advanced                      |
 
@@ -378,6 +395,21 @@ SQLite remains a useful local connector later; not a V1 marketing target.
 | X-3 | Structured logging / local query audit                                 | P1       |
 | X-4 | App usable offline for local Postgres (and later SQLite file DBs)      | P0       |
 
+### 7.7 AI agent & MCP
+
+| ID    | Requirement                                                                                         | Priority |
+| ----- | --------------------------------------------------------------------------------------------------- | -------- |
+| A-1   | Product exposes an **MCP server** that mirrors the product API (not a parallel business layer)      | P1       |
+| A-2   | **Embedded agent** uses MCP tools for all agent actions                                             | P1       |
+| A-3   | **External MCP clients** can connect (auth/consent); same tools as embedded                         | P1       |
+| A-4   | Agent/MCP **opt-in**; disabled state turns both off; no silent network                              | P0       |
+| A-5   | Tool calls **audited**; secrets never returned in results or dumped into model context              | P0       |
+| A-6   | Connection **read-only** / query policy apply identically to agent-driven actions                   | P0       |
+| A-7   | LLM providers: local OpenAI-compatible + user cloud keys (secure storage)                           | P1       |
+| A-8   | NL → query is **draft only** until the user (or explicit product write path) runs it                | P0       |
+| A-9   | Result size capped / paginated on MCP reads                                                         | P0       |
+| A-10  | *(Future)* MCP identity distinct from the desktop user: scoped keys + fine-grained permissions      | P3       |
+
 ---
 
 ## 8. Non-functional requirements
@@ -386,7 +418,7 @@ SQLite remains a useful local connector later; not a V1 marketing target.
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | **Performance**      | Metadata load for 200-table Postgres schema < 5s on typical laptop; data page < 2s for simple table                                  |
 | **Safety**           | Defaults read-only; destructive operations require future explicit enablement                                                        |
-| **Security**         | Secrets encrypted via OS keychain / safe storage; no secrets in renderer logs                                                        |
+| **Security**         | Secrets encrypted via OS keychain / safe storage; no secrets in renderer logs or MCP/agent results                                   |
 | **Reliability**      | Connector failures isolated; one bad engine doesn’t crash shell                                                                      |
 | **Extensibility**    | New engine = new connector module + model builder + form schema, without changing core DTOs drastically                              |
 | **UX**               | Consistent layout across engines; engine differences explained in empty states                                                       |
@@ -574,7 +606,7 @@ Serialized as JSON via serde; Svelte consumes the same contract regardless of en
 | **M3 — SQLite**              | File connect + same relational UI                                                                      |
 | **M4 — V1 harden**           | Export, errors, audit, native packaging (Tauri/installer), docs                                        |
 | **M5 — Mongo Next**          | `mongodb` driver + collection model view                                                               |
-| **M6+**                      | MySQL, AWS presets, Cassandra, writes, remote/web                                                      |
+| **M6+**                      | MySQL polish, AWS presets, writes expansion, **MCP + embedded agent**, remote/web, further engines       |
 
 ---
 
@@ -614,8 +646,8 @@ An engine may be marketed as supported only if:
 | **Backend**                 | **Rust** (Axum + Tokio + connector trait); native binary / Tauri-friendly                          |
 | **Frontend**                | **Svelte 5** + Svelte Flow for Model view                                                          |
 | **V1**                      | Desktop + Svelte + Rust; Postgres + MySQL + Mongo; per-engine query policy; ER + query space          |
-| **Next**                    | Mongo model map, more SQL engines, AWS connection UX, query history, diagram polish                |
-| **Future**                  | Cassandra, DynamoDB, team/cloud, web client, AI assist, design/DDL modes                           |
+| **Next**                    | Studio depth + **AI agent & MCP** (full product API tools; embedded + external clients)            |
+| **Future**                  | Cassandra, DynamoDB, team/cloud, web client, design/DDL modes                                      |
 | **ER policy**               | Differs by DB; universal **Model view**, relational **ER** as one kind                             |
 | **Rejected for primary BE** | Spring Boot / JVM (kept only as historical alternative in §9.4)                                    |
 
@@ -629,6 +661,8 @@ An engine may be marketed as supported only if:
 | 1.1     | 2026-07-25 | Backend decision: **Rust** instead of Spring Boot; stack, architecture, pros/cons, milestones, open decisions updated |
 | 1.2     | 2026-07-25 | Branded **MystiqueDB** in-repo; V1 UI engines Postgres/Mongo/SQLite; linked [`KANBAN.md`](./KANBAN.md)                 |
 | 1.3     | 2026-07-26 | V1 engines **Postgres · Mongo · MySQL**; query space modes (read / write / DELETE off); **per-engine query policy SPI** |
+| 1.4     | 2026-07-26 | **AI agent & MCP** accepted: use cases §4.4, Next scope, FRs §7.7; catalog in [`FEATURES.md`](./FEATURES.md) §1.12     |
+| 1.4.1   | 2026-07-26 | Future: MCP as separate principal (own keys + fine-grained permissions); A-10                                           |
 
 ---
 

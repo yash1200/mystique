@@ -206,27 +206,40 @@ Connection: local-pg
 
 ---
 
-### 1.12 AI query generation (local + cloud keys)
+### 1.12 AI agent & MCP
+
+**MCP server** exposes the full product API as tools. **Embedded agent** (in-app chat) and **external agents** (IDE, desktop, automation) share that surface. Opt-in; audited; secrets never returned in tool results.
+
+**Permissions now:** same as the connection / product API (not a parallel access mode).  
+**Permissions later (P3):** treat MCP as its own principal—dedicated keys and fine-grained grants (which connections, read/write, import/export, app manage); revoke/rotate without changing the human UI session.
+
+```
+Embedded agent  ──┐
+                  ├──▶  MCP server  ──▶  Product API
+External agents ──┘
+```
 
 | ID | Feature | Priority | Description |
 | -- | ------- | -------- | ----------- |
-| **F-AI-1** | Prompt → query | **P1** | User describes intent in natural language; app proposes SQL (or engine query) in the editor. |
-| **F-AI-2** | Schema-aware context | **P1** | Send relevant table/column metadata (and optional relations) so prompts are accurate. |
-| **F-AI-3** | Local models | **P1** | Support local OpenAI-compatible endpoints (e.g. Ollama, LM Studio) via base URL. |
-| **F-AI-4** | Custom API keys | **P1** | User-provided keys for **OpenAI**, **Anthropic**, **Gemini**, **Grok (xAI)**—stored securely, never in plain config logs. |
-| **F-AI-5** | Provider picker | **P1** | Per-app or per-connection choice of provider/model. |
-| **F-AI-6** | Review before run | **P0** | AI output is **draft only**; user must review and explicitly run (no auto-exec of generated queries). |
-| **F-AI-7** | Explain / fix query | **P2** | Explain selected SQL; suggest fix from error message. |
-| **F-AI-8** | Safety | **P0** | Prefer read-only framing; warn on destructive statements; respect connection read-only mode. |
-| **F-AI-9** | Opt-in | **P0** | AI features off until user configures a provider; no silent network calls. |
+| **F-MCP-1** | MCP server | **P1** | Tools/resources for connections, catalog, query/mutate, import/export, settings, history, saved queries, model, workspace. |
+| **F-MCP-2** | External clients | **P1** | Any MCP client can connect (localhost or stdio; local token / consent). |
+| **F-AGENT-1** | Embedded agent | **P1** | In-app multi-turn chat with tool-calling via MCP (stop/cancel, visible tool transcript). |
+| **F-AGENT-2** | LLM providers | **P1** | Local OpenAI-compatible (Ollama, LM Studio, …) plus OpenAI, Anthropic, Gemini, Grok (xAI); keys in secure storage. |
+| **F-AGENT-3** | Opt-in | **P0** | Agent and MCP off until configured; no silent network calls. Disable turns both off. |
+| **F-AGENT-4** | Auth & audit | **P0** | Local token/consent; all tool calls audited. |
+| **F-AGENT-5** | NL → query draft | **P1** | Schema-aware draft into the editor; user reviews and runs (no blind auto-exec). |
+| **F-AGENT-6** | Explain / fix | **P2** | Explain selected SQL; suggest fix from error message. |
+| **F-MCP-3** | MCP principal (future) | **P3** | MCP client as a separate “user”: own API keys + scoped permissions (not full desktop-user power by default). |
 
-| Provider | Mode |
-| -------- | ---- |
-| Local (Ollama / OpenAI-compatible) | Base URL + model name |
-| OpenAI | API key + model |
-| Anthropic | API key + model |
-| Google Gemini | API key + model |
-| xAI Grok | API key + model |
+**Use cases** (what people get done—not a how-to):
+
+| Area | Outcome |
+| ---- | ------- |
+| **Connections & settings** | Wire a DB from project env/URL without copy-pasting the form; rename, color, read-only, disconnect; flip app prefs. |
+| **Read** | Answer live data questions; orient in schema/relations; IDE agent queries through Mystique. |
+| **Write** | Patch or seed **writable** DBs with the same confirms/policy as the UI. |
+| **Export / import** | “Export this table/result to a file”; “import this CSV/TSV” with map + preview. |
+| **Manage** | Save queries per connection, tidy history/profiles, day-to-day workspace help. |
 
 ---
 
@@ -279,12 +292,13 @@ Still required for a coherent app; lower “signature” focus than §1.
 | **Top tab bar** | Browser-like tabs for tables, queries, model, import |
 | **Center grid** | Table data, column filters, selection |
 | **Right panel** | Row detail (column view of one row), JSON pretty |
-| **Modals / sheets** | Edit row, insert row, connection form, import, AI prompt |
+| **Modals / sheets** | Edit row, insert row, connection form, import |
+| **Agent panel** | Embedded agent chat (MCP tools) |
 | **Model / ER canvas** | Pretty relations view (DBeaver-like) |
 | **Saved queries pane** | Groups per connection |
 | **History pane** | Past run queries |
 | **Table info** | Columns, indexes, constraints, DDL, relations |
-| **Toolbar** | Run, export CSV/TSV, import CSV/TSV, AI generate, filter clear |
+| **Toolbar** | Run, export CSV/TSV, import CSV/TSV, filter clear |
 
 ---
 
@@ -296,7 +310,7 @@ Still required for a coherent app; lower “signature” focus than §1.
 | **W2 — Structure** | Relations/ER view, table metadata (indexes, FKs, DDL) |
 | **W3 — Query library** | Editor, history, saved queries + groups per connection, export CSV/TSV |
 | **W4 — Write path** | Edit/insert modals, pretty JSON edit, CSV/TSV import |
-| **W5 — AI** | Prompt → query with local models + OpenAI / Anthropic / Gemini / Grok keys |
+| **W5 — AI & MCP** | MCP server (full product API) + embedded agent + external clients; NL draft / providers |
 
 Exact engine order (e.g. Postgres first) remains in the PRD/architecture docs; **this list is feature-centric**.
 
@@ -317,7 +331,7 @@ Use this as a wall checklist:
 - [ ] **Full table-related data** (data + columns + indexes + constraints + relations)
 - [ ] **Download CSV/TSV** (page + full result/table, streamed)
 - [ ] **Insert from CSV/TSV** (wizard + mapping + preview)
-- [ ] **AI query from prompt** (local models + OpenAI / Anthropic / Gemini / Grok API keys)
+- [ ] **Embedded agent + MCP** (full product API; external agents; local + cloud providers)
 - [ ] **Per-column filters** (typed operators, multi-column)
 
 ---
@@ -338,7 +352,9 @@ Not expanded here unless promoted later:
 | Version | Date | Notes |
 | ------- | ---- | ----- |
 | 1.0 | 2026-07-25 | Initial feature list from product priorities |
+| 1.1 | 2026-07-26 | AI agent & MCP accepted: full product MCP + embedded/external agents (replaces query-gen-only) |
+| 1.1.1 | 2026-07-26 | Future note: MCP as separate principal (F-MCP-3) |
 
 ---
 
-*MystiqueDB features: many connections, many tabs, clear structure, safe edits, and AI that drafts—never blindly runs.*
+*MystiqueDB features: many connections, many tabs, clear structure, safe edits, and agents that act through the same product API as the UI.*
