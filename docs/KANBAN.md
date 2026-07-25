@@ -69,6 +69,27 @@ Each ticket: **ID**, **Title**, **Priority**, **Tags**, **Description**, **Relat
 - **Description:** PRD, architecture, features, UI/UX, design language, component structure, schema docs in `docs/`.
 - **Related:** docs/*
 
+
+### T-BE-001 — Connector API crate (`mystique-connector-api`)
+- **Priority:** P0 · **Tags:** `BE` · **Status:** Deployed
+- **Description:** Traits, DTOs, pool types. No engine drivers in API crate.
+
+### T-BE-002 — Connector registry
+- **Priority:** P0 · **Tags:** `BE` · **Status:** Deployed
+- **Description:** `ConnectorRegistry::bootstrap()` registers postgres/sqlite/mongodb.
+
+### T-BE-004 — IPC surface for engines & sessions
+- **Priority:** P0 · **Tags:** `BE` `FE` · **Status:** Deployed
+- **Description:** list/test/open/close/ping/pool-status/list sessions.
+
+### T-BE-POOL — Engine connection pools
+- **Priority:** P0 · **Tags:** `BE` · **Status:** Deployed
+- **Description:** deadpool (PG), r2d2 (SQLite), driver pool (Mongo).
+
+### T-DEV-MONGO — Local Mongo docker seed
+- **Priority:** P1 · **Tags:** `BE` `DOCS` · **Status:** Deployed
+- **Description:** mongo:7 :27017 user abc/abc, DB mystique_dev sample collections. See DEV_MONGO.md.
+
 ### T-FE-001 — Engine picker (Postgres / Mongo / SQLite)
 - **Priority:** P0 · **Tags:** `FE`
 - **Description:** First step of new connection: choose database engine with design-language cards. Only PostgreSQL, MongoDB, and SQLite (SQL). No live BE plugins yet.

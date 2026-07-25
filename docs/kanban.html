@@ -330,6 +330,23 @@
      * tags: fe, be, docs, p0, p1, p2, p3
      */
     const TICKETS = [
+      {
+        id: "T-BE-POOL",
+        title: "Engine connection pools (Postgres/SQLite/Mongo)",
+        column: "deployed",
+        tags: ["be", "p0"],
+        description: "SPI + ConnectionManager; deadpool (PG), r2d2 (SQLite), driver pool (Mongo). IPC: list/test/open/close/ping/pool-status.",
+        related: "mystique-connector-api · plugins · BACKEND_STRUCTURE.md",
+      },
+      {
+        id: "T-DEV-MONGO",
+        title: "Local MongoDB docker seed (abc/abc)",
+        column: "deployed",
+        tags: ["be", "docs", "p1"],
+        description: "Docker mongo:7 on :27017, root abc/abc, DB mystique_dev with users/products/orders/order_items samples.",
+        related: "docs/DEV_MONGO.md · container mystique-mongo",
+      },
+
       // —— Deployed ——
       {
         id: "T-BASE-001",
@@ -396,7 +413,7 @@
       {
         id: "T-BE-001",
         title: "Connector API crate (mystique-connector-api)",
-        column: "todo",
+        column: "deployed",
         tags: ["be", "p0"],
         description: "Traits DatabaseConnector + ConnectorSession, capabilities, errors, normalized DTOs. No engine drivers yet.",
         related: "PRD §9 · ARCHITECTURE §4",
@@ -404,7 +421,7 @@
       {
         id: "T-BE-002",
         title: "Connector registry + mock connector",
-        column: "todo",
+        column: "deployed",
         tags: ["be", "p0"],
         description: "ConnectorRegistry loads plugins; mock connector proves SPI for tests and FE capability chrome.",
         related: "ARCHITECTURE §4.4 · depends: T-BE-001",
@@ -420,7 +437,7 @@
       {
         id: "T-BE-004",
         title: "IPC surface for engines & sessions",
-        column: "todo",
+        column: "deployed",
         tags: ["be", "fe", "p0"],
         description: "Tauri commands: list_engines, test_connection, connect, disconnect, get_capabilities.",
         related: "ARCHITECTURE §10 · depends: T-BE-002, T-BE-003",
