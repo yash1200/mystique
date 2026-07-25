@@ -1,0 +1,224 @@
+@import "tailwindcss";
+@import "./lib/styles/tokens.css";
+
+/*
+  MystiqueDB design language → Tailwind
+  See docs/DESIGN_LANGUAGE.md
+
+  Theme: [data-theme] swaps CSS vars; utilities stay semantic (no dark: color pairs).
+*/
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+@theme inline {
+  /* —— Fonts —— */
+  --font-sans: var(--mds-font-ui);
+  --font-mono: var(--mds-font-mono);
+
+  /* —— Type scale (closed set) —— */
+  --text-micro: 0.625rem; /* 10px */
+  --text-micro--line-height: 1.2;
+  --text-caption: 0.6875rem; /* 11px */
+  --text-caption--line-height: 1.35;
+  --text-label: 0.75rem; /* 12px */
+  --text-label--line-height: 1.4;
+  --text-body: 0.8125rem; /* 13px — default UI */
+  --text-body--line-height: 1.4;
+  --text-body-lg: 0.875rem; /* 14px */
+  --text-body-lg--line-height: 1.45;
+  --text-title: 1.125rem; /* 18px */
+  --text-title--line-height: 1.3;
+  --text-display: 1.375rem; /* 22px */
+  --text-display--line-height: 1.25;
+
+  /* —— Radius —— */
+  --radius-sm: var(--mds-radius-sm);
+  --radius-md: var(--mds-radius-md);
+  --radius-lg: var(--mds-radius-lg);
+  --radius-xl: var(--mds-radius-xl);
+
+  /* —— Surfaces —— */
+  --color-app: var(--bg-app);
+  --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
+  --color-input: var(--bg-input);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-selected: var(--bg-selected);
+
+  /* —— Text —— */
+  --color-fg: var(--text-primary);
+  --color-fg-secondary: var(--text-secondary);
+  --color-fg-muted: var(--text-muted);
+  --color-fg-inverse: var(--text-inverse);
+
+  /* —— Borders —— */
+  --color-line: var(--border-subtle);
+  --color-line-strong: var(--border-strong);
+  --color-focus: var(--border-focus);
+
+  /* —— Brand / status —— */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-muted: var(--accent-muted);
+  --color-success: var(--status-success);
+  --color-warning: var(--status-warning);
+  --color-danger: var(--status-danger);
+  --color-info: var(--status-info);
+
+  /* —— Connection palette —— */
+  --color-conn-rose: var(--conn-rose);
+  --color-conn-orange: var(--conn-orange);
+  --color-conn-amber: var(--conn-amber);
+  --color-conn-lime: var(--conn-lime);
+  --color-conn-green: var(--conn-green);
+  --color-conn-teal: var(--conn-teal);
+  --color-conn-cyan: var(--conn-cyan);
+  --color-conn-blue: var(--conn-blue);
+  --color-conn-indigo: var(--conn-indigo);
+  --color-conn-violet: var(--conn-violet);
+  --color-conn-magenta: var(--conn-magenta);
+  --color-conn-slate: var(--conn-slate);
+
+  /* —— Shadows —— */
+  --shadow-sm: var(--mds-shadow-sm);
+  --shadow-md: var(--mds-shadow-md);
+
+  /* —— Layout widths —— */
+  --spacing-sidebar: var(--sidebar-width);
+  --spacing-panel-sm: 26.25rem; /* 420px */
+  --spacing-panel-md: 45rem; /* 720px */
+  --spacing-panel-lg: 55rem; /* 880px */
+
+  /* —— Control heights (as spacing for h-* if needed) —— */
+  --spacing-control-sm: 1.75rem; /* 28px */
+  --spacing-control: 2.125rem; /* 34px */
+  --spacing-control-lg: 2.5rem; /* 40px */
+  --spacing-topbar: 2.75rem; /* 44px */
+  --spacing-row: var(--row-height);
+}
+
+@layer base {
+  html,
+  body {
+    @apply m-0 h-full overflow-hidden p-0;
+  }
+
+  body {
+    @apply bg-app font-sans text-body text-fg antialiased;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    @apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  a {
+    @apply text-accent;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-focus;
+  }
+}
+
+/* —— Design-language utilities —— */
+
+@utility w-sidebar {
+  width: var(--sidebar-width);
+}
+
+@utility max-w-panel-sm {
+  max-width: 26.25rem;
+}
+
+@utility max-w-panel-md {
+  max-width: 45rem;
+}
+
+@utility max-w-panel-lg {
+  max-width: 55rem;
+}
+
+@utility max-w-prose-ui {
+  max-width: 52ch;
+}
+
+@utility h-control-sm {
+  height: 1.75rem;
+}
+
+@utility h-control {
+  height: 2.125rem;
+}
+
+@utility h-control-lg {
+  height: 2.5rem;
+}
+
+@utility h-topbar {
+  height: 2.75rem;
+}
+
+@utility min-h-row {
+  min-height: var(--row-height);
+}
+
+@utility w-stripe {
+  width: 3px;
+}
+
+@utility size-swatch {
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+}
+
+@utility size-status {
+  width: 0.5rem; /* 8px */
+  height: 0.5rem;
+}
+
+@utility conn-tint {
+  background: color-mix(in srgb, var(--connection-color) 14%, var(--bg-panel));
+}
+
+@utility conn-tint-soft {
+  background: color-mix(in srgb, var(--connection-color) 12%, var(--bg-panel));
+}
+
+@utility conn-ring {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--connection-color) 25%, transparent);
+}
+
+@utility bg-conn {
+  background-color: var(--connection-color);
+}
+
+@utility bg-app-wash {
+  background:
+    radial-gradient(
+      1200px 600px at 80% -10%,
+      color-mix(in srgb, var(--accent) 8%, transparent),
+      transparent 55%
+    ),
+    var(--bg-app);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,117 @@
+/*
+  MystiqueDB design tokens
+  Semantic CSS variables swap on [data-theme].
+  Tailwind maps them in app.css via @theme inline — one utility set, zero dark: duplication.
+*/
+
+:root {
+  color-scheme: dark;
+
+  --mds-font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mds-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --mds-radius-sm: 0.25rem;
+  --mds-radius-md: 0.375rem;
+  --mds-radius-lg: 0.5rem;
+  --mds-radius-xl: 0.75rem;
+
+  --sidebar-width: 17.5rem;
+  --row-height: 2.5rem;
+
+  --conn-rose: #e86a7a;
+  --conn-orange: #e8956a;
+  --conn-amber: #e6b84d;
+  --conn-lime: #a8d46a;
+  --conn-green: #5ecf8e;
+  --conn-teal: #4ecdc4;
+  --conn-cyan: #4eb8e8;
+  --conn-blue: #5b8def;
+  --conn-indigo: #7b7ef0;
+  --conn-violet: #9b6de8;
+  --conn-magenta: #d46ad8;
+  --conn-slate: #8b95a8;
+
+  /* Default dark (first paint) */
+  --bg-app: #0f1219;
+  --bg-panel: #161b26;
+  --bg-elevated: #1c2333;
+  --bg-input: #121722;
+  --bg-hover: rgb(255 255 255 / 0.04);
+  --bg-active: rgb(91 141 239 / 0.12);
+  --bg-selected: rgb(91 141 239 / 0.16);
+  --border-subtle: #2a3347;
+  --border-strong: #3d4a66;
+  --border-focus: #5b8def;
+  --text-primary: #e8ecf4;
+  --text-secondary: #9aa6bd;
+  --text-muted: #6b7690;
+  --text-inverse: #0f1219;
+  --accent: #5b8def;
+  --accent-hover: #7aa3f5;
+  --accent-muted: rgb(91 141 239 / 0.15);
+  --status-success: #7fd99a;
+  --status-warning: #e6c07b;
+  --status-danger: #f07178;
+  --status-info: #5b8def;
+  --mds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --mds-shadow-md: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-app: #0f1219;
+  --bg-panel: #161b26;
+  --bg-elevated: #1c2333;
+  --bg-input: #121722;
+  --bg-hover: rgb(255 255 255 / 0.04);
+  --bg-active: rgb(91 141 239 / 0.12);
+  --bg-selected: rgb(91 141 239 / 0.16);
+  --border-subtle: #2a3347;
+  --border-strong: #3d4a66;
+  --border-focus: #5b8def;
+  --text-primary: #e8ecf4;
+  --text-secondary: #9aa6bd;
+  --text-muted: #6b7690;
+  --text-inverse: #0f1219;
+  --accent: #5b8def;
+  --accent-hover: #7aa3f5;
+  --accent-muted: rgb(91 141 239 / 0.15);
+  --status-success: #7fd99a;
+  --status-warning: #e6c07b;
+  --status-danger: #f07178;
+  --status-info: #5b8def;
+  --mds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --mds-shadow-md: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-app: #f4f6fa;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-input: #eef1f7;
+  --bg-hover: rgb(26 32 48 / 0.04);
+  --bg-active: rgb(59 111 217 / 0.1);
+  --bg-selected: rgb(59 111 217 / 0.14);
+  --border-subtle: #d8dee9;
+  --border-strong: #b8c2d6;
+  --border-focus: #3b6fd9;
+  --text-primary: #1a2030;
+  --text-secondary: #5a657c;
+  --text-muted: #8b95a8;
+  --text-inverse: #ffffff;
+  --accent: #3b6fd9;
+  --accent-hover: #2f5fc4;
+  --accent-muted: rgb(59 111 217 / 0.12);
+  --status-success: #2f9e5f;
+  --status-warning: #b8860b;
+  --status-danger: #c23b4a;
+  --status-info: #3b6fd9;
+  --mds-shadow-sm: 0 1px 2px rgb(26 32 48 / 0.06);
+  --mds-shadow-md: 0 8px 28px rgb(26 32 48 / 0.1);
+}
+
+[data-density="comfortable"] {
+  --row-height: 2.875rem;
+  --sidebar-width: 18.75rem;
+}
