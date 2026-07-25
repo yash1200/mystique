@@ -33,20 +33,24 @@ npm install -g yarn
 yarn -v
 ```
 
-### 3. Rust
+### 3. Rust (required for `tauri dev`)
 
 Install Rust via [rustup](https://rustup.rs/):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
 ```
 
-Restart your shell, then verify:
+Verify (must work in the same terminal you run npm from):
 
 ```bash
 rustc --version
 cargo --version
+echo "$PATH" | tr ':' '\n' | grep cargo   # should show ~/.cargo/bin
 ```
+
+`npm run tauri` uses `scripts/tauri.sh`, which loads `~/.cargo/env` automatically so npm scripts find `cargo` even if your shell PATH is incomplete.
 
 ### 4. Platform dependencies (Tauri)
 
