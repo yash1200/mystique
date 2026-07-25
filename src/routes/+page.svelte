@@ -3,6 +3,7 @@
   import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
   import ConnectionDetail from "$lib/components/home/ConnectionDetail.svelte";
   import NewConnectionPanel from "$lib/components/home/NewConnectionPanel.svelte";
+  import EnginePicker from "$lib/components/home/EnginePicker.svelte";
   import {
     Button,
     EmptyState,
@@ -19,6 +20,7 @@
   import type {
     ConnectionFormDraft,
     ConnectionProfile,
+    EngineId,
   } from "$lib/types/connection";
   import { saveInputFromDraft } from "$lib/types/connection";
 
@@ -28,10 +30,15 @@
     message: string;
   } | null;
 
+  /** Create flow: pick engine first, then fill details. */
+  type CreateStep = "pick-engine" | "form";
+
   let connections = $state<ConnectionProfile[]>([]);
   let selectedId = $state<string | null>(null);
   /** Create form (no selection). */
   let creating = $state(true);
+  let createStep = $state<CreateStep>("pick-engine");
+  let draftEngine = $state<EngineId | null>(null);
   /** Edit form for the currently selected profile. */
   let editing = $state(false);
   let loading = $state(true);
@@ -89,12 +96,18 @@
       selectedId = preferSelectId;
       creating = false;
       editing = false;
+      createStep = "pick-engine";
+      draftEngine = null;
     } else if (selectedId && !connections.some((c) => c.id === selectedId)) {
       selectedId = null;
       creating = connections.length === 0;
+      createStep = "pick-engine";
+      draftEngine = null;
       editing = false;
     } else if (connections.length === 0) {
       creating = true;
+      createStep = "pick-engine";
+      draftEngine = null;
       editing = false;
       selectedId = null;
     }
@@ -103,6 +116,8 @@
   function selectConnection(id: string) {
     creating = false;
     editing = false;
+    createStep = "pick-engine";
+    draftEngine = null;
     selectedId = id;
   }
 
@@ -110,6 +125,19 @@
     creating = true;
     editing = false;
     selectedId = null;
+    createStep = "pick-engine";
+    draftEngine = null;
+  }
+
+  function pickEngine(engine: EngineId) {
+    draftEngine = engine;
+    createStep = "form";
+  }
+
+  function backToEnginePicker() {
+    createStep = "pick-engine";
+    // keep draftEngine for highlight, or clear:
+    // draftEngine stays for aria-selected until form re-enter
   }
 
   function startEdit() {
@@ -124,22 +152,21 @@
       creating = false;
       return;
     }
+    if (creating && createStep === "form") {
+      createStep = "pick-engine";
+      return;
+    }
     creating = false;
     editing = false;
+    createStep = "pick-engine";
+    draftEngine = null;
     if (!selectedId && connections.length === 0) {
       creating = true;
+      createStep = "pick-engine";
     }
   }
 
   async function saveConnection(draft: ConnectionFormDraft) {
-    if (!isTauri()) {
-      showToast(
-        "warning",
-        "Run with `yarn tauri dev` to persist connections.",
-      );
-      throw new Error("Not running in Tauri.");
-    }
-
     saving = true;
     try {
       const isUpdate = editing && !!selectedId;
@@ -150,7 +177,6 @@
 
       let saved = await saveProfile(input);
 
-      // After create, rewrite secretRef to use the real profile id when a password was set.
       if (!isUpdate && draft.password.length > 0) {
         saved = await saveProfile({
           ...input,
@@ -164,7 +190,9 @@
         "success",
         isUpdate
           ? `Updated “${saved.name}”.`
-          : `Saved “${saved.name}” to local database.`,
+          : isTauri()
+            ? `Saved “${saved.name}” to local database.`
+            : `Saved “${saved.name}” in this browser (FE preview).`,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -177,10 +205,6 @@
 
   async function deleteSelected() {
     if (!selected) return;
-    if (!isTauri()) {
-      showToast("warning", "Run with `yarn tauri dev` to delete connections.");
-      return;
-    }
     const name = selected.name;
     const id = selected.id;
     if (!confirm(`Delete connection “${name}”? This cannot be undone.`)) {
@@ -192,6 +216,8 @@
       selectedId = null;
       editing = false;
       creating = true;
+      createStep = "pick-engine";
+      draftEngine = null;
       showToast("info", `Deleted “${name}”.`);
     } catch (err) {
       showToast(
@@ -203,10 +229,6 @@
 
   async function duplicateSelected() {
     if (!selected) return;
-    if (!isTauri()) {
-      showToast("warning", "Run with `yarn tauri dev` to duplicate connections.");
-      return;
-    }
     try {
       saving = true;
       const cfg = { ...(selected.pluginConfig ?? {}) };
@@ -219,7 +241,6 @@
         readOnly: selected.readOnly,
         notes: selected.notes ?? null,
         pluginConfig: cfg,
-        // Do not copy secret_ref — user must re-enter password.
         secretRef: null,
       });
       await refreshList(saved.id);
@@ -236,10 +257,6 @@
 
   async function connectSelected() {
     if (!selected) return;
-    if (!isTauri()) {
-      showToast("warning", "Run with `yarn tauri dev` for backend actions.");
-      return;
-    }
     try {
       const updated = await touchProfileConnected(selected.id);
       connections = connections.map((c) =>
@@ -280,21 +297,19 @@
       loading = true;
       loadError = null;
       try {
-        if (!isTauri()) {
-          loadError =
-            "Desktop backend not available. Use `yarn tauri dev` to load and save connections.";
-          connections = [];
-          creating = true;
-          return;
-        }
         await refreshList();
         if (connections.length === 0) {
           creating = true;
+          createStep = "pick-engine";
           selectedId = null;
         } else {
-          // Default: no selection — create form, per product UX
           creating = true;
+          createStep = "pick-engine";
           selectedId = null;
+        }
+        if (!isTauri()) {
+          // Soft notice only — FE localStorage still works.
+          loadError = null;
         }
       } catch (err) {
         loadError = err instanceof Error ? err.message : String(err);
@@ -324,8 +339,14 @@
       <div class="flex min-w-0 items-center gap-1.5 text-caption text-fg">
         <span class="text-fg-muted">Home</span>
         <span class="text-fg-muted">/</span>
-        {#if creating}
+        {#if creating && createStep === "pick-engine"}
+          <span>Choose database</span>
+        {:else if creating && createStep === "form"}
           <span>New connection</span>
+          {#if draftEngine}
+            <span class="text-fg-muted">·</span>
+            <span class="font-mono text-fg-secondary">{draftEngine}</span>
+          {/if}
         {:else if editing && selected}
           <span>Edit · {selected.name}</span>
         {:else if selected}
@@ -336,44 +357,46 @@
         {#if loading}
           <span class="text-fg-muted">· Loading…</span>
         {/if}
+        {#if !isTauri()}
+          <span class="text-fg-muted">· FE preview</span>
+        {/if}
       </div>
       <ThemeToggle preference={themePref} onchange={setThemePref} />
     </div>
 
     <div class="flex-1 overflow-auto bg-app-wash">
-      {#if loadError && connections.length === 0 && !isTauri()}
-        <EmptyState
-          title="Backend required"
-          description={loadError}
-        >
-          {#snippet actions()}
-            <Button variant="primary" onclick={startCreate}>
-              Preview form only
-            </Button>
-          {/snippet}
-        </EmptyState>
-      {:else if creating}
+      {#if creating && createStep === "pick-engine"}
+        <EnginePicker
+          selectedEngine={draftEngine}
+          onselect={pickEngine}
+          oncancel={connections.length > 0 ? cancelForm : undefined}
+          showCancel={connections.length > 0}
+        />
+      {:else if creating && createStep === "form" && draftEngine}
         <NewConnectionPanel
           initial={null}
+          lockedEngine={draftEngine}
           {saving}
           oncancel={connections.length > 0 ? cancelForm : undefined}
+          onback={backToEnginePicker}
           onsave={saveConnection}
           ontest={() =>
             showToast(
               "info",
-              "Test connection will run when the engine plugin is wired.",
+              "Test connection will run when the engine plugin is wired (FE only for now).",
             )}
         />
       {:else if editing && selected}
         <NewConnectionPanel
           initial={selected}
+          lockedEngine={selected.engine}
           {saving}
           oncancel={cancelForm}
           onsave={saveConnection}
           ontest={() =>
             showToast(
               "info",
-              "Test connection will run when the engine plugin is wired.",
+              "Test connection will run when the engine plugin is wired (FE only for now).",
             )}
         />
       {:else if selected}

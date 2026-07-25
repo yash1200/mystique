@@ -7,9 +7,10 @@
 > **Design language (code):** [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md) — Tailwind tokens, type scale, forbidden patterns  
 > **Local SQLite schema:** [`SQLITE_SCHEMA.md`](./SQLITE_SCHEMA.md) — profiles, queries, multi-engine `plugin_config`  
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md) — workspace, layers, extension points  
+> **Kanban:** [`KANBAN.md`](./KANBAN.md) — TODO / Progress / QA / Deployed tickets (`FE` / `BE`)  
 > **Stack (this repo):** Tauri 2 (Rust) · Svelte 5 / SvelteKit SPA  
 > **Date:** 2026-07-25  
-> **Phase 1 engine:** **PostgreSQL only** (full depth)
+> **UI engines (picker):** PostgreSQL · MongoDB · SQLite · **Phase 1 live depth:** PostgreSQL first (plugins)
 
 This document is the **engineering plan** for MystiqueDB. Product intent, scope, and success criteria come from the PRD; this file defines **how we build it**: plugin connectors, layers, DTOs, features by phase, and the current scaffold.
 

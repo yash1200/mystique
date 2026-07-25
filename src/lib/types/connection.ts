@@ -56,7 +56,7 @@ export interface SaveConnectionInput {
   clearSecret?: boolean;
 }
 
-/** Form draft used by NewConnectionPanel (relational engines for now). */
+/** Form draft used by NewConnectionPanel (engine-specific fields optional). */
 export interface ConnectionFormDraft {
   name: string;
   engine: EngineId;
@@ -64,6 +64,10 @@ export interface ConnectionFormDraft {
   host: string;
   port: number;
   database: string;
+  /** SQLite file path (when engine === sqlite). */
+  path: string;
+  /** Optional Mongo connection URI override. */
+  uri: string;
   username: string;
   password: string;
   ssl: boolean;
@@ -72,12 +76,23 @@ export interface ConnectionFormDraft {
   notes: string;
 }
 
+export type EngineFamily = "relational" | "document";
+
 export interface EngineOption {
   id: EngineId;
   name: string;
+  /** Short card blurb for the engine picker. */
   description: string;
+  /** Whether the engine is selectable in the UI (plugin may still be FE-only). */
   available: boolean;
   queryLanguage: string;
+  family: EngineFamily;
+  /** Mono badge mark in the picker / EngineBadge. */
+  mark: string;
+  /** Default port for network engines (0 = file / N/A). */
+  defaultPort: number;
+  /** Model view kind label for empty states / copy. */
+  modelViewLabel: string;
 }
 
 export const CONNECTION_COLORS: {
@@ -112,36 +127,74 @@ export function asEnvironment(env: string): Environment {
   return "local";
 }
 
+/**
+ * Engines offered on the Home “choose database” step.
+ * V1 product focus: PostgreSQL, MongoDB, and SQLite (SQL) only.
+ */
 export const ENGINE_OPTIONS: EngineOption[] = [
   {
     id: "postgres",
     name: "PostgreSQL",
-    description: "Full support — explorer, query, model view",
+    description:
+      "Relational studio — schemas, tables, SQL, and classic ER Model view from foreign keys.",
     available: true,
     queryLanguage: "SQL",
-  },
-  {
-    id: "sqlite",
-    name: "SQLite",
-    description: "Coming soon — same relational workspace",
-    available: false,
-    queryLanguage: "SQL",
-  },
-  {
-    id: "mysql",
-    name: "MySQL / MariaDB",
-    description: "Coming soon",
-    available: false,
-    queryLanguage: "SQL",
+    family: "relational",
+    mark: "Pg",
+    defaultPort: 5432,
+    modelViewLabel: "ER diagram",
   },
   {
     id: "mongodb",
     name: "MongoDB",
-    description: "Coming soon — document family",
-    available: false,
+    description:
+      "Document studio — databases, collections, find/aggregation, and collection Model map.",
+    available: true,
     queryLanguage: "MQL",
+    family: "document",
+    mark: "Mo",
+    defaultPort: 27017,
+    modelViewLabel: "Collection map",
+  },
+  {
+    id: "sqlite",
+    name: "SQLite",
+    description:
+      "Local SQL file — same relational workspace as Postgres for offline and embedded DBs.",
+    available: true,
+    queryLanguage: "SQL",
+    family: "relational",
+    mark: "SQL",
+    defaultPort: 0,
+    modelViewLabel: "ER diagram",
   },
 ];
+
+/** Engines shown on the first-step picker (available only). */
+export function selectableEngines(): EngineOption[] {
+  return ENGINE_OPTIONS.filter((e) => e.available);
+}
+
+export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
+  const opt = ENGINE_OPTIONS.find((e) => e.id === engine);
+  const port = opt?.defaultPort ?? 5432;
+  return {
+    name: "",
+    engine,
+    colorId: "teal",
+    host: engine === "sqlite" ? "" : "127.0.0.1",
+    port: port || 5432,
+    database: "",
+    path: "",
+    uri: "",
+    username: "",
+    password: "",
+    ssl: false,
+    readOnly: true,
+    environment: "local",
+    notes: "",
+  };
+}
 
 export function engineLabel(engine: string): string {
   return ENGINE_OPTIONS.find((e) => e.id === engine)?.name ?? engine;
@@ -185,13 +238,17 @@ export function connectionEndpoint(profile: ConnectionProfile): string {
 
 export function draftFromProfile(profile: ConnectionProfile): ConnectionFormDraft {
   const c = profile.pluginConfig ?? {};
+  const eng = String(profile.engine);
+  const opt = ENGINE_OPTIONS.find((e) => e.id === eng);
   return {
     name: profile.name,
     engine: profile.engine,
     colorId: asColorId(profile.colorId),
-    host: configStr(c, "host", "127.0.0.1"),
-    port: configNum(c, "port", 5432),
+    host: configStr(c, "host", eng === "sqlite" ? "" : "127.0.0.1"),
+    port: configNum(c, "port", opt?.defaultPort || 5432),
     database: configStr(c, "database"),
+    path: configStr(c, "path"),
+    uri: configStr(c, "uri"),
     username: configStr(c, "username"),
     password: "",
     ssl: configBool(c, "ssl", false) || configStr(c, "sslMode") === "require",
@@ -201,19 +258,38 @@ export function draftFromProfile(profile: ConnectionProfile): ConnectionFormDraf
   };
 }
 
-/** Build SaveConnectionInput from the relational form draft. */
+/** Build SaveConnectionInput from the form draft (engine-aware plugin_config). */
 export function saveInputFromDraft(
   draft: ConnectionFormDraft,
   options?: { id?: string; existingPasswordSet?: boolean },
 ): SaveConnectionInput {
-  const pluginConfig: PluginConfig = {
-    host: draft.host.trim(),
-    port: Number(draft.port) || 0,
-    database: draft.database.trim(),
-    username: draft.username.trim(),
-    ssl: draft.ssl,
-    sslMode: draft.ssl ? "require" : "disable",
-  };
+  let pluginConfig: PluginConfig;
+
+  if (draft.engine === "sqlite") {
+    pluginConfig = {
+      path: draft.path.trim() || draft.database.trim(),
+    };
+  } else if (draft.engine === "mongodb") {
+    pluginConfig = {
+      host: draft.host.trim(),
+      port: Number(draft.port) || 27017,
+      database: draft.database.trim(),
+      username: draft.username.trim(),
+      uri: draft.uri.trim() || undefined,
+      ssl: draft.ssl,
+      sslMode: draft.ssl ? "require" : "disable",
+    };
+  } else {
+    // postgres (default relational network)
+    pluginConfig = {
+      host: draft.host.trim(),
+      port: Number(draft.port) || 5432,
+      database: draft.database.trim(),
+      username: draft.username.trim(),
+      ssl: draft.ssl,
+      sslMode: draft.ssl ? "require" : "disable",
+    };
+  }
 
   const input: SaveConnectionInput = {
     id: options?.id ?? null,
@@ -227,7 +303,6 @@ export function saveInputFromDraft(
   };
 
   // Keychain not wired yet: non-empty secretRef marks passwordSet for UI.
-  // When keychain lands, store the real secret under this ref.
   if (draft.password.length > 0) {
     const idPart = options?.id ?? "new";
     input.secretRef = `mystique-db/connection/${idPart}`;

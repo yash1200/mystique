@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MystiqueDB — Kanban</title>
+  <style>
+    :root {
+      --bg-app: #0f1219;
+      --bg-panel: #161b26;
+      --bg-elevated: #1c2333;
+      --bg-input: #121722;
+      --bg-hover: rgba(255, 255, 255, 0.04);
+      --border: #2a3347;
+      --border-strong: #3d4a66;
+      --fg: #e8ecf4;
+      --fg-secondary: #9aa6bd;
+      --fg-muted: #6b7690;
+      --accent: #5b8def;
+      --success: #7fd99a;
+      --warning: #e6c07b;
+      --danger: #f07178;
+      --info: #5b8def;
+      --radius: 8px;
+      --font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-app);
+      color: var(--fg);
+      min-height: 100vh;
+      line-height: 1.4;
+      font-size: 13px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    header h1 span {
+      color: var(--fg-muted);
+      font-weight: 400;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      color: var(--fg-muted);
+      font-size: 11px;
+    }
+
+    .meta a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .meta a:hover { text-decoration: underline; }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-app);
+    }
+
+    .filters button {
+      font: inherit;
+      font-size: 11px;
+      font-family: var(--mono);
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--fg-secondary);
+      cursor: pointer;
+    }
+    .filters button:hover { border-color: var(--border-strong); color: var(--fg); }
+    .filters button.active {
+      background: rgba(91, 141, 239, 0.15);
+      border-color: rgba(91, 141, 239, 0.4);
+      color: var(--accent);
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(240px, 1fr));
+      gap: 12px;
+      padding: 16px 20px 40px;
+      align-items: start;
+      overflow-x: auto;
+      min-height: calc(100vh - 120px);
+    }
+
+    @media (max-width: 1100px) {
+      .board {
+        grid-template-columns: repeat(4, minmax(260px, 1fr));
+        width: max-content;
+        max-width: none;
+      }
+    }
+
+    .column {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 140px);
+      min-width: 240px;
+    }
+
+    .column-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .column-head h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--fg-muted);
+    }
+
+    .column-head .count {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      min-width: 1.5rem;
+      height: 1.25rem;
+      padding: 0 6px;
+      border-radius: 4px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--fg-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .column.todo .column-head h2 { color: var(--fg-secondary); }
+    .column.progress .column-head h2 { color: var(--info); }
+    .column.qa .column-head h2 { color: var(--warning); }
+    .column.deployed .column-head h2 { color: var(--success); }
+
+    .column.progress { border-color: rgba(91, 141, 239, 0.35); }
+    .column.qa { border-color: rgba(230, 192, 123, 0.35); }
+    .column.deployed { border-color: rgba(127, 217, 154, 0.3); }
+
+    .cards {
+      padding: 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      transition: border-color 0.12s;
+    }
+    .card:hover { border-color: var(--border-strong); }
+    .card.hidden { display: none; }
+
+    .card-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--fg-muted);
+      margin-bottom: 4px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--fg);
+      margin-bottom: 8px;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .tag.fe {
+      color: #7aa3f5;
+      background: rgba(91, 141, 239, 0.12);
+      border-color: rgba(91, 141, 239, 0.35);
+    }
+    .tag.be {
+      color: #9b6de8;
+      background: rgba(155, 109, 232, 0.12);
+      border-color: rgba(155, 109, 232, 0.35);
+    }
+    .tag.docs {
+      color: var(--fg-secondary);
+      background: var(--bg-input);
+    }
+    .tag.p0 {
+      color: var(--danger);
+      background: rgba(240, 113, 120, 0.12);
+      border-color: rgba(240, 113, 120, 0.4);
+    }
+    .tag.p1 {
+      color: var(--warning);
+      background: rgba(230, 192, 123, 0.12);
+      border-color: rgba(230, 192, 123, 0.4);
+    }
+    .tag.p2, .tag.p3 {
+      color: var(--fg-muted);
+      background: var(--bg-input);
+    }
+
+    .card-desc {
+      font-size: 12px;
+      color: var(--fg-secondary);
+      margin-bottom: 6px;
+    }
+
+    .card-related {
+      font-size: 11px;
+      color: var(--fg-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 6px;
+      margin-top: 4px;
+    }
+
+    .card-related strong {
+      font-weight: 500;
+      color: var(--fg-muted);
+    }
+
+    .empty {
+      text-align: center;
+      padding: 24px 12px;
+      color: var(--fg-muted);
+      font-size: 12px;
+    }
+
+    footer {
+      padding: 8px 20px 16px;
+      font-size: 11px;
+      color: var(--fg-muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>
+      MystiqueDB Kanban
+      <span>track progress · FE / BE</span>
+    </h1>
+    <div class="meta">
+      <span>Sources: PRD · Architecture · Features</span>
+      <a href="./PRD.md">PRD.md</a>
+      <a href="./KANBAN.md">KANBAN.md</a>
+      <a href="./ARCHITECTURE_AND_FEATURES.md">Architecture</a>
+    </div>
+  </header>
+
+  <div class="filters" id="filters">
+    <button type="button" class="active" data-filter="all">All</button>
+    <button type="button" data-filter="fe">FE</button>
+    <button type="button" data-filter="be">BE</button>
+    <button type="button" data-filter="docs">DOCS</button>
+    <button type="button" data-filter="p0">P0</button>
+    <button type="button" data-filter="p1">P1</button>
+    <button type="button" data-filter="p2">P2+</button>
+  </div>
+
+  <div class="board" id="board">
+    <!-- columns filled by script from ticket data -->
+  </div>
+
+  <footer>
+    Open this file in a browser:
+    <code style="font-family: var(--mono); color: var(--fg-secondary)">docs/kanban.html</code>
+    · Filter by tag above · Edit ticket data in this HTML file (or sync from KANBAN.md)
+  </footer>
+
+  <script>
+    /**
+     * Ticket board data — keep in sync with docs/KANBAN.md
+     * column: todo | progress | qa | deployed
+     * tags: fe, be, docs, p0, p1, p2, p3
+     */
+    const TICKETS = [
+      // —— Deployed ——
+      {
+        id: "T-BASE-001",
+        title: "Tauri + SvelteKit scaffold",
+        column: "deployed",
+        tags: ["fe", "be", "p0"],
+        description: "Desktop shell with Vite/SvelteKit SPA, Tauri 2 window, icons, dev/build scripts.",
+        related: "README · Initial commit",
+      },
+      {
+        id: "T-BASE-002",
+        title: "Design system primitives",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Semantic tokens, light/dark theme, UI primitives (Button, Field, Card, …) per design language.",
+        related: "DESIGN_LANGUAGE.md · UI_UX_GUIDELINES.md",
+      },
+      {
+        id: "T-BASE-003",
+        title: "Local app SQLite + profile CRUD",
+        column: "deployed",
+        tags: ["be", "p0"],
+        description: "mystique-core domain/storage/application; migrations; IPC for profiles, query library, history, settings.",
+        related: "SQLITE_SCHEMA.md · BACKEND_STRUCTURE.md",
+      },
+      {
+        id: "T-BASE-004",
+        title: "Home connection rail + detail/edit UI",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Left rail list, connection detail, new/edit forms wired to profile APIs (localStorage FE fallback).",
+        related: "FEATURES F-CONN-* · home components",
+      },
+      {
+        id: "T-BASE-005",
+        title: "Product docs set",
+        column: "deployed",
+        tags: ["docs", "p0"],
+        description: "PRD, architecture, features, UI/UX, design language, component structure, schema docs in docs/.",
+        related: "docs/*",
+      },
+      {
+        id: "T-FE-001",
+        title: "Engine picker (Postgres / Mongo / SQLite)",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "First step of new connection: choose database engine with design-language cards. No live BE plugins yet.",
+        related: "PRD §5 · EnginePicker.svelte · NewConnectionPanel",
+      },
+      {
+        id: "T-DOCS-001",
+        title: "HTML/CSS Kanban board",
+        column: "deployed",
+        tags: ["docs", "fe", "p0"],
+        description: "Standalone docs/kanban.html board for progress tracking with FE/BE tags.",
+        related: "docs/kanban.html · docs/KANBAN.md",
+      },
+
+      // —— Progress (empty for now; move tickets here when active) ——
+
+      // —— QA ——
+
+      // —— TODO: Foundation ——
+      {
+        id: "T-BE-001",
+        title: "Connector API crate (mystique-connector-api)",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Traits DatabaseConnector + ConnectorSession, capabilities, errors, normalized DTOs. No engine drivers yet.",
+        related: "PRD §9 · ARCHITECTURE §4",
+      },
+      {
+        id: "T-BE-002",
+        title: "Connector registry + mock connector",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "ConnectorRegistry loads plugins; mock connector proves SPI for tests and FE capability chrome.",
+        related: "ARCHITECTURE §4.4 · depends: T-BE-001",
+      },
+      {
+        id: "T-BE-003",
+        title: "Session manager + query policy stubs",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Connect/disconnect lifecycle; read-only SQL policy, timeout, max rows.",
+        related: "PRD Q-3/Q-4 · ARCHITECTURE §6 · depends: T-BE-001",
+      },
+      {
+        id: "T-BE-004",
+        title: "IPC surface for engines & sessions",
+        column: "todo",
+        tags: ["be", "fe", "p0"],
+        description: "Tauri commands: list_engines, test_connection, connect, disconnect, get_capabilities.",
+        related: "ARCHITECTURE §10 · depends: T-BE-002, T-BE-003",
+      },
+      {
+        id: "T-BE-005",
+        title: "OS keychain for secrets",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Store passwords under secret_ref; never plaintext in SQLite.",
+        related: "PRD C-5 · depends: T-BASE-003",
+      },
+      {
+        id: "T-BE-006",
+        title: "Metadata / data / query / model core services",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "MetadataService, DataService, QueryService, ModelGraphService, ExportService, AuditLog.",
+        related: "ARCHITECTURE §5–6 · depends: T-BE-001–004",
+      },
+      {
+        id: "T-FE-002",
+        title: "Capability-driven workspace chrome",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Show/hide Explorer, Data, Query, Model from EngineCapabilities; table vs collection nouns.",
+        related: "PRD §5.3 · UI_UX §8.6 · depends: T-BE-004",
+      },
+      {
+        id: "T-FE-003",
+        title: "App workspace shell layout",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Connection tabs + workspace tabs + object tree + main pane + status bar.",
+        related: "UI_UX §5 · FEATURES F-TAB · depends: T-FE-001",
+      },
+
+      // —— Postgres ——
+      {
+        id: "T-BE-010",
+        title: "mystique-plugin-postgres connect + metadata",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "tokio-postgres/sqlx; test/connect; list schemas, tables, columns, indexes, FKs.",
+        related: "PRD V1 · ARCHITECTURE Phase 1 · depends: T-BE-001",
+      },
+      {
+        id: "T-BE-011",
+        title: "Postgres data page + read-only SQL",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Paginated fetch_data_page; execute_query SELECT-only, max rows, timeout, history.",
+        related: "PRD D-*, Q-* · depends: T-BE-010, T-BE-003",
+      },
+      {
+        id: "T-BE-012",
+        title: "Postgres Model graph (ER from FKs)",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Build ModelGraph from declared PK/FK only; no invented edges.",
+        related: "PRD V-* · FEATURES F-REL · depends: T-BE-010",
+      },
+      {
+        id: "T-FE-010",
+        title: "Explorer tree (relational)",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Schemas → tables/views → columns; search; open data tab.",
+        related: "UI_UX §7.4 · depends: T-BE-010, T-FE-003",
+      },
+      {
+        id: "T-FE-011",
+        title: "Data grid + pagination",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Dense grid, null rendering, page size, sticky header.",
+        related: "PRD D-* · depends: T-BE-011",
+      },
+      {
+        id: "T-FE-012",
+        title: "SQL query editor",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Editor + Run (⌘/Ctrl+Enter) + results + error panel.",
+        related: "FEATURES F-SQ · UI_UX §7.5 · depends: T-BE-011",
+      },
+      {
+        id: "T-FE-013",
+        title: "Model view canvas (ER)",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Node/edge canvas; zoom/pan/search; click table → data; edge → detail.",
+        related: "FEATURES F-REL · depends: T-BE-012",
+      },
+      {
+        id: "T-FE-014",
+        title: "Export results CSV/JSON",
+        column: "todo",
+        tags: ["fe", "be", "p0"],
+        description: "Export current grid/result set.",
+        related: "PRD D-5 · depends: T-FE-011",
+      },
+
+      // —— SQLite / Mongo ——
+      {
+        id: "T-BE-020",
+        title: "mystique-plugin-sqlite (user DB files)",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Open path from profile; same relational SPI as Postgres; ER from FK pragma.",
+        related: "PRD V1 SQLite · depends: T-BE-001",
+      },
+      {
+        id: "T-FE-020",
+        title: "SQLite form polish + file picker",
+        column: "todo",
+        tags: ["fe", "p1"],
+        description: "Native/file dialog for path; validate extension.",
+        related: "depends: T-BE-020",
+      },
+      {
+        id: "T-BE-030",
+        title: "mystique-plugin-mongodb",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Connect, list DBs/collections, document preview, find queries, inferred schema.",
+        related: "PRD Next · depends: T-BE-001",
+      },
+      {
+        id: "T-BE-031",
+        title: "Mongo Model view builder (inferred refs)",
+        column: "todo",
+        tags: ["be", "p0"],
+        description: "Collection map + inferred edges labeled with confidence.",
+        related: "PRD Model view · depends: T-BE-030",
+      },
+      {
+        id: "T-FE-030",
+        title: "Document list + JSON pretty viewer",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Pretty JSON, tree/text toggle, edit modal pattern.",
+        related: "FEATURES F-JSON · depends: T-BE-030",
+      },
+      {
+        id: "T-FE-031",
+        title: "Mongo Model view UI",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Same canvas shell as ER; collection node chrome.",
+        related: "F-REL-9 · depends: T-BE-031, T-FE-013",
+      },
+
+      // —— Product features ——
+      {
+        id: "T-FE-040",
+        title: "Browser-like workspace tabs",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Unlimited tabs per connection; table/query/model; dirty indicator.",
+        related: "F-TAB-1–4 · depends: T-FE-003",
+      },
+      {
+        id: "T-FE-041",
+        title: "Row detail right panel",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "Vertical field list; prev/next; JSON expand; resize/collapse.",
+        related: "F-ROW-1–6 · depends: T-FE-011",
+      },
+      {
+        id: "T-FE-042",
+        title: "Edit / insert modals (gated writes)",
+        column: "todo",
+        tags: ["fe", "be", "p0"],
+        description: "Row edit/insert modal, confirm before write, respect read-only.",
+        related: "F-EDIT-* · depends: T-FE-011",
+      },
+      {
+        id: "T-FE-043",
+        title: "Saved queries UI (groups per connection)",
+        column: "todo",
+        tags: ["fe", "p0"],
+        description: "UI on existing query_library BE; open in tab; rename/move/delete.",
+        related: "F-SQ-* · depends: T-FE-012",
+      },
+      {
+        id: "T-FE-044",
+        title: "Query history UI",
+        column: "todo",
+        tags: ["fe", "p1"],
+        description: "Browse past runs; re-run; filter by connection.",
+        related: "depends: T-BASE-003, T-FE-012",
+      },
+      {
+        id: "T-FE-045",
+        title: "Collapse connection rail",
+        column: "todo",
+        tags: ["fe", "p1"],
+        description: "Icon-only sidebar mode.",
+        related: "F-CONN-5 · depends: T-BASE-004",
+      },
+
+      // —— Quality / later ——
+      {
+        id: "T-BE-040",
+        title: "Integration tests (Postgres Testcontainers)",
+        column: "todo",
+        tags: ["be", "p1"],
+        description: "Smoke connect, metadata, ER edges, policy rejects non-SELECT.",
+        related: "PRD §14 · depends: T-BE-010–012",
+      },
+      {
+        id: "T-FE-050",
+        title: "E2E / typecheck CI for UI",
+        column: "todo",
+        tags: ["fe", "p1"],
+        description: "svelte-check in CI; optional Playwright smoke for engine picker.",
+        related: "depends: T-FE-001",
+      },
+      {
+        id: "T-BE-041",
+        title: "Desktop packaging (Tauri release)",
+        column: "todo",
+        tags: ["be", "fe", "p1"],
+        description: "Installers for target OS; native Rust binary.",
+        related: "PRD packaging",
+      },
+      {
+        id: "T-BE-050",
+        title: "MySQL / MariaDB plugin",
+        column: "todo",
+        tags: ["be", "p2"],
+        description: "Second network SQL engine via same SPI.",
+        related: "PRD Next · depends: T-BE-001",
+      },
+      {
+        id: "T-BE-051",
+        title: "AWS RDS connection presets + SSL/IAM",
+        column: "todo",
+        tags: ["be", "fe", "p2"],
+        description: "Presets for managed Postgres/MySQL; optional Secrets Manager.",
+        related: "PRD Next AWS · depends: T-BE-010",
+      },
+      {
+        id: "T-BE-052",
+        title: "Cassandra / Keyspaces plugin",
+        column: "todo",
+        tags: ["be", "p2"],
+        description: "CQL + key-model Model view.",
+        related: "PRD Future · depends: T-BE-001",
+      },
+      {
+        id: "T-FE-060",
+        title: "Diagram export PNG/SVG",
+        column: "todo",
+        tags: ["fe", "p2"],
+        description: "Export Model view.",
+        related: "F-REL-8 · depends: T-FE-013",
+      },
+      {
+        id: "T-FE-061",
+        title: "Session restore tabs",
+        column: "todo",
+        tags: ["fe", "be", "p1"],
+        description: "Restore open tabs after restart.",
+        related: "F-TAB-5 · depends: T-FE-040",
+      },
+      {
+        id: "T-PROD-001",
+        title: "Command palette",
+        column: "todo",
+        tags: ["fe", "p2"],
+        description: "⌘/Ctrl+K jump connections, tables, commands.",
+        related: "UI_UX §8.2 · depends: T-FE-003",
+      },
+    ];
+
+    const COLUMNS = [
+      { id: "todo", label: "TODO" },
+      { id: "progress", label: "Progress" },
+      { id: "qa", label: "QA" },
+      { id: "deployed", label: "Deployed" },
+    ];
+
+    function tagClass(t) {
+      if (t === "fe" || t === "be" || t === "docs") return t;
+      if (t.startsWith("p")) return t;
+      return "";
+    }
+
+    function tagLabel(t) {
+      return t.toUpperCase();
+    }
+
+    function matchesFilter(ticket, filter) {
+      if (filter === "all") return true;
+      if (filter === "p2") {
+        return ticket.tags.includes("p2") || ticket.tags.includes("p3");
+      }
+      return ticket.tags.includes(filter);
+    }
+
+    function render(filter = "all") {
+      const board = document.getElementById("board");
+      board.innerHTML = "";
+
+      for (const col of COLUMNS) {
+        const colTickets = TICKETS.filter(
+          (t) => t.column === col.id && matchesFilter(t, filter)
+        );
+
+        const section = document.createElement("section");
+        section.className = "column " + col.id;
+        section.innerHTML =
+          '<div class="column-head"><h2>' +
+          col.label +
+          '</h2><span class="count">' +
+          colTickets.length +
+          "</span></div>";
+
+        const cards = document.createElement("div");
+        cards.className = "cards";
+
+        if (colTickets.length === 0) {
+          cards.innerHTML = '<div class="empty">No tickets</div>';
+        } else {
+          for (const t of colTickets) {
+            const card = document.createElement("article");
+            card.className = "card";
+            card.dataset.tags = t.tags.join(" ");
+
+            const tagsHtml = t.tags
+              .map(
+                (tag) =>
+                  '<span class="tag ' +
+                  tagClass(tag) +
+                  '">' +
+                  tagLabel(tag) +
+                  "</span>"
+              )
+              .join("");
+
+            card.innerHTML =
+              '<div class="card-id">' +
+              t.id +
+              "</div>" +
+              '<div class="card-title">' +
+              escapeHtml(t.title) +
+              "</div>" +
+              '<div class="tags">' +
+              tagsHtml +
+              "</div>" +
+              '<p class="card-desc">' +
+              escapeHtml(t.description) +
+              "</p>" +
+              (t.related
+                ? '<div class="card-related"><strong>Related:</strong> ' +
+                  escapeHtml(t.related) +
+                  "</div>"
+                : "");
+
+            cards.appendChild(card);
+          }
+        }
+
+        section.appendChild(cards);
+        board.appendChild(section);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    document.getElementById("filters").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-filter]");
+      if (!btn) return;
+      document
+        .querySelectorAll("#filters button")
+        .forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      render(btn.dataset.filter);
+    });
+
+    render("all");
+  </script>
+</body>
+</html>

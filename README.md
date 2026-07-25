@@ -131,19 +131,19 @@ Bundles are written under `src-tauri/target/release/bundle/` (format depends on 
 
 ```
 mystique-db/
-├── src/                 # SvelteKit frontend
-│   ├── routes/          # App pages
-│   └── app.html
-├── src-tauri/           # Rust / Tauri backend
-│   ├── src/             # Rust source (commands, app entry)
-│   ├── capabilities/    # Tauri security capabilities
-│   ├── icons/           # App icons
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── static/              # Static assets
+├── crates/mystique-core/  # Rust domain + local SQLite app DB
+├── docs/                  # PRD, architecture, design language, KANBAN
+├── src/                   # SvelteKit frontend
+│   ├── lib/components/    # ui/* primitives + home/* (engine picker, …)
+│   └── routes/
+├── src-tauri/             # Tauri shell + IPC
 ├── package.json
-└── vite.config.js
+└── Cargo.toml             # workspace
 ```
+
+Product docs: [`docs/PRD.md`](docs/PRD.md) · kanban board: open **[`docs/kanban.html`](docs/kanban.html)** in a browser (also [`docs/KANBAN.md`](docs/KANBAN.md))
+
+**Home flow (FE):** Choose database (PostgreSQL · MongoDB · SQLite) → connection details → save profile. Live engine plugins are not wired yet.
 
 ## Useful scripts
 

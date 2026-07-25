@@ -1,16 +1,21 @@
 # Product Requirements Document (PRD)
 
-# Universal Database Studio
+# MystiqueDB (Universal Database Studio)
 
 | Field                      | Value                                                           |
 | -------------------------- | --------------------------------------------------------------- |
-| **Product name (working)** | Universal Database Studio (UDS)                                 |
+| **Product name**           | **MystiqueDB** (working subtitle: Universal Database Studio)    |
 | **Document type**          | Product Requirements Document                                   |
-| **Version**                | 1.1                                                             |
-| **Status**                 | Draft for alignment                                             |
+| **Version**                | 1.2                                                             |
+| **Status**                 | Draft for alignment · implemented in this repo                  |
 | **Last updated**           | 2026-07-25                                                      |
 | **Primary platforms**      | Desktop application (primary), Web client (future-friendly API) |
-| **Backend**                | **Rust** (replaces earlier Spring Boot option)                  |
+| **Backend**                | **Rust** + Tauri 2                                              |
+| **Frontend**               | **Svelte 5** / SvelteKit                                        |
+| **Kanban**                 | [`KANBAN.md`](./KANBAN.md) — TODO / Progress / QA / Deployed    |
+| **UI contract**            | [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md) · [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md) |
+
+**V1 engines (UI selection):** PostgreSQL · MongoDB · SQLite (SQL). Other engines are future connectors.
 
 ---
 
@@ -609,6 +614,7 @@ An engine may be marketed as supported only if:
 | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------- |
 | 1.0     | 2026-07-25 | Initial PRD from product discovery (multi-DB studio, Model view, Svelte + Java/Spring, phased engines)                |
 | 1.1     | 2026-07-25 | Backend decision: **Rust** instead of Spring Boot; stack, architecture, pros/cons, milestones, open decisions updated |
+| 1.2     | 2026-07-25 | Branded **MystiqueDB** in-repo; V1 UI engines Postgres/Mongo/SQLite; linked [`KANBAN.md`](./KANBAN.md)                 |
 
 ---
 

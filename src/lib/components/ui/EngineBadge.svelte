@@ -14,9 +14,9 @@
     (
       {
         postgres: "Pg",
-        sqlite: "Lite",
-        mysql: "My",
+        sqlite: "SQL",
         mongodb: "Mo",
+        mysql: "My",
       } as Record<string, string>
     )[String(engine)] ?? String(engine).slice(0, 2).toUpperCase(),
   );
