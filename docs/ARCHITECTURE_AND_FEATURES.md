@@ -5,6 +5,8 @@
 > **Feature catalog:** [`FEATURES.md`](./FEATURES.md) — priority product features checklist  
 > **UI/UX:** [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md) — product themes, connection colors, shell  
 > **Design language (code):** [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md) — Tailwind tokens, type scale, forbidden patterns  
+> **Local SQLite schema:** [`SQLITE_SCHEMA.md`](./SQLITE_SCHEMA.md) — profiles, queries, multi-engine `plugin_config`  
+> **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md) — workspace, layers, extension points  
 > **Stack (this repo):** Tauri 2 (Rust) · Svelte 5 / SvelteKit SPA  
 > **Date:** 2026-07-25  
 > **Phase 1 engine:** **PostgreSQL only** (full depth)

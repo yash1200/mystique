@@ -18,13 +18,19 @@
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
     if (!q) return connections;
-    return connections.filter(
-      (c) =>
+    return connections.filter((c) => {
+      const cfg = c.pluginConfig ?? {};
+      const host = String(cfg.host ?? "").toLowerCase();
+      const database = String(cfg.database ?? "").toLowerCase();
+      const path = String(cfg.path ?? "").toLowerCase();
+      return (
         c.name.toLowerCase().includes(q) ||
-        c.host.toLowerCase().includes(q) ||
-        c.database.toLowerCase().includes(q) ||
-        c.engine.includes(q),
-    );
+        host.includes(q) ||
+        database.includes(q) ||
+        path.includes(q) ||
+        String(c.engine).toLowerCase().includes(q)
+      );
+    });
   });
 </script>
 

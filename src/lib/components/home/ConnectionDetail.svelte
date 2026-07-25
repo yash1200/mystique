@@ -1,6 +1,12 @@
 <script lang="ts">
   import type { ConnectionProfile } from "$lib/types/connection";
-  import { colorHex, engineLabel } from "$lib/types/connection";
+  import {
+    colorHex,
+    configBool,
+    configNum,
+    configStr,
+    engineLabel,
+  } from "$lib/types/connection";
   import {
     Button,
     Card,
@@ -31,11 +37,13 @@
   }: Props = $props();
 
   const hex = $derived(colorHex(connection.colorId));
+  const status = $derived(connection.status ?? "disconnected");
+  const cfg = $derived(connection.pluginConfig ?? {});
 
   const statusText = $derived(
-    connection.status === "connected"
+    status === "connected"
       ? "Connected"
-      : connection.status === "error"
+      : status === "error"
         ? "Last attempt failed"
         : "Disconnected",
   );
@@ -48,7 +56,7 @@
         : "Local",
   );
 
-  function formatDate(iso: string | null): string {
+  function formatDate(iso: string | null | undefined): string {
     if (!iso) return "Never";
     try {
       return new Intl.DateTimeFormat(undefined, {
@@ -61,15 +69,25 @@
   }
 
   const connectionFields = $derived([
-    { label: "Host", value: connection.host, mono: true },
-    { label: "Port", value: String(connection.port), mono: true },
-    { label: "Database", value: connection.database, mono: true },
-    { label: "Username", value: connection.username, mono: true },
+    { label: "Host", value: configStr(cfg, "host", "—"), mono: true },
+    {
+      label: "Port",
+      value: configNum(cfg, "port") ? String(configNum(cfg, "port")) : "—",
+      mono: true,
+    },
+    { label: "Database", value: configStr(cfg, "database", "—"), mono: true },
+    { label: "Username", value: configStr(cfg, "username", "—"), mono: true },
     {
       label: "Password",
-      value: connection.passwordSet ? "•••••••• (stored)" : "Not set",
+      value: connection.passwordSet ? "•••••••• (ref set)" : "Not set",
     },
-    { label: "SSL", value: connection.ssl ? "Enabled" : "Disabled" },
+    {
+      label: "SSL",
+      value:
+        configBool(cfg, "ssl") || configStr(cfg, "sslMode") === "require"
+          ? "Enabled"
+          : "Disabled",
+    },
   ]);
 
   const workspaceFields = $derived([
@@ -81,7 +99,10 @@
         : "Read / write",
     },
     { label: "Color", value: connection.colorId },
-    { label: "Last connected", value: formatDate(connection.lastConnectedAt) },
+    {
+      label: "Last connected",
+      value: formatDate(connection.lastConnectedAt),
+    },
     {
       label: "Notes",
       value: connection.notes?.trim() ? connection.notes : "—",
@@ -121,9 +142,9 @@
               <span class="text-fg-muted">·</span>
               <span
                 class={cn(
-                  connection.status === "connected" && "text-success",
-                  connection.status === "error" && "text-danger",
-                  connection.status === "disconnected" && "text-fg-muted",
+                  status === "connected" && "text-success",
+                  status === "error" && "text-danger",
+                  status === "disconnected" && "text-fg-muted",
                 )}
               >
                 {statusText}
@@ -136,7 +157,7 @@
           <Button variant="ghost" onclick={onduplicate}>Duplicate</Button>
           <Button variant="danger-ghost" onclick={ondelete}>Delete</Button>
           <Button variant="primary" onclick={onconnect}>
-            {connection.status === "connected" ? "Open workspace" : "Connect"}
+            {status === "connected" ? "Open workspace" : "Connect"}
           </Button>
         </Inline>
       </div>
@@ -178,7 +199,8 @@
     </div>
 
     <p class="mt-5 text-caption text-fg-muted">
-      Backend not wired yet — Connect opens a placeholder toast.
+      Profile is stored in local SQLite. Live engine connect ships with the
+      Postgres plugin.
       <button
         type="button"
         class="border-none bg-transparent p-0 text-caption text-accent hover:underline"

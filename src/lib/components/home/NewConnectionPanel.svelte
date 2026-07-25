@@ -2,6 +2,9 @@
   import {
     CONNECTION_COLORS,
     ENGINE_OPTIONS,
+    draftFromProfile,
+    type ConnectionFormDraft,
+    type ConnectionProfile,
     type ConnectionColorId,
     type EngineId,
     type Environment,
@@ -24,25 +27,21 @@
   } from "$lib/components/ui";
 
   interface Props {
+    /** When set, form is in edit mode and fields are prefilled. */
+    initial?: ConnectionProfile | null;
+    saving?: boolean;
     oncancel?: () => void;
-    onsave?: (draft: {
-      name: string;
-      engine: EngineId;
-      colorId: ConnectionColorId;
-      host: string;
-      port: number;
-      database: string;
-      username: string;
-      password: string;
-      ssl: boolean;
-      readOnly: boolean;
-      environment: Environment;
-      notes: string;
-    }) => void;
+    onsave?: (draft: ConnectionFormDraft) => void | Promise<void>;
     ontest?: () => void;
   }
 
-  let { oncancel, onsave, ontest }: Props = $props();
+  let {
+    initial = null,
+    saving = false,
+    oncancel,
+    onsave,
+    ontest,
+  }: Props = $props();
 
   let name = $state("");
   let engine = $state<EngineId>("postgres");
@@ -57,6 +56,9 @@
   let environment = $state<Environment>("local");
   let notes = $state("");
   let formError = $state<string | null>(null);
+  let skipEnginePortEffect = $state(false);
+
+  const isEdit = $derived(!!initial?.id);
 
   const selectedEngine = $derived(ENGINE_OPTIONS.find((e) => e.id === engine));
   const colorHexVal = $derived(
@@ -69,58 +71,104 @@
       : undefined,
   );
 
+  // Prefill when opening edit; reset defaults when opening create.
   $effect(() => {
+    skipEnginePortEffect = true;
+    formError = null;
+    if (initial) {
+      const d = draftFromProfile(initial);
+      name = d.name;
+      engine = d.engine;
+      colorId = d.colorId;
+      host = d.host;
+      port = d.port;
+      database = d.database;
+      username = d.username;
+      password = "";
+      ssl = d.ssl;
+      readOnly = d.readOnly;
+      environment = d.environment;
+      notes = d.notes;
+    } else {
+      name = "";
+      engine = "postgres";
+      colorId = "teal";
+      host = "127.0.0.1";
+      port = 5432;
+      database = "";
+      username = "";
+      password = "";
+      ssl = false;
+      readOnly = true;
+      environment = "local";
+      notes = "";
+    }
+    queueMicrotask(() => {
+      skipEnginePortEffect = false;
+    });
+  });
+
+  $effect(() => {
+    if (skipEnginePortEffect) return;
     if (engine === "postgres") port = 5432;
     else if (engine === "mysql") port = 3306;
     else if (engine === "mongodb") port = 27017;
     else if (engine === "sqlite") port = 0;
   });
 
-  function submit(e: Event) {
+  async function submit(e: Event) {
     e.preventDefault();
     formError = null;
     if (!name.trim()) {
       formError = "Give this connection a name.";
       return;
     }
-    if (!selectedEngine?.available) {
+    if (!selectedEngine?.available && !isEdit) {
       formError = "Selected engine is not available yet.";
       return;
     }
-    if (!host.trim() || !database.trim()) {
+    if (engine === "sqlite") {
+      // path engines later — for now require host/db for relational
+    } else if (!host.trim() || !database.trim()) {
       formError = "Host and database are required.";
       return;
     }
-    onsave?.({
-      name: name.trim(),
-      engine,
-      colorId,
-      host: host.trim(),
-      port: Number(port) || 5432,
-      database: database.trim(),
-      username: username.trim(),
-      password,
-      ssl,
-      readOnly,
-      environment,
-      notes: notes.trim(),
-    });
+    try {
+      await onsave?.({
+        name: name.trim(),
+        engine,
+        colorId,
+        host: host.trim(),
+        port: Number(port) || 5432,
+        database: database.trim(),
+        username: username.trim(),
+        password,
+        ssl,
+        readOnly,
+        environment,
+        notes: notes.trim(),
+      });
+    } catch (err) {
+      formError = err instanceof Error ? err.message : String(err);
+    }
   }
 </script>
 
-<ContentPanel size="md" ariaLabel="Create connection">
+<ContentPanel size="md" ariaLabel={isEdit ? "Edit connection" : "Create connection"}>
   <PageHeader
-    title="New connection"
-    description="Choose an engine, then fill connection details. Secrets stay local — backend wiring comes later."
+    title={isEdit ? "Edit connection" : "New connection"}
+    description={isEdit
+      ? "Update connection details. Leave password blank to keep the existing secret reference."
+      : "Choose an engine, then fill connection details. Profiles are saved to the local app database."}
   />
 
   <form class="m-0" onsubmit={submit}>
     <Stack gap="md">
       <FormGrid>
         <Field label="Database engine" hint={engineHint}>
-          <Select bind:value={engine}>
+          <Select bind:value={engine} disabled={isEdit}>
             {#each ENGINE_OPTIONS as eng (eng.id)}
-              <option value={eng.id} disabled={!eng.available}>
+              <option value={eng.id} disabled={!eng.available && eng.id !== engine}>
                 {eng.name}{eng.available ? "" : " (coming soon)"}
               </option>
             {/each}
@@ -171,12 +219,18 @@
           <Field label="Username">
             <Input bind:value={username} autocomplete="username" />
           </Field>
-          <Field label="Password" full>
+          <Field
+            label="Password"
+            hint={isEdit && initial?.passwordSet
+              ? "Leave blank to keep the existing secret reference."
+              : "Keychain storage comes next; a secret reference is saved when set."}
+            full
+          >
             <Input
               type="password"
               bind:value={password}
               autocomplete="new-password"
-              placeholder="Stored securely later"
+              placeholder={isEdit && initial?.passwordSet ? "••••••••" : "Optional"}
             />
           </Field>
         </FormGrid>
@@ -201,10 +255,12 @@
 
       <Inline gap="sm" justify="end">
         {#if oncancel}
-          <Button variant="ghost" onclick={oncancel}>Cancel</Button>
+          <Button variant="ghost" onclick={oncancel} disabled={saving}>Cancel</Button>
         {/if}
-        <Button variant="ghost" onclick={ontest}>Test connection</Button>
-        <Button type="submit" variant="primary">Save connection</Button>
+        <Button variant="ghost" onclick={ontest} disabled={saving}>Test connection</Button>
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? "Saving…" : isEdit ? "Update connection" : "Save connection"}
+        </Button>
       </Inline>
     </Stack>
   </form>

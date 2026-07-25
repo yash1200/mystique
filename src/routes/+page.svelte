@@ -9,26 +9,34 @@
     ThemeToggle,
     Toast,
   } from "$lib/components/ui";
-  import { MOCK_CONNECTIONS } from "$lib/data/mock-connections";
+  import {
+    deleteProfile,
+    listProfiles,
+    saveProfile,
+    touchProfileConnected,
+  } from "$lib/api/profiles";
+  import { isTauri } from "$lib/api/tauri";
   import type {
-    ConnectionColorId,
+    ConnectionFormDraft,
     ConnectionProfile,
-    EngineId,
-    Environment,
   } from "$lib/types/connection";
+  import { saveInputFromDraft } from "$lib/types/connection";
 
   type ThemePref = "light" | "dark" | "system";
   type ToastState = {
-    kind: "info" | "success" | "warning";
+    kind: "info" | "success" | "warning" | "danger";
     message: string;
   } | null;
 
-  let connections = $state<ConnectionProfile[]>(
-    structuredClone(MOCK_CONNECTIONS),
-  );
-  /** Home starts with no selection — show create-connection panel. */
+  let connections = $state<ConnectionProfile[]>([]);
   let selectedId = $state<string | null>(null);
+  /** Create form (no selection). */
   let creating = $state(true);
+  /** Edit form for the currently selected profile. */
+  let editing = $state(false);
+  let loading = $state(true);
+  let saving = $state(false);
+  let loadError = $state<string | null>(null);
   let themePref = $state<ThemePref>("dark");
   let toast = $state<ToastState>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -67,105 +75,188 @@
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toast = null;
-    }, 3200);
+    }, 3600);
+  }
+
+  async function refreshList(preferSelectId?: string | null) {
+    const rows = await listProfiles();
+    connections = rows.map((r) => ({
+      ...r,
+      status:
+        connections.find((c) => c.id === r.id)?.status ?? "disconnected",
+    }));
+    if (preferSelectId && connections.some((c) => c.id === preferSelectId)) {
+      selectedId = preferSelectId;
+      creating = false;
+      editing = false;
+    } else if (selectedId && !connections.some((c) => c.id === selectedId)) {
+      selectedId = null;
+      creating = connections.length === 0;
+      editing = false;
+    } else if (connections.length === 0) {
+      creating = true;
+      editing = false;
+      selectedId = null;
+    }
   }
 
   function selectConnection(id: string) {
     creating = false;
+    editing = false;
     selectedId = id;
   }
 
   function startCreate() {
     creating = true;
+    editing = false;
     selectedId = null;
   }
 
-  function cancelCreate() {
-    creating = false;
-  }
-
-  function saveConnection(draft: {
-    name: string;
-    engine: EngineId;
-    colorId: ConnectionColorId;
-    host: string;
-    port: number;
-    database: string;
-    username: string;
-    password: string;
-    ssl: boolean;
-    readOnly: boolean;
-    environment: Environment;
-    notes: string;
-  }) {
-    const profile: ConnectionProfile = {
-      id: `conn-${crypto.randomUUID().slice(0, 8)}`,
-      name: draft.name,
-      engine: draft.engine,
-      colorId: draft.colorId,
-      host: draft.host,
-      port: draft.port,
-      database: draft.database,
-      username: draft.username || "postgres",
-      passwordSet: draft.password.length > 0,
-      ssl: draft.ssl,
-      readOnly: draft.readOnly,
-      environment: draft.environment,
-      status: "disconnected",
-      lastConnectedAt: null,
-      notes: draft.notes || undefined,
-    };
-    connections = [profile, ...connections];
-    creating = false;
-    selectedId = profile.id;
-    showToast("success", `Saved “${profile.name}” (UI only — not persisted).`);
-  }
-
-  function connectSelected() {
+  function startEdit() {
     if (!selected) return;
-    if (selected.status === "error") {
-      showToast(
-        "warning",
-        `Cannot reach ${selected.name} — backend not connected yet.`,
-      );
+    editing = true;
+    creating = false;
+  }
+
+  function cancelForm() {
+    if (editing && selectedId) {
+      editing = false;
+      creating = false;
       return;
     }
-    connections = connections.map((c) =>
-      c.id === selected.id
-        ? {
-            ...c,
-            status: "connected" as const,
-            lastConnectedAt: new Date().toISOString(),
-          }
-        : c,
-    );
-    showToast(
-      "info",
-      `Workspace for “${selected.name}” will open here once the backend ships.`,
-    );
+    creating = false;
+    editing = false;
+    if (!selectedId && connections.length === 0) {
+      creating = true;
+    }
   }
 
-  function duplicateSelected() {
-    if (!selected) return;
-    const copy: ConnectionProfile = {
-      ...structuredClone(selected),
-      id: `conn-${crypto.randomUUID().slice(0, 8)}`,
-      name: `${selected.name}-copy`,
-      status: "disconnected",
-      lastConnectedAt: null,
-    };
-    connections = [copy, ...connections];
-    selectedId = copy.id;
-    showToast("success", `Duplicated as “${copy.name}”.`);
+  async function saveConnection(draft: ConnectionFormDraft) {
+    if (!isTauri()) {
+      showToast(
+        "warning",
+        "Run with `yarn tauri dev` to persist connections.",
+      );
+      throw new Error("Not running in Tauri.");
+    }
+
+    saving = true;
+    try {
+      const isUpdate = editing && !!selectedId;
+      let input = saveInputFromDraft(draft, {
+        id: isUpdate ? selectedId! : undefined,
+        existingPasswordSet: selected?.passwordSet,
+      });
+
+      let saved = await saveProfile(input);
+
+      // After create, rewrite secretRef to use the real profile id when a password was set.
+      if (!isUpdate && draft.password.length > 0) {
+        saved = await saveProfile({
+          ...input,
+          id: saved.id,
+          secretRef: `mystique-db/connection/${saved.id}`,
+        });
+      }
+
+      await refreshList(saved.id);
+      showToast(
+        "success",
+        isUpdate
+          ? `Updated “${saved.name}”.`
+          : `Saved “${saved.name}” to local database.`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast("danger", msg);
+      throw err;
+    } finally {
+      saving = false;
+    }
   }
 
-  function deleteSelected() {
+  async function deleteSelected() {
     if (!selected) return;
+    if (!isTauri()) {
+      showToast("warning", "Run with `yarn tauri dev` to delete connections.");
+      return;
+    }
     const name = selected.name;
-    connections = connections.filter((c) => c.id !== selected.id);
-    selectedId = null;
-    creating = true;
-    showToast("info", `Removed “${name}” from this session.`);
+    const id = selected.id;
+    if (!confirm(`Delete connection “${name}”? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteProfile(id);
+      connections = connections.filter((c) => c.id !== id);
+      selectedId = null;
+      editing = false;
+      creating = true;
+      showToast("info", `Deleted “${name}”.`);
+    } catch (err) {
+      showToast(
+        "danger",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  async function duplicateSelected() {
+    if (!selected) return;
+    if (!isTauri()) {
+      showToast("warning", "Run with `yarn tauri dev` to duplicate connections.");
+      return;
+    }
+    try {
+      saving = true;
+      const cfg = { ...(selected.pluginConfig ?? {}) };
+      const saved = await saveProfile({
+        id: null,
+        name: `${selected.name}-copy`,
+        engine: String(selected.engine),
+        colorId: selected.colorId,
+        environment: selected.environment,
+        readOnly: selected.readOnly,
+        notes: selected.notes ?? null,
+        pluginConfig: cfg,
+        // Do not copy secret_ref — user must re-enter password.
+        secretRef: null,
+      });
+      await refreshList(saved.id);
+      showToast("success", `Duplicated as “${saved.name}”.`);
+    } catch (err) {
+      showToast(
+        "danger",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function connectSelected() {
+    if (!selected) return;
+    if (!isTauri()) {
+      showToast("warning", "Run with `yarn tauri dev` for backend actions.");
+      return;
+    }
+    try {
+      const updated = await touchProfileConnected(selected.id);
+      connections = connections.map((c) =>
+        c.id === updated.id
+          ? { ...updated, status: "connected" as const }
+          : c,
+      );
+      showToast(
+        "info",
+        `Marked “${updated.name}” connected (live engine session not wired yet).`,
+      );
+    } catch (err) {
+      showToast(
+        "danger",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   onMount(() => {
@@ -184,6 +275,35 @@
       if (themePref === "system") applyTheme("system");
     };
     mq.addEventListener("change", onScheme);
+
+    (async () => {
+      loading = true;
+      loadError = null;
+      try {
+        if (!isTauri()) {
+          loadError =
+            "Desktop backend not available. Use `yarn tauri dev` to load and save connections.";
+          connections = [];
+          creating = true;
+          return;
+        }
+        await refreshList();
+        if (connections.length === 0) {
+          creating = true;
+          selectedId = null;
+        } else {
+          // Default: no selection — create form, per product UX
+          creating = true;
+          selectedId = null;
+        }
+      } catch (err) {
+        loadError = err instanceof Error ? err.message : String(err);
+        showToast("danger", loadError);
+      } finally {
+        loading = false;
+      }
+    })();
+
     return () => mq.removeEventListener("change", onScheme);
   });
 </script>
@@ -192,36 +312,68 @@
   <ConnectionSidebar
     {connections}
     {selectedId}
-    {creating}
+    creating={creating || editing}
     onselect={selectConnection}
     onnew={startCreate}
   />
 
   <main class="flex h-full min-w-0 flex-1 flex-col">
-    <div class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4">
+    <div
+      class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4"
+    >
       <div class="flex min-w-0 items-center gap-1.5 text-caption text-fg">
         <span class="text-fg-muted">Home</span>
         <span class="text-fg-muted">/</span>
         {#if creating}
           <span>New connection</span>
+        {:else if editing && selected}
+          <span>Edit · {selected.name}</span>
         {:else if selected}
           <span>{selected.name}</span>
         {:else}
           <span>Connections</span>
+        {/if}
+        {#if loading}
+          <span class="text-fg-muted">· Loading…</span>
         {/if}
       </div>
       <ThemeToggle preference={themePref} onchange={setThemePref} />
     </div>
 
     <div class="flex-1 overflow-auto bg-app-wash">
-      {#if creating}
+      {#if loadError && connections.length === 0 && !isTauri()}
+        <EmptyState
+          title="Backend required"
+          description={loadError}
+        >
+          {#snippet actions()}
+            <Button variant="primary" onclick={startCreate}>
+              Preview form only
+            </Button>
+          {/snippet}
+        </EmptyState>
+      {:else if creating}
         <NewConnectionPanel
-          oncancel={connections.length > 0 ? cancelCreate : undefined}
+          initial={null}
+          {saving}
+          oncancel={connections.length > 0 ? cancelForm : undefined}
           onsave={saveConnection}
           ontest={() =>
             showToast(
               "info",
-              "Test connection is UI-only until the Postgres plugin is wired.",
+              "Test connection will run when the engine plugin is wired.",
+            )}
+        />
+      {:else if editing && selected}
+        <NewConnectionPanel
+          initial={selected}
+          {saving}
+          oncancel={cancelForm}
+          onsave={saveConnection}
+          ontest={() =>
+            showToast(
+              "info",
+              "Test connection will run when the engine plugin is wired.",
             )}
         />
       {:else if selected}
@@ -230,8 +382,7 @@
           onconnect={connectSelected}
           onduplicate={duplicateSelected}
           ondelete={deleteSelected}
-          onedit={() =>
-            showToast("info", "Edit form will reuse the new-connection UI.")}
+          onedit={startEdit}
           onbacktonew={startCreate}
         />
       {:else}
@@ -251,4 +402,3 @@
     <Toast message={toast.message} tone={toast.kind} />
   {/if}
 </div>
-

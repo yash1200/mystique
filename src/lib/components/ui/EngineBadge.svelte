@@ -17,8 +17,8 @@
         sqlite: "Lite",
         mysql: "My",
         mongodb: "Mo",
-      } as const
-    )[engine],
+      } as Record<string, string>
+    )[String(engine)] ?? String(engine).slice(0, 2).toUpperCase(),
   );
 </script>
 
