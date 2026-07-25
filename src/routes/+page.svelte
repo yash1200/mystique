@@ -3,7 +3,6 @@
   import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
   import ConnectionDetail from "$lib/components/home/ConnectionDetail.svelte";
   import NewConnectionPanel from "$lib/components/home/NewConnectionPanel.svelte";
-  import EnginePicker from "$lib/components/home/EnginePicker.svelte";
   import {
     Button,
     ThemeToggle,
@@ -20,7 +19,6 @@
   import type {
     ConnectionFormDraft,
     ConnectionProfile,
-    EngineId,
   } from "$lib/types/connection";
   import {
     draftFromProfile,
@@ -34,15 +32,10 @@
     message: string;
   } | null;
 
-  /** Create flow: pick engine first, then fill details. */
-  type CreateStep = "pick-engine" | "form";
-
   let connections = $state<ConnectionProfile[]>([]);
   let selectedId = $state<string | null>(null);
   /** Create form (no selection). */
   let creating = $state(true);
-  let createStep = $state<CreateStep>("pick-engine");
-  let draftEngine = $state<EngineId | null>(null);
   /** Edit form for the currently selected profile. */
   let editing = $state(false);
   let loading = $state(true);
@@ -92,13 +85,11 @@
     }, 3600);
   }
 
-  /** Home default: nothing selected → create-connection flow. */
+  /** Home default: nothing selected → new-connection form. */
   function enterCreateMode() {
     selectedId = null;
     creating = true;
     editing = false;
-    createStep = "pick-engine";
-    draftEngine = null;
     testResult = null;
   }
 
@@ -114,8 +105,6 @@
       selectedId = preferSelectId;
       creating = false;
       editing = false;
-      createStep = "pick-engine";
-      draftEngine = null;
     } else if (!selectedId || !connections.some((c) => c.id === selectedId)) {
       // No valid selection → always land on create home (never empty state).
       enterCreateMode();
@@ -125,26 +114,12 @@
   function selectConnection(id: string) {
     creating = false;
     editing = false;
-    createStep = "pick-engine";
-    draftEngine = null;
     testResult = null;
     selectedId = id;
   }
 
   function startCreate() {
     enterCreateMode();
-  }
-
-  function pickEngine(engine: EngineId) {
-    draftEngine = engine;
-    createStep = "form";
-    testResult = null;
-  }
-
-  function backToEnginePicker() {
-    createStep = "pick-engine";
-    // keep draftEngine for highlight, or clear:
-    // draftEngine stays for aria-selected until form re-enter
   }
 
   function startEdit() {
@@ -201,7 +176,17 @@
         showToast("danger", msg);
       }
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
+      // Tauri may throw a string, Error, or { message } object
+      let raw: string;
+      if (err instanceof Error) {
+        raw = err.message;
+      } else if (typeof err === "string") {
+        raw = err;
+      } else if (err && typeof err === "object" && "message" in err) {
+        raw = String((err as { message: unknown }).message);
+      } else {
+        raw = String(err);
+      }
       const msg = `Connection failed: ${raw}`;
       testResult = { ok: false, message: msg };
       showToast("danger", msg);
@@ -215,15 +200,17 @@
     if (editing && selectedId) {
       editing = false;
       creating = false;
-      return;
-    }
-    // Leave form → engine picker (still create mode, no selection).
-    if (creating && createStep === "form") {
-      createStep = "pick-engine";
       testResult = null;
       return;
     }
-    // Engine picker / anything else with no selection → stay on create home.
+    // Cancel create → if we have connections, select first; else stay on form.
+    if (connections.length > 0) {
+      creating = false;
+      editing = false;
+      testResult = null;
+      selectedId = connections[0].id;
+      return;
+    }
     enterCreateMode();
   }
 
@@ -231,20 +218,13 @@
     saving = true;
     try {
       const isUpdate = editing && !!selectedId;
-      let input = saveInputFromDraft(draft, {
+      const input = saveInputFromDraft(draft, {
         id: isUpdate ? selectedId! : undefined,
         existingPasswordSet: selected?.passwordSet,
       });
 
-      let saved = await saveProfile(input);
-
-      if (!isUpdate && draft.password.length > 0) {
-        saved = await saveProfile({
-          ...input,
-          id: saved.id,
-          secretRef: `mystique-db/connection/${saved.id}`,
-        });
-      }
+      // Password is persisted plaintext with the profile (local SQLite).
+      const saved = await saveProfile(input);
 
       await refreshList(saved.id);
       showToast(
@@ -325,7 +305,7 @@
         readOnly: selected.readOnly,
         notes: selected.notes ?? null,
         pluginConfig: cfg,
-        secretRef: null,
+        password: selected.password ?? null,
       });
       await refreshList(saved.id);
       showToast("success", `Duplicated as “${saved.name}”.`);
@@ -352,19 +332,21 @@
     testing = true;
     testResult = null;
     try {
-      // Live test first — proves the DB is reachable with stored config.
-      // Passwords are not yet loaded from keychain; if password is required,
-      // edit the profile and re-enter it, or put credentials in the URI.
+      // Live test first — proves the DB is reachable with stored config + password.
       const draft = draftFromProfile(selected);
       const pluginConfig = {
         ...pluginConfigFromDraft(draft),
         ...(selected.pluginConfig ?? {}),
       };
+      const password =
+        draft.password.trim().length > 0
+          ? draft.password
+          : selected.password?.trim() || null;
 
       const result = await testEngineConnection({
         engine: String(selected.engine),
         pluginConfig,
-        password: draft.password || null,
+        password,
         pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
       });
 
@@ -462,14 +444,8 @@
       <div class="flex min-w-0 items-center gap-1.5 text-caption text-fg">
         <span class="text-fg-muted">Home</span>
         <span class="text-fg-muted">/</span>
-        {#if creating && createStep === "pick-engine"}
-          <span>Choose database</span>
-        {:else if creating && createStep === "form"}
+        {#if creating}
           <span>New connection</span>
-          {#if draftEngine}
-            <span class="text-fg-muted">·</span>
-            <span class="font-mono text-fg-secondary">{draftEngine}</span>
-          {/if}
         {:else if editing && selected}
           <span>Edit · {selected.name}</span>
         {:else if selected}
@@ -488,27 +464,19 @@
     </div>
 
     <div class="flex-1 overflow-auto bg-app-wash">
-      {#if creating && createStep === "pick-engine"}
-        <EnginePicker
-          selectedEngine={draftEngine}
-          onselect={pickEngine}
-        />
-      {:else if creating && createStep === "form" && draftEngine}
+      {#if creating}
         <NewConnectionPanel
           initial={null}
-          lockedEngine={draftEngine}
           {saving}
           {testing}
           {testResult}
           oncancel={connections.length > 0 ? cancelForm : undefined}
-          onback={backToEnginePicker}
           onsave={saveConnection}
           ontest={handleTestConnection}
         />
       {:else if editing && selected}
         <NewConnectionPanel
           initial={selected}
-          lockedEngine={selected.engine}
           {saving}
           {testing}
           {testResult}
@@ -530,10 +498,14 @@
           onbacktonew={startCreate}
         />
       {:else}
-        <!-- Fallback: never show empty “no selection”; always create home. -->
-        <EnginePicker
-          selectedEngine={draftEngine}
-          onselect={pickEngine}
+        <!-- Fallback: never show empty “no selection”; always create form. -->
+        <NewConnectionPanel
+          initial={null}
+          {saving}
+          {testing}
+          {testResult}
+          onsave={saveConnection}
+          ontest={handleTestConnection}
         />
       {/if}
     </div>

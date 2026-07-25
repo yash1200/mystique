@@ -55,19 +55,20 @@
     </div>
   </header>
 
-  <div class="flex gap-2 px-3 pb-3">
+  <div class="flex items-center gap-2 px-3 pb-3">
     <div class="min-w-0 flex-1">
       <span class="sr-only">Filter connections</span>
       <Input
         type="search"
         placeholder="Filter…"
         bind:value={query}
-        inputSize="sm"
+        inputSize="md"
       />
     </div>
     <IconButton
       label="New connection"
       variant="accent"
+      size="md"
       active={creating}
       onclick={onnew}
     >

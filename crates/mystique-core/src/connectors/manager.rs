@@ -199,3 +199,131 @@ impl ConnectionManager {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_unknown_engine_returns_structured_fail() {
+        let mgr = ConnectionManager::bootstrap();
+        let result = mgr
+            .test_connection(&OpenSessionRequest {
+                engine: "nope".into(),
+                plugin_config: json!({}),
+                password: None,
+                pool: None,
+                session_id: None,
+            })
+            .await
+            .unwrap();
+        assert!(!result.ok);
+        assert!(result.message.contains("Unknown engine"));
+    }
+
+    #[tokio::test]
+    async fn test_postgres_missing_db_structured_fail() {
+        let mgr = ConnectionManager::bootstrap();
+        let result = mgr
+            .test_connection(&OpenSessionRequest {
+                engine: "postgres".into(),
+                plugin_config: json!({ "host": "127.0.0.1", "port": 5432 }),
+                password: None,
+                pool: Some(PoolConfig {
+                    max_size: 1,
+                    min_idle: 0,
+                    acquire_timeout_ms: 1500,
+                    idle_timeout_secs: 5,
+                }),
+                session_id: None,
+            })
+            .await
+            .unwrap();
+        assert!(!result.ok, "expected fail");
+        println!("msg={}", result.message);
+        assert!(
+            result.message.contains("database") || result.message.contains("missing"),
+            "msg={}",
+            result.message
+        );
+    }
+
+    #[tokio::test]
+    async fn test_postgres_unreachable_structured_fail() {
+        let mgr = ConnectionManager::bootstrap();
+        let result = mgr
+            .test_connection(&OpenSessionRequest {
+                engine: "postgres".into(),
+                plugin_config: json!({
+                    "host": "127.0.0.1",
+                    "port": 1,
+                    "database": "postgres",
+                    "username": "postgres"
+                }),
+                password: Some("x".into()),
+                pool: Some(PoolConfig {
+                    max_size: 1,
+                    min_idle: 0,
+                    acquire_timeout_ms: 1500,
+                    idle_timeout_secs: 5,
+                }),
+                session_id: None,
+            })
+            .await
+            .unwrap();
+        assert!(!result.ok);
+        println!("unreachable msg={}", result.message);
+        assert!(!result.message.is_empty());
+        // Prefer root-cause wording over opaque wrappers
+        assert!(
+            result.message.to_lowercase().contains("refused")
+                || result.message.to_lowercase().contains("connect")
+                || result.message.to_lowercase().contains("error"),
+            "msg={}",
+            result.message
+        );
+    }
+
+    #[tokio::test]
+    async fn test_postgres_local_success_when_available() {
+        let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+        let mgr = ConnectionManager::bootstrap();
+        let result = mgr
+            .test_connection(&OpenSessionRequest {
+                engine: "postgres".into(),
+                plugin_config: json!({
+                    "host": "127.0.0.1",
+                    "port": 5432,
+                    "database": "postgres",
+                    "username": user,
+                }),
+                password: None,
+                pool: Some(PoolConfig {
+                    max_size: 1,
+                    min_idle: 0,
+                    acquire_timeout_ms: 3000,
+                    idle_timeout_secs: 5,
+                }),
+                session_id: None,
+            })
+            .await
+            .unwrap();
+        println!(
+            "local success? ok={} msg={} version={:?}",
+            result.ok, result.message, result.server_version
+        );
+        // Skip-friendly: if Postgres isn't running, just assert structured fail.
+        if result.ok {
+            assert!(
+                result
+                    .server_version
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("PostgreSQL")
+            );
+        } else {
+            assert!(!result.message.is_empty());
+        }
+    }
+}

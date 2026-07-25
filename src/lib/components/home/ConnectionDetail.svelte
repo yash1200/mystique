@@ -73,27 +73,49 @@
     }
   }
 
-  const connectionFields = $derived([
-    { label: "Host", value: configStr(cfg, "host", "—"), mono: true },
-    {
-      label: "Port",
-      value: configNum(cfg, "port") ? String(configNum(cfg, "port")) : "—",
-      mono: true,
-    },
-    { label: "Database", value: configStr(cfg, "database", "—"), mono: true },
-    { label: "Username", value: configStr(cfg, "username", "—"), mono: true },
-    {
-      label: "Password",
-      value: connection.passwordSet ? "•••••••• (ref set)" : "Not set",
-    },
-    {
-      label: "SSL",
-      value:
-        configBool(cfg, "ssl") || configStr(cfg, "sslMode") === "require"
-          ? "Enabled"
-          : "Disabled",
-    },
-  ]);
+  const connectionFields = $derived.by(() => {
+    if (connection.engine === "mongodb") {
+      return [
+        {
+          label: "Connection URI",
+          value: configStr(cfg, "uri", "—"),
+          mono: true,
+          full: true,
+        },
+      ];
+    }
+    if (connection.engine === "sqlite") {
+      return [
+        {
+          label: "File path",
+          value: configStr(cfg, "path", "—"),
+          mono: true,
+          full: true,
+        },
+      ];
+    }
+    return [
+      { label: "Host", value: configStr(cfg, "host", "—"), mono: true },
+      {
+        label: "Port",
+        value: configNum(cfg, "port") ? String(configNum(cfg, "port")) : "—",
+        mono: true,
+      },
+      { label: "Database", value: configStr(cfg, "database", "—"), mono: true },
+      { label: "Username", value: configStr(cfg, "username", "—"), mono: true },
+      {
+        label: "Password",
+        value: connection.passwordSet ? "••••••••" : "Not set",
+      },
+      {
+        label: "SSL",
+        value:
+          configBool(cfg, "ssl") || configStr(cfg, "sslMode") === "require"
+            ? "Enabled"
+            : "Disabled",
+      },
+    ];
+  });
 
   const workspaceFields = $derived([
     { label: "Environment", value: envLabel },
@@ -221,12 +243,10 @@
     </div>
 
     <p class="mt-5 text-caption text-fg-muted">
-      Profile is stored in local SQLite. <strong class="font-medium text-fg-secondary">Test connection</strong>
-      and <strong class="font-medium text-fg-secondary">Connect</strong> call the
-      backend engine plugins and report whether the database is reachable.
-      {#if connection.passwordSet}
-        Re-enter the password in Edit if the test fails without a live secret.
-      {/if}
+      <strong class="font-medium text-fg-secondary">Test connection</strong>
+      checks reachability;
+      <strong class="font-medium text-fg-secondary">Connect</strong>
+      opens a live session when ready.
       <button
         type="button"
         class="border-none bg-transparent p-0 text-caption text-accent hover:underline"

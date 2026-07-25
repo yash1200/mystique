@@ -16,6 +16,26 @@ Implementations of [`docs/DESIGN_LANGUAGE.md`](../../../../docs/DESIGN_LANGUAGE.
 ## Import
 
 ```ts
-import { Button, Field, Input } from "$lib/components/ui";
+import { Button, Field, Input, Select } from "$lib/components/ui";
+import type { SelectOption } from "$lib/components/ui";
 import { cn } from "$lib/utils/cn";
+```
+
+## Select
+
+Custom dropdown (not native `<select>`) so menus match the design language on every OS.
+
+```svelte
+<script lang="ts">
+  import { Select } from "$lib/components/ui";
+
+  let env = $state("local");
+  const options = [
+    { value: "local", label: "Local" },
+    { value: "staging", label: "Staging" },
+    { value: "production", label: "Production" },
+  ];
+</script>
+
+<Select bind:value={env} {options} />
 ```

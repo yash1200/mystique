@@ -93,7 +93,7 @@ Each ticket: **ID**, **Title**, **Priority**, **Tags**, **Description**, **Relat
 ### T-FE-001 — Engine picker (Postgres / Mongo / SQLite)
 - **Priority:** P0 · **Tags:** `FE`
 - **Description:** First step of new connection: choose database engine with design-language cards. Only PostgreSQL, MongoDB, and SQLite (SQL). No live BE plugins yet.
-- **Related:** PRD §5 user flow · FEATURES F-CONN · EnginePicker.svelte · NewConnectionPanel locked engine
+- **Related:** PRD §5 user flow · FEATURES F-CONN · NewConnectionPanel (engine dropdown)
 
 ---
 

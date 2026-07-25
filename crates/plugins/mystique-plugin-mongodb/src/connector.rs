@@ -89,68 +89,19 @@ impl DatabaseConnector for MongoConnector {
     fn connection_form_schema(&self) -> ConnectionFormSchema {
         ConnectionFormSchema {
             engine: "mongodb".into(),
-            fields: vec![
-                FormField {
-                    name: "uri".into(),
-                    label: "Connection URI".into(),
-                    field_type: FormFieldType::Uri,
-                    required: false,
-                    secret: true,
-                    default: None,
-                    placeholder: Some("mongodb://127.0.0.1:27017".into()),
-                    hint: Some("If set, preferred over host fields".into()),
-                },
-                FormField {
-                    name: "host".into(),
-                    label: "Host".into(),
-                    field_type: FormFieldType::Text,
-                    required: false,
-                    secret: false,
-                    default: Some(serde_json::json!("127.0.0.1")),
-                    placeholder: None,
-                    hint: None,
-                },
-                FormField {
-                    name: "port".into(),
-                    label: "Port".into(),
-                    field_type: FormFieldType::Number,
-                    required: false,
-                    secret: false,
-                    default: Some(serde_json::json!(27017)),
-                    placeholder: None,
-                    hint: None,
-                },
-                FormField {
-                    name: "database".into(),
-                    label: "Database".into(),
-                    field_type: FormFieldType::Text,
-                    required: false,
-                    secret: false,
-                    default: None,
-                    placeholder: None,
-                    hint: None,
-                },
-                FormField {
-                    name: "username".into(),
-                    label: "Username".into(),
-                    field_type: FormFieldType::Text,
-                    required: false,
-                    secret: false,
-                    default: None,
-                    placeholder: None,
-                    hint: None,
-                },
-                FormField {
-                    name: "password".into(),
-                    label: "Password".into(),
-                    field_type: FormFieldType::Password,
-                    required: false,
-                    secret: true,
-                    default: None,
-                    placeholder: None,
-                    hint: None,
-                },
-            ],
+            fields: vec![FormField {
+                name: "uri".into(),
+                label: "Connection URI".into(),
+                field_type: FormFieldType::Uri,
+                required: true,
+                secret: true,
+                default: Some(serde_json::json!("mongodb://127.0.0.1:27017")),
+                placeholder: Some("mongodb://user:pass@127.0.0.1:27017/mydb".into()),
+                hint: Some(
+                    "Credentials and TLS options belong in the URI (mongodb:// or mongodb+srv://)."
+                        .into(),
+                ),
+            }],
         }
     }
 

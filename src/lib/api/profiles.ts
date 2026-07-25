@@ -10,12 +10,18 @@ const LS_KEY = "mystique-db.profiles.v1";
 
 /** Normalize backend / local payload into a typed UI profile. */
 export function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
+  const password =
+    raw.password != null && String(raw.password).length > 0
+      ? String(raw.password)
+      : null;
   return {
     ...raw,
     colorId: asColorId(String(raw.colorId ?? "slate")),
     environment: asEnvironment(String(raw.environment ?? "local")),
     pluginConfig: (raw.pluginConfig ?? {}) as ConnectionProfile["pluginConfig"],
     notes: raw.notes ?? null,
+    password,
+    passwordSet: raw.passwordSet || !!password,
     lastConnectedAt: raw.lastConnectedAt ?? null,
     status: raw.status ?? "disconnected",
   };
@@ -51,9 +57,22 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
       : `local-${Date.now()}`);
 
   const existing = rows.find((r) => r.id === id);
-  const passwordSet =
-    !!input.secretRef ||
-    (!input.clearSecret && (existing?.passwordSet ?? false));
+
+  let password: string | null | undefined = existing?.password ?? null;
+  if (input.clearSecret) {
+    password = null;
+  } else if (input.password != null && String(input.password).length > 0) {
+    password = String(input.password);
+  } else if (
+    input.secretRef != null &&
+    String(input.secretRef).length > 0 &&
+    !String(input.secretRef).startsWith("mystique-db/connection") &&
+    !String(input.secretRef).startsWith("mystique/conn/")
+  ) {
+    password = String(input.secretRef);
+  }
+
+  const passwordSet = !!password;
 
   const profile: ConnectionProfile = {
     id,
@@ -65,6 +84,7 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
     notes: input.notes ?? null,
     pluginConfig: input.pluginConfig ?? {},
     passwordSet,
+    password: password || null,
     lastConnectedAt: existing?.lastConnectedAt ?? null,
     createdAt: existing?.createdAt ?? ts,
     updatedAt: ts,

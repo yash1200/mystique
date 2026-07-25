@@ -14,8 +14,6 @@
     Alert,
     Badge,
     Button,
-    Card,
-    Checkbox,
     ColorSwatchGroup,
     ContentPanel,
     EngineBadge,
@@ -28,16 +26,20 @@
     Stack,
     Textarea,
   } from "$lib/components/ui";
+  import {
+    MongodbFields,
+    PostgresFields,
+    SqliteFields,
+    namePlaceholder,
+    validateDraftForSave,
+    validateDraftForTest,
+  } from "./connection-forms";
 
   interface Props {
     /** When set, form is in edit mode and fields are prefilled. */
     initial?: ConnectionProfile | null;
-    /** Engine chosen on the picker (create flow). Locks the engine field. */
-    lockedEngine?: EngineId | null;
     saving?: boolean;
     oncancel?: () => void;
-    /** Return to engine picker (create flow only). */
-    onback?: () => void;
     onsave?: (draft: ConnectionFormDraft) => void | Promise<void>;
     /** Live connectivity check against BE engine plugins. */
     ontest?: (draft: ConnectionFormDraft) => void | Promise<void>;
@@ -47,10 +49,8 @@
 
   let {
     initial = null,
-    lockedEngine = null,
     saving = false,
     oncancel,
-    onback,
     onsave,
     ontest,
     testing = false,
@@ -74,18 +74,25 @@
   let formError = $state<string | null>(null);
 
   const isEdit = $derived(!!initial?.id);
-  const engineLocked = $derived(isEdit || !!lockedEngine);
 
   const selectedEngine = $derived(ENGINE_OPTIONS.find((e) => e.id === engine));
   const colorHexVal = $derived(
     CONNECTION_COLORS.find((c) => c.id === colorId)?.hex ?? "#4ecdc4",
   );
 
-  const engineHint = $derived(
-    selectedEngine
-      ? `${selectedEngine.description}`
-      : undefined,
+  const engineOptions = $derived(
+    ENGINE_OPTIONS.map((eng) => ({
+      value: eng.id,
+      label: eng.available ? eng.name : `${eng.name} (coming soon)`,
+      disabled: !eng.available,
+    })),
   );
+
+  const environmentOptions = [
+    { value: "local", label: "Local" },
+    { value: "staging", label: "Staging" },
+    { value: "production", label: "Production" },
+  ];
 
   function applyDraft(d: ConnectionFormDraft) {
     name = d.name;
@@ -104,17 +111,29 @@
     notes = d.notes;
   }
 
-  // Prefill when opening edit / create with locked engine.
+  // Prefill when opening edit / create.
   $effect(() => {
     formError = null;
     if (initial) {
       applyDraft(draftFromProfile(initial));
     } else {
-      const eng = lockedEngine ?? "postgres";
-      applyDraft(emptyDraft(eng));
+      applyDraft(emptyDraft("postgres"));
     }
   });
 
+  /** Switching engine on create resets engine-specific fields, keeps shared ones. */
+  function onEngineChange(next: string) {
+    if (next === engine || isEdit) return;
+    const kept = {
+      name,
+      colorId,
+      environment,
+      notes,
+      readOnly,
+    };
+    formError = null;
+    applyDraft({ ...emptyDraft(next as EngineId), ...kept });
+  }
 
   function currentDraft(): ConnectionFormDraft {
     return {
@@ -135,28 +154,16 @@
     };
   }
 
-  function validateForTest(): string | null {
-    if (engine === "sqlite") {
-      if (!path.trim()) return "SQLite database file path is required.";
-    } else if (engine === "mongodb") {
-      if (!uri.trim() && !host.trim()) {
-        return "Provide a MongoDB URI or host.";
-      }
-    } else if (!host.trim() || !database.trim()) {
-      return "Host and database are required.";
-    }
-    return null;
-  }
-
   async function runTest() {
     formError = null;
-    const err = validateForTest();
+    const draft = currentDraft();
+    const err = validateDraftForTest(draft);
     if (err) {
       formError = err;
       return;
     }
     try {
-      await ontest?.(currentDraft());
+      await ontest?.(draft);
     } catch (e) {
       formError = e instanceof Error ? e.message : String(e);
     }
@@ -165,45 +172,14 @@
   async function submit(e: Event) {
     e.preventDefault();
     formError = null;
-    if (!name.trim()) {
-      formError = "Give this connection a name.";
-      return;
-    }
-    if (!selectedEngine?.available && !isEdit) {
-      formError = "Selected engine is not available yet.";
-      return;
-    }
-    if (engine === "sqlite") {
-      if (!path.trim()) {
-        formError = "SQLite database file path is required.";
-        return;
-      }
-    } else if (engine === "mongodb") {
-      if (!uri.trim() && (!host.trim() || !database.trim())) {
-        formError = "Provide a connection URI, or host and database name.";
-        return;
-      }
-    } else if (!host.trim() || !database.trim()) {
-      formError = "Host and database are required.";
+    const draft = currentDraft();
+    const err = validateDraftForSave(draft, { isEdit });
+    if (err) {
+      formError = err;
       return;
     }
     try {
-      await onsave?.({
-        name: name.trim(),
-        engine,
-        colorId,
-        host: host.trim(),
-        port: Number(port) || selectedEngine?.defaultPort || 5432,
-        database: database.trim(),
-        path: path.trim(),
-        uri: uri.trim(),
-        username: username.trim(),
-        password,
-        ssl,
-        readOnly,
-        environment,
-        notes: notes.trim(),
-      });
+      await onsave?.(draft);
     } catch (err) {
       formError = err instanceof Error ? err.message : String(err);
     }
@@ -212,25 +188,17 @@
 
 <ContentPanel size="md" ariaLabel={isEdit ? "Edit connection" : "Create connection"}>
   <PageHeader
-    title={isEdit ? "Edit connection" : "Connection details"}
+    title={isEdit ? "Edit connection" : "New connection"}
     description={isEdit
-      ? "Update connection details. Leave password blank to keep the existing secret."
-      : "Fill in how Mystique should reach this database. Use Test connection to verify reachability via the backend engine plugins."}
-  >
-    {#snippet actions()}
-      {#if !isEdit && onback}
-        <Button variant="ghost" onclick={onback} disabled={saving}>
-          Change engine
-        </Button>
-      {/if}
-    {/snippet}
-  </PageHeader>
+      ? "Update connection details. Leave password blank to keep the current password."
+      : "Choose an engine and fill in how Mystique should reach this database."}
+  />
 
   <form class="m-0" onsubmit={submit}>
     <Stack gap="md">
       <FormGrid>
-        <Field label="Database engine" hint={engineHint}>
-          {#if engineLocked}
+        <Field label="Database engine" hint={selectedEngine?.description}>
+          {#if isEdit}
             <div
               class="flex h-control items-center gap-2 rounded-md border border-line bg-input px-2.5"
             >
@@ -243,32 +211,27 @@
               </Badge>
             </div>
           {:else}
-            <Select bind:value={engine}>
-              {#each ENGINE_OPTIONS as eng (eng.id)}
-                <option value={eng.id} disabled={!eng.available}>
-                  {eng.name}{eng.available ? "" : " (coming soon)"}
-                </option>
-              {/each}
-            </Select>
+            <Select
+              id="conn-engine"
+              value={engine}
+              options={engineOptions}
+              onchange={onEngineChange}
+            />
           {/if}
         </Field>
 
         <Field label="Environment">
-          <Select bind:value={environment}>
-            <option value="local">Local</option>
-            <option value="staging">Staging</option>
-            <option value="production">Production</option>
-          </Select>
+          <Select
+            id="conn-environment"
+            bind:value={environment}
+            options={environmentOptions}
+          />
         </Field>
       </FormGrid>
 
       <Field label="Display name">
         <Input
-          placeholder={engine === "mongodb"
-            ? "e.g. local-mongo"
-            : engine === "sqlite"
-              ? "e.g. app-dev.sqlite"
-              : "e.g. local-pg"}
+          placeholder={namePlaceholder(engine)}
           bind:value={name}
           autocomplete="off"
         />
@@ -288,108 +251,21 @@
       </Field>
 
       {#if engine === "sqlite"}
-        <Card title="Database file">
-          <Field
-            label="File path"
-            hint="Absolute or relative path to the .db / .sqlite file on this machine."
-            full
-          >
-            <Input
-              bind:value={path}
-              placeholder="/path/to/database.sqlite"
-              autocomplete="off"
-              class="font-mono"
-            />
-          </Field>
-          <div class="mt-3">
-            <Checkbox bind:checked={readOnly} label="Read-only (recommended)" />
-          </div>
-        </Card>
+        <SqliteFields bind:path bind:readOnly />
       {:else if engine === "mongodb"}
-        <Card title="Server">
-          <Field
-            label="Connection URI (optional)"
-            hint="If set, URI is preferred over host fields when connecting."
-            full
-          >
-            <Input
-              bind:value={uri}
-              placeholder="mongodb://user:pass@127.0.0.1:27017/mydb"
-              autocomplete="off"
-              class="font-mono"
-            />
-          </Field>
-          <div class="mt-3">
-            <FormGrid>
-              <Field label="Host">
-                <Input bind:value={host} autocomplete="off" />
-              </Field>
-              <Field label="Port">
-                <Input type="number" bind:value={port} min="1" max="65535" />
-              </Field>
-              <Field label="Database">
-                <Input bind:value={database} autocomplete="off" />
-              </Field>
-              <Field label="Username">
-                <Input bind:value={username} autocomplete="username" />
-              </Field>
-              <Field
-                label="Password"
-                hint={isEdit && initial?.passwordSet
-                  ? "Leave blank to keep the existing secret."
-                  : "Stored only when keychain is wired; for now UI-only."}
-                full
-              >
-                <Input
-                  type="password"
-                  bind:value={password}
-                  autocomplete="new-password"
-                  placeholder={isEdit && initial?.passwordSet ? "••••••••" : "Optional"}
-                />
-              </Field>
-            </FormGrid>
-          </div>
-          <div class="mt-3 flex flex-wrap gap-4">
-            <Checkbox bind:checked={ssl} label="Require TLS" />
-            <Checkbox bind:checked={readOnly} label="Read-only (recommended)" />
-          </div>
-        </Card>
+        <MongodbFields bind:uri bind:readOnly />
       {:else}
-        <Card title="Server">
-          <FormGrid>
-            <Field label="Host">
-              <Input bind:value={host} autocomplete="off" />
-            </Field>
-            <Field label="Port">
-              <Input type="number" bind:value={port} min="1" max="65535" />
-            </Field>
-            <Field label="Database">
-              <Input bind:value={database} autocomplete="off" />
-            </Field>
-            <Field label="Username">
-              <Input bind:value={username} autocomplete="username" />
-            </Field>
-            <Field
-              label="Password"
-              hint={isEdit && initial?.passwordSet
-                ? "Leave blank to keep the existing secret."
-                : "Keychain storage comes next; profile is saved without a live session for now."}
-              full
-            >
-              <Input
-                type="password"
-                bind:value={password}
-                autocomplete="new-password"
-                placeholder={isEdit && initial?.passwordSet ? "••••••••" : "Optional"}
-              />
-            </Field>
-          </FormGrid>
-
-          <div class="mt-3 flex flex-wrap gap-4">
-            <Checkbox bind:checked={ssl} label="Require SSL" />
-            <Checkbox bind:checked={readOnly} label="Read-only (recommended)" />
-          </div>
-        </Card>
+        <PostgresFields
+          bind:host
+          bind:port
+          bind:database
+          bind:username
+          bind:password
+          bind:ssl
+          bind:readOnly
+          {isEdit}
+          passwordSet={!!initial?.passwordSet}
+        />
       {/if}
 
       <Field label="Notes">

@@ -154,14 +154,30 @@
 }
 
 @utility h-control-sm {
-  height: 1.75rem;
+  height: 1.75rem; /* 28px */
 }
 
 @utility h-control {
-  height: 2.125rem;
+  height: 2.125rem; /* 34px — default control */
 }
 
 @utility h-control-lg {
+  height: 2.5rem; /* 40px */
+}
+
+/* Square control sizes (icon buttons, matching Input heights) */
+@utility size-control-sm {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+@utility size-control {
+  width: 2.125rem;
+  height: 2.125rem;
+}
+
+@utility size-control-lg {
+  width: 2.5rem;
   height: 2.5rem;
 }
 

@@ -2,15 +2,31 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-use crate::error::{AppError, AppResult};
-use crate::domain::{validate_environment, ConnectionProfile, SaveConnectionInput};
+use crate::domain::{
+    is_placeholder_secret_ref, validate_environment, ConnectionProfile, SaveConnectionInput,
+};
 use crate::domain::now_iso;
+use crate::error::{AppError, AppResult};
+
+/// Normalize stored secret: drop legacy keychain placeholders; keep real passwords.
+fn password_from_stored(secret_ref: Option<String>) -> Option<String> {
+    secret_ref.and_then(|s| {
+        let t = s.trim().to_string();
+        if t.is_empty() || is_placeholder_secret_ref(&t) {
+            None
+        } else {
+            Some(t)
+        }
+    })
+}
 
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
     let plugin_config_raw: String = row.get("plugin_config")?;
     let plugin_config: JsonValue =
         serde_json::from_str(&plugin_config_raw).unwrap_or(JsonValue::Object(Default::default()));
-    let secret_ref: Option<String> = row.get("secret_ref")?;
+    let stored: Option<String> = row.get("secret_ref")?;
+    let password = password_from_stored(stored);
+    let password_set = password.as_ref().is_some_and(|s| !s.is_empty());
     let read_only_i: i64 = row.get("read_only")?;
 
     Ok(ConnectionProfile {
@@ -22,7 +38,8 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
         read_only: read_only_i != 0,
         notes: row.get("notes")?,
         plugin_config,
-        password_set: secret_ref.as_ref().is_some_and(|s| !s.is_empty()),
+        password_set,
+        password,
         last_connected_at: row.get("last_connected_at")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -56,7 +73,56 @@ pub fn get_by_id(conn: &Connection, id: &str) -> AppResult<ConnectionProfile> {
     .ok_or_else(|| AppError::NotFound(format!("connection '{id}'")))
 }
 
-/// Create or update a connection. Returns the saved profile.
+/// Resolve the password value to persist in `secret_ref` (plaintext for now).
+fn resolve_password_to_store(
+    conn: &Connection,
+    input: &SaveConnectionInput,
+    existing_id: Option<&str>,
+) -> AppResult<Option<String>> {
+    if input.clear_secret {
+        return Ok(None);
+    }
+
+    // Prefer explicit password field.
+    if let Some(pw) = input
+        .password
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(Some(pw.to_string()));
+    }
+
+    // Legacy: accept secret_ref only when it is a real secret (not a placeholder path).
+    if let Some(sr) = input
+        .secret_ref
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        if !is_placeholder_secret_ref(sr) {
+            return Ok(Some(sr.to_string()));
+        }
+        // Placeholder on create → store nothing; on update → keep existing below.
+    }
+
+    // Update with blank password → keep previous secret.
+    if let Some(id) = existing_id {
+        let prev: Option<String> = conn
+            .query_row(
+                "SELECT secret_ref FROM connections WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        return Ok(password_from_stored(prev));
+    }
+
+    Ok(None)
+}
+
+/// Create or update a connection. Returns the saved profile (includes password).
 pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<ConnectionProfile> {
     if input.name.trim().is_empty() {
         return Err(AppError::Invalid("name is required".into()));
@@ -76,17 +142,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
         .map(|s| s.to_string());
 
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
-        let secret_ref = if input.clear_secret {
-            None
-        } else if input.secret_ref.is_some() {
-            input.secret_ref.clone()
-        } else {
-            conn.query_row(
-                "SELECT secret_ref FROM connections WHERE id = ?1",
-                params![id],
-                |r| r.get::<_, Option<String>>(0),
-            )?
-        };
+        let secret_ref = resolve_password_to_store(conn, &input, Some(id))?;
 
         let n = conn.execute(
             "
@@ -121,6 +177,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
         get_by_id(conn, id)
     } else {
         let id = Uuid::new_v4().to_string();
+        let secret_ref = resolve_password_to_store(conn, &input, None)?;
         conn.execute(
             "
             INSERT INTO connections (
@@ -137,7 +194,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 if input.read_only { 1 } else { 0 },
                 notes,
                 plugin_config,
-                input.secret_ref,
+                secret_ref,
                 now,
                 now,
             ],
@@ -166,16 +223,18 @@ pub fn touch_last_connected(conn: &Connection, id: &str) -> AppResult<Connection
     get_by_id(conn, id)
 }
 
-/// Returns the raw secret_ref for internal use (e.g. keychain lookup later).
+/// Returns the stored plaintext password (if any).
 #[allow(dead_code)]
-pub fn get_secret_ref(conn: &Connection, id: &str) -> AppResult<Option<String>> {
-    conn.query_row(
-        "SELECT secret_ref FROM connections WHERE id = ?1",
-        params![id],
-        |r| r.get(0),
-    )
-    .optional()?
-    .ok_or_else(|| AppError::NotFound(format!("connection '{id}'")))
+pub fn get_password(conn: &Connection, id: &str) -> AppResult<Option<String>> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT secret_ref FROM connections WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("connection '{id}'")))?;
+    Ok(password_from_stored(stored))
 }
 
 #[cfg(test)]
@@ -210,20 +269,134 @@ mod tests {
                     "database": "app",
                     "username": "postgres"
                 }),
-                secret_ref: Some("mystique/conn/test".into()),
+                password: Some("s3cret".into()),
+                secret_ref: None,
                 clear_secret: false,
             },
         )
         .unwrap();
 
         assert!(saved.password_set);
+        assert_eq!(saved.password.as_deref(), Some("s3cret"));
         assert_eq!(saved.engine, "postgres");
         assert_eq!(saved.plugin_config["port"], 5432);
 
         let all = list_all(&conn).unwrap();
         assert_eq!(all.len(), 1);
+        assert_eq!(all[0].password.as_deref(), Some("s3cret"));
 
         delete(&conn, &saved.id).unwrap();
         assert!(list_all(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn update_keeps_password_when_blank() {
+        let conn = test_db();
+        let saved = save(
+            &conn,
+            SaveConnectionInput {
+                id: None,
+                name: "pg".into(),
+                engine: "postgres".into(),
+                color_id: "teal".into(),
+                environment: "local".into(),
+                read_only: true,
+                notes: None,
+                plugin_config: json!({"host": "127.0.0.1", "database": "postgres"}),
+                password: Some("keep-me".into()),
+                secret_ref: None,
+                clear_secret: false,
+            },
+        )
+        .unwrap();
+
+        let updated = save(
+            &conn,
+            SaveConnectionInput {
+                id: Some(saved.id.clone()),
+                name: "pg-renamed".into(),
+                engine: "postgres".into(),
+                color_id: "teal".into(),
+                environment: "local".into(),
+                read_only: true,
+                notes: None,
+                plugin_config: json!({"host": "127.0.0.1", "database": "postgres"}),
+                password: None,
+                secret_ref: None,
+                clear_secret: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.name, "pg-renamed");
+        assert_eq!(updated.password.as_deref(), Some("keep-me"));
+        assert!(updated.password_set);
+    }
+
+    #[test]
+    fn clear_secret_removes_password() {
+        let conn = test_db();
+        let saved = save(
+            &conn,
+            SaveConnectionInput {
+                id: None,
+                name: "pg".into(),
+                engine: "postgres".into(),
+                color_id: "teal".into(),
+                environment: "local".into(),
+                read_only: true,
+                notes: None,
+                plugin_config: json!({}),
+                password: Some("x".into()),
+                secret_ref: None,
+                clear_secret: false,
+            },
+        )
+        .unwrap();
+
+        let cleared = save(
+            &conn,
+            SaveConnectionInput {
+                id: Some(saved.id),
+                name: "pg".into(),
+                engine: "postgres".into(),
+                color_id: "teal".into(),
+                environment: "local".into(),
+                read_only: true,
+                notes: None,
+                plugin_config: json!({}),
+                password: None,
+                secret_ref: None,
+                clear_secret: true,
+            },
+        )
+        .unwrap();
+
+        assert!(!cleared.password_set);
+        assert!(cleared.password.is_none());
+    }
+
+    #[test]
+    fn ignores_legacy_placeholder_secret_ref() {
+        let conn = test_db();
+        let saved = save(
+            &conn,
+            SaveConnectionInput {
+                id: None,
+                name: "pg".into(),
+                engine: "postgres".into(),
+                color_id: "teal".into(),
+                environment: "local".into(),
+                read_only: true,
+                notes: None,
+                plugin_config: json!({}),
+                password: None,
+                secret_ref: Some("mystique-db/connection/abc".into()),
+                clear_secret: false,
+            },
+        )
+        .unwrap();
+        assert!(!saved.password_set);
+        assert!(saved.password.is_none());
     }
 }

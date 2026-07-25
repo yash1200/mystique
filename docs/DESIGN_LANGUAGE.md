@@ -260,6 +260,16 @@ Closed set for interactive controls:
 | `h-topbar` | 44px | App top bar |
 | `min-h-row` | `var(--row-height)` | Connection list rows |
 
+Square controls (icon buttons) use matching edge length:
+
+| Class | Size | Use |
+| ----- | ---- | --- |
+| `size-control-sm` | 28×28 | Compact icon buttons |
+| `size-control` | 34×34 | **Default** icon buttons (aligns with `h-control`) |
+| `size-control-lg` | 40×40 | Rare emphasis |
+
+Pair toolbar fields with icon actions at the **same step** (`md` / `h-control` + `size-control`). Never mix `inputSize="sm"` with a default 32px pixel button.
+
 Input padding: `px-2.5` horizontal; textareas `px-2.5 py-2`.
 
 ---
@@ -335,7 +345,8 @@ Defined once in `app.css`.
 
 - Focus: never remove outline without `focus-visible:outline-focus`
 - Contrast: `text-fg-muted` only for non-essential meta
-- Hit targets: controls ≥ `h-control-sm` (28px); prefer `h-control`
+- Hit targets: controls ≥ `h-control-sm` (28px); prefer `h-control` / `size-control`
+- Toolbar row: Input + IconButton share one size step (`md` = 34px)
 - Status: always text/icon + color
 
 ---

@@ -24,6 +24,8 @@ export type PluginConfig = Record<string, unknown>;
 /**
  * Connection profile — matches mystique-core `ConnectionProfile` (camelCase).
  * `status` is UI-only (not persisted).
+ *
+ * Password is returned plaintext for now (local app DB). Keychain later.
  */
 export interface ConnectionProfile {
   id: string;
@@ -35,6 +37,8 @@ export interface ConnectionProfile {
   notes?: string | null;
   pluginConfig: PluginConfig;
   passwordSet: boolean;
+  /** Plaintext password when stored (temporary — not keychain). */
+  password?: string | null;
   lastConnectedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -52,8 +56,12 @@ export interface SaveConnectionInput {
   readOnly: boolean;
   notes?: string | null;
   pluginConfig: PluginConfig;
-  secretRef?: string | null;
+  /** Plaintext password to store. Blank on edit keeps the existing secret. */
+  password?: string | null;
+  /** When true, clear the stored password. */
   clearSecret?: boolean;
+  /** @deprecated Prefer `password`. Kept for IPC compatibility. */
+  secretRef?: string | null;
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */
@@ -66,7 +74,7 @@ export interface ConnectionFormDraft {
   database: string;
   /** SQLite file path (when engine === sqlite). */
   path: string;
-  /** Optional Mongo connection URI override. */
+  /** MongoDB connection URI (required for mongodb engine). */
   uri: string;
   username: string;
   password: string;
@@ -182,14 +190,16 @@ export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
     name: "",
     engine,
     colorId: "teal",
-    host: engine === "sqlite" ? "" : "127.0.0.1",
-    port: port || 5432,
-    // Sensible local defaults for quick test-connection
-    database: engine === "mongodb" ? "mystique_dev" : "",
+    host: engine === "sqlite" || engine === "mongodb" ? "" : "127.0.0.1",
+    port: engine === "mongodb" ? 27017 : port || 5432,
+    // Postgres: Docker images use db/user `postgres`. Homebrew macOS often
+    // needs your OS username instead — the form shows these so they are editable.
+    // MongoDB uses a connection URI only (no discrete host/user fields).
+    database: engine === "mongodb" || engine === "sqlite" ? "" : "postgres",
     path: "",
-    uri: "",
-    username: engine === "mongodb" ? "abc" : "",
-    password: engine === "mongodb" ? "abc" : "",
+    uri: engine === "mongodb" ? "mongodb://127.0.0.1:27017" : "",
+    username: engine === "mongodb" || engine === "sqlite" ? "" : "postgres",
+    password: "",
     ssl: false,
     readOnly: true,
     environment: "local",
@@ -251,7 +261,7 @@ export function draftFromProfile(profile: ConnectionProfile): ConnectionFormDraf
     path: configStr(c, "path"),
     uri: configStr(c, "uri"),
     username: configStr(c, "username"),
-    password: "",
+    password: profile.password ?? "",
     ssl: configBool(c, "ssl", false) || configStr(c, "sslMode") === "require",
     readOnly: profile.readOnly,
     environment: asEnvironment(profile.environment),
@@ -267,27 +277,17 @@ export function pluginConfigFromDraft(draft: ConnectionFormDraft): PluginConfig 
     };
   }
   if (draft.engine === "mongodb") {
-    const cfg: PluginConfig = {
-      host: draft.host.trim() || "127.0.0.1",
-      port: Number(draft.port) || 27017,
-      database: draft.database.trim() || "mystique_dev",
-      username: draft.username.trim() || undefined,
-      ssl: draft.ssl,
-      sslMode: draft.ssl ? "require" : "disable",
-      // Root-style users authenticate against admin
-      authSource: "admin",
+    return {
+      uri: draft.uri.trim(),
     };
-    if (draft.uri.trim()) {
-      cfg.uri = draft.uri.trim();
-    }
-    return cfg;
   }
   // postgres (default relational network)
   return {
-    host: draft.host.trim(),
+    host: draft.host.trim() || "127.0.0.1",
     port: Number(draft.port) || 5432,
-    database: draft.database.trim(),
-    username: draft.username.trim(),
+    database: draft.database.trim() || "postgres",
+    // Prefer explicit user; empty string is omitted so backend default applies
+    username: draft.username.trim() || "postgres",
     ssl: draft.ssl,
     sslMode: draft.ssl ? "require" : "disable",
   };
@@ -296,7 +296,7 @@ export function pluginConfigFromDraft(draft: ConnectionFormDraft): PluginConfig 
 /** Build SaveConnectionInput from the form draft (engine-aware plugin_config). */
 export function saveInputFromDraft(
   draft: ConnectionFormDraft,
-  options?: { id?: string; existingPasswordSet?: boolean },
+  options?: { id?: string; existingPasswordSet?: boolean; clearPassword?: boolean },
 ): SaveConnectionInput {
   const pluginConfig = pluginConfigFromDraft(draft);
 
@@ -311,10 +311,11 @@ export function saveInputFromDraft(
     pluginConfig,
   };
 
-  // Keychain not wired yet: non-empty secretRef marks passwordSet for UI.
-  if (draft.password.length > 0) {
-    const idPart = options?.id ?? "new";
-    input.secretRef = `mystique-db/connection/${idPart}`;
+  // Plaintext password in local SQLite (secret_ref column). Blank on edit keeps existing.
+  if (options?.clearPassword) {
+    input.clearSecret = true;
+  } else if (draft.password.length > 0) {
+    input.password = draft.password;
   }
 
   return input;

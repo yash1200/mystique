@@ -17,12 +17,11 @@ impl ProfileService<'_> {
     }
 
     pub fn save(&self, input: SaveConnectionInput) -> AppResult<ConnectionProfile> {
-        // Future: write password to keychain, set secret_ref here.
+        // Password is stored plaintext in local SQLite for now (secret_ref column).
         self.db.with_conn(|c| repo::connections::save(c, input))
     }
 
     pub fn delete(&self, id: &str) -> AppResult<()> {
-        // Future: also delete keychain entry for secret_ref.
         let id = id.trim();
         if id.is_empty() {
             return Err(crate::error::AppError::Invalid(

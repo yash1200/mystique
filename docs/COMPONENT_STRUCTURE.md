@@ -18,10 +18,10 @@ src/lib/
     │   ├── Select.svelte
     │   └── …
     └── home/                  # Home / connections feature
-        ├── EnginePicker.svelte      # Step 1: choose Postgres / Mongo / SQLite
         ├── ConnectionSidebar.svelte
         ├── ConnectionDetail.svelte
-        ├── NewConnectionPanel.svelte  # Step 2: engine-locked form
+        ├── NewConnectionPanel.svelte  # Create/edit form (engine dropdown)
+        ├── connection-forms/          # Per-engine field groups
         └── …
 ```
 
