@@ -1,7 +1,6 @@
-//! Application services: use-cases on top of storage.
+//! Application services: use-cases on top of storage + connectors.
 //!
-//! IPC / HTTP / CLI adapters call these — never repositories directly.
-//! Later: inject keychain, engine registry, audit sinks here.
+//! IPC / HTTP adapters call these — never repositories or drivers directly.
 
 mod history;
 mod profiles;
@@ -15,18 +14,30 @@ pub use settings::SettingsService;
 
 use std::sync::Arc;
 
+use crate::connectors::ConnectionManager;
 use crate::storage::AppDatabase;
 
-/// Bundle of application services sharing one database.
+/// Bundle of application services.
 ///
 /// Held in Tauri state (or tests) as `Arc<AppServices>`.
 pub struct AppServices {
     pub db: Arc<AppDatabase>,
+    pub connections: Arc<ConnectionManager>,
 }
 
 impl AppServices {
     pub fn new(db: AppDatabase) -> Self {
-        Self { db: Arc::new(db) }
+        Self {
+            db: Arc::new(db),
+            connections: Arc::new(ConnectionManager::bootstrap()),
+        }
+    }
+
+    pub fn with_connections(db: AppDatabase, connections: ConnectionManager) -> Self {
+        Self {
+            db: Arc::new(db),
+            connections: Arc::new(connections),
+        }
     }
 
     pub fn profiles(&self) -> ProfileService<'_> {
@@ -43,5 +54,9 @@ impl AppServices {
 
     pub fn settings(&self) -> SettingsService<'_> {
         SettingsService { db: &self.db }
+    }
+
+    pub fn connections(&self) -> Arc<ConnectionManager> {
+        Arc::clone(&self.connections)
     }
 }

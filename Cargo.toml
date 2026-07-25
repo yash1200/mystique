@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/mystique-core", "src-tauri"]
+members = [
+    "crates/mystique-connector-api",
+    "crates/mystique-core",
+    "crates/plugins/mystique-plugin-postgres",
+    "crates/plugins/mystique-plugin-sqlite",
+    "crates/plugins/mystique-plugin-mongodb",
+    "src-tauri",
+]
 
 # Shared release profile for all workspace members
 [profile.release]

@@ -1,5 +1,6 @@
-//! Shared application errors (storage + services + future plugins).
+//! Shared application errors (storage + services + connectors).
 
+use mystique_connector_api::ConnectorError;
 use serde::Serialize;
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -20,6 +21,9 @@ pub enum AppError {
 
     #[error("invalid input: {0}")]
     Invalid(String),
+
+    #[error("connector error: {0}")]
+    Connector(#[from] ConnectorError),
 
     #[error("internal error: {0}")]
     Internal(String),

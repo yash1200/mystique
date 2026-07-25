@@ -1,28 +1,31 @@
 //! # mystique-core
 //!
-//! Domain logic and local persistence for MystiqueDB.
-//!
-//! ## Layers
+//! Domain logic, local persistence, and engine connection management.
 //!
 //! ```text
 //! domain/          Pure types (no I/O)
-//! storage/         Persistence adapters (sqlite today; keychain later)
-//! application/     Use-case services (profiles, query library, …)
+//! storage/         Local app SQLite (profiles, history, …)
+//! application/     Use-case services
+//! connectors/      Registry + ConnectionManager (engine pools)
 //! ```
 //!
-//! ## Future
-//!
-//! - `connectors/` or separate crates: `mystique-plugin-postgres`, …
-//! - Services orchestrate connectors + storage without knowing Tauri.
-//!
-//! The Tauri shell (`src-tauri`) only wires IPC → `AppServices`.
+//! Engine drivers live in plugin crates. Core only depends on
+//! `mystique-connector-api` + plugin entry points.
 
 pub mod application;
+pub mod connectors;
 pub mod domain;
 pub mod error;
 pub mod storage;
 
 pub use application::AppServices;
+pub use connectors::{ConnectionManager, ConnectorRegistry, OpenSessionRequest};
 pub use domain::*;
 pub use error::{AppError, AppResult};
 pub use storage::AppDatabase;
+
+// Re-export API types for IPC adapters
+pub use mystique_connector_api::{
+    ConnectionConfig, EngineCapabilities, EngineDescriptor, PoolConfig, PoolStatus, SessionInfo,
+    TestResult,
+};

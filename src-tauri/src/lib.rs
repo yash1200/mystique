@@ -38,6 +38,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // engines / connection pools
+            ipc::engines::list_engines,
+            ipc::engines::test_engine_connection,
+            ipc::engines::open_engine_session,
+            ipc::engines::close_engine_session,
+            ipc::engines::ping_engine_session,
+            ipc::engines::engine_session_pool_status,
+            ipc::engines::list_engine_sessions,
+            ipc::engines::get_engine_session,
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

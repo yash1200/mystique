@@ -131,15 +131,21 @@ Bundles are written under `src-tauri/target/release/bundle/` (format depends on 
 
 ```
 mystique-db/
-├── crates/mystique-core/  # Rust domain + local SQLite app DB
-├── docs/                  # PRD, architecture, design language, KANBAN
+├── crates/
+│   ├── mystique-connector-api/   # SPI (traits, DTOs, pool types) — no drivers
+│   ├── mystique-core/            # domain, local app DB, ConnectionManager
+│   └── plugins/
+│       ├── mystique-plugin-postgres/  # deadpool pool
+│       ├── mystique-plugin-sqlite/    # r2d2 pool
+│       └── mystique-plugin-mongodb/   # driver client pool
+├── docs/                  # PRD, architecture, design language, kanban.html
 ├── src/                   # SvelteKit frontend
-│   ├── lib/components/    # ui/* primitives + home/* (engine picker, …)
-│   └── routes/
-├── src-tauri/             # Tauri shell + IPC
+├── src-tauri/             # Tauri shell + IPC API
 ├── package.json
-└── Cargo.toml             # workspace
+└── Cargo.toml
 ```
+
+**Engine pool API (Tauri invoke):** `list_engines`, `test_engine_connection`, `open_engine_session`, `close_engine_session`, `ping_engine_session`, `engine_session_pool_status`, `list_engine_sessions`. See `docs/BACKEND_STRUCTURE.md`.
 
 Product docs: [`docs/PRD.md`](docs/PRD.md) · kanban board: open **[`docs/kanban.html`](docs/kanban.html)** in a browser (also [`docs/KANBAN.md`](docs/KANBAN.md))
 

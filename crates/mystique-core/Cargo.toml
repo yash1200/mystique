@@ -2,16 +2,24 @@
 name = "mystique-core"
 version = "0.1.0"
 edition = "2021"
-description = "MystiqueDB domain logic, local storage, and application services"
+description = "MystiqueDB domain logic, local storage, connectors, and application services"
 publish = false
 
 [dependencies]
+mystique-connector-api = { path = "../mystique-connector-api" }
+mystique-plugin-postgres = { path = "../plugins/mystique-plugin-postgres" }
+mystique-plugin-sqlite = { path = "../plugins/mystique-plugin-sqlite" }
+mystique-plugin-mongodb = { path = "../plugins/mystique-plugin-mongodb" }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+async-trait = "0.1"
 
 [dev-dependencies]
 serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
