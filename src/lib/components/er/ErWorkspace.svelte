@@ -29,7 +29,7 @@
   import { cn } from "$lib/utils/cn";
   import { listDiagrams, saveDiagram, type ErDiagramRecord } from "$lib/api/diagrams";
   import { isTauri } from "$lib/api/tauri";
-  import { diagramToDbml } from "$lib/utils/dbml";
+  import { diagramToDbml, dbmlToDiagram, sampleDbml } from "$lib/utils/dbml";
 
   interface Props {
     family: DataFamily;
@@ -56,9 +56,19 @@
   let saving = $state(false);
   let dirty = $state(false);
   let showGrid = $state(true);
-  /** Right-hand DBML panel (dbdiagram.io-style text view). */
+  /**
+   * Right-hand live DBML panel (read-only export).
+   * Auto-hidden when left DBML editor (source mode) is open.
+   */
   let showDbml = $state(true);
   let dbmlCopied = $state(false);
+  /**
+   * Left-hand DBML source editor — user writes text → Apply builds the canvas.
+   * When true, the right DBML panel is forced closed.
+   */
+  let dbmlSourceMode = $state(false);
+  let dbmlEditorText = $state("");
+  let dbmlParseError = $state<string | null>(null);
 
   /** Undo / redo stacks (diagram snapshots taken before each change). */
   let undoStack = $state<ErDiagramState[]>([]);
@@ -113,8 +123,10 @@
   const selectionCount = $derived(selectedTableIds.length);
   const canUndo = $derived(undoStack.length > 0);
   const canRedo = $derived(redoStack.length > 0);
-  /** Live DBML text generated from the canvas diagram. */
+  /** Live DBML text generated from the canvas diagram (right panel). */
   const dbmlText = $derived(diagramToDbml(diagram, diagramName));
+  /** Right panel only when export view is on AND source editor is off. */
+  const showRightDbml = $derived(showDbml && !dbmlSourceMode);
 
   /** Non-reactive: only reset workspace when the family prop actually changes. */
   let lastInitFamily: DataFamily | null = null;
@@ -139,10 +151,14 @@
     dragWaypoint = null;
     tableClipboard = null;
     newColType = defaultColumnType(f);
+    dbmlSourceMode = false;
+    dbmlEditorText = "";
+    dbmlParseError = null;
+    showDbml = true;
     clearHistory();
     renameHistoryPushed = false;
     toolMsg =
-      "Ctrl+Z undo · Ctrl+Y redo · Ctrl+A select all · Ctrl+C/V copy tables · Right-click Delete.";
+      "DBML editor (left) builds the diagram from text · export panel (right) shows live DBML.";
   });
 
   function uid(p: string) {
@@ -1465,13 +1481,75 @@
   }
 
   function toggleDbml() {
+    // Right export panel — not available while left source editor is open
+    if (dbmlSourceMode) {
+      toolMsg = "Close left DBML editor first to show the right export panel.";
+      return;
+    }
     showDbml = !showDbml;
-    toolMsg = showDbml ? "DBML panel shown." : "DBML panel hidden.";
+    toolMsg = showDbml ? "DBML export panel shown." : "DBML export panel hidden.";
+  }
+
+  function openDbmlSourceEditor() {
+    dbmlSourceMode = true;
+    showDbml = false; // auto-hide right panel
+    dbmlParseError = null;
+    // Seed editor from canvas, or sample if empty-ish
+    const fromCanvas = diagramToDbml(diagram, diagramName);
+    const hasTables = (diagram?.nodes.length ?? 0) > 0;
+    dbmlEditorText = hasTables ? fromCanvas : sampleDbml(family);
+    toolMsg =
+      "DBML editor open — edit text, then Apply to rebuild the diagram. Right export panel hidden.";
+  }
+
+  function closeDbmlSourceEditor() {
+    dbmlSourceMode = false;
+    dbmlParseError = null;
+    toolMsg = "DBML editor closed. Use tools to edit the canvas, or Show DBML for export view.";
+  }
+
+  function toggleDbmlSourceEditor() {
+    if (dbmlSourceMode) closeDbmlSourceEditor();
+    else openDbmlSourceEditor();
+  }
+
+  function pullCanvasIntoEditor() {
+    dbmlEditorText = diagramToDbml(diagram, diagramName);
+    dbmlParseError = null;
+    toolMsg = "Editor loaded from current canvas.";
+  }
+
+  function loadSampleDbml() {
+    dbmlEditorText = sampleDbml(family);
+    dbmlParseError = null;
+    toolMsg = "Sample DBML loaded — click Apply to generate the diagram.";
+  }
+
+  function applyDbmlToCanvas() {
+    const result = dbmlToDiagram(dbmlEditorText, family, diagram);
+    if (!result.ok) {
+      dbmlParseError = result.error;
+      toolMsg = result.error;
+      return;
+    }
+    snapshotBeforeChange();
+    diagram = result.diagram;
+    selectedTableIds = [];
+    selectedEdgeId = null;
+    arrowTool = null;
+    linkFrom = null;
+    draftWaypoints = [];
+    cursorPt = null;
+    showAddCol = false;
+    dbmlParseError = null;
+    markDirty();
+    toolMsg = `Diagram generated from DBML (${result.diagram.nodes.length} tables, ${result.diagram.edges.length} refs).`;
   }
 
   async function copyDbml() {
+    const text = dbmlSourceMode ? dbmlEditorText : dbmlText;
     try {
-      await navigator.clipboard.writeText(dbmlText);
+      await navigator.clipboard.writeText(text);
       dbmlCopied = true;
       toolMsg = "DBML copied to clipboard.";
       setTimeout(() => {
@@ -1587,13 +1665,23 @@
     <Inline gap="sm">
       <Input bind:value={diagramName} class="w-40" inputSize="sm" aria-label="Diagram name" />
       <Button
-        variant={showDbml ? "secondary" : "ghost"}
+        variant={dbmlSourceMode ? "secondary" : "ghost"}
         size="sm"
-        onclick={toggleDbml}
-        aria-pressed={showDbml}
+        onclick={toggleDbmlSourceEditor}
+        aria-pressed={dbmlSourceMode}
       >
-        {showDbml ? "Hide DBML" : "Show DBML"}
+        {dbmlSourceMode ? "Close DBML editor" : "DBML editor"}
       </Button>
+      {#if !dbmlSourceMode}
+        <Button
+          variant={showDbml ? "secondary" : "ghost"}
+          size="sm"
+          onclick={toggleDbml}
+          aria-pressed={showDbml}
+        >
+          {showDbml ? "Hide export" : "Show export"}
+        </Button>
+      {/if}
       <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
       <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
         {saving ? "Saving…" : "Save"}
@@ -1603,188 +1691,255 @@
   </div>
 
   <div class="flex min-h-0 flex-1">
-    <aside class="flex w-56 shrink-0 flex-col gap-2 border-r border-line bg-panel p-3">
-      <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">Tools</p>
-      <Button
-        variant="primary"
-        fullWidth
-        onclick={(e: MouseEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
-          addTable();
-        }}
-      >
-        + Add {meta.nodeLabel.toLowerCase()}
-      </Button>
-
-      <div class="grid grid-cols-2 gap-2">
-        <Button variant="secondary" size="sm" fullWidth onclick={undo} disabled={!canUndo}>
-          Undo
-        </Button>
-        <Button variant="secondary" size="sm" fullWidth onclick={redo} disabled={!canRedo}>
-          Redo
-        </Button>
-      </div>
-
-      <button
-        type="button"
-        class={cn(
-          "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
-          showGrid
-            ? "border-accent bg-accent-muted text-fg"
-            : "border-line bg-input text-fg-secondary hover:border-line-strong",
-        )}
-        onclick={toggleGrid}
-        aria-pressed={showGrid}
-      >
-        <span>Grid</span>
-        <span class="font-mono text-micro uppercase tracking-wide">
-          {showGrid ? "ON" : "OFF"}
-        </span>
-      </button>
-
-      <button
-        type="button"
-        class={cn(
-          "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
-          showDbml
-            ? "border-accent bg-accent-muted text-fg"
-            : "border-line bg-input text-fg-secondary hover:border-line-strong",
-        )}
-        onclick={toggleDbml}
-        aria-pressed={showDbml}
-      >
-        <span>DBML text</span>
-        <span class="font-mono text-micro uppercase tracking-wide">
-          {showDbml ? "ON" : "OFF"}
-        </span>
-      </button>
-
-      <p class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
-        Arrows
-      </p>
-      <div class="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          class={cn(
-            "flex flex-col items-center gap-1 rounded-lg border px-2 py-3 transition-colors",
-            arrowTool === "normal"
-              ? "border-accent bg-accent-muted"
-              : "border-line bg-input hover:border-line-strong",
-          )}
-          onclick={() => setArrowTool(arrowTool === "normal" ? null : "normal")}
+    <aside
+      class={cn(
+        "flex shrink-0 flex-col border-r border-line bg-panel",
+        dbmlSourceMode ? "w-[min(22rem,38vw)]" : "w-56",
+      )}
+    >
+      {#if dbmlSourceMode}
+        <!-- Left DBML source editor (text → diagram); right export is hidden -->
+        <div
+          class="flex h-control shrink-0 items-center justify-between gap-2 border-b border-line px-3"
         >
-          <svg width="36" height="14" class="text-fg" aria-hidden="true">
-            <defs>
-              <marker id="tn" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
-              </marker>
-            </defs>
-            <line
-              x1="2"
-              y1="7"
-              x2="28"
-              y2="7"
-              stroke="currentColor"
-              stroke-width="2"
-              marker-end="url(#tn)"
-            />
-          </svg>
-          <span class="text-caption font-medium text-fg">Normal</span>
-        </button>
-        <button
-          type="button"
-          class={cn(
-            "flex flex-col items-center gap-1 rounded-lg border px-2 py-3 transition-colors",
-            arrowTool === "broken"
-              ? "border-accent bg-accent-muted"
-              : "border-line bg-input hover:border-line-strong",
-          )}
-          onclick={() => setArrowTool(arrowTool === "broken" ? null : "broken")}
-        >
-          <svg width="36" height="14" class="text-fg" aria-hidden="true">
-            <defs>
-              <marker id="tb" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
-              </marker>
-            </defs>
-            <line
-              x1="2"
-              y1="7"
-              x2="28"
-              y2="7"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-dasharray="4 3"
-              marker-end="url(#tb)"
-            />
-          </svg>
-          <span class="text-caption font-medium text-fg">Broken</span>
-        </button>
-      </div>
+          <div class="min-w-0">
+            <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">
+              DBML editor
+            </p>
+            <p class="truncate text-caption text-fg-muted">Text → diagram</p>
+          </div>
+          <Button variant="ghost" size="sm" onclick={closeDbmlSourceEditor}>Close</Button>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3">
+          <div class="flex flex-wrap gap-1.5">
+            <Button variant="primary" size="sm" onclick={applyDbmlToCanvas}>
+              Apply to canvas
+            </Button>
+            <Button variant="secondary" size="sm" onclick={pullCanvasIntoEditor}>
+              From canvas
+            </Button>
+            <Button variant="ghost" size="sm" onclick={loadSampleDbml}>Sample</Button>
+            <Button variant="ghost" size="sm" onclick={copyDbml}>
+              {dbmlCopied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <textarea
+            class="min-h-0 w-full flex-1 resize-none rounded-md border border-line bg-input p-2.5 font-mono text-caption leading-relaxed text-fg placeholder:text-fg-muted focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted"
+            bind:value={dbmlEditorText}
+            spellcheck="false"
+            aria-label="DBML source"
+            placeholder="Table users &#123;&#10;  id integer [primary key]&#10;&#125;"
+          ></textarea>
+          {#if dbmlParseError}
+            <p class="rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5 text-caption text-danger" role="alert">
+              {dbmlParseError}
+            </p>
+          {/if}
+          <p class="text-caption text-fg-muted">
+            Write DBML, then <strong class="text-fg-secondary">Apply</strong>. Right export panel stays hidden in this mode.
+            <a
+              class="text-accent hover:underline"
+              href="https://dbml.dbdiagram.io/docs"
+              target="_blank"
+              rel="noreferrer">Docs</a
+            >
+          </p>
+        </div>
+      {:else}
+        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+          <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">Tools</p>
+          <Button
+            variant="primary"
+            fullWidth
+            onclick={(e: MouseEvent) => {
+              e.preventDefault();
+              e.stopPropagation();
+              addTable();
+            }}
+          >
+            + Add {meta.nodeLabel.toLowerCase()}
+          </Button>
 
-      <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
-        <li>Normal/Broken → source then target column</li>
-        <li>Paths are always 90° (Manhattan / grid)</li>
-        <li>Same table = self-loop; tool clears after link</li>
-        <li>Ctrl+Z / Ctrl+Y undo · redo</li>
-        <li>Ctrl+A · Ctrl+C/V · Right-click Delete</li>
-        <li>Drag path handles to reshape square corridors</li>
-      </ol>
+          <div class="grid grid-cols-2 gap-2">
+            <Button variant="secondary" size="sm" fullWidth onclick={undo} disabled={!canUndo}>
+              Undo
+            </Button>
+            <Button variant="secondary" size="sm" fullWidth onclick={redo} disabled={!canRedo}>
+              Redo
+            </Button>
+          </div>
 
-      {#if linkFrom}
-        <Button variant="secondary" fullWidth onclick={cancelLink}>Cancel link</Button>
-      {/if}
-      {#if selectedEdgeId}
-        <Button variant="ghost" fullWidth onclick={straightenSelectedEdge}>
-          Straighten selected link
-        </Button>
-      {/if}
+          <button
+            type="button"
+            class={cn(
+              "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
+              showGrid
+                ? "border-accent bg-accent-muted text-fg"
+                : "border-line bg-input text-fg-secondary hover:border-line-strong",
+            )}
+            onclick={toggleGrid}
+            aria-pressed={showGrid}
+          >
+            <span>Grid</span>
+            <span class="font-mono text-micro uppercase tracking-wide">
+              {showGrid ? "ON" : "OFF"}
+            </span>
+          </button>
 
-      {#if toolMsg}
-        <p
-          class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary"
-          role="status"
-        >
-          {toolMsg}
-        </p>
-      {/if}
+          <button
+            type="button"
+            class={cn(
+              "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
+              "border-line bg-input text-fg-secondary hover:border-line-strong",
+            )}
+            onclick={openDbmlSourceEditor}
+          >
+            <span>DBML editor</span>
+            <span class="font-mono text-micro uppercase tracking-wide">Text</span>
+          </button>
 
-      {#if diagram && diagram.edges.length > 0}
-        <div class="border-t border-line pt-2">
-          <p class="mb-1 text-label font-semibold text-fg-muted uppercase">Links</p>
-          <ul class="m-0 max-h-36 list-none space-y-1 overflow-auto p-0">
-            {#each diagram.edges as edge (edge.id)}
-              <li>
-                <button
-                  type="button"
-                  class={cn(
-                    "flex w-full items-start justify-between gap-1 rounded-md border px-2 py-1 text-left text-caption",
-                    selectedEdgeId === edge.id
-                      ? "border-accent bg-accent-muted"
-                      : "border-line bg-input",
-                  )}
-                  onclick={() => selectEdge(edge.id)}
-                >
-                  <span class="min-w-0 truncate text-fg-secondary">
-                    {isBroken(edge.kind) ? "┄" : "─"}
-                    {edge.label}
-                  </span>
-                  <span
-                    class="shrink-0 text-danger"
-                    role="button"
-                    tabindex="0"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      deleteEdge(edge.id);
-                    }}
-                  >
-                    ×
-                  </span>
-                </button>
-              </li>
-            {/each}
-          </ul>
+          <button
+            type="button"
+            class={cn(
+              "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
+              showDbml
+                ? "border-accent bg-accent-muted text-fg"
+                : "border-line bg-input text-fg-secondary hover:border-line-strong",
+            )}
+            onclick={toggleDbml}
+            aria-pressed={showDbml}
+          >
+            <span>DBML export</span>
+            <span class="font-mono text-micro uppercase tracking-wide">
+              {showDbml ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          <p class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
+            Arrows
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class={cn(
+                "flex flex-col items-center gap-1 rounded-lg border px-2 py-3 transition-colors",
+                arrowTool === "normal"
+                  ? "border-accent bg-accent-muted"
+                  : "border-line bg-input hover:border-line-strong",
+              )}
+              onclick={() => setArrowTool(arrowTool === "normal" ? null : "normal")}
+            >
+              <svg width="36" height="14" class="text-fg" aria-hidden="true">
+                <defs>
+                  <marker id="tn" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
+                  </marker>
+                </defs>
+                <line
+                  x1="2"
+                  y1="7"
+                  x2="28"
+                  y2="7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  marker-end="url(#tn)"
+                />
+              </svg>
+              <span class="text-caption font-medium text-fg">Normal</span>
+            </button>
+            <button
+              type="button"
+              class={cn(
+                "flex flex-col items-center gap-1 rounded-lg border px-2 py-3 transition-colors",
+                arrowTool === "broken"
+                  ? "border-accent bg-accent-muted"
+                  : "border-line bg-input hover:border-line-strong",
+              )}
+              onclick={() => setArrowTool(arrowTool === "broken" ? null : "broken")}
+            >
+              <svg width="36" height="14" class="text-fg" aria-hidden="true">
+                <defs>
+                  <marker id="tb" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
+                  </marker>
+                </defs>
+                <line
+                  x1="2"
+                  y1="7"
+                  x2="28"
+                  y2="7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-dasharray="4 3"
+                  marker-end="url(#tb)"
+                />
+              </svg>
+              <span class="text-caption font-medium text-fg">Broken</span>
+            </button>
+          </div>
+
+          <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
+            <li>DBML editor → write text → Apply</li>
+            <li>Or draw tables / 90° links on canvas</li>
+            <li>Export panel shows live DBML (right)</li>
+            <li>Ctrl+Z undo · Ctrl+A select all</li>
+          </ol>
+
+          {#if linkFrom}
+            <Button variant="secondary" fullWidth onclick={cancelLink}>Cancel link</Button>
+          {/if}
+          {#if selectedEdgeId}
+            <Button variant="ghost" fullWidth onclick={straightenSelectedEdge}>
+              Straighten selected link
+            </Button>
+          {/if}
+
+          {#if toolMsg}
+            <p
+              class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary"
+              role="status"
+            >
+              {toolMsg}
+            </p>
+          {/if}
+
+          {#if diagram && diagram.edges.length > 0}
+            <div class="border-t border-line pt-2">
+              <p class="mb-1 text-label font-semibold text-fg-muted uppercase">Links</p>
+              <ul class="m-0 max-h-36 list-none space-y-1 overflow-auto p-0">
+                {#each diagram.edges as edge (edge.id)}
+                  <li>
+                    <button
+                      type="button"
+                      class={cn(
+                        "flex w-full items-start justify-between gap-1 rounded-md border px-2 py-1 text-left text-caption",
+                        selectedEdgeId === edge.id
+                          ? "border-accent bg-accent-muted"
+                          : "border-line bg-input",
+                      )}
+                      onclick={() => selectEdge(edge.id)}
+                    >
+                      <span class="min-w-0 truncate text-fg-secondary">
+                        {isBroken(edge.kind) ? "┄" : "─"}
+                        {edge.label}
+                      </span>
+                      <span
+                        class="shrink-0 text-danger"
+                        role="button"
+                        tabindex="0"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          deleteEdge(edge.id);
+                        }}
+                      >
+                        ×
+                      </span>
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </div>
       {/if}
     </aside>
@@ -2142,8 +2297,8 @@
       {/if}
     </div>
 
-    <!-- DBML text panel (dbdiagram.io-style) -->
-    {#if showDbml}
+    <!-- Right DBML export (hidden automatically when left DBML editor is open) -->
+    {#if showRightDbml}
       <aside
         class="flex w-[min(22rem,36vw)] shrink-0 flex-col border-l border-line bg-panel"
         aria-label="DBML text view"
