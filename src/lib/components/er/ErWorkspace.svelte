@@ -335,19 +335,80 @@
     return towardX >= mid ? "right" : "left";
   }
 
-  function edgePoints(edge: ErEdge): ErPoint[] {
-    if (!diagram) return [];
+  function samePoint(a: ErPoint, b: ErPoint, eps = 0.5): boolean {
+    return Math.abs(a.x - b.x) < eps && Math.abs(a.y - b.y) < eps;
+  }
+
+  /**
+   * Force a polyline to axis-aligned (Manhattan / 90°) segments only.
+   * Diagonal spans get a horizontal-then-vertical elbow.
+   */
+  function toOrthogonal(pts: ErPoint[]): ErPoint[] {
+    if (pts.length === 0) return [];
+    const out: ErPoint[] = [{ x: pts[0].x, y: pts[0].y }];
+    for (let i = 1; i < pts.length; i++) {
+      const prev = out[out.length - 1]!;
+      const cur = pts[i]!;
+      if (samePoint(prev, cur)) continue;
+      if (prev.x !== cur.x && prev.y !== cur.y) {
+        // Perfect square corner: horizontal first, then vertical
+        const elbow = { x: cur.x, y: prev.y };
+        if (!samePoint(prev, elbow)) out.push(elbow);
+      }
+      const last = out[out.length - 1]!;
+      if (!samePoint(last, cur)) out.push({ x: cur.x, y: cur.y });
+    }
+    return out;
+  }
+
+  /**
+   * Snap a free pointer position so the segment from `prev` is only
+   * horizontal OR vertical (no diagonal freehand). Grid-snaps the free axis.
+   */
+  function orthoGridSnapFrom(prev: ErPoint, raw: ErPoint): ErPoint {
+    const gx = snapToGrid(raw.x);
+    const gy = snapToGrid(raw.y);
+    const dx = Math.abs(gx - prev.x);
+    const dy = Math.abs(gy - prev.y);
+    if (dx === 0 && dy === 0) return { x: prev.x, y: prev.y };
+    // Dominant axis wins — lock the other coordinate to prev (exact, for column Y)
+    if (dx >= dy) return { x: gx, y: prev.y };
+    return { x: prev.x, y: gy };
+  }
+
+  /**
+   * Default Manhattan elbows between two anchors when the user drew no path.
+   * Mid-X corridor: → · ↓/↑ · →  (or flipped if already aligned).
+   */
+  function defaultManhattanWaypoints(start: ErPoint, end: ErPoint): ErPoint[] {
+    if (Math.abs(start.x - end.x) < 0.5 || Math.abs(start.y - end.y) < 0.5) {
+      // Already a straight H or V run
+      return [];
+    }
+    const midX = snapToGrid((start.x + end.x) / 2);
+    return [
+      { x: midX, y: start.y },
+      { x: midX, y: end.y },
+    ];
+  }
+
+  /** Raw anchors + stored waypoints (may still contain diagonals). */
+  function edgeAnchorsAndWaypoints(edge: ErEdge): {
+    start: ErPoint;
+    end: ErPoint;
+    wps: ErPoint[];
+  } | null {
+    if (!diagram) return null;
     const a = diagram.nodes.find((n) => n.id === edge.from);
     const b = diagram.nodes.find((n) => n.id === edge.to);
-    if (!a || !b) return [];
-    const wps = edge.waypoints ?? [];
+    if (!a || !b) return null;
+    const wps = [...(edge.waypoints ?? [])];
     const self = a.id === b.id;
 
     let start: ErPoint;
     let end: ErPoint;
 
     if (self) {
-      // Self-loop: exit and re-enter on the right (matches auto-route)
       start = columnSideAnchor(a, edge.fromColumnId, "right");
       end = columnSideAnchor(b, edge.toColumnId, "right");
     } else {
@@ -356,11 +417,55 @@
         ? wps[wps.length - 1]!.x
         : columnCenter(a, edge.fromColumnId).x;
       start = columnSideAnchor(a, edge.fromColumnId, sideToward(a, firstToward));
-      // Destination side faces the incoming path
       end = columnSideAnchor(b, edge.toColumnId, sideToward(b, lastFrom));
     }
+    return { start, end, wps };
+  }
 
-    return [start, ...wps, end];
+  /** Full path for rendering — always orthogonal 90° grid corridors. */
+  function edgePoints(edge: ErEdge): ErPoint[] {
+    const raw = edgeAnchorsAndWaypoints(edge);
+    if (!raw) return [];
+    let { start, end, wps } = raw;
+    if (wps.length === 0) {
+      wps = defaultManhattanWaypoints(start, end);
+    }
+    return toOrthogonal([start, ...wps, end]);
+  }
+
+  /**
+   * Recompute stored intermediate corners as pure Manhattan waypoints
+   * (drop endpoints). Used after drag/insert so handles sit on 90° corners.
+   */
+  function normalizeEdgeWaypoints(
+    edge: ErEdge,
+    wps: ErPoint[],
+  ): ErPoint[] {
+    if (!diagram) return wps;
+    const a = diagram.nodes.find((n) => n.id === edge.from);
+    const b = diagram.nodes.find((n) => n.id === edge.to);
+    if (!a || !b) return wps;
+    const self = a.id === b.id;
+    let start: ErPoint;
+    let end: ErPoint;
+    if (self) {
+      start = columnSideAnchor(a, edge.fromColumnId, "right");
+      end = columnSideAnchor(b, edge.toColumnId, "right");
+    } else {
+      const firstToward = wps.length ? wps[0]!.x : columnCenter(b, edge.toColumnId).x;
+      const lastFrom = wps.length
+        ? wps[wps.length - 1]!.x
+        : columnCenter(a, edge.fromColumnId).x;
+      start = columnSideAnchor(a, edge.fromColumnId, sideToward(a, firstToward));
+      end = columnSideAnchor(b, edge.toColumnId, sideToward(b, lastFrom));
+    }
+    const full = toOrthogonal([
+      start,
+      ...wps.map((p) => ({ x: snapToGrid(p.x), y: snapToGrid(p.y) })),
+      end,
+    ]);
+    if (full.length <= 2) return [];
+    return full.slice(1, -1);
   }
 
   function edgePolyline(edge: ErEdge): string {
@@ -369,25 +474,48 @@
     return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   }
 
+  function linkDraftStart(): ErPoint | null {
+    if (!diagram || !linkFrom) return null;
+    const a = diagram.nodes.find((n) => n.id === linkFrom!.tableId);
+    if (!a) return null;
+    const towardX = draftWaypoints[0]?.x
+      ?? cursorPt?.x
+      ?? a.x + TABLE_W + ER_GRID;
+    return columnSideAnchor(a, linkFrom.columnId, sideToward(a, towardX));
+  }
+
+  function linkDraftLast(): ErPoint | null {
+    if (draftWaypoints.length) return draftWaypoints[draftWaypoints.length - 1]!;
+    return linkDraftStart();
+  }
+
   function previewPolyline(): string {
     const from = linkFrom;
     if (!diagram || !from || !cursorPt) return "";
-    const a = diagram.nodes.find((n) => n.id === from.tableId);
-    if (!a) return "";
-    const firstToward = draftWaypoints.length ? draftWaypoints[0]!.x : cursorPt.x;
-    const p0 = columnSideAnchor(a, from.columnId, sideToward(a, firstToward));
-    const pts = [p0, ...draftWaypoints, cursorPt];
+    const p0 = linkDraftStart();
+    if (!p0) return "";
+    const last = linkDraftLast() ?? p0;
+    const tip = orthoGridSnapFrom(last, cursorPt);
+    const pts = toOrthogonal([p0, ...draftWaypoints, tip]);
     return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   }
 
   function segmentMids(edge: ErEdge): { x: number; y: number; insertAt: number }[] {
     const pts = edgePoints(edge);
     const mids: { x: number; y: number; insertAt: number }[] = [];
+    // Only midpoints of real axis-aligned segments; insertAt indexes stored waypoints
+    // insertAt = number of waypoints before this segment in the orth path middle
     for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i]!;
+      const b = pts[i + 1]!;
+      // skip zero-length
+      if (samePoint(a, b)) continue;
       mids.push({
-        x: (pts[i].x + pts[i + 1].x) / 2,
-        y: (pts[i].y + pts[i + 1].y) / 2,
-        insertAt: i,
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        // waypoint index to insert at: segment i in orth path → insert before orth[i+1]
+        // relative to stored waypoints ≈ i (between start and first wp is 0)
+        insertAt: Math.max(0, i),
       });
     }
     return mids;
@@ -459,7 +587,7 @@
       selectOnly(tableId);
       const node = diagram?.nodes.find((n) => n.id === tableId);
       const col = node?.columns.find((c) => c.id === columnId);
-      toolMsg = `From ${node?.name ?? "?"}.${col?.name ?? "?"}. Click a target column (same table = self-loop, or another table). Optional: click grid for path bends.`;
+      toolMsg = `From ${node?.name ?? "?"}.${col?.name ?? "?"}. Click target column (or same table for self-loop). Path is always 90° grid corridors — click empty grid for square bends.`;
       return;
     }
 
@@ -473,19 +601,18 @@
     completeLink(tableId, columnId);
   }
 
-  /** Route a self-loop outside the table when the user did not draw bends. */
+  /** Route a self-loop outside the table as a 90° U: out → vertical → in. */
   function autoSelfLoopWaypoints(
     node: ErNode,
     fromColumnId: string,
     toColumnId: string,
   ): ErPoint[] {
-    const p0 = columnCenter(node, fromColumnId);
-    const pN = columnCenter(node, toColumnId);
-    // Prefer the side with more free space; default to the right of the table
+    const y0 = columnRowY(node, fromColumnId);
+    const y1 = columnRowY(node, toColumnId);
     const loopX = snapToGrid(node.x + TABLE_W + ER_GRID * 3);
     return [
-      { x: loopX, y: snapToGrid(p0.y) },
-      { x: loopX, y: snapToGrid(pN.y) },
+      { x: loopX, y: y0 },
+      { x: loopX, y: y1 },
     ];
   }
 
@@ -535,7 +662,8 @@
       wps = autoSelfLoopWaypoints(fromNode, linkFrom.columnId, toColumnId);
     }
 
-    const edge: ErEdge = {
+    // Build edge then force Manhattan intermediate corners only
+    let edge: ErEdge = {
       id: uid("e"),
       from: linkFrom.tableId,
       to: toTableId,
@@ -545,12 +673,34 @@
       label,
       waypoints: wps,
     };
+    // Default square route if still empty (non-self)
+    if ((edge.waypoints?.length ?? 0) === 0 && fromNode && toNode && !isSelfLoop) {
+      const firstToward = columnCenter(toNode, toColumnId).x;
+      const start = columnSideAnchor(
+        fromNode,
+        linkFrom.columnId,
+        sideToward(fromNode, firstToward),
+      );
+      const end = columnSideAnchor(
+        toNode,
+        toColumnId,
+        sideToward(toNode, start.x),
+      );
+      edge = {
+        ...edge,
+        waypoints: defaultManhattanWaypoints(start, end),
+      };
+    }
+    edge = {
+      ...edge,
+      waypoints: normalizeEdgeWaypoints(edge, edge.waypoints ?? []),
+    };
 
     snapshotBeforeChange();
     diagram = { ...diagram, edges: [...diagram.edges, edge] };
     toolMsg = isSelfLoop
-      ? `Self-loop: ${label}. Arrow tool cleared. Click the path to reshape.`
-      : `Linked: ${label}. Arrow tool cleared. Click the path later to reshape.`;
+      ? `Self-loop: ${label}. 90° path. Arrow tool cleared.`
+      : `Linked: ${label}. 90° grid path. Arrow tool cleared.`;
 
     // Clear linking state AND deselect Normal/Broken tool
     linkFrom = null;
@@ -579,9 +729,14 @@
     if (arrowTool && linkFrom) {
       const pt = canvasPoint(e);
       if (!pt) return;
-      const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
+      const last = linkDraftLast();
+      // Only horizontal/vertical steps on the grid (no free diagonal traces)
+      const snapped = last
+        ? orthoGridSnapFrom(last, pt)
+        : { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
+      if (last && samePoint(last, snapped)) return;
       draftWaypoints = [...draftWaypoints, snapped];
-      toolMsg = `Bend point ${draftWaypoints.length} added. Click more points or click the target column.`;
+      toolMsg = `Square bend ${draftWaypoints.length} (90°). Click more grid points or the target column.`;
       return;
     }
 
@@ -598,22 +753,26 @@
     if (dragWaypoint && diagram) {
       const pt = canvasPoint(e);
       if (!pt) return;
-      const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
       const { edgeId, index } = dragWaypoint;
       if (!dragHistoryPushed) {
         snapshotBeforeChange();
         dragHistoryPushed = true;
       }
-      diagram = {
-        ...diagram,
-        edges: diagram.edges.map((ed) => {
-          if (ed.id !== edgeId) return ed;
-          const wps = [...(ed.waypoints ?? [])];
-          if (index < 0 || index >= wps.length) return ed;
-          wps[index] = snapped;
-          return { ...ed, waypoints: wps };
-        }),
-      };
+      let nextIndex = index;
+      const nextEdges = diagram.edges.map((ed) => {
+        if (ed.id !== edgeId) return ed;
+        const wps = [...(ed.waypoints ?? [])];
+        if (index < 0 || index >= wps.length) return ed;
+        // Free move on grid, then re-force 90° corridors
+        wps[index] = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
+        const normalized = normalizeEdgeWaypoints(ed, wps);
+        nextIndex = Math.min(index, Math.max(0, normalized.length - 1));
+        return { ...ed, waypoints: normalized };
+      });
+      diagram = { ...diagram, edges: nextEdges };
+      if (nextIndex !== index) {
+        dragWaypoint = { edgeId, index: nextIndex };
+      }
       return;
     }
 
@@ -1040,13 +1199,21 @@
     if (!diagram) return;
     const edge = diagram.edges.find((ed) => ed.id === edgeId);
     if (!edge) return;
-    const pt = canvasPoint(e);
-    if (!pt) return;
-    const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
-    const wps = [...(edge.waypoints ?? [])];
-    wps.splice(insertAt, 0, snapped);
+    // insertAt is segment index along the orthogonal display path
+    const pts = edgePoints(edge);
+    if (insertAt < 0 || insertAt >= pts.length - 1) return;
+    const a = pts[insertAt]!;
+    const b = pts[insertAt + 1]!;
+    const mid = {
+      x: snapToGrid((a.x + b.x) / 2),
+      y: snapToGrid((a.y + b.y) / 2),
+    };
+    // Seed waypoints from the full orth path so synthetic elbows become editable
+    const seeded = [...pts.slice(0, insertAt + 1), mid, ...pts.slice(insertAt + 1)];
+    const wps = normalizeEdgeWaypoints(edge, seeded.slice(1, -1));
+    const dragIndex = Math.min(insertAt, Math.max(0, wps.length - 1));
     snapshotBeforeChange();
-    dragHistoryPushed = true; // already snapshotted for this gesture
+    dragHistoryPushed = true;
     diagram = {
       ...diagram,
       edges: diagram.edges.map((ed) =>
@@ -1055,7 +1222,7 @@
     };
     selectedEdgeId = edgeId;
     selectedTableIds = [];
-    dragWaypoint = { edgeId, index: insertAt };
+    dragWaypoint = { edgeId, index: dragIndex };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
 
@@ -1070,10 +1237,10 @@
         if (ed.id !== edgeId) return ed;
         const wps = [...(ed.waypoints ?? [])];
         wps.splice(index, 1);
-        return { ...ed, waypoints: wps };
+        return { ...ed, waypoints: normalizeEdgeWaypoints(ed, wps) };
       }),
     };
-    toolMsg = "Bend point removed.";
+    toolMsg = "Bend point removed (path stays 90°).";
     markDirty();
   }
 
@@ -1082,11 +1249,16 @@
     snapshotBeforeChange();
     diagram = {
       ...diagram,
-      edges: diagram.edges.map((ed) =>
-        ed.id === selectedEdgeId ? { ...ed, waypoints: [] } : ed,
-      ),
+      edges: diagram.edges.map((ed) => {
+        if (ed.id !== selectedEdgeId) return ed;
+        // Reset to default Manhattan elbow corridor
+        const raw = edgeAnchorsAndWaypoints({ ...ed, waypoints: [] });
+        if (!raw) return { ...ed, waypoints: [] };
+        const wps = defaultManhattanWaypoints(raw.start, raw.end);
+        return { ...ed, waypoints: wps };
+      }),
     };
-    toolMsg = "Edge path reset to straight.";
+    toolMsg = "Path reset to default 90° corridor.";
     markDirty();
   }
 
@@ -1312,12 +1484,12 @@
       </div>
 
       <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
-        <li>Normal/Broken → click source then target column</li>
-        <li>Same table = self-loop between columns</li>
-        <li>Tool auto-clears after each link</li>
+        <li>Normal/Broken → source then target column</li>
+        <li>Paths are always 90° (Manhattan / grid)</li>
+        <li>Same table = self-loop; tool clears after link</li>
         <li>Ctrl+Z / Ctrl+Y undo · redo</li>
         <li>Ctrl+A · Ctrl+C/V · Right-click Delete</li>
-        <li>Click path to reshape on grid</li>
+        <li>Drag path handles to reshape square corridors</li>
       </ol>
 
       {#if linkFrom}
