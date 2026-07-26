@@ -13,3 +13,9 @@ yarn.lock
 package-json.lock
 /target
 src-tauri/target
+
+# Accidental ER export dumps
+**/Untitled_*_diagram.png
+**/Untitled_*_diagram.pdf
+src-tauri/*.png
+!src-tauri/icons/**

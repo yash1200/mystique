@@ -331,11 +331,35 @@
      */
     const TICKETS = [
       {
+        id: "T-FE-ER-EXPORT",
+        title: "ER export PNG/PDF with save-location dialog",
+        column: "deployed",
+        tags: ["fe", "p1"],
+        description: "Export full canvas as PNG or PDF. Tauri native save dialog (dialog+fs plugins); browser File System Access API. Commits cb8ba74, 5cf21c2.",
+        related: "exportDiagram.ts · T-FE-060 · #37",
+      },
+      {
+        id: "T-FE-ER-DBML-EDIT",
+        title: "ER left DBML editor (text → diagram)",
+        column: "deployed",
+        tags: ["fe", "p1"],
+        description: "Left textarea Apply builds canvas from Table/Ref DBML; auto-hides right export panel. Parser in utils/dbml.ts. Commit 88d910d.",
+        related: "dbmlToDiagram · ErWorkspace",
+      },
+      {
+        id: "T-FE-ER-ORTHO",
+        title: "ER Manhattan 90° paths + parallel lanes + H tips",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Axis-aligned corridors; stacked tables same-side L/R; arrow tips enter horizontally; parallel A→B links offset. Commits 0192a87–349e696.",
+        related: "ErWorkspace edge routing",
+      },
+            {
         id: "T-FE-ER-DBML",
         title: "ER live DBML panel (dbdiagram-style)",
         column: "deployed",
         tags: ["fe", "p1"],
-        description: "Right-hand DBML text view generated from canvas tables/columns/refs; show/hide + copy. diagramToDbml util.",
+        description: "Right live export + left DBML editor (Apply). diagramToDbml / dbmlToDiagram. Show/hide export; editor auto-hides right panel.",
         related: "ErWorkspace · utils/dbml.ts",
       },
             {
@@ -405,10 +429,10 @@
       {
         id: "T-FE-ER-FAMILY",
         title: "FE ER designer: SQL / NoSQL / Redis families",
-        column: "progress",
+        column: "deployed",
         tags: ["fe", "p0"],
-        description: "/er route with family picker and family-specific tools + canvas (FE only). Live DB model later.",
-        related: "T-FE-013 · routes/er · components/er",
+        description: "/er route + full canvas: multi-select, 90° paths, self-loops, DBML editor/export, PNG/PDF save dialog, undo. Live DB model later.",
+        related: "T-FE-013 · routes/er · ErWorkspace · #50 closed",
       },
       {
         id: "T-FE-TEST",
@@ -616,7 +640,7 @@
       {
         id: "T-FE-013",
         title: "Model view canvas (ER)",
-        column: "progress",
+        column: "deployed",
         tags: ["fe", "p0"],
         description: "Node/edge canvas; zoom/pan/search; click table → data; edge → detail.",
         related: "FEATURES F-REL · depends: T-BE-012",
@@ -782,7 +806,7 @@
       {
         id: "T-FE-060",
         title: "Diagram export PNG/SVG",
-        column: "todo",
+        column: "deployed",
         tags: ["fe", "p2"],
         description: "Export Model view.",
         related: "F-REL-8 · depends: T-FE-013",
