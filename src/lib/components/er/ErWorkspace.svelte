@@ -109,10 +109,17 @@
   const canUndo = $derived(undoStack.length > 0);
   const canRedo = $derived(redoStack.length > 0);
 
+  /** Non-reactive: only reset workspace when the family prop actually changes. */
+  let lastInitFamily: DataFamily | null = null;
+
   $effect(() => {
-    diagram = emptyDiagram(family);
+    const f = family;
+    if (lastInitFamily === f) return;
+    lastInitFamily = f;
+
+    diagram = emptyDiagram(f);
     diagramId = null;
-    diagramName = `Untitled ${FAMILY_META[family].short} diagram`;
+    diagramName = `Untitled ${FAMILY_META[f].short} diagram`;
     selectedTableIds = [];
     selectedEdgeId = null;
     arrowTool = null;
@@ -124,7 +131,7 @@
     ctxMenu = null;
     dragWaypoint = null;
     tableClipboard = null;
-    newColType = defaultColumnType(family);
+    newColType = defaultColumnType(f);
     clearHistory();
     renameHistoryPushed = false;
     toolMsg =
@@ -135,8 +142,14 @@
     return `${p}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
+  /**
+   * Deep-clone diagram for undo history.
+   * Must not use structuredClone — it throws DataCloneError on Svelte 5 $state
+   * proxies, which aborted add/delete before the diagram was updated.
+   * JSON works with $state proxies (enumerable plain data).
+   */
   function cloneDiagram(d: ErDiagramState): ErDiagramState {
-    return structuredClone(d);
+    return JSON.parse(JSON.stringify(d)) as ErDiagramState;
   }
 
   function clearHistory() {
@@ -149,8 +162,12 @@
   /** Call immediately before mutating `diagram` so the prior state is undoable. */
   function snapshotBeforeChange() {
     if (!diagram || historyLocked) return;
-    undoStack = [...undoStack, cloneDiagram(diagram)].slice(-MAX_HISTORY);
-    redoStack = [];
+    try {
+      undoStack = [...undoStack, cloneDiagram(diagram)].slice(-MAX_HISTORY);
+      redoStack = [];
+    } catch (err) {
+      console.warn("ER history snapshot failed", err);
+    }
   }
 
   function markDirty() {
@@ -338,35 +355,43 @@
   }
 
   function addTable() {
-    if (!diagram) return;
+    if (!diagram) {
+      // Ensure we always have a diagram (effect may not have run yet)
+      diagram = emptyDiagram(family);
+    }
     if (arrowTool) {
       linkFrom = null;
       draftWaypoints = [];
       cursorPt = null;
     }
     ctxMenu = null;
-    const n = diagram.nodes.length;
+    const current = diagram;
+    const n = current.nodes.length;
+    const kind: ErNode["kind"] =
+      family === "sql" ? "table" : family === "nosql" ? "collection" : "key_pattern";
     const node: ErNode = {
       id: uid("n"),
-      kind: isSql ? "table" : family === "nosql" ? "collection" : "key_pattern",
-      name: isSql
-        ? `table_${n + 1}`
-        : family === "nosql"
-          ? `collection_${n + 1}`
-          : `key:pattern_${n + 1}`,
+      kind,
+      name:
+        family === "sql"
+          ? `table_${n + 1}`
+          : family === "nosql"
+            ? `collection_${n + 1}`
+            : `key:pattern_${n + 1}`,
       columns: [
         {
           id: uid("c"),
-          name: isSql ? "id" : family === "nosql" ? "_id" : "type",
-          dataType: isSql ? "UUID" : family === "nosql" ? "ObjectId" : "string",
-          pk: isSql || family === "nosql",
+          name: family === "sql" ? "id" : family === "nosql" ? "_id" : "type",
+          dataType:
+            family === "sql" ? "UUID" : family === "nosql" ? "ObjectId" : "string",
+          pk: family === "sql" || family === "nosql",
         },
       ],
       x: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
       y: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
     };
     snapshotBeforeChange();
-    diagram = { ...diagram, nodes: [...diagram.nodes, node] };
+    diagram = { ...current, nodes: [...current.nodes, node] };
     selectOnly(node.id);
     showAddCol = false;
     toolMsg = `Added “${node.name}”.`;
@@ -643,27 +668,38 @@
   function deleteTablesByIds(ids: string[]) {
     if (!diagram || !ids.length) return;
     const set = new Set(ids);
+    // Capture plain array before any state changes
+    const idList = ids.filter(Boolean);
+    if (!idList.length) return;
     snapshotBeforeChange();
+    const nextNodes = diagram.nodes.filter((n) => !set.has(n.id));
+    const nextEdges = diagram.edges.filter(
+      (e) => !set.has(e.from) && !set.has(e.to),
+    );
     diagram = {
       ...diagram,
-      nodes: diagram.nodes.filter((n) => !set.has(n.id)),
-      edges: diagram.edges.filter((e) => !set.has(e.from) && !set.has(e.to)),
+      nodes: nextNodes,
+      edges: nextEdges,
     };
     selectedTableIds = selectedTableIds.filter((id) => !set.has(id));
+    selectedEdgeId = null;
     showAddCol = false;
     ctxMenu = null;
     toolMsg =
-      ids.length === 1 ? "Table deleted." : `Deleted ${ids.length} tables.`;
+      idList.length === 1 ? "Table deleted." : `Deleted ${idList.length} tables.`;
     markDirty();
   }
 
   function deleteSelection() {
-    if (selectedEdgeId && !selectedTableIds.length) {
-      deleteEdge(selectedEdgeId);
+    // Snapshot selection first — menu close / focus changes must not clear it mid-action
+    const tableIds = [...selectedTableIds];
+    const edgeId = selectedEdgeId;
+    if (tableIds.length > 0) {
+      deleteTablesByIds(tableIds);
       return;
     }
-    if (selectedTableIds.length) {
-      deleteTablesByIds([...selectedTableIds]);
+    if (edgeId) {
+      deleteEdge(edgeId);
     }
   }
 
@@ -722,12 +758,24 @@
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if (isEditableTarget(e.target)) {
-      // Still allow undo/redo while typing? Prefer not — let OS handle text undo in inputs.
-      return;
-    }
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+    const isDeleteKey =
+      e.key === "Delete" ||
+      e.key === "Backspace" ||
+      e.code === "Delete" ||
+      e.code === "Backspace";
+
+    // Allow Delete even when focus is in a non-text control; block only real text fields
+    // (except we still want Delete to remove tables when canvas has a selection).
+    if (isEditableTarget(e.target) && !isDeleteKey) {
+      return;
+    }
+    // In text fields, let Backspace edit text; only trap Delete if empty selection of tables
+    if (isEditableTarget(e.target) && isDeleteKey) {
+      // Don't steal Backspace from inputs
+      if (e.key === "Backspace" || e.code === "Backspace") return;
+    }
 
     if (mod && key === "z" && !e.shiftKey) {
       e.preventDefault();
@@ -745,18 +793,21 @@
       return;
     }
     if (mod && key === "c") {
+      if (isEditableTarget(e.target)) return;
       e.preventDefault();
       if (!arrowTool) copySelectedTables();
       return;
     }
     if (mod && key === "v") {
+      if (isEditableTarget(e.target)) return;
       e.preventDefault();
       if (!arrowTool) pasteTables();
       return;
     }
-    if (e.key === "Delete" || e.key === "Backspace") {
+    if (isDeleteKey) {
       if (selectedTableIds.length || selectedEdgeId) {
         e.preventDefault();
+        e.stopPropagation();
         deleteSelection();
       }
       return;
@@ -1079,7 +1130,15 @@
   <div class="flex min-h-0 flex-1">
     <aside class="flex w-56 shrink-0 flex-col gap-2 border-r border-line bg-panel p-3">
       <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">Tools</p>
-      <Button variant="primary" fullWidth onclick={addTable}>
+      <Button
+        variant="primary"
+        fullWidth
+        onclick={(e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          addTable();
+        }}
+      >
         + Add {meta.nodeLabel.toLowerCase()}
       </Button>
 
@@ -1543,7 +1602,10 @@
   <div
     class="fixed inset-0 z-40"
     role="presentation"
-    onclick={() => (ctxMenu = null)}
+    onmousedown={(e) => {
+      e.preventDefault();
+      ctxMenu = null;
+    }}
     oncontextmenu={(e) => {
       e.preventDefault();
       ctxMenu = null;
@@ -1560,7 +1622,9 @@
         type="button"
         role="menuitem"
         class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-fg hover:bg-accent-muted"
-        onclick={() => {
+        onmousedown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           selectAllTables();
           ctxMenu = null;
         }}
@@ -1576,7 +1640,9 @@
           tableClipboard?.length ? "text-fg" : "text-fg-muted",
         )}
         disabled={!tableClipboard?.length}
-        onclick={() => {
+        onmousedown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           pasteTables();
           ctxMenu = null;
         }}
@@ -1590,9 +1656,12 @@
           type="button"
           role="menuitem"
           class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-danger hover:bg-danger/10"
-          onclick={() => {
-            deleteSelection();
+          onmousedown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const ids = [...selectedTableIds];
             ctxMenu = null;
+            deleteTablesByIds(ids);
           }}
         >
           <span>
@@ -1606,7 +1675,9 @@
         type="button"
         role="menuitem"
         class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-fg hover:bg-accent-muted"
-        onclick={() => {
+        onmousedown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           copySelectedTables();
           ctxMenu = null;
         }}
@@ -1622,7 +1693,9 @@
           tableClipboard?.length ? "text-fg" : "text-fg-muted",
         )}
         disabled={!tableClipboard?.length}
-        onclick={() => {
+        onmousedown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           pasteTables();
           ctxMenu = null;
         }}
@@ -1635,9 +1708,19 @@
         type="button"
         role="menuitem"
         class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-danger hover:bg-danger/10"
-        onclick={() => {
-          deleteSelection();
+        onmousedown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          // Capture selection before menu tears down
+          const ids =
+            selectedTableIds.length > 0
+              ? [...selectedTableIds]
+              : ctxMenu?.tableId
+                ? [ctxMenu.tableId]
+                : [];
           ctxMenu = null;
+          if (ids.length) deleteTablesByIds(ids);
+          else deleteSelection();
         }}
       >
         <span>
