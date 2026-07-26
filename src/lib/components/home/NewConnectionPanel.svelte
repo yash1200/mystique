@@ -192,7 +192,15 @@
     description={isEdit
       ? "Update connection details. Leave password blank to keep the current password."
       : "Choose an engine and fill in how Mystique should reach this database."}
-  />
+  >
+    {#snippet actions()}
+      {#if oncancel}
+        <Button variant="ghost" onclick={oncancel} disabled={saving || testing}>
+          ← Back
+        </Button>
+      {/if}
+    {/snippet}
+  </PageHeader>
 
   <form class="m-0" onsubmit={submit}>
     <Stack gap="md">
@@ -288,7 +296,9 @@
 
       <Inline gap="sm" justify="end">
         {#if oncancel}
-          <Button variant="ghost" onclick={oncancel} disabled={saving || testing}>Cancel</Button>
+          <Button variant="ghost" onclick={oncancel} disabled={saving || testing}>
+            ← Back
+          </Button>
         {/if}
         <Button
           type="button"

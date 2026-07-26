@@ -93,7 +93,8 @@
       </span>
       <span class="text-body-lg font-semibold text-fg">Create ER</span>
       <span class="mt-1.5 text-body text-fg-secondary">
-        Design or open a model / ER diagram for your schemas and relationships.
+        Open the model designer — choose SQL, NoSQL, or Redis and sketch tables,
+        collections, or key patterns (FE canvas).
       </span>
     </button>
   </div>

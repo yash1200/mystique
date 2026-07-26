@@ -142,10 +142,8 @@
   }
 
   function startCreateEr() {
-    showToast(
-      "info",
-      "Create ER / Model designer is coming next — connect to a database first for live model view, or stay tuned.",
-    );
+    // Full-window FE ER designer (SQL / NoSQL / Redis families).
+    goto("/er");
   }
 
   function startEdit() {
@@ -365,7 +363,7 @@
       );
       showToast(
         "info",
-        "Opening workspace with sample data (FE preview — run `yarn tauri dev` for live DB).",
+        "Opening workspace with sample data (FE preview — run `npm run tauri dev` for live DB).",
       );
       await openWorkspace(selected);
       return;
@@ -482,33 +480,46 @@
 
   <main class="flex h-full min-w-0 flex-1 flex-col">
     <div
-      class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4"
+      class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-5"
     >
-      <div class="flex min-w-0 items-center gap-1.5 text-caption text-fg">
+      <div class="flex min-w-0 flex-1 items-center gap-2 text-body text-fg">
+        {#if !showHome || creating || editing || selected}
+          <Button
+            variant="ghost"
+            size="sm"
+            onclick={() => {
+              if (creating || editing) cancelForm();
+              else enterHomeMode();
+            }}
+          >
+            ← Back
+          </Button>
+          <span class="text-fg-muted" aria-hidden="true">|</span>
+        {/if}
         <button
           type="button"
-          class="border-none bg-transparent p-0 text-caption text-fg-muted hover:text-accent hover:underline"
+          class="border-none bg-transparent p-0 text-body font-medium text-fg-muted hover:text-accent"
           onclick={enterHomeMode}
         >
           Home
         </button>
         <span class="text-fg-muted">/</span>
         {#if showHome && !creating && !editing && !selected}
-          <span>Start</span>
+          <span class="text-body font-semibold text-fg">Start</span>
         {:else if creating}
-          <span>New connection</span>
+          <span class="text-body font-semibold text-fg">New connection</span>
         {:else if editing && selected}
-          <span>Edit · {selected.name}</span>
+          <span class="text-body font-semibold text-fg">Edit · {selected.name}</span>
         {:else if selected}
-          <span>{selected.name}</span>
+          <span class="text-body font-semibold text-fg">{selected.name}</span>
         {:else}
-          <span>Start</span>
+          <span class="text-body font-semibold text-fg">Start</span>
         {/if}
         {#if loading}
-          <span class="text-fg-muted">· Loading…</span>
+          <span class="text-body text-fg-muted">· Loading…</span>
         {/if}
         {#if !isTauri()}
-          <span class="text-fg-muted">· FE preview</span>
+          <span class="text-body text-fg-muted">· FE preview</span>
         {/if}
       </div>
       <ThemeToggle preference={themePref} onchange={setThemePref} />

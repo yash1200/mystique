@@ -94,7 +94,7 @@
   --spacing-control-sm: 1.75rem; /* 28px */
   --spacing-control: 2.125rem; /* 34px */
   --spacing-control-lg: 2.5rem; /* 40px */
-  --spacing-topbar: 2.75rem; /* 44px */
+  --spacing-topbar: 3.25rem; /* 52px — room for Home breadcrumb + Back */
   --spacing-row: var(--row-height);
 }
 
@@ -182,13 +182,13 @@
 }
 
 @utility h-topbar {
-  height: 2.75rem;
+  height: 3.25rem; /* 52px — matches --spacing-topbar */
 }
 
 /* Workspace pane footers (sessions · explorer · data grid) — keep aligned */
 @utility h-statusbar {
-  height: 2.75rem; /* 44px — matches h-topbar */
-  min-height: 2.75rem;
+  height: 3.25rem;
+  min-height: 3.25rem;
 }
 
 @utility min-h-row {

@@ -331,6 +331,22 @@
      */
     const TICKETS = [
       {
+        id: "T-FE-HOME",
+        title: "Home intro: Create connection / Create ER + list",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Landing screen with two primary actions and previous connections list; taller top bar and Back navigation.",
+        related: "HomeIntro.svelte · +page.svelte",
+      },
+      {
+        id: "T-FE-ER-FAMILY",
+        title: "FE ER designer: SQL / NoSQL / Redis families",
+        column: "progress",
+        tags: ["fe", "p0"],
+        description: "/er route with family picker and family-specific tools + canvas (FE only). Live DB model later.",
+        related: "T-FE-013 · routes/er · components/er",
+      },
+      {
         id: "T-FE-TEST",
         title: "Test connection wired FE → BE",
         column: "deployed",
@@ -536,7 +552,7 @@
       {
         id: "T-FE-013",
         title: "Model view canvas (ER)",
-        column: "todo",
+        column: "progress",
         tags: ["fe", "p0"],
         description: "Node/edge canvas; zoom/pan/search; click table → data; edge → detail.",
         related: "FEATURES F-REL · depends: T-BE-012",
