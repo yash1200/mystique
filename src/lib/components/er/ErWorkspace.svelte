@@ -6,6 +6,7 @@
    * - Right-click delete (table or canvas selection)
    * - Family-specific column type dropdowns
    * - Path reshape on grid + grid toggle
+   * - Undo / redo (Ctrl+Z / Ctrl+Y)
    */
   import type {
     DataFamily,
@@ -41,6 +42,7 @@
   const HEADER_H = 40;
   const ROW_H = 30;
   const PASTE_OFFSET = ER_GRID * 2;
+  const MAX_HISTORY = 80;
 
   let diagram = $state<ErDiagramState | null>(null);
   let diagramId = $state<string | null>(null);
@@ -52,6 +54,16 @@
   let saving = $state(false);
   let dirty = $state(false);
   let showGrid = $state(true);
+
+  /** Undo / redo stacks (diagram snapshots taken before each change). */
+  let undoStack = $state<ErDiagramState[]>([]);
+  let redoStack = $state<ErDiagramState[]>([]);
+  /** When true, mutations must not push new history (undo/redo apply). */
+  let historyLocked = false;
+  /** Snapshot once per continuous drag (tables / waypoints). */
+  let dragHistoryPushed = false;
+  /** Snapshot once per rename typing session. */
+  let renameHistoryPushed = false;
 
   let arrowTool = $state<"normal" | "broken" | null>(null);
   let linkFrom = $state<{ tableId: string; columnId: string } | null>(null);
@@ -94,6 +106,8 @@
     selectedTableIds.length === 1 ? selectedTableIds[0]! : null,
   );
   const selectionCount = $derived(selectedTableIds.length);
+  const canUndo = $derived(undoStack.length > 0);
+  const canRedo = $derived(redoStack.length > 0);
 
   $effect(() => {
     diagram = emptyDiagram(family);
@@ -111,16 +125,91 @@
     dragWaypoint = null;
     tableClipboard = null;
     newColType = defaultColumnType(family);
+    clearHistory();
+    renameHistoryPushed = false;
     toolMsg =
-      "Ctrl+A select all · Ctrl+C/V copy-paste tables (no links) · Right-click Delete · Type dropdowns per DB family.";
+      "Ctrl+Z undo · Ctrl+Y redo · Ctrl+A select all · Ctrl+C/V copy tables · Right-click Delete.";
   });
 
   function uid(p: string) {
     return `${p}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
+  function cloneDiagram(d: ErDiagramState): ErDiagramState {
+    return structuredClone(d);
+  }
+
+  function clearHistory() {
+    undoStack = [];
+    redoStack = [];
+    historyLocked = false;
+    dragHistoryPushed = false;
+  }
+
+  /** Call immediately before mutating `diagram` so the prior state is undoable. */
+  function snapshotBeforeChange() {
+    if (!diagram || historyLocked) return;
+    undoStack = [...undoStack, cloneDiagram(diagram)].slice(-MAX_HISTORY);
+    redoStack = [];
+  }
+
   function markDirty() {
     dirty = true;
+  }
+
+  function pruneSelectionToDiagram() {
+    if (!diagram) {
+      selectedTableIds = [];
+      selectedEdgeId = null;
+      return;
+    }
+    const nodeIds = new Set(diagram.nodes.map((n) => n.id));
+    selectedTableIds = selectedTableIds.filter((id) => nodeIds.has(id));
+    if (selectedEdgeId && !diagram.edges.some((e) => e.id === selectedEdgeId)) {
+      selectedEdgeId = null;
+    }
+  }
+
+  function undo() {
+    if (!diagram || undoStack.length === 0) {
+      toolMsg = "Nothing to undo.";
+      return;
+    }
+    historyLocked = true;
+    redoStack = [cloneDiagram(diagram), ...redoStack].slice(0, MAX_HISTORY);
+    diagram = undoStack[undoStack.length - 1]!;
+    undoStack = undoStack.slice(0, -1);
+    linkFrom = null;
+    draftWaypoints = [];
+    cursorPt = null;
+    showAddCol = false;
+    ctxMenu = null;
+    dragWaypoint = null;
+    pruneSelectionToDiagram();
+    dirty = true;
+    historyLocked = false;
+    toolMsg = "Undid last change.";
+  }
+
+  function redo() {
+    if (!diagram || redoStack.length === 0) {
+      toolMsg = "Nothing to redo.";
+      return;
+    }
+    historyLocked = true;
+    undoStack = [...undoStack, cloneDiagram(diagram)].slice(-MAX_HISTORY);
+    diagram = redoStack[0]!;
+    redoStack = redoStack.slice(1);
+    linkFrom = null;
+    draftWaypoints = [];
+    cursorPt = null;
+    showAddCol = false;
+    ctxMenu = null;
+    dragWaypoint = null;
+    pruneSelectionToDiagram();
+    dirty = true;
+    historyLocked = false;
+    toolMsg = "Redid last change.";
   }
 
   function isEditableTarget(t: EventTarget | null): boolean {
@@ -276,6 +365,7 @@
       x: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
       y: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
     };
+    snapshotBeforeChange();
     diagram = { ...diagram, nodes: [...diagram.nodes, node] };
     selectOnly(node.id);
     showAddCol = false;
@@ -355,12 +445,14 @@
       waypoints: wps,
     };
 
+    snapshotBeforeChange();
     diagram = { ...diagram, edges: [...diagram.edges, edge] };
-    toolMsg = `Linked: ${label}. Click the path to reshape.`;
+    toolMsg = `Linked: ${label}. Click the path later to reshape (Ctrl+Z to undo).`;
     linkFrom = null;
     draftWaypoints = [];
     cursorPt = null;
-    selectedEdgeId = edge.id;
+    // Leave the new arrow unselected so the canvas stays ready for the next action
+    selectedEdgeId = null;
     selectedTableIds = [];
     markDirty();
   }
@@ -403,6 +495,10 @@
       if (!pt) return;
       const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
       const { edgeId, index } = dragWaypoint;
+      if (!dragHistoryPushed) {
+        snapshotBeforeChange();
+        dragHistoryPushed = true;
+      }
       diagram = {
         ...diagram,
         edges: diagram.edges.map((ed) => {
@@ -430,7 +526,13 @@
       if (!origin) return;
       const dx = x - origin.x;
       const dy = y - origin.y;
-      if (dx !== 0 || dy !== 0) didDrag = true;
+      if (dx !== 0 || dy !== 0) {
+        if (!dragHistoryPushed) {
+          snapshotBeforeChange();
+          dragHistoryPushed = true;
+        }
+        didDrag = true;
+      }
       diagram = {
         ...diagram,
         nodes: diagram.nodes.map((n) => {
@@ -448,7 +550,13 @@
     }
 
     const cur = diagram.nodes.find((n) => n.id === dragTableId);
-    if (cur && (cur.x !== x || cur.y !== y)) didDrag = true;
+    if (cur && (cur.x !== x || cur.y !== y)) {
+      if (!dragHistoryPushed) {
+        snapshotBeforeChange();
+        dragHistoryPushed = true;
+      }
+      didDrag = true;
+    }
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) => (n.id === dragTableId ? { ...n, x, y } : n)),
@@ -480,10 +588,12 @@
     const rect = canvasEl.getBoundingClientRect();
     dragTableId = tableId;
     didDrag = false;
+    dragHistoryPushed = false;
     dragOffX = e.clientX - rect.left + canvasEl.scrollLeft - node.x;
     dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y;
     selectedEdgeId = null;
     ctxMenu = null;
+    renameHistoryPushed = false;
 
     if (selectedTableIds.includes(tableId) && selectedTableIds.length > 1) {
       multiDragOrigins = {};
@@ -533,6 +643,7 @@
   function deleteTablesByIds(ids: string[]) {
     if (!diagram || !ids.length) return;
     const set = new Set(ids);
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       nodes: diagram.nodes.filter((n) => !set.has(n.id)),
@@ -603,6 +714,7 @@
       x: n.x + PASTE_OFFSET,
       y: n.y + PASTE_OFFSET,
     }));
+    snapshotBeforeChange();
     diagram = { ...diagram, nodes: [...diagram.nodes, ...pasted] };
     setSelection(newIds);
     toolMsg = `Pasted ${pasted.length} table(s) (no relationships).`;
@@ -610,21 +722,34 @@
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if (isEditableTarget(e.target)) return;
-    // Only when focus is in the workspace-ish UI
+    if (isEditableTarget(e.target)) {
+      // Still allow undo/redo while typing? Prefer not — let OS handle text undo in inputs.
+      return;
+    }
     const mod = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
 
-    if (mod && e.key.toLowerCase() === "a") {
+    if (mod && key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+      return;
+    }
+    if (mod && (key === "y" || (key === "z" && e.shiftKey))) {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (mod && key === "a") {
       e.preventDefault();
       if (!arrowTool) selectAllTables();
       return;
     }
-    if (mod && e.key.toLowerCase() === "c") {
+    if (mod && key === "c") {
       e.preventDefault();
       if (!arrowTool) copySelectedTables();
       return;
     }
-    if (mod && e.key.toLowerCase() === "v") {
+    if (mod && key === "v") {
       e.preventDefault();
       if (!arrowTool) pasteTables();
       return;
@@ -648,6 +773,10 @@
 
   function renameTable(name: string) {
     if (!diagram || !primaryTableId) return;
+    if (!renameHistoryPushed) {
+      snapshotBeforeChange();
+      renameHistoryPushed = true;
+    }
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
@@ -659,6 +788,7 @@
 
   function updateColumnType(tableId: string, colId: string, dataType: string) {
     if (!diagram) return;
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
@@ -688,6 +818,7 @@
       dataType: newColType || defaultColumnType(family),
       pk: newColPk,
     };
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) => {
@@ -710,6 +841,7 @@
 
   function deleteColumn(colId: string) {
     if (!diagram || !primaryTableId) return;
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
@@ -726,6 +858,7 @@
 
   function deleteEdge(edgeId: string) {
     if (!diagram) return;
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       edges: diagram.edges.filter((e) => e.id !== edgeId),
@@ -753,6 +886,7 @@
     e.preventDefault();
     selectedEdgeId = edgeId;
     selectedTableIds = [];
+    dragHistoryPushed = false;
     dragWaypoint = { edgeId, index };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
@@ -780,6 +914,8 @@
     const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
     const wps = [...(edge.waypoints ?? [])];
     wps.splice(insertAt, 0, snapped);
+    snapshotBeforeChange();
+    dragHistoryPushed = true; // already snapshotted for this gesture
     diagram = {
       ...diagram,
       edges: diagram.edges.map((ed) =>
@@ -796,6 +932,7 @@
     e.stopPropagation();
     e.preventDefault();
     if (!diagram) return;
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       edges: diagram.edges.map((ed) => {
@@ -811,6 +948,7 @@
 
   function straightenSelectedEdge() {
     if (!diagram || !selectedEdgeId) return;
+    snapshotBeforeChange();
     diagram = {
       ...diagram,
       edges: diagram.edges.map((ed) =>
@@ -890,6 +1028,8 @@
       diagramName = rec.name;
       dirty = false;
       selectedTableIds = [];
+      selectedEdgeId = null;
+      clearHistory();
       toolMsg = `Loaded “${rec.name}”.`;
     } catch (e) {
       toolMsg = e instanceof Error ? e.message : String(e);
@@ -942,6 +1082,15 @@
       <Button variant="primary" fullWidth onclick={addTable}>
         + Add {meta.nodeLabel.toLowerCase()}
       </Button>
+
+      <div class="grid grid-cols-2 gap-2">
+        <Button variant="secondary" size="sm" fullWidth onclick={undo} disabled={!canUndo}>
+          Undo
+        </Button>
+        <Button variant="secondary" size="sm" fullWidth onclick={redo} disabled={!canRedo}>
+          Redo
+        </Button>
+      </div>
 
       <button
         type="button"
@@ -1025,6 +1174,7 @@
 
       <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
         <li>Normal/Broken → columns to link</li>
+        <li>Ctrl+Z / Ctrl+Y undo · redo</li>
         <li>Ctrl+A select all tables</li>
         <li>Ctrl+C / Ctrl+V copy-paste (no links)</li>
         <li>Right-click → Delete</li>
