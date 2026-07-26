@@ -416,22 +416,47 @@
       selectOnly(tableId);
       const node = diagram?.nodes.find((n) => n.id === tableId);
       const col = node?.columns.find((c) => c.id === columnId);
-      toolMsg = `From ${node?.name ?? "?"}.${col?.name ?? "?"}. Click empty grid to bend the path, or click a column on another table to finish.`;
+      toolMsg = `From ${node?.name ?? "?"}.${col?.name ?? "?"}. Click a target column (same table = self-loop, or another table). Optional: click grid for path bends.`;
       return;
     }
 
-    if (linkFrom.tableId === tableId) {
-      linkFrom = { tableId, columnId };
-      draftWaypoints = [];
-      toolMsg = "Source column updated. Now click a column on another table.";
+    // Same column as source → ignore / re-prompt
+    if (linkFrom.tableId === tableId && linkFrom.columnId === columnId) {
+      toolMsg = "Pick a different target column (self-loop needs two columns on this table).";
       return;
     }
 
+    // Same table, different column → self-relationship; other table → normal FK
     completeLink(tableId, columnId);
+  }
+
+  /** Route a self-loop outside the table when the user did not draw bends. */
+  function autoSelfLoopWaypoints(
+    node: ErNode,
+    fromColumnId: string,
+    toColumnId: string,
+  ): ErPoint[] {
+    const p0 = columnCenter(node, fromColumnId);
+    const pN = columnCenter(node, toColumnId);
+    // Prefer the side with more free space; default to the right of the table
+    const loopX = snapToGrid(node.x + TABLE_W + ER_GRID * 3);
+    return [
+      { x: loopX, y: snapToGrid(p0.y) },
+      { x: loopX, y: snapToGrid(pN.y) },
+    ];
   }
 
   function completeLink(toTableId: string, toColumnId: string) {
     if (!diagram || !linkFrom || !arrowTool) return;
+
+    // Cannot link a column to itself
+    if (
+      linkFrom.tableId === toTableId &&
+      linkFrom.columnId === toColumnId
+    ) {
+      toolMsg = "Cannot link a column to itself — choose another column.";
+      return;
+    }
 
     const exists = diagram.edges.some(
       (ed) =>
@@ -445,6 +470,8 @@
       linkFrom = null;
       draftWaypoints = [];
       cursorPt = null;
+      // Still exit arrow mode so UI doesn't stay stuck
+      arrowTool = null;
       return;
     }
 
@@ -452,12 +479,18 @@
     const toNode = diagram.nodes.find((n) => n.id === toTableId);
     const fromCol = fromNode?.columns.find((c) => c.id === linkFrom!.columnId);
     const toCol = toNode?.columns.find((c) => c.id === toColumnId);
+    const isSelfLoop = linkFrom.tableId === toTableId;
     const label = `${fromNode?.name}.${fromCol?.name} → ${toNode?.name}.${toCol?.name}`;
     const kind: ErEdgeKind = arrowTool === "broken" ? "broken" : "normal";
-    const wps = draftWaypoints.map((p) => ({
+
+    let wps = draftWaypoints.map((p) => ({
       x: snapToGrid(p.x),
       y: snapToGrid(p.y),
     }));
+    // Self-loop with no user path: auto-route outside the table so the arc is visible
+    if (isSelfLoop && wps.length === 0 && fromNode) {
+      wps = autoSelfLoopWaypoints(fromNode, linkFrom.columnId, toColumnId);
+    }
 
     const edge: ErEdge = {
       id: uid("e"),
@@ -472,11 +505,15 @@
 
     snapshotBeforeChange();
     diagram = { ...diagram, edges: [...diagram.edges, edge] };
-    toolMsg = `Linked: ${label}. Click the path later to reshape (Ctrl+Z to undo).`;
+    toolMsg = isSelfLoop
+      ? `Self-loop: ${label}. Arrow tool cleared. Click the path to reshape.`
+      : `Linked: ${label}. Arrow tool cleared. Click the path later to reshape.`;
+
+    // Clear linking state AND deselect Normal/Broken tool
     linkFrom = null;
     draftWaypoints = [];
     cursorPt = null;
-    // Leave the new arrow unselected so the canvas stays ready for the next action
+    arrowTool = null;
     selectedEdgeId = null;
     selectedTableIds = [];
     markDirty();
@@ -1232,11 +1269,11 @@
       </div>
 
       <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
-        <li>Normal/Broken → columns to link</li>
+        <li>Normal/Broken → click source then target column</li>
+        <li>Same table = self-loop between columns</li>
+        <li>Tool auto-clears after each link</li>
         <li>Ctrl+Z / Ctrl+Y undo · redo</li>
-        <li>Ctrl+A select all tables</li>
-        <li>Ctrl+C / Ctrl+V copy-paste (no links)</li>
-        <li>Right-click → Delete</li>
+        <li>Ctrl+A · Ctrl+C/V · Right-click Delete</li>
         <li>Click path to reshape on grid</li>
       </ol>
 
