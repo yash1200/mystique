@@ -301,12 +301,38 @@
       : "Move mode.";
   }
 
-  function columnCenter(node: ErNode, columnId: string): ErPoint {
+  function columnRowY(node: ErNode, columnId: string): number {
     const idx = Math.max(0, node.columns.findIndex((c) => c.id === columnId));
+    return node.y + HEADER_H + idx * ROW_H + ROW_H / 2;
+  }
+
+  function columnCenter(node: ErNode, columnId: string): ErPoint {
     return {
       x: node.x + TABLE_W / 2,
-      y: node.y + HEADER_H + idx * ROW_H + ROW_H / 2,
+      y: columnRowY(node, columnId),
     };
+  }
+
+  /**
+   * Anchor on the left or right edge of the table at the column row.
+   * Slightly outside the border so the arrowhead is not covered by the card.
+   */
+  function columnSideAnchor(
+    node: ErNode,
+    columnId: string,
+    side: "left" | "right",
+  ): ErPoint {
+    const pad = 4;
+    return {
+      x: side === "left" ? node.x - pad : node.x + TABLE_W + pad,
+      y: columnRowY(node, columnId),
+    };
+  }
+
+  /** Pick left/right side facing the next/prev path point. */
+  function sideToward(node: ErNode, towardX: number): "left" | "right" {
+    const mid = node.x + TABLE_W / 2;
+    return towardX >= mid ? "right" : "left";
   }
 
   function edgePoints(edge: ErEdge): ErPoint[] {
@@ -314,11 +340,27 @@
     const a = diagram.nodes.find((n) => n.id === edge.from);
     const b = diagram.nodes.find((n) => n.id === edge.to);
     if (!a || !b) return [];
-    return [
-      columnCenter(a, edge.fromColumnId),
-      ...(edge.waypoints ?? []),
-      columnCenter(b, edge.toColumnId),
-    ];
+    const wps = edge.waypoints ?? [];
+    const self = a.id === b.id;
+
+    let start: ErPoint;
+    let end: ErPoint;
+
+    if (self) {
+      // Self-loop: exit and re-enter on the right (matches auto-route)
+      start = columnSideAnchor(a, edge.fromColumnId, "right");
+      end = columnSideAnchor(b, edge.toColumnId, "right");
+    } else {
+      const firstToward = wps.length ? wps[0]!.x : columnCenter(b, edge.toColumnId).x;
+      const lastFrom = wps.length
+        ? wps[wps.length - 1]!.x
+        : columnCenter(a, edge.fromColumnId).x;
+      start = columnSideAnchor(a, edge.fromColumnId, sideToward(a, firstToward));
+      // Destination side faces the incoming path
+      end = columnSideAnchor(b, edge.toColumnId, sideToward(b, lastFrom));
+    }
+
+    return [start, ...wps, end];
   }
 
   function edgePolyline(edge: ErEdge): string {
@@ -332,7 +374,8 @@
     if (!diagram || !from || !cursorPt) return "";
     const a = diagram.nodes.find((n) => n.id === from.tableId);
     if (!a) return "";
-    const p0 = columnCenter(a, from.columnId);
+    const firstToward = draftWaypoints.length ? draftWaypoints[0]!.x : cursorPt.x;
+    const p0 = columnSideAnchor(a, from.columnId, sideToward(a, firstToward));
     const pts = [p0, ...draftWaypoints, cursorPt];
     return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   }
@@ -1362,15 +1405,43 @@
           aria-hidden="true"
         >
           <defs>
+            <!-- Destination: solid ▶ chevron (source → destination) -->
             <marker
               id="er-arrow-head"
-              markerWidth="10"
-              markerHeight="10"
-              refX="9"
-              refY="3"
+              viewBox="0 0 14 14"
+              markerWidth="14"
+              markerHeight="14"
+              refX="12"
+              refY="7"
               orient="auto"
+              markerUnits="userSpaceOnUse"
             >
-              <path d="M0,0 L9,3 L0,6 Z" fill="var(--accent)" />
+              <path d="M1,1 L13,7 L1,13 L4,7 Z" fill="#5b8def" stroke="#5b8def" stroke-width="0.5" />
+            </marker>
+            <marker
+              id="er-arrow-head-sel"
+              viewBox="0 0 16 16"
+              markerWidth="16"
+              markerHeight="16"
+              refX="14"
+              refY="8"
+              orient="auto"
+              markerUnits="userSpaceOnUse"
+            >
+              <path d="M1,1 L15,8 L1,15 L4.5,8 Z" fill="#5b8def" stroke="#8eb6ff" stroke-width="1" />
+            </marker>
+            <!-- Source: small filled circle so origin is obvious -->
+            <marker
+              id="er-arrow-tail"
+              viewBox="0 0 10 10"
+              markerWidth="8"
+              markerHeight="8"
+              refX="5"
+              refY="5"
+              orient="auto"
+              markerUnits="userSpaceOnUse"
+            >
+              <circle cx="5" cy="5" r="3.5" fill="#5b8def" stroke="#8eb6ff" stroke-width="1" />
             </marker>
           </defs>
 
@@ -1388,11 +1459,14 @@
             <path
               d={edgePolyline(edge)}
               fill="none"
-              stroke="var(--accent)"
-              stroke-width={selected ? 3 : 2}
-              stroke-dasharray={isBroken(edge.kind) ? "7 5" : "0"}
-              marker-end="url(#er-arrow-head)"
-              opacity="0.95"
+              stroke="#5b8def"
+              stroke-width={selected ? 3 : 2.25}
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-dasharray={isBroken(edge.kind) ? "8 5" : "0"}
+              marker-start="url(#er-arrow-tail)"
+              marker-end={selected ? "url(#er-arrow-head-sel)" : "url(#er-arrow-head)"}
+              opacity="0.98"
               style="pointer-events: none;"
             />
 
@@ -1444,15 +1518,18 @@
             <path
               d={previewPolyline()}
               fill="none"
-              stroke="var(--accent)"
-              stroke-width="2"
-              stroke-dasharray="5 4"
-              opacity="0.75"
+              stroke="#5b8def"
+              stroke-width="2.25"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-dasharray="6 4"
+              opacity="0.85"
+              marker-start="url(#er-arrow-tail)"
               marker-end="url(#er-arrow-head)"
               style="pointer-events: none;"
             />
             {#each draftWaypoints as wp, i}
-              <circle cx={wp.x} cy={wp.y} r="4" fill="var(--accent)" style="pointer-events: none;" />
+              <circle cx={wp.x} cy={wp.y} r="4" fill="#5b8def" style="pointer-events: none;" />
               <text
                 x={wp.x + 6}
                 y={wp.y - 6}
