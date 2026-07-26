@@ -3,10 +3,9 @@ export type DataFamily = "sql" | "nosql" | "redis";
 
 export type ErNodeKind = "table" | "collection" | "key_pattern" | "entity";
 
-/** Normal = solid FK-style; broken = dashed / optional link (like DBeaver). */
+/** Normal = solid FK-style; broken = dashed / optional link. */
 export type ErEdgeKind = "normal" | "broken" | "fk" | "inferred" | "logical" | "key_ref";
 
-/** Column / field on a node. Relationships attach to columns, not whole tables. */
 export interface ErColumn {
   id: string;
   name: string;
@@ -24,18 +23,21 @@ export interface ErNode {
   y: number;
 }
 
+export interface ErPoint {
+  x: number;
+  y: number;
+}
+
 export interface ErEdge {
   id: string;
-  /** Source table / node id */
   from: string;
-  /** Target table / node id */
   to: string;
-  /** Source column id (required for proper FK links) */
   fromColumnId: string;
-  /** Target column id */
   toColumnId: string;
   kind: ErEdgeKind;
   label?: string;
+  /** Optional intermediate points so the user can draw a custom path. */
+  waypoints?: ErPoint[];
 }
 
 export interface ErDiagramState {
@@ -69,24 +71,17 @@ export const SQL_TYPES = [
   "BYTEA",
 ] as const;
 
-/** Canvas grid size (px) — tables snap to this lattice. */
 export const ER_GRID = 24;
 
 export const FAMILY_META: Record<
   DataFamily,
-  {
-    title: string;
-    short: string;
-    description: string;
-    nodeLabel: string;
-    edgeLabel: string;
-  }
+  { title: string; short: string; description: string; nodeLabel: string; edgeLabel: string }
 > = {
   sql: {
     title: "SQL databases",
     short: "SQL",
     description:
-      "Tables on a grid. Link a column on table A to a column on table B (FK-style arrows).",
+      "Tables on a grid. Link a column on table A to a column on table B with normal or broken arrows.",
     nodeLabel: "Table",
     edgeLabel: "Column → column",
   },
@@ -100,29 +95,20 @@ export const FAMILY_META: Record<
   redis: {
     title: "Redis / key-value",
     short: "Redis",
-    description: "Key patterns on a grid; attribute-level logical links.",
+    description: "Key patterns on a grid; attribute-level links.",
     nodeLabel: "Key pattern",
     edgeLabel: "Attr → attr",
   },
 };
 
-function col(
-  id: string,
-  name: string,
-  dataType: string,
-  opts?: { pk?: boolean },
-): ErColumn {
+function col(id: string, name: string, dataType: string, opts?: { pk?: boolean }): ErColumn {
   return { id, name, dataType, pk: opts?.pk };
 }
 
 export function emptyDiagram(family: DataFamily): ErDiagramState {
   if (family === "sql") {
     const cUserId = "c_users_id";
-    const cUserEmail = "c_users_email";
-    const cUserCreated = "c_users_created";
-    const cOrderId = "c_orders_id";
     const cOrderUserId = "c_orders_user_id";
-    const cOrderTotal = "c_orders_total";
     return {
       family: "sql",
       nodes: [
@@ -132,8 +118,8 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           name: "users",
           columns: [
             col(cUserId, "id", "UUID", { pk: true }),
-            col(cUserEmail, "email", "VARCHAR(255)"),
-            col(cUserCreated, "created_at", "TIMESTAMPTZ"),
+            col("c_users_email", "email", "VARCHAR(255)"),
+            col("c_users_created", "created_at", "TIMESTAMPTZ"),
           ],
           x: ER_GRID * 4,
           y: ER_GRID * 4,
@@ -143,9 +129,9 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           kind: "table",
           name: "orders",
           columns: [
-            col(cOrderId, "id", "UUID", { pk: true }),
+            col("c_orders_id", "id", "UUID", { pk: true }),
             col(cOrderUserId, "user_id", "UUID"),
-            col(cOrderTotal, "total", "NUMERIC"),
+            col("c_orders_total", "total", "NUMERIC"),
           ],
           x: ER_GRID * 18,
           y: ER_GRID * 6,
@@ -159,14 +145,13 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           fromColumnId: cOrderUserId,
           toColumnId: cUserId,
           kind: "normal",
-          label: "user_id → users.id",
+          label: "orders.user_id → users.id",
+          waypoints: [],
         },
       ],
     };
   }
   if (family === "nosql") {
-    const a = "c_u_id";
-    const b = "c_o_uid";
     return {
       family: "nosql",
       nodes: [
@@ -175,7 +160,7 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           kind: "collection",
           name: "users",
           columns: [
-            col(a, "_id", "ObjectId", { pk: true }),
+            col("c_u_id", "_id", "ObjectId", { pk: true }),
             col("c_u_email", "email", "string"),
           ],
           x: ER_GRID * 4,
@@ -187,7 +172,7 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           name: "orders",
           columns: [
             col("c_o_id", "_id", "ObjectId", { pk: true }),
-            col(b, "userId", "ObjectId"),
+            col("c_o_uid", "userId", "ObjectId"),
           ],
           x: ER_GRID * 18,
           y: ER_GRID * 6,
@@ -198,16 +183,15 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           id: "e1",
           from: "n2",
           to: "n1",
-          fromColumnId: b,
-          toColumnId: a,
+          fromColumnId: "c_o_uid",
+          toColumnId: "c_u_id",
           kind: "broken",
-          label: "userId → _id",
+          label: "orders.userId → users._id",
+          waypoints: [],
         },
       ],
     };
   }
-  const k1 = "c_r_type";
-  const k2 = "c_s_type";
   return {
     family: "redis",
     nodes: [
@@ -215,7 +199,7 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
         id: "n1",
         kind: "key_pattern",
         name: "user:{id}",
-        columns: [col(k1, "type", "hash"), col("c_r_f", "fields", "name,email")],
+        columns: [col("c_r_type", "type", "hash"), col("c_r_f", "fields", "name,email")],
         x: ER_GRID * 4,
         y: ER_GRID * 4,
       },
@@ -223,7 +207,7 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
         id: "n2",
         kind: "key_pattern",
         name: "session:{token}",
-        columns: [col(k2, "type", "string"), col("c_s_ttl", "TTL", "3600s")],
+        columns: [col("c_s_type", "type", "string"), col("c_s_ttl", "TTL", "3600s")],
         x: ER_GRID * 18,
         y: ER_GRID * 6,
       },
@@ -233,10 +217,11 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
         id: "e1",
         from: "n2",
         to: "n1",
-        fromColumnId: k2,
-        toColumnId: k1,
+        fromColumnId: "c_s_type",
+        toColumnId: "c_r_type",
         kind: "broken",
         label: "session → user",
+        waypoints: [],
       },
     ],
   };

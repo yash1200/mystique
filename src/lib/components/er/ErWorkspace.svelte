@@ -1,4 +1,12 @@
 <script lang="ts">
+  /**
+   * ER canvas — DBeaver-like:
+   * 1) Pick Normal or Broken arrow tool
+   * 2) Click source COLUMN
+   * 3) Optionally click empty canvas to place path bend points
+   * 4) Click target COLUMN on another table → relationship created
+   * Tables drag on a grid when no arrow tool is active.
+   */
   import type {
     DataFamily,
     ErColumn,
@@ -6,6 +14,7 @@
     ErEdge,
     ErEdgeKind,
     ErNode,
+    ErPoint,
   } from "$lib/types/er";
   import {
     ER_GRID,
@@ -27,33 +36,35 @@
 
   let { family, onback, onchangeFamily }: Props = $props();
 
-  const TABLE_W = 240;
+  const TABLE_W = 248;
   const HEADER_H = 40;
-  const ROW_H = 28;
+  const ROW_H = 30;
 
   let diagram = $state<ErDiagramState | null>(null);
   let diagramId = $state<string | null>(null);
   let diagramName = $state("Untitled diagram");
   let selectedTableId = $state<string | null>(null);
+  let selectedEdgeId = $state<string | null>(null);
   let toolMsg = $state<string | null>(null);
   let saving = $state(false);
   let dirty = $state(false);
 
-  /** null = move/select · normal | broken = draw column→column */
+  /** null = move tables · normal | broken = column linking */
   let arrowTool = $state<"normal" | "broken" | null>(null);
-  /** Pending link start: table + column */
-  let linkFrom = $state<{ tableId: string; columnId: string } | null>(null);
 
-  // table drag
+  /** Step 1 of linking: which column we started from */
+  let linkFrom = $state<{ tableId: string; columnId: string } | null>(null);
+  /** Bend points while drawing (before target column is chosen) */
+  let draftWaypoints = $state<ErPoint[]>([]);
+  /** Live cursor for preview line */
+  let cursorPt = $state<ErPoint | null>(null);
+
+  // table drag (only when arrowTool is null)
   let dragTableId = $state<string | null>(null);
   let dragOffX = 0;
   let dragOffY = 0;
+  let didDrag = false;
   let canvasEl: HTMLDivElement | null = $state(null);
-
-  // rubber-band while linking
-  let rubber = $state<{ x1: number; y1: number; x2: number; y2: number } | null>(
-    null,
-  );
 
   let showAddCol = $state(false);
   let newColName = $state("");
@@ -68,12 +79,15 @@
     diagramId = null;
     diagramName = `Untitled ${FAMILY_META[family].short} diagram`;
     selectedTableId = null;
+    selectedEdgeId = null;
     arrowTool = null;
     linkFrom = null;
-    rubber = null;
+    draftWaypoints = [];
+    cursorPt = null;
     showAddCol = false;
     dirty = false;
-    toolMsg = null;
+    toolMsg =
+      "Add a table, or pick Normal/Broken arrow → click source column → (optional path clicks) → target column.";
   });
 
   function uid(p: string) {
@@ -84,8 +98,80 @@
     dirty = true;
   }
 
+  function canvasPoint(e: { clientX: number; clientY: number }): ErPoint | null {
+    if (!canvasEl) return null;
+    const rect = canvasEl.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left + canvasEl.scrollLeft,
+      y: e.clientY - rect.top + canvasEl.scrollTop,
+    };
+  }
+
+  function setArrowTool(kind: "normal" | "broken" | null) {
+    arrowTool = kind;
+    linkFrom = null;
+    draftWaypoints = [];
+    cursorPt = null;
+    selectedEdgeId = null;
+    if (kind === "normal") {
+      toolMsg =
+        "1) Click a column on table A  ·  2) Optional: click canvas to bend the path  ·  3) Click a column on table B";
+    } else if (kind === "broken") {
+      toolMsg =
+        "Broken (dashed) link: click source column → optional path points → target column";
+    } else {
+      toolMsg = "Move mode: drag tables on the grid. Click a table to edit columns.";
+    }
+  }
+
+  function cancelLink() {
+    linkFrom = null;
+    draftWaypoints = [];
+    cursorPt = null;
+    toolMsg = arrowTool
+      ? "Link cancelled. Click a source column to start again."
+      : "Move mode.";
+  }
+
+  function columnCenter(node: ErNode, columnId: string): ErPoint {
+    const idx = Math.max(0, node.columns.findIndex((c) => c.id === columnId));
+    return {
+      x: node.x + TABLE_W / 2,
+      y: node.y + HEADER_H + idx * ROW_H + ROW_H / 2,
+    };
+  }
+
+  /** Straight segments: source → waypoints → target */
+  function edgePolyline(edge: ErEdge): string {
+    if (!diagram) return "";
+    const a = diagram.nodes.find((n) => n.id === edge.from);
+    const b = diagram.nodes.find((n) => n.id === edge.to);
+    if (!a || !b) return "";
+    const p0 = columnCenter(a, edge.fromColumnId);
+    const pN = columnCenter(b, edge.toColumnId);
+    const pts = [p0, ...(edge.waypoints ?? []), pN];
+    return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  }
+
+  function previewPolyline(): string {
+    const from = linkFrom;
+    if (!diagram || !from || !cursorPt) return "";
+    const a = diagram.nodes.find((n) => n.id === from.tableId);
+    if (!a) return "";
+    const p0 = columnCenter(a, from.columnId);
+    const pts = [p0, ...draftWaypoints, cursorPt];
+    return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  }
+
   function addTable() {
     if (!diagram) return;
+    // exit link mode so user can place the table
+    if (arrowTool) {
+      // keep tool, just reset partial link
+      linkFrom = null;
+      draftWaypoints = [];
+      cursorPt = null;
+    }
     const n = diagram.nodes.length;
     const node: ErNode = {
       id: uid("n"),
@@ -103,90 +189,56 @@
           pk: isSql || family === "nosql",
         },
       ],
-      x: snapToGrid(ER_GRID * 3 + (n % 5) * ER_GRID),
-      y: snapToGrid(ER_GRID * 3 + (n % 5) * ER_GRID),
+      x: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
+      y: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
     };
     diagram = { ...diagram, nodes: [...diagram.nodes, node] };
     selectedTableId = node.id;
     showAddCol = false;
-    toolMsg = `Added “${node.name}”. Drag on the grid. Use arrow tools on columns to link.`;
+    toolMsg = `Added “${node.name}”. Drag it on the grid, or use an arrow tool to link columns.`;
     markDirty();
   }
 
-  function setArrowTool(kind: "normal" | "broken" | null) {
-    arrowTool = kind;
-    linkFrom = null;
-    rubber = null;
-    if (kind === "normal") {
-      toolMsg = "Normal arrow: click a column, then the target column on another table.";
-    } else if (kind === "broken") {
-      toolMsg = "Broken arrow: click source column, then target column (dashed link).";
-    } else {
-      toolMsg = "Move mode: drag tables on the grid.";
-    }
-  }
-
-  function columnAnchor(
-    node: ErNode,
-    columnId: string,
-    side: "left" | "right",
-  ): { x: number; y: number } {
-    const idx = Math.max(
-      0,
-      node.columns.findIndex((c) => c.id === columnId),
-    );
-    const y = node.y + HEADER_H + idx * ROW_H + ROW_H / 2;
-    const x = side === "right" ? node.x + TABLE_W : node.x;
-    return { x, y };
-  }
-
-  function edgePath(edge: ErEdge): string {
-    if (!diagram) return "";
-    const a = diagram.nodes.find((n) => n.id === edge.from);
-    const b = diagram.nodes.find((n) => n.id === edge.to);
-    if (!a || !b) return "";
-    // Leave source from right, enter target from left
-    const p1 = columnAnchor(a, edge.fromColumnId, "right");
-    const p2 = columnAnchor(b, edge.toColumnId, "left");
-    const dx = Math.max(40, Math.abs(p2.x - p1.x) * 0.4);
-    return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
-  }
-
-  function onColumnPointerDown(
-    tableId: string,
-    columnId: string,
-    e: PointerEvent,
-  ) {
+  /** Entire column row is the hit target — simple click-click linking. */
+  function onColumnClick(tableId: string, columnId: string, e: MouseEvent) {
     e.stopPropagation();
-    if (!arrowTool || !canvasEl) return;
     e.preventDefault();
-    linkFrom = { tableId, columnId };
-    const node = diagram?.nodes.find((n) => n.id === tableId);
-    if (!node) return;
-    const p = columnAnchor(node, columnId, "right");
-    rubber = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
 
-  function onColumnPointerMove(e: PointerEvent) {
-    if (!linkFrom || !canvasEl || !rubber) return;
-    const rect = canvasEl.getBoundingClientRect();
-    rubber = {
-      ...rubber,
-      x2: e.clientX - rect.left + canvasEl.scrollLeft,
-      y2: e.clientY - rect.top + canvasEl.scrollTop,
-    };
+    // Not in arrow mode → just select table
+    if (!arrowTool) {
+      selectedTableId = tableId;
+      selectedEdgeId = null;
+      showAddCol = false;
+      return;
+    }
+
+    // Arrow mode: first click = source
+    if (!linkFrom) {
+      linkFrom = { tableId, columnId };
+      draftWaypoints = [];
+      selectedTableId = tableId;
+      selectedEdgeId = null;
+      const node = diagram?.nodes.find((n) => n.id === tableId);
+      const col = node?.columns.find((c) => c.id === columnId);
+      toolMsg = `From ${node?.name ?? "?"}.${col?.name ?? "?"}. Click empty grid to bend the path, or click a column on another table to finish.`;
+      return;
+    }
+
+    // Second column click = target
+    if (linkFrom.tableId === tableId) {
+      // Same table: retarget source to this column
+      linkFrom = { tableId, columnId };
+      draftWaypoints = [];
+      toolMsg = "Source column updated. Now click a column on another table.";
+      return;
+    }
+
+    completeLink(tableId, columnId);
   }
 
   function completeLink(toTableId: string, toColumnId: string) {
     if (!diagram || !linkFrom || !arrowTool) return;
-    if (linkFrom.tableId === toTableId) {
-      toolMsg = "Pick a column on a different table.";
-      linkFrom = null;
-      rubber = null;
-      return;
-    }
-    // avoid duplicate
+
     const exists = diagram.edges.some(
       (ed) =>
         ed.from === linkFrom!.tableId &&
@@ -197,15 +249,18 @@
     if (exists) {
       toolMsg = "That column link already exists.";
       linkFrom = null;
-      rubber = null;
+      draftWaypoints = [];
+      cursorPt = null;
       return;
     }
+
     const fromNode = diagram.nodes.find((n) => n.id === linkFrom!.tableId);
     const toNode = diagram.nodes.find((n) => n.id === toTableId);
     const fromCol = fromNode?.columns.find((c) => c.id === linkFrom!.columnId);
     const toCol = toNode?.columns.find((c) => c.id === toColumnId);
     const label = `${fromNode?.name}.${fromCol?.name} → ${toNode?.name}.${toCol?.name}`;
     const kind: ErEdgeKind = arrowTool === "broken" ? "broken" : "normal";
+
     const edge: ErEdge = {
       id: uid("e"),
       from: linkFrom.tableId,
@@ -214,68 +269,41 @@
       toColumnId: toColumnId,
       kind,
       label,
+      waypoints: [...draftWaypoints],
     };
+
     diagram = { ...diagram, edges: [...diagram.edges, edge] };
-    toolMsg = `${kind === "broken" ? "Broken" : "Normal"} link: ${label}`;
+    toolMsg = `Linked: ${label}${draftWaypoints.length ? ` (${draftWaypoints.length} bend point(s))` : " (straight)"}`;
     linkFrom = null;
-    rubber = null;
+    draftWaypoints = [];
+    cursorPt = null;
+    selectedEdgeId = edge.id;
     markDirty();
   }
 
-  function onColumnPointerUp(toTableId: string, toColumnId: string, e: PointerEvent) {
-    e.stopPropagation();
-    if (!linkFrom || !arrowTool) return;
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-    if (
-      linkFrom.tableId === toTableId &&
-      linkFrom.columnId === toColumnId
-    ) {
-      // click without drag — keep start, wait for second column click
-      rubber = null;
-      toolMsg = "Now click the target column on another table.";
+  /** Click empty canvas: add path bend if linking, else deselect */
+  function onCanvasClick(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    // ignore clicks that originated on tables/columns
+    if (t.closest("[data-er-table]") || t.closest("[data-er-column]")) return;
+
+    if (arrowTool && linkFrom) {
+      const pt = canvasPoint(e);
+      if (!pt) return;
+      const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
+      draftWaypoints = [...draftWaypoints, snapped];
+      toolMsg = `Bend point ${draftWaypoints.length} added. Click more points or click the target column.`;
       return;
     }
-    completeLink(toTableId, toColumnId);
+
+    selectedTableId = null;
+    selectedEdgeId = null;
+    showAddCol = false;
   }
 
-  function onColumnClick(tableId: string, columnId: string, e: MouseEvent) {
-    e.stopPropagation();
-    if (!arrowTool) {
-      selectedTableId = tableId;
-      return;
-    }
-    if (!linkFrom) {
-      linkFrom = { tableId, columnId };
-      toolMsg = "Now click the target column.";
-      return;
-    }
-    completeLink(tableId, columnId);
-  }
-
-  function onTablePointerDown(tableId: string, e: PointerEvent) {
-    if (arrowTool) return; // don't drag tables while drawing relations
-    if ((e.target as HTMLElement).closest("[data-col-handle]")) return;
-    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
-    if (!diagram || !canvasEl) return;
-    const node = diagram.nodes.find((n) => n.id === tableId);
-    if (!node) return;
-    const rect = canvasEl.getBoundingClientRect();
-    dragTableId = tableId;
-    dragOffX = e.clientX - rect.left + canvasEl.scrollLeft - node.x;
-    dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y;
-    selectedTableId = tableId;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  function onTablePointerMove(e: PointerEvent) {
-    if (linkFrom && arrowTool && canvasEl && rubber) {
-      onColumnPointerMove(e);
-      return;
+  function onCanvasPointerMove(e: PointerEvent) {
+    if (arrowTool && linkFrom) {
+      cursorPt = canvasPoint(e);
     }
     if (!dragTableId || !diagram || !canvasEl) return;
     const rect = canvasEl.getBoundingClientRect();
@@ -285,6 +313,10 @@
     const y = snapToGrid(
       Math.max(0, e.clientY - rect.top + canvasEl.scrollTop - dragOffY),
     );
+    if (Math.abs(x - (diagram.nodes.find((n) => n.id === dragTableId)?.x ?? x)) > 0 ||
+        Math.abs(y - (diagram.nodes.find((n) => n.id === dragTableId)?.y ?? y)) > 0) {
+      didDrag = true;
+    }
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
@@ -293,11 +325,27 @@
     };
   }
 
+  function onTablePointerDown(tableId: string, e: PointerEvent) {
+    if (arrowTool) return; // no table drag while linking
+    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    if (!diagram || !canvasEl) return;
+    const node = diagram.nodes.find((n) => n.id === tableId);
+    if (!node) return;
+    const rect = canvasEl.getBoundingClientRect();
+    dragTableId = tableId;
+    didDrag = false;
+    dragOffX = e.clientX - rect.left + canvasEl.scrollLeft - node.x;
+    dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y;
+    selectedTableId = tableId;
+    selectedEdgeId = null;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+
   function onTablePointerUp(e: PointerEvent) {
     if (dragTableId) {
-      markDirty();
+      if (didDrag) markDirty();
       try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
       } catch {
         /* ignore */
       }
@@ -384,6 +432,24 @@
       ...diagram,
       edges: diagram.edges.filter((e) => e.id !== edgeId),
     };
+    if (selectedEdgeId === edgeId) selectedEdgeId = null;
+    markDirty();
+  }
+
+  function clearWaypointsOnSelectedEdge() {
+    if (!diagram || !selectedEdgeId) return;
+    diagram = {
+      ...diagram,
+      edges: diagram.edges.map((e) =>
+        e.id === selectedEdgeId ? { ...e, waypoints: [] } : e,
+      ),
+    };
+    toolMsg = "Edge path reset to straight.";
+    markDirty();
+  }
+
+  function markDirtyAndMsg(msg: string) {
+    toolMsg = msg;
     markDirty();
   }
 
@@ -446,9 +512,7 @@
         return;
       }
       const rec = list[0];
-      // migrate old edges without column ids if needed
-      const body = rec.body;
-      diagram = body;
+      diagram = rec.body;
       diagramId = rec.id;
       diagramName = rec.name;
       dirty = false;
@@ -458,7 +522,7 @@
     }
   }
 
-  function edgeKindIsBroken(kind: ErEdgeKind) {
+  function isBroken(kind: ErEdgeKind) {
     return kind === "broken" || kind === "inferred" || kind === "logical";
   }
 </script>
@@ -474,9 +538,17 @@
       {#if dirty}
         <Badge tone="warning" size="sm">Unsaved</Badge>
       {/if}
+      {#if arrowTool}
+        <Badge tone="accent" size="sm">
+          {arrowTool === "broken" ? "Broken arrow" : "Normal arrow"}
+          {#if linkFrom}
+            · pick target
+          {/if}
+        </Badge>
+      {/if}
     </div>
     <Inline gap="sm">
-      <Input bind:value={diagramName} class="w-44" inputSize="sm" aria-label="Diagram name" />
+      <Input bind:value={diagramName} class="w-40" inputSize="sm" aria-label="Diagram name" />
       <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
       <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
         {saving ? "Saving…" : "Save"}
@@ -486,114 +558,131 @@
   </div>
 
   <div class="flex min-h-0 flex-1">
-    <!-- Tools -->
     <aside class="flex w-56 shrink-0 flex-col gap-2 border-r border-line bg-panel p-3">
       <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">Tools</p>
-
       <Button variant="primary" fullWidth onclick={addTable}>
         + Add {meta.nodeLabel.toLowerCase()}
       </Button>
 
       <p class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
-        Arrows (column → column)
+        Arrows
       </p>
       <div class="grid grid-cols-2 gap-2">
         <button
           type="button"
           class={cn(
-            "flex flex-col items-center gap-1.5 rounded-lg border px-2 py-3 transition-colors",
+            "flex flex-col items-center gap-1 rounded-lg border px-2 py-3 transition-colors",
             arrowTool === "normal"
               ? "border-accent bg-accent-muted"
               : "border-line bg-input hover:border-line-strong",
           )}
           onclick={() => setArrowTool(arrowTool === "normal" ? null : "normal")}
-          title="Solid FK-style link between two columns"
         >
-          <svg width="40" height="16" aria-hidden="true">
+          <svg width="36" height="14" class="text-fg" aria-hidden="true">
             <defs>
-              <marker id="m-n" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" class="text-fg" />
+              <marker id="tn" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
               </marker>
             </defs>
-            <line
-              x1="2"
-              y1="8"
-              x2="32"
-              y2="8"
-              stroke="currentColor"
-              stroke-width="2"
-              marker-end="url(#m-n)"
-              class="text-fg"
-            />
+            <line x1="2" y1="7" x2="28" y2="7" stroke="currentColor" stroke-width="2" marker-end="url(#tn)" />
           </svg>
           <span class="text-caption font-medium text-fg">Normal</span>
         </button>
         <button
           type="button"
           class={cn(
-            "flex flex-col items-center gap-1.5 rounded-lg border px-2 py-3 transition-colors",
+            "flex flex-col items-center gap-1 rounded-lg border px-2 py-3 transition-colors",
             arrowTool === "broken"
               ? "border-accent bg-accent-muted"
               : "border-line bg-input hover:border-line-strong",
           )}
           onclick={() => setArrowTool(arrowTool === "broken" ? null : "broken")}
-          title="Dashed / optional link between two columns"
         >
-          <svg width="40" height="16" aria-hidden="true">
+          <svg width="36" height="14" class="text-fg" aria-hidden="true">
             <defs>
-              <marker id="m-b" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" class="text-fg" />
+              <marker id="tb" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
               </marker>
             </defs>
             <line
               x1="2"
-              y1="8"
-              x2="32"
-              y2="8"
+              y1="7"
+              x2="28"
+              y2="7"
               stroke="currentColor"
               stroke-width="2"
               stroke-dasharray="4 3"
-              marker-end="url(#m-b)"
-              class="text-fg"
+              marker-end="url(#tb)"
             />
           </svg>
           <span class="text-caption font-medium text-fg">Broken</span>
         </button>
       </div>
-      <p class="text-caption text-fg-muted">
-        Select an arrow type, then click a <strong class="font-medium text-fg-secondary">column</strong>
-        on table A and a <strong class="font-medium text-fg-secondary">column</strong> on table B.
-        Not whole tables.
-      </p>
 
-      {#if selectedTableId}
+      <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
+        <li>Select Normal or Broken</li>
+        <li>Click <strong class="text-fg-secondary">column</strong> on table A</li>
+        <li>Optional: click grid to draw path bends</li>
+        <li>Click <strong class="text-fg-secondary">column</strong> on table B</li>
+      </ol>
+
+      {#if linkFrom}
+        <Button variant="secondary" fullWidth onclick={cancelLink}>Cancel link</Button>
+      {/if}
+      {#if selectedTableId && !arrowTool}
         <Button variant="danger-ghost" fullWidth onclick={deleteSelectedTable}>
           Delete selected table
         </Button>
       {/if}
+      {#if selectedEdgeId}
+        <Button variant="ghost" fullWidth onclick={clearWaypointsOnSelectedEdge}>
+          Straighten selected link
+        </Button>
+        <Button variant="danger-ghost" fullWidth onclick={() => deleteEdge(selectedEdgeId!)}>
+          Delete selected link
+        </Button>
+      {/if}
 
       {#if toolMsg}
-        <p class="text-caption text-fg-secondary" role="status">{toolMsg}</p>
+        <p class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary" role="status">
+          {toolMsg}
+        </p>
       {/if}
 
       {#if diagram && diagram.edges.length > 0}
-        <div class="mt-1 border-t border-line pt-2">
+        <div class="border-t border-line pt-2">
           <p class="mb-1 text-label font-semibold text-fg-muted uppercase">Links</p>
-          <ul class="m-0 max-h-40 list-none space-y-1 overflow-auto p-0">
+          <ul class="m-0 max-h-36 list-none space-y-1 overflow-auto p-0">
             {#each diagram.edges as edge (edge.id)}
-              <li
-                class="flex items-start justify-between gap-1 rounded-md border border-line bg-input px-2 py-1 text-caption"
-              >
-                <span class="min-w-0 truncate text-fg-secondary" title={edge.label}>
-                  {edge.kind === "broken" || edgeKindIsBroken(edge.kind) ? "┄ " : "─ "}
-                  {edge.label ?? edge.id}
-                </span>
+              <li>
                 <button
                   type="button"
-                  class="shrink-0 border-none bg-transparent p-0 text-danger hover:underline"
-                  onclick={() => deleteEdge(edge.id)}
+                  class={cn(
+                    "flex w-full items-start justify-between gap-1 rounded-md border px-2 py-1 text-left text-caption",
+                    selectedEdgeId === edge.id
+                      ? "border-accent bg-accent-muted"
+                      : "border-line bg-input",
+                  )}
+                  onclick={() => {
+                    selectedEdgeId = edge.id;
+                    selectedTableId = null;
+                  }}
                 >
-                  ×
+                  <span class="min-w-0 truncate text-fg-secondary">
+                    {isBroken(edge.kind) ? "┄" : "─"}
+                    {edge.label}
+                  </span>
+                  <span
+                    class="shrink-0 text-danger"
+                    role="button"
+                    tabindex="0"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      deleteEdge(edge.id);
+                    }}
+                  >
+                    ×
+                  </span>
                 </button>
               </li>
             {/each}
@@ -602,85 +691,84 @@
       {/if}
     </aside>
 
-    <!-- Grid canvas -->
+    <!-- Canvas -->
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div
       class="relative min-w-0 flex-1 overflow-auto"
       style="
         background-color: var(--bg-app);
         background-image:
-          linear-gradient(to right, var(--border-subtle) 1px, transparent 1px),
-          linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px);
+          linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
+          linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px);
         background-size: {ER_GRID}px {ER_GRID}px;
+        cursor: {arrowTool ? 'crosshair' : 'default'};
       "
       bind:this={canvasEl}
       role="application"
       aria-label="ER grid canvas"
-      onpointermove={onTablePointerMove}
+      onclick={onCanvasClick}
+      onpointermove={onCanvasPointerMove}
     >
       {#if diagram}
         <svg
-          class="pointer-events-none absolute inset-0 h-full min-h-[720px] w-full min-w-[1200px]"
+          class="pointer-events-none absolute inset-0 h-full min-h-[800px] w-full min-w-[1400px]"
           aria-hidden="true"
         >
           <defs>
-            <marker
-              id="er-arrow"
-              markerWidth="8"
-              markerHeight="8"
-              refX="7"
-              refY="3"
-              orient="auto"
-            >
-              <path d="M0,0 L8,3 L0,6 Z" fill="var(--accent)" />
+            <marker id="er-arrow-head" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <path d="M0,0 L9,3 L0,6 Z" fill="var(--accent)" />
             </marker>
           </defs>
+
           {#each diagram.edges as edge (edge.id)}
             <path
-              d={edgePath(edge)}
+              d={edgePolyline(edge)}
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width={selectedEdgeId === edge.id ? 3 : 2}
+              stroke-dasharray={isBroken(edge.kind) ? "7 5" : "0"}
+              marker-end="url(#er-arrow-head)"
+              opacity="0.95"
+            />
+            <!-- wider invisible hit path would need pointer-events; select via list for now -->
+          {/each}
+
+          <!-- live draft path -->
+          {#if linkFrom && cursorPt}
+            <path
+              d={previewPolyline()}
               fill="none"
               stroke="var(--accent)"
               stroke-width="2"
-              stroke-dasharray={edgeKindIsBroken(edge.kind) ? "6 4" : "0"}
-              marker-end="url(#er-arrow)"
+              stroke-dasharray="5 4"
+              opacity="0.75"
+              marker-end="url(#er-arrow-head)"
             />
-          {/each}
-          {#if rubber}
-            <line
-              x1={rubber.x1}
-              y1={rubber.y1}
-              x2={rubber.x2}
-              y2={rubber.y2}
-              stroke="var(--accent)"
-              stroke-width="1.5"
-              stroke-dasharray="4 3"
-              opacity="0.8"
-            />
+            {#each draftWaypoints as wp, i}
+              <circle cx={wp.x} cy={wp.y} r="4" fill="var(--accent)" />
+              <text x={wp.x + 6} y={wp.y - 6} fill="var(--text-muted)" font-size="10">{i + 1}</text>
+            {/each}
           {/if}
         </svg>
 
         {#each diagram.nodes as node (node.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
+            data-er-table
             class={cn(
               "absolute rounded-lg border bg-panel shadow-sm",
-              selectedTableId === node.id
-                ? "border-accent ring-2 ring-accent/30"
-                : "border-line",
+              selectedTableId === node.id ? "border-accent ring-2 ring-accent/30" : "border-line",
               arrowTool ? "cursor-default" : "cursor-grab",
               dragTableId === node.id && "cursor-grabbing",
             )}
             style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px;"
             onpointerdown={(e) => onTablePointerDown(node.id, e)}
-            onpointermove={onTablePointerMove}
+            onpointermove={onCanvasPointerMove}
             onpointerup={onTablePointerUp}
             onpointercancel={onTablePointerUp}
-            onclick={() => {
-              if (!arrowTool) selectedTableId = node.id;
-            }}
           >
-            <!-- header -->
             <div
-              class="flex h-10 items-center justify-between gap-2 border-b border-line bg-elevated px-2.5"
+              class="flex items-center justify-between gap-2 border-b border-line bg-elevated px-2.5"
               style="height: {HEADER_H}px"
             >
               {#if selectedTableId === node.id && !arrowTool}
@@ -688,82 +776,51 @@
                   class="min-w-0 flex-1 rounded border border-line bg-input px-1 py-0.5 text-body font-semibold text-fg"
                   value={node.name}
                   data-no-drag
-                  oninput={(e) =>
-                    renameTable((e.currentTarget as HTMLInputElement).value)}
+                  oninput={(e) => renameTable((e.currentTarget as HTMLInputElement).value)}
                   onclick={(e) => e.stopPropagation()}
                 />
               {:else}
                 <span class="truncate text-body font-semibold text-fg">{node.name}</span>
               {/if}
-              <span class="font-mono text-micro text-fg-muted">TBL</span>
             </div>
 
-            <!-- columns: each row is a relationship endpoint -->
             <ul class="m-0 list-none p-0">
-              {#each node.columns as col, idx (col.id)}
-                <li
-                  class={cn(
-                    "group relative flex items-center border-b border-line/50 last:border-b-0",
-                    linkFrom?.tableId === node.id &&
-                      linkFrom?.columnId === col.id &&
-                      "bg-accent-muted",
-                    arrowTool && "hover:bg-hover",
-                  )}
-                  style="height: {ROW_H}px"
-                  data-no-drag
-                >
-                  <!-- left handle (incoming) -->
+              {#each node.columns as col (col.id)}
+                <li class="m-0 p-0" style="height: {ROW_H}px">
                   <button
                     type="button"
-                    data-col-handle
+                    data-er-column
+                    data-no-drag
                     class={cn(
-                      "absolute top-1/2 left-0 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-panel",
-                      arrowTool ? "opacity-100" : "opacity-0 group-hover:opacity-70",
+                      "flex h-full w-full items-center gap-1 border-b border-line/50 px-2.5 text-left last:border-b-0",
+                      arrowTool && "hover:bg-accent-muted",
+                      linkFrom?.tableId === node.id &&
+                        linkFrom?.columnId === col.id &&
+                        "bg-accent-muted ring-1 ring-inset ring-accent",
                     )}
-                    title="Drop relationship here"
-                    onpointerup={(e) => onColumnPointerUp(node.id, col.id, e)}
                     onclick={(e) => onColumnClick(node.id, col.id, e)}
-                  ></button>
-
-                  <div class="flex min-w-0 flex-1 items-center gap-1 px-3">
+                  >
                     {#if col.pk}
-                      <span class="text-micro text-accent" title="PK">PK</span>
+                      <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
                     {/if}
-                    <span class="truncate font-mono text-caption text-fg">{col.name}</span>
-                    <span class="shrink-0 font-mono text-caption text-fg-muted">
-                      {col.dataType}
+                    <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
+                      {col.name}
                     </span>
-                  </div>
-
-                  {#if selectedTableId === node.id && !arrowTool}
-                    <button
-                      type="button"
-                      class="mr-1 border-none bg-transparent px-1 text-caption text-danger opacity-0 group-hover:opacity-100"
-                      data-no-drag
-                      title="Delete column"
-                      onclick={(e) => {
-                        e.stopPropagation();
-                        deleteColumn(col.id);
-                      }}
-                    >
-                      ×
-                    </button>
-                  {/if}
-
-                  <!-- right handle (outgoing) -->
-                  <button
-                    type="button"
-                    data-col-handle
-                    class={cn(
-                      "absolute top-1/2 right-0 z-10 size-2.5 translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-panel",
-                      arrowTool ? "cursor-crosshair opacity-100" : "opacity-0 group-hover:opacity-70",
-                    )}
-                    title={arrowTool ? "Start link from this column" : "Column"}
-                    onpointerdown={(e) => onColumnPointerDown(node.id, col.id, e)}
-                    onpointermove={onColumnPointerMove}
-                    onpointerup={(e) => onColumnPointerUp(node.id, col.id, e)}
-                    onclick={(e) => onColumnClick(node.id, col.id, e)}
-                  ></button>
+                    <span class="shrink-0 font-mono text-caption text-fg-muted">{col.dataType}</span>
+                    {#if selectedTableId === node.id && !arrowTool}
+                      <span
+                        class="shrink-0 px-1 text-caption text-danger"
+                        role="button"
+                        tabindex="0"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          deleteColumn(col.id);
+                        }}
+                      >
+                        ×
+                      </span>
+                    {/if}
+                  </button>
                 </li>
               {/each}
             </ul>
@@ -783,11 +840,7 @@
                   </button>
                 {:else}
                   <div class="flex flex-col gap-1.5">
-                    <Input
-                      bind:value={newColName}
-                      placeholder="column_name"
-                      inputSize="sm"
-                    />
+                    <Input bind:value={newColName} placeholder="column_name" inputSize="sm" />
                     {#if isSql}
                       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
                       <div role="presentation" onclick={(e) => e.stopPropagation()}>
