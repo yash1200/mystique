@@ -331,6 +331,14 @@
      */
     const TICKETS = [
       {
+        id: "T-FE-ER-COLREL",
+        title: "ER column-to-column arrows like DBeaver",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Grid canvas; normal/broken arrow tools; link column A of table A to column B of table B. Remove whole-table relationships.",
+        related: "ErWorkspace · T-FE-ER-CANVAS",
+      },
+      {
         id: "T-BE-ER-STORE",
         title: "Persist ER diagrams in local app SQLite",
         column: "deployed",
@@ -343,7 +351,7 @@
         title: "Interactive ER tables: drag, columns, FK arrows",
         column: "deployed",
         tags: ["fe", "p0"],
-        description: "Add table boxes, drag freely, add/delete typed columns, relationship arrows with arrowheads.",
+        description: "Column-to-column FK arrows (normal/broken), grid snap, drag tables; no table-level relationships.",
         related: "ErWorkspace.svelte · T-FE-ER-FAMILY",
       },
       {

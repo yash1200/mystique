@@ -3,16 +3,20 @@
     DataFamily,
     ErColumn,
     ErDiagramState,
+    ErEdge,
+    ErEdgeKind,
     ErNode,
   } from "$lib/types/er";
-  import { FAMILY_META, SQL_TYPES, emptyDiagram } from "$lib/types/er";
+  import {
+    ER_GRID,
+    FAMILY_META,
+    SQL_TYPES,
+    emptyDiagram,
+    snapToGrid,
+  } from "$lib/types/er";
   import { Button, Badge, Inline, Input, Select } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
-  import {
-    listDiagrams,
-    saveDiagram,
-    type ErDiagramRecord,
-  } from "$lib/api/diagrams";
+  import { listDiagrams, saveDiagram, type ErDiagramRecord } from "$lib/api/diagrams";
   import { isTauri } from "$lib/api/tauri";
 
   interface Props {
@@ -23,48 +27,57 @@
 
   let { family, onback, onchangeFamily }: Props = $props();
 
+  const TABLE_W = 240;
+  const HEADER_H = 40;
+  const ROW_H = 28;
+
   let diagram = $state<ErDiagramState | null>(null);
   let diagramId = $state<string | null>(null);
   let diagramName = $state("Untitled diagram");
-  let selectedId = $state<string | null>(null);
-  let linkMode = $state(false);
-  let linkFrom = $state<string | null>(null);
+  let selectedTableId = $state<string | null>(null);
   let toolMsg = $state<string | null>(null);
   let saving = $state(false);
   let dirty = $state(false);
 
-  // drag state
-  let dragId = $state<string | null>(null);
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
+  /** null = move/select · normal | broken = draw column→column */
+  let arrowTool = $state<"normal" | "broken" | null>(null);
+  /** Pending link start: table + column */
+  let linkFrom = $state<{ tableId: string; columnId: string } | null>(null);
+
+  // table drag
+  let dragTableId = $state<string | null>(null);
+  let dragOffX = 0;
+  let dragOffY = 0;
   let canvasEl: HTMLDivElement | null = $state(null);
 
-  // inline column form on selected table
+  // rubber-band while linking
+  let rubber = $state<{ x1: number; y1: number; x2: number; y2: number } | null>(
+    null,
+  );
+
   let showAddCol = $state(false);
   let newColName = $state("");
-  let newColType = $state<string>("TEXT");
+  let newColType = $state("TEXT");
   let newColPk = $state(false);
 
   const meta = $derived(FAMILY_META[family]);
-  const selected = $derived(
-    diagram?.nodes.find((n) => n.id === selectedId) ?? null,
-  );
   const isSql = $derived(family === "sql");
 
   $effect(() => {
     diagram = emptyDiagram(family);
     diagramId = null;
     diagramName = `Untitled ${FAMILY_META[family].short} diagram`;
-    selectedId = null;
-    linkMode = false;
+    selectedTableId = null;
+    arrowTool = null;
     linkFrom = null;
-    toolMsg = null;
+    rubber = null;
     showAddCol = false;
     dirty = false;
+    toolMsg = null;
   });
 
-  function uid(prefix: string) {
-    return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+  function uid(p: string) {
+    return `${p}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
   function markDirty() {
@@ -82,123 +95,206 @@
         : family === "nosql"
           ? `collection_${n + 1}`
           : `key:pattern_${n + 1}`,
-      columns: isSql
-        ? [
-            {
-              id: uid("c"),
-              name: "id",
-              dataType: "UUID",
-              pk: true,
-            },
-          ]
-        : [
-            {
-              id: uid("c"),
-              name: family === "nosql" ? "_id" : "type",
-              dataType: family === "nosql" ? "ObjectId" : "string",
-              pk: family === "nosql",
-            },
-          ],
-      x: 80 + (n % 4) * 40,
-      y: 80 + (n % 4) * 30,
+      columns: [
+        {
+          id: uid("c"),
+          name: isSql ? "id" : family === "nosql" ? "_id" : "type",
+          dataType: isSql ? "UUID" : family === "nosql" ? "ObjectId" : "string",
+          pk: isSql || family === "nosql",
+        },
+      ],
+      x: snapToGrid(ER_GRID * 3 + (n % 5) * ER_GRID),
+      y: snapToGrid(ER_GRID * 3 + (n % 5) * ER_GRID),
     };
     diagram = { ...diagram, nodes: [...diagram.nodes, node] };
-    selectedId = node.id;
+    selectedTableId = node.id;
     showAddCol = false;
-    toolMsg = `Added “${node.name}” — drag it anywhere on the canvas.`;
+    toolMsg = `Added “${node.name}”. Drag on the grid. Use arrow tools on columns to link.`;
     markDirty();
   }
 
-  function startLinkMode() {
-    if (!selectedId) {
-      toolMsg = "Select a table first, then click Add relationship, then the target table.";
-      return;
+  function setArrowTool(kind: "normal" | "broken" | null) {
+    arrowTool = kind;
+    linkFrom = null;
+    rubber = null;
+    if (kind === "normal") {
+      toolMsg = "Normal arrow: click a column, then the target column on another table.";
+    } else if (kind === "broken") {
+      toolMsg = "Broken arrow: click source column, then target column (dashed link).";
+    } else {
+      toolMsg = "Move mode: drag tables on the grid.";
     }
-    linkMode = true;
-    linkFrom = selectedId;
-    toolMsg = "Click another table to draw a relationship arrow.";
   }
 
-  function onNodeClick(id: string, e: MouseEvent) {
-    // Don't steal click after drag
-    if ((e.target as HTMLElement).closest("[data-no-select]")) return;
-    if (linkMode && linkFrom) {
-      if (linkFrom === id) {
-        toolMsg = "Pick a different table as the target.";
-        return;
-      }
-      if (!diagram) return;
-      const fromNode = diagram.nodes.find((n) => n.id === linkFrom);
-      const toNode = diagram.nodes.find((n) => n.id === id);
-      const kind =
-        family === "sql" ? "fk" : family === "nosql" ? "inferred" : "logical";
-      const fromCol =
-        fromNode?.columns.find((c) => !c.pk)?.name ??
-        fromNode?.columns[0]?.name ??
-        "id";
-      const toCol =
-        toNode?.columns.find((c) => c.pk)?.name ??
-        toNode?.columns[0]?.name ??
-        "id";
-      const label =
-        family === "sql"
-          ? `${fromCol} → ${toNode?.name ?? ""}.${toCol}`
-          : family === "nosql"
-            ? "inferred ref"
-            : "logical link";
-      diagram = {
-        ...diagram,
-        edges: [
-          ...diagram.edges,
-          {
-            id: uid("e"),
-            from: linkFrom,
-            to: id,
-            kind,
-            label,
-            fromColumn: fromCol,
-            toColumn: toCol,
-          },
-        ],
-      };
-      toolMsg = `Relationship: ${label}`;
-      linkMode = false;
+  function columnAnchor(
+    node: ErNode,
+    columnId: string,
+    side: "left" | "right",
+  ): { x: number; y: number } {
+    const idx = Math.max(
+      0,
+      node.columns.findIndex((c) => c.id === columnId),
+    );
+    const y = node.y + HEADER_H + idx * ROW_H + ROW_H / 2;
+    const x = side === "right" ? node.x + TABLE_W : node.x;
+    return { x, y };
+  }
+
+  function edgePath(edge: ErEdge): string {
+    if (!diagram) return "";
+    const a = diagram.nodes.find((n) => n.id === edge.from);
+    const b = diagram.nodes.find((n) => n.id === edge.to);
+    if (!a || !b) return "";
+    // Leave source from right, enter target from left
+    const p1 = columnAnchor(a, edge.fromColumnId, "right");
+    const p2 = columnAnchor(b, edge.toColumnId, "left");
+    const dx = Math.max(40, Math.abs(p2.x - p1.x) * 0.4);
+    return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
+  }
+
+  function onColumnPointerDown(
+    tableId: string,
+    columnId: string,
+    e: PointerEvent,
+  ) {
+    e.stopPropagation();
+    if (!arrowTool || !canvasEl) return;
+    e.preventDefault();
+    linkFrom = { tableId, columnId };
+    const node = diagram?.nodes.find((n) => n.id === tableId);
+    if (!node) return;
+    const p = columnAnchor(node, columnId, "right");
+    rubber = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onColumnPointerMove(e: PointerEvent) {
+    if (!linkFrom || !canvasEl || !rubber) return;
+    const rect = canvasEl.getBoundingClientRect();
+    rubber = {
+      ...rubber,
+      x2: e.clientX - rect.left + canvasEl.scrollLeft,
+      y2: e.clientY - rect.top + canvasEl.scrollTop,
+    };
+  }
+
+  function completeLink(toTableId: string, toColumnId: string) {
+    if (!diagram || !linkFrom || !arrowTool) return;
+    if (linkFrom.tableId === toTableId) {
+      toolMsg = "Pick a column on a different table.";
       linkFrom = null;
-      markDirty();
+      rubber = null;
       return;
     }
-    selectedId = id;
-    showAddCol = false;
+    // avoid duplicate
+    const exists = diagram.edges.some(
+      (ed) =>
+        ed.from === linkFrom!.tableId &&
+        ed.fromColumnId === linkFrom!.columnId &&
+        ed.to === toTableId &&
+        ed.toColumnId === toColumnId,
+    );
+    if (exists) {
+      toolMsg = "That column link already exists.";
+      linkFrom = null;
+      rubber = null;
+      return;
+    }
+    const fromNode = diagram.nodes.find((n) => n.id === linkFrom!.tableId);
+    const toNode = diagram.nodes.find((n) => n.id === toTableId);
+    const fromCol = fromNode?.columns.find((c) => c.id === linkFrom!.columnId);
+    const toCol = toNode?.columns.find((c) => c.id === toColumnId);
+    const label = `${fromNode?.name}.${fromCol?.name} → ${toNode?.name}.${toCol?.name}`;
+    const kind: ErEdgeKind = arrowTool === "broken" ? "broken" : "normal";
+    const edge: ErEdge = {
+      id: uid("e"),
+      from: linkFrom.tableId,
+      to: toTableId,
+      fromColumnId: linkFrom.columnId,
+      toColumnId: toColumnId,
+      kind,
+      label,
+    };
+    diagram = { ...diagram, edges: [...diagram.edges, edge] };
+    toolMsg = `${kind === "broken" ? "Broken" : "Normal"} link: ${label}`;
+    linkFrom = null;
+    rubber = null;
+    markDirty();
   }
 
-  function onPointerDown(nodeId: string, e: PointerEvent) {
+  function onColumnPointerUp(toTableId: string, toColumnId: string, e: PointerEvent) {
+    e.stopPropagation();
+    if (!linkFrom || !arrowTool) return;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (
+      linkFrom.tableId === toTableId &&
+      linkFrom.columnId === toColumnId
+    ) {
+      // click without drag — keep start, wait for second column click
+      rubber = null;
+      toolMsg = "Now click the target column on another table.";
+      return;
+    }
+    completeLink(toTableId, toColumnId);
+  }
+
+  function onColumnClick(tableId: string, columnId: string, e: MouseEvent) {
+    e.stopPropagation();
+    if (!arrowTool) {
+      selectedTableId = tableId;
+      return;
+    }
+    if (!linkFrom) {
+      linkFrom = { tableId, columnId };
+      toolMsg = "Now click the target column.";
+      return;
+    }
+    completeLink(tableId, columnId);
+  }
+
+  function onTablePointerDown(tableId: string, e: PointerEvent) {
+    if (arrowTool) return; // don't drag tables while drawing relations
+    if ((e.target as HTMLElement).closest("[data-col-handle]")) return;
     if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
     if (!diagram || !canvasEl) return;
-    const node = diagram.nodes.find((n) => n.id === nodeId);
+    const node = diagram.nodes.find((n) => n.id === tableId);
     if (!node) return;
     const rect = canvasEl.getBoundingClientRect();
-    dragId = nodeId;
-    dragOffsetX = e.clientX - rect.left - node.x + canvasEl.scrollLeft;
-    dragOffsetY = e.clientY - rect.top - node.y + canvasEl.scrollTop;
+    dragTableId = tableId;
+    dragOffX = e.clientX - rect.left + canvasEl.scrollLeft - node.x;
+    dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y;
+    selectedTableId = tableId;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     e.preventDefault();
   }
 
-  function onPointerMove(e: PointerEvent) {
-    if (!dragId || !diagram || !canvasEl) return;
+  function onTablePointerMove(e: PointerEvent) {
+    if (linkFrom && arrowTool && canvasEl && rubber) {
+      onColumnPointerMove(e);
+      return;
+    }
+    if (!dragTableId || !diagram || !canvasEl) return;
     const rect = canvasEl.getBoundingClientRect();
-    const x = Math.max(8, e.clientX - rect.left + canvasEl.scrollLeft - dragOffsetX);
-    const y = Math.max(8, e.clientY - rect.top + canvasEl.scrollTop - dragOffsetY);
+    const x = snapToGrid(
+      Math.max(0, e.clientX - rect.left + canvasEl.scrollLeft - dragOffX),
+    );
+    const y = snapToGrid(
+      Math.max(0, e.clientY - rect.top + canvasEl.scrollTop - dragOffY),
+    );
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
-        n.id === dragId ? { ...n, x, y } : n,
+        n.id === dragTableId ? { ...n, x, y } : n,
       ),
     };
   }
 
-  function onPointerUp(e: PointerEvent) {
-    if (dragId) {
+  function onTablePointerUp(e: PointerEvent) {
+    if (dragTableId) {
       markDirty();
       try {
         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -206,36 +302,35 @@
         /* ignore */
       }
     }
-    dragId = null;
+    dragTableId = null;
   }
 
   function renameTable(name: string) {
-    if (!diagram || !selectedId) return;
+    if (!diagram || !selectedTableId) return;
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
-        n.id === selectedId ? { ...n, name: name || n.name } : n,
+        n.id === selectedTableId ? { ...n, name: name || n.name } : n,
       ),
     };
     markDirty();
   }
 
   function deleteSelectedTable() {
-    if (!diagram || !selectedId) return;
-    const id = selectedId;
+    if (!diagram || !selectedTableId) return;
+    const id = selectedTableId;
     diagram = {
       ...diagram,
       nodes: diagram.nodes.filter((n) => n.id !== id),
       edges: diagram.edges.filter((e) => e.from !== id && e.to !== id),
     };
-    selectedId = null;
+    selectedTableId = null;
     showAddCol = false;
-    toolMsg = "Table removed.";
     markDirty();
   }
 
   function addColumn() {
-    if (!diagram || !selectedId) return;
+    if (!diagram || !selectedTableId) return;
     const name = newColName.trim();
     if (!name) {
       toolMsg = "Column name is required.";
@@ -250,7 +345,7 @@
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) => {
-        if (n.id !== selectedId) return n;
+        if (n.id !== selectedTableId) return n;
         let columns = [...n.columns, col];
         if (col.pk) {
           columns = columns.map((c) =>
@@ -264,18 +359,20 @@
     newColType = "TEXT";
     newColPk = false;
     showAddCol = false;
-    toolMsg = `Column “${name}” added.`;
     markDirty();
   }
 
   function deleteColumn(colId: string) {
-    if (!diagram || !selectedId) return;
+    if (!diagram || !selectedTableId) return;
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
-        n.id === selectedId
+        n.id === selectedTableId
           ? { ...n, columns: n.columns.filter((c) => c.id !== colId) }
           : n,
+      ),
+      edges: diagram.edges.filter(
+        (e) => e.fromColumnId !== colId && e.toColumnId !== colId,
       ),
     };
     markDirty();
@@ -290,29 +387,11 @@
     markDirty();
   }
 
-  function nodeCenter(n: ErNode) {
-    const h = 48 + n.columns.length * 22;
-    return { x: n.x + 110, y: n.y + h / 2 };
-  }
-
-  function edgePath(fromId: string, toId: string): string {
-    if (!diagram) return "";
-    const a = diagram.nodes.find((n) => n.id === fromId);
-    const b = diagram.nodes.find((n) => n.id === toId);
-    if (!a || !b) return "";
-    const p1 = nodeCenter(a);
-    const p2 = nodeCenter(b);
-    const mx = (p1.x + p2.x) / 2;
-    return `M ${p1.x} ${p1.y} C ${mx} ${p1.y}, ${mx} ${p2.y}, ${p2.x} ${p2.y}`;
-  }
-
   async function handleSave() {
     if (!diagram) return;
     saving = true;
-    toolMsg = null;
     try {
       if (!isTauri()) {
-        // Browser fallback
         const key = "mystique-er-diagrams";
         const raw = localStorage.getItem(key);
         const list: ErDiagramRecord[] = raw ? JSON.parse(raw) : [];
@@ -326,11 +405,13 @@
           createdAt: list.find((r) => r.id === id)?.createdAt ?? now,
           updatedAt: now,
         };
-        const next = [rec, ...list.filter((r) => r.id !== id)];
-        localStorage.setItem(key, JSON.stringify(next));
+        localStorage.setItem(
+          key,
+          JSON.stringify([rec, ...list.filter((r) => r.id !== id)]),
+        );
         diagramId = id;
         dirty = false;
-        toolMsg = "Saved locally (browser). Run Tauri for app DB storage.";
+        toolMsg = "Saved locally (browser).";
         return;
       }
       const saved = await saveDiagram({
@@ -341,7 +422,7 @@
       });
       diagramId = saved.id;
       dirty = false;
-      toolMsg = `Saved “${saved.name}” to app database.`;
+      toolMsg = `Saved “${saved.name}”.`;
     } catch (e) {
       toolMsg = e instanceof Error ? e.message : String(e);
     } finally {
@@ -356,15 +437,18 @@
         list = await listDiagrams(family);
       } else {
         const raw = localStorage.getItem("mystique-er-diagrams");
-        list = raw ? JSON.parse(raw) : [];
-        list = list.filter((r) => r.family === family);
+        list = (raw ? JSON.parse(raw) : []).filter(
+          (r: ErDiagramRecord) => r.family === family,
+        );
       }
-      if (list.length === 0) {
-        toolMsg = "No saved diagrams for this family yet.";
+      if (!list.length) {
+        toolMsg = "No saved diagrams yet.";
         return;
       }
       const rec = list[0];
-      diagram = rec.body;
+      // migrate old edges without column ids if needed
+      const body = rec.body;
+      diagram = body;
       diagramId = rec.id;
       diagramName = rec.name;
       dirty = false;
@@ -372,6 +456,10 @@
     } catch (e) {
       toolMsg = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  function edgeKindIsBroken(kind: ErEdgeKind) {
+    return kind === "broken" || kind === "inferred" || kind === "logical";
   }
 </script>
 
@@ -388,80 +476,121 @@
       {/if}
     </div>
     <Inline gap="sm">
-      <Input
-        bind:value={diagramName}
-        class="w-44"
-        inputSize="sm"
-        aria-label="Diagram name"
-      />
-      <Button variant="secondary" size="sm" onclick={handleLoadLatest}>
-        Load last
-      </Button>
+      <Input bind:value={diagramName} class="w-44" inputSize="sm" aria-label="Diagram name" />
+      <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
       <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
         {saving ? "Saving…" : "Save"}
       </Button>
-      <Button variant="ghost" size="sm" onclick={onchangeFamily}>
-        Change family
-      </Button>
+      <Button variant="ghost" size="sm" onclick={onchangeFamily}>Change family</Button>
     </Inline>
   </div>
 
   <div class="flex min-h-0 flex-1">
-    <!-- Tools: table-centric -->
-    <aside
-      class="flex w-56 shrink-0 flex-col gap-2 border-r border-line bg-panel p-3"
-      aria-label="ER tools"
-    >
-      <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">
-        Tools
-      </p>
+    <!-- Tools -->
+    <aside class="flex w-56 shrink-0 flex-col gap-2 border-r border-line bg-panel p-3">
+      <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">Tools</p>
+
       <Button variant="primary" fullWidth onclick={addTable}>
         + Add {meta.nodeLabel.toLowerCase()}
       </Button>
-      <Button
-        variant={linkMode ? "secondary" : "ghost"}
-        fullWidth
-        onclick={startLinkMode}
-      >
-        {linkMode ? "Click target table…" : "Add relationship"}
-      </Button>
-      {#if selectedId}
+
+      <p class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
+        Arrows (column → column)
+      </p>
+      <div class="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          class={cn(
+            "flex flex-col items-center gap-1.5 rounded-lg border px-2 py-3 transition-colors",
+            arrowTool === "normal"
+              ? "border-accent bg-accent-muted"
+              : "border-line bg-input hover:border-line-strong",
+          )}
+          onclick={() => setArrowTool(arrowTool === "normal" ? null : "normal")}
+          title="Solid FK-style link between two columns"
+        >
+          <svg width="40" height="16" aria-hidden="true">
+            <defs>
+              <marker id="m-n" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" class="text-fg" />
+              </marker>
+            </defs>
+            <line
+              x1="2"
+              y1="8"
+              x2="32"
+              y2="8"
+              stroke="currentColor"
+              stroke-width="2"
+              marker-end="url(#m-n)"
+              class="text-fg"
+            />
+          </svg>
+          <span class="text-caption font-medium text-fg">Normal</span>
+        </button>
+        <button
+          type="button"
+          class={cn(
+            "flex flex-col items-center gap-1.5 rounded-lg border px-2 py-3 transition-colors",
+            arrowTool === "broken"
+              ? "border-accent bg-accent-muted"
+              : "border-line bg-input hover:border-line-strong",
+          )}
+          onclick={() => setArrowTool(arrowTool === "broken" ? null : "broken")}
+          title="Dashed / optional link between two columns"
+        >
+          <svg width="40" height="16" aria-hidden="true">
+            <defs>
+              <marker id="m-b" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" class="text-fg" />
+              </marker>
+            </defs>
+            <line
+              x1="2"
+              y1="8"
+              x2="32"
+              y2="8"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-dasharray="4 3"
+              marker-end="url(#m-b)"
+              class="text-fg"
+            />
+          </svg>
+          <span class="text-caption font-medium text-fg">Broken</span>
+        </button>
+      </div>
+      <p class="text-caption text-fg-muted">
+        Select an arrow type, then click a <strong class="font-medium text-fg-secondary">column</strong>
+        on table A and a <strong class="font-medium text-fg-secondary">column</strong> on table B.
+        Not whole tables.
+      </p>
+
+      {#if selectedTableId}
         <Button variant="danger-ghost" fullWidth onclick={deleteSelectedTable}>
-          Delete selected
+          Delete selected table
         </Button>
       {/if}
 
-      <div class="mt-2 border-t border-line pt-3">
-        <p class="mb-1 text-caption text-fg-muted">
-          Drag tables freely. Click a table to edit columns. Use relationship
-          mode for arrows.
-        </p>
-        {#if toolMsg}
-          <p class="text-caption text-fg-secondary" role="status">{toolMsg}</p>
-        {/if}
-        {#if linkMode}
-          <p class="text-caption text-accent">Relationship mode on</p>
-        {/if}
-      </div>
+      {#if toolMsg}
+        <p class="text-caption text-fg-secondary" role="status">{toolMsg}</p>
+      {/if}
 
       {#if diagram && diagram.edges.length > 0}
-        <div class="mt-2 border-t border-line pt-3">
-          <p class="mb-1 text-label font-semibold text-fg-muted uppercase">
-            Relationships
-          </p>
-          <ul class="m-0 flex list-none flex-col gap-1 p-0">
+        <div class="mt-1 border-t border-line pt-2">
+          <p class="mb-1 text-label font-semibold text-fg-muted uppercase">Links</p>
+          <ul class="m-0 max-h-40 list-none space-y-1 overflow-auto p-0">
             {#each diagram.edges as edge (edge.id)}
               <li
-                class="flex items-start justify-between gap-1 rounded-md border border-line bg-input px-2 py-1.5 text-caption"
+                class="flex items-start justify-between gap-1 rounded-md border border-line bg-input px-2 py-1 text-caption"
               >
-                <span class="min-w-0 truncate text-fg-secondary">
+                <span class="min-w-0 truncate text-fg-secondary" title={edge.label}>
+                  {edge.kind === "broken" || edgeKindIsBroken(edge.kind) ? "┄ " : "─ "}
                   {edge.label ?? edge.id}
                 </span>
                 <button
                   type="button"
-                  class="shrink-0 border-none bg-transparent p-0 text-caption text-danger hover:underline"
-                  data-no-drag
-                  data-no-select
+                  class="shrink-0 border-none bg-transparent p-0 text-danger hover:underline"
                   onclick={() => deleteEdge(edge.id)}
                 >
                   ×
@@ -473,102 +602,144 @@
       {/if}
     </aside>
 
-    <!-- Canvas -->
+    <!-- Grid canvas -->
     <div
-      class="relative min-w-0 flex-1 overflow-auto bg-app"
+      class="relative min-w-0 flex-1 overflow-auto"
+      style="
+        background-color: var(--bg-app);
+        background-image:
+          linear-gradient(to right, var(--border-subtle) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px);
+        background-size: {ER_GRID}px {ER_GRID}px;
+      "
       bind:this={canvasEl}
       role="application"
-      aria-label="ER canvas"
+      aria-label="ER grid canvas"
+      onpointermove={onTablePointerMove}
     >
       {#if diagram}
         <svg
-          class="pointer-events-none absolute inset-0 h-full min-h-[640px] w-full min-w-[960px]"
+          class="pointer-events-none absolute inset-0 h-full min-h-[720px] w-full min-w-[1200px]"
           aria-hidden="true"
         >
           <defs>
             <marker
-              id="arrowhead"
+              id="er-arrow"
               markerWidth="8"
               markerHeight="8"
               refX="7"
               refY="3"
               orient="auto"
             >
-              <path d="M0,0 L7,3 L0,6 Z" fill="var(--accent)" />
+              <path d="M0,0 L8,3 L0,6 Z" fill="var(--accent)" />
             </marker>
           </defs>
           {#each diagram.edges as edge (edge.id)}
             <path
-              d={edgePath(edge.from, edge.to)}
+              d={edgePath(edge)}
               fill="none"
               stroke="var(--accent)"
               stroke-width="2"
-              stroke-dasharray={edge.kind === "fk" ? "0" : "6 4"}
-              marker-end="url(#arrowhead)"
-              opacity="0.9"
+              stroke-dasharray={edgeKindIsBroken(edge.kind) ? "6 4" : "0"}
+              marker-end="url(#er-arrow)"
             />
           {/each}
+          {#if rubber}
+            <line
+              x1={rubber.x1}
+              y1={rubber.y1}
+              x2={rubber.x2}
+              y2={rubber.y2}
+              stroke="var(--accent)"
+              stroke-width="1.5"
+              stroke-dasharray="4 3"
+              opacity="0.8"
+            />
+          {/if}
         </svg>
 
         {#each diagram.nodes as node (node.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class={cn(
-              "absolute w-[230px] select-none rounded-xl border bg-panel shadow-sm",
-              selectedId === node.id
-                ? "border-accent ring-2 ring-accent/35"
+              "absolute rounded-lg border bg-panel shadow-sm",
+              selectedTableId === node.id
+                ? "border-accent ring-2 ring-accent/30"
                 : "border-line",
-              dragId === node.id ? "cursor-grabbing opacity-95" : "cursor-grab",
+              arrowTool ? "cursor-default" : "cursor-grab",
+              dragTableId === node.id && "cursor-grabbing",
             )}
-            style="left: {node.x}px; top: {node.y}px;"
-            onpointerdown={(e) => onPointerDown(node.id, e)}
-            onpointermove={onPointerMove}
-            onpointerup={onPointerUp}
-            onpointercancel={onPointerUp}
-            onclick={(e) => onNodeClick(node.id, e)}
+            style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px;"
+            onpointerdown={(e) => onTablePointerDown(node.id, e)}
+            onpointermove={onTablePointerMove}
+            onpointerup={onTablePointerUp}
+            onpointercancel={onTablePointerUp}
+            onclick={() => {
+              if (!arrowTool) selectedTableId = node.id;
+            }}
           >
+            <!-- header -->
             <div
-              class="flex items-center justify-between gap-2 border-b border-line bg-elevated px-3 py-2"
+              class="flex h-10 items-center justify-between gap-2 border-b border-line bg-elevated px-2.5"
+              style="height: {HEADER_H}px"
             >
-              {#if selectedId === node.id}
+              {#if selectedTableId === node.id && !arrowTool}
                 <input
-                  class="min-w-0 flex-1 rounded-md border border-line bg-input px-1.5 py-0.5 text-body font-semibold text-fg"
+                  class="min-w-0 flex-1 rounded border border-line bg-input px-1 py-0.5 text-body font-semibold text-fg"
                   value={node.name}
                   data-no-drag
-                  data-no-select
                   oninput={(e) =>
                     renameTable((e.currentTarget as HTMLInputElement).value)}
                   onclick={(e) => e.stopPropagation()}
                 />
               {:else}
-                <span class="truncate text-body font-semibold text-fg">
-                  {node.name}
-                </span>
+                <span class="truncate text-body font-semibold text-fg">{node.name}</span>
               {/if}
-              <span class="shrink-0 font-mono text-micro text-fg-muted uppercase">
-                {node.kind === "table" ? "TBL" : node.kind.slice(0, 3)}
-              </span>
+              <span class="font-mono text-micro text-fg-muted">TBL</span>
             </div>
 
+            <!-- columns: each row is a relationship endpoint -->
             <ul class="m-0 list-none p-0">
-              {#each node.columns as col (col.id)}
+              {#each node.columns as col, idx (col.id)}
                 <li
-                  class="group flex items-center justify-between gap-1 border-b border-line/60 px-3 py-1.5 last:border-b-0"
+                  class={cn(
+                    "group relative flex items-center border-b border-line/50 last:border-b-0",
+                    linkFrom?.tableId === node.id &&
+                      linkFrom?.columnId === col.id &&
+                      "bg-accent-muted",
+                    arrowTool && "hover:bg-hover",
+                  )}
+                  style="height: {ROW_H}px"
                   data-no-drag
                 >
-                  <span class="min-w-0 truncate font-mono text-caption text-fg">
+                  <!-- left handle (incoming) -->
+                  <button
+                    type="button"
+                    data-col-handle
+                    class={cn(
+                      "absolute top-1/2 left-0 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-panel",
+                      arrowTool ? "opacity-100" : "opacity-0 group-hover:opacity-70",
+                    )}
+                    title="Drop relationship here"
+                    onpointerup={(e) => onColumnPointerUp(node.id, col.id, e)}
+                    onclick={(e) => onColumnClick(node.id, col.id, e)}
+                  ></button>
+
+                  <div class="flex min-w-0 flex-1 items-center gap-1 px-3">
                     {#if col.pk}
-                      <span class="text-accent">🔑 </span>
+                      <span class="text-micro text-accent" title="PK">PK</span>
                     {/if}
-                    {col.name}
-                    <span class="text-fg-muted"> · {col.dataType}</span>
-                  </span>
-                  {#if selectedId === node.id}
+                    <span class="truncate font-mono text-caption text-fg">{col.name}</span>
+                    <span class="shrink-0 font-mono text-caption text-fg-muted">
+                      {col.dataType}
+                    </span>
+                  </div>
+
+                  {#if selectedTableId === node.id && !arrowTool}
                     <button
                       type="button"
-                      class="shrink-0 border-none bg-transparent p-0 text-caption text-danger opacity-0 group-hover:opacity-100 hover:underline"
+                      class="mr-1 border-none bg-transparent px-1 text-caption text-danger opacity-0 group-hover:opacity-100"
                       data-no-drag
-                      data-no-select
                       title="Delete column"
                       onclick={(e) => {
                         e.stopPropagation();
@@ -578,22 +749,34 @@
                       ×
                     </button>
                   {/if}
+
+                  <!-- right handle (outgoing) -->
+                  <button
+                    type="button"
+                    data-col-handle
+                    class={cn(
+                      "absolute top-1/2 right-0 z-10 size-2.5 translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-panel",
+                      arrowTool ? "cursor-crosshair opacity-100" : "opacity-0 group-hover:opacity-70",
+                    )}
+                    title={arrowTool ? "Start link from this column" : "Column"}
+                    onpointerdown={(e) => onColumnPointerDown(node.id, col.id, e)}
+                    onpointermove={onColumnPointerMove}
+                    onpointerup={(e) => onColumnPointerUp(node.id, col.id, e)}
+                    onclick={(e) => onColumnClick(node.id, col.id, e)}
+                  ></button>
                 </li>
               {/each}
             </ul>
 
-            {#if selectedId === node.id}
-              <div class="border-t border-line p-2" data-no-drag data-no-select>
+            {#if selectedTableId === node.id && !arrowTool}
+              <div class="border-t border-line p-2" data-no-drag>
                 {#if !showAddCol}
                   <button
                     type="button"
-                    class="w-full rounded-md border border-dashed border-line px-2 py-1.5 text-caption font-medium text-accent hover:bg-accent-muted"
+                    class="w-full rounded-md border border-dashed border-line py-1.5 text-caption font-medium text-accent hover:bg-accent-muted"
                     onclick={(e) => {
                       e.stopPropagation();
                       showAddCol = true;
-                      newColName = "";
-                      newColType = isSql ? "TEXT" : "string";
-                      newColPk = false;
                     }}
                   >
                     + Add column
@@ -604,16 +787,10 @@
                       bind:value={newColName}
                       placeholder="column_name"
                       inputSize="sm"
-                      onclick={(e: MouseEvent) => e.stopPropagation()}
                     />
                     {#if isSql}
                       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                      <div
-                        data-no-drag
-                        data-no-select
-                        role="presentation"
-                        onclick={(e) => e.stopPropagation()}
-                      >
+                      <div role="presentation" onclick={(e) => e.stopPropagation()}>
                         <Select
                           bind:value={newColType}
                           options={SQL_TYPES.map((t) => ({ value: t, label: t }))}
@@ -621,15 +798,9 @@
                         />
                       </div>
                     {:else}
-                      <Input
-                        bind:value={newColType}
-                        placeholder="type"
-                        inputSize="sm"
-                      />
+                      <Input bind:value={newColType} placeholder="type" inputSize="sm" />
                     {/if}
-                    <label
-                      class="flex items-center gap-1.5 text-caption text-fg-secondary"
-                    >
+                    <label class="flex items-center gap-1.5 text-caption text-fg-secondary">
                       <input type="checkbox" bind:checked={newColPk} />
                       Primary key
                     </label>
