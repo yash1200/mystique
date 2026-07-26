@@ -4,6 +4,7 @@
   import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
   import ConnectionDetail from "$lib/components/home/ConnectionDetail.svelte";
   import NewConnectionPanel from "$lib/components/home/NewConnectionPanel.svelte";
+  import HomeIntro from "$lib/components/home/HomeIntro.svelte";
   import {
     Button,
     ThemeToggle,
@@ -37,9 +38,11 @@
   let connections = $state<ConnectionProfile[]>([]);
   let selectedId = $state<string | null>(null);
   /** Create form (no selection). */
-  let creating = $state(true);
+  let creating = $state(false);
   /** Edit form for the currently selected profile. */
   let editing = $state(false);
+  /** Landing intro: actions + previous connections (default home). */
+  let showHome = $state(true);
   let loading = $state(true);
   let saving = $state(false);
   let testing = $state(false);
@@ -87,11 +90,21 @@
     }, 3600);
   }
 
-  /** Home default: nothing selected → new-connection form. */
+  /** Default landing: intro actions + connection list. */
+  function enterHomeMode() {
+    selectedId = null;
+    creating = false;
+    editing = false;
+    showHome = true;
+    testResult = null;
+  }
+
+  /** Open the new-connection form. */
   function enterCreateMode() {
     selectedId = null;
     creating = true;
     editing = false;
+    showHome = false;
     testResult = null;
   }
 
@@ -107,15 +120,19 @@
       selectedId = preferSelectId;
       creating = false;
       editing = false;
+      showHome = false;
     } else if (!selectedId || !connections.some((c) => c.id === selectedId)) {
-      // No valid selection → always land on create home (never empty state).
-      enterCreateMode();
+      // No valid selection → landing intro (not the create form).
+      if (!creating && !editing) {
+        enterHomeMode();
+      }
     }
   }
 
   function selectConnection(id: string) {
     creating = false;
     editing = false;
+    showHome = false;
     testResult = null;
     selectedId = id;
   }
@@ -124,11 +141,29 @@
     enterCreateMode();
   }
 
+  function startCreateEr() {
+    showToast(
+      "info",
+      "Create ER / Model designer is coming next — connect to a database first for live model view, or stay tuned.",
+    );
+  }
+
   function startEdit() {
     if (!selected) return;
     editing = true;
     creating = false;
+    showHome = false;
     testResult = null;
+  }
+
+  async function connectFromHome(id: string) {
+    selectConnection(id);
+    // Wait a tick so `selected` derives, then reuse connectSelected
+    await Promise.resolve();
+    const conn = connections.find((c) => c.id === id);
+    if (!conn) return;
+    selectedId = id;
+    await connectSelected();
   }
 
   /**
@@ -202,18 +237,12 @@
     if (editing && selectedId) {
       editing = false;
       creating = false;
+      showHome = false;
       testResult = null;
       return;
     }
-    // Cancel create → if we have connections, select first; else stay on form.
-    if (connections.length > 0) {
-      creating = false;
-      editing = false;
-      testResult = null;
-      selectedId = connections[0].id;
-      return;
-    }
-    enterCreateMode();
+    // Cancel create → back to home intro.
+    enterHomeMode();
   }
 
   async function saveConnection(draft: ConnectionFormDraft) {
@@ -424,8 +453,8 @@
       loadError = null;
       try {
         await refreshList();
-        // Always open home with no selection in create mode.
-        enterCreateMode();
+        // Always open on the intro screen (actions + previous connections).
+        enterHomeMode();
         if (!isTauri()) {
           // Soft notice only — FE localStorage still works.
           loadError = null;
@@ -456,16 +485,24 @@
       class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4"
     >
       <div class="flex min-w-0 items-center gap-1.5 text-caption text-fg">
-        <span class="text-fg-muted">Home</span>
+        <button
+          type="button"
+          class="border-none bg-transparent p-0 text-caption text-fg-muted hover:text-accent hover:underline"
+          onclick={enterHomeMode}
+        >
+          Home
+        </button>
         <span class="text-fg-muted">/</span>
-        {#if creating}
+        {#if showHome && !creating && !editing && !selected}
+          <span>Start</span>
+        {:else if creating}
           <span>New connection</span>
         {:else if editing && selected}
           <span>Edit · {selected.name}</span>
         {:else if selected}
           <span>{selected.name}</span>
         {:else}
-          <span>Connections</span>
+          <span>Start</span>
         {/if}
         {#if loading}
           <span class="text-fg-muted">· Loading…</span>
@@ -484,7 +521,7 @@
           {saving}
           {testing}
           {testResult}
-          oncancel={connections.length > 0 ? cancelForm : undefined}
+          oncancel={cancelForm}
           onsave={saveConnection}
           ontest={handleTestConnection}
         />
@@ -509,17 +546,17 @@
           onduplicate={duplicateSelected}
           ondelete={requestDeleteSelected}
           onedit={startEdit}
-          onbacktonew={startCreate}
+          onbacktonew={enterHomeMode}
         />
       {:else}
-        <!-- Fallback: never show empty “no selection”; always create form. -->
-        <NewConnectionPanel
-          initial={null}
-          {saving}
-          {testing}
-          {testResult}
-          onsave={saveConnection}
-          ontest={handleTestConnection}
+        <HomeIntro
+          {connections}
+          {loading}
+          connectingId={testing ? selectedId : null}
+          oncreateConnection={startCreate}
+          oncreateEr={startCreateEr}
+          onopen={selectConnection}
+          onconnect={connectFromHome}
         />
       {/if}
     </div>
