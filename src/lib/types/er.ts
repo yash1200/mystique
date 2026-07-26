@@ -1,21 +1,28 @@
-/** High-level data family for FE-only ER / model designer. */
+/** High-level data family for ER / model designer. */
 export type DataFamily = "sql" | "nosql" | "redis";
 
 export type ErNodeKind =
   | "table"
   | "collection"
-  | "keyspace"
   | "key_pattern"
   | "entity";
 
 export type ErEdgeKind = "fk" | "inferred" | "logical" | "key_ref";
 
+/** Column / field on a node (SQL tables use name + type). */
+export interface ErColumn {
+  id: string;
+  name: string;
+  dataType: string;
+  pk?: boolean;
+  nullable?: boolean;
+}
+
 export interface ErNode {
   id: string;
   kind: ErNodeKind;
   name: string;
-  /** Fields / columns / keys shown on the card */
-  fields: string[];
+  columns: ErColumn[];
   x: number;
   y: number;
 }
@@ -26,6 +33,9 @@ export interface ErEdge {
   to: string;
   kind: ErEdgeKind;
   label?: string;
+  /** Optional column-level endpoints for FK labels */
+  fromColumn?: string;
+  toColumn?: string;
 }
 
 export interface ErDiagramState {
@@ -33,6 +43,32 @@ export interface ErDiagramState {
   nodes: ErNode[];
   edges: ErEdge[];
 }
+
+/** Persisted diagram metadata + body (matches BE). */
+export interface ErDiagramRecord {
+  id: string;
+  name: string;
+  family: DataFamily;
+  body: ErDiagramState;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const SQL_TYPES = [
+  "INTEGER",
+  "BIGINT",
+  "SERIAL",
+  "UUID",
+  "TEXT",
+  "VARCHAR(255)",
+  "BOOLEAN",
+  "TIMESTAMP",
+  "TIMESTAMPTZ",
+  "DATE",
+  "NUMERIC",
+  "JSONB",
+  "BYTEA",
+] as const;
 
 export const FAMILY_META: Record<
   DataFamily,
@@ -42,91 +78,105 @@ export const FAMILY_META: Record<
     description: string;
     nodeLabel: string;
     edgeLabel: string;
-    tools: { id: string; label: string; hint: string }[];
   }
 > = {
   sql: {
     title: "SQL databases",
     short: "SQL",
     description:
-      "Relational model — tables, columns, primary keys, and foreign-key relationships (Postgres, MySQL, SQLite, …).",
+      "Tables you can drag, columns with types, and foreign-key arrows between tables.",
     nodeLabel: "Table",
     edgeLabel: "Foreign key",
-    tools: [
-      { id: "add-table", label: "Add table", hint: "Entity with columns" },
-      { id: "add-fk", label: "Add FK", hint: "Link two tables" },
-      { id: "add-column", label: "Add column", hint: "Field on selected table" },
-      { id: "mark-pk", label: "Mark PK", hint: "Primary key badge" },
-    ],
   },
   nosql: {
     title: "NoSQL / document",
     short: "NoSQL",
     description:
-      "Document model — collections, nested fields, and inferred references (MongoDB, DocumentDB, …).",
+      "Collections and fields with inferred references (document-oriented).",
     nodeLabel: "Collection",
     edgeLabel: "Inferred ref",
-    tools: [
-      { id: "add-collection", label: "Add collection", hint: "Document set" },
-      {
-        id: "add-inferred",
-        label: "Add reference",
-        hint: "Soft link between collections",
-      },
-      { id: "add-field", label: "Add field", hint: "Path on selected collection" },
-      { id: "sample-shape", label: "Sample shape", hint: "Demo nested fields" },
-    ],
   },
   redis: {
     title: "Redis / key-value",
     short: "Redis",
-    description:
-      "Key-oriented model — key patterns, types (string, hash, list, set), and logical groupings.",
+    description: "Key patterns, value types, and logical links between patterns.",
     nodeLabel: "Key pattern",
     edgeLabel: "Logical link",
-    tools: [
-      { id: "add-pattern", label: "Add key pattern", hint: "e.g. user:*" },
-      { id: "add-type", label: "Set type", hint: "string / hash / list / set" },
-      { id: "add-group", label: "Link patterns", hint: "Logical relationship" },
-      { id: "add-ttl", label: "Note TTL", hint: "Expiry hint on pattern" },
-    ],
   },
 };
 
+function col(
+  name: string,
+  dataType: string,
+  opts?: { pk?: boolean; nullable?: boolean },
+): ErColumn {
+  return {
+    id: `c_${Math.random().toString(36).slice(2, 9)}`,
+    name,
+    dataType,
+    pk: opts?.pk,
+    nullable: opts?.nullable,
+  };
+}
+
 export function emptyDiagram(family: DataFamily): ErDiagramState {
-  const seed: Record<DataFamily, ErDiagramState> = {
-    sql: {
+  if (family === "sql") {
+    const usersId = "n_users";
+    const ordersId = "n_orders";
+    return {
       family: "sql",
       nodes: [
         {
-          id: "n1",
+          id: usersId,
           kind: "table",
           name: "users",
-          fields: ["id PK", "email", "created_at"],
+          columns: [
+            col("id", "UUID", { pk: true }),
+            col("email", "VARCHAR(255)"),
+            col("created_at", "TIMESTAMPTZ"),
+          ],
           x: 80,
           y: 100,
         },
         {
-          id: "n2",
+          id: ordersId,
           kind: "table",
           name: "orders",
-          fields: ["id PK", "user_id FK", "total"],
-          x: 380,
+          columns: [
+            col("id", "UUID", { pk: true }),
+            col("user_id", "UUID"),
+            col("total", "NUMERIC"),
+          ],
+          x: 400,
           y: 140,
         },
       ],
       edges: [
-        { id: "e1", from: "n2", to: "n1", kind: "fk", label: "user_id → users.id" },
+        {
+          id: "e1",
+          from: ordersId,
+          to: usersId,
+          kind: "fk",
+          label: "user_id → users.id",
+          fromColumn: "user_id",
+          toColumn: "id",
+        },
       ],
-    },
-    nosql: {
+    };
+  }
+  if (family === "nosql") {
+    return {
       family: "nosql",
       nodes: [
         {
           id: "n1",
           kind: "collection",
           name: "users",
-          fields: ["_id", "email", "profile.name"],
+          columns: [
+            col("_id", "ObjectId", { pk: true }),
+            col("email", "string"),
+            col("profile.name", "string"),
+          ],
           x: 80,
           y: 100,
         },
@@ -134,8 +184,12 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           id: "n2",
           kind: "collection",
           name: "orders",
-          fields: ["_id", "userId", "items[]"],
-          x: 380,
+          columns: [
+            col("_id", "ObjectId", { pk: true }),
+            col("userId", "ObjectId"),
+            col("items", "array"),
+          ],
+          x: 400,
           y: 140,
         },
       ],
@@ -145,40 +199,39 @@ export function emptyDiagram(family: DataFamily): ErDiagramState {
           from: "n2",
           to: "n1",
           kind: "inferred",
-          label: "userId → users._id (inferred)",
+          label: "userId → users._id",
         },
       ],
-    },
-    redis: {
-      family: "redis",
-      nodes: [
-        {
-          id: "n1",
-          kind: "key_pattern",
-          name: "user:{id}",
-          fields: ["type: hash", "fields: name, email"],
-          x: 80,
-          y: 100,
-        },
-        {
-          id: "n2",
-          kind: "key_pattern",
-          name: "session:{token}",
-          fields: ["type: string", "TTL: 3600s"],
-          x: 380,
-          y: 140,
-        },
-      ],
-      edges: [
-        {
-          id: "e1",
-          from: "n2",
-          to: "n1",
-          kind: "logical",
-          label: "session → user id",
-        },
-      ],
-    },
+    };
+  }
+  return {
+    family: "redis",
+    nodes: [
+      {
+        id: "n1",
+        kind: "key_pattern",
+        name: "user:{id}",
+        columns: [col("type", "hash"), col("fields", "name, email")],
+        x: 80,
+        y: 100,
+      },
+      {
+        id: "n2",
+        kind: "key_pattern",
+        name: "session:{token}",
+        columns: [col("type", "string"), col("TTL", "3600s")],
+        x: 400,
+        y: 140,
+      },
+    ],
+    edges: [
+      {
+        id: "e1",
+        from: "n2",
+        to: "n1",
+        kind: "logical",
+        label: "session → user",
+      },
+    ],
   };
-  return structuredClone(seed[family]);
 }

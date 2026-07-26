@@ -331,6 +331,22 @@
      */
     const TICKETS = [
       {
+        id: "T-BE-ER-STORE",
+        title: "Persist ER diagrams in local app SQLite",
+        column: "deployed",
+        tags: ["be", "p0"],
+        description: "Migration 002 er_diagrams + IPC list/get/save/delete. FE Save/Load last on canvas.",
+        related: "002_er_diagrams.sql · DiagramService · ipc/diagrams",
+      },
+      {
+        id: "T-FE-ER-CANVAS",
+        title: "Interactive ER tables: drag, columns, FK arrows",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Add table boxes, drag freely, add/delete typed columns, relationship arrows with arrowheads.",
+        related: "ErWorkspace.svelte · T-FE-ER-FAMILY",
+      },
+      {
         id: "T-FE-HOME",
         title: "Home intro: Create connection / Create ER + list",
         column: "deployed",

@@ -4,12 +4,14 @@
 //! `mystique-connector-api` crate extracted from this module).
 
 mod connection;
+mod er_diagram;
 mod history;
 mod query_library;
 mod settings;
 mod time;
 
 pub use connection::*;
+pub use er_diagram::*;
 pub use history::*;
 pub use query_library::*;
 pub use settings::*;

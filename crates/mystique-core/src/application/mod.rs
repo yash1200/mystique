@@ -2,11 +2,13 @@
 //!
 //! IPC / HTTP adapters call these — never repositories or drivers directly.
 
+mod diagrams;
 mod history;
 mod profiles;
 mod query_library;
 mod settings;
 
+pub use diagrams::DiagramService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;
@@ -54,6 +56,10 @@ impl AppServices {
 
     pub fn settings(&self) -> SettingsService<'_> {
         SettingsService { db: &self.db }
+    }
+
+    pub fn diagrams(&self) -> DiagramService<'_> {
+        DiagramService { db: &self.db }
     }
 
     pub fn connections(&self) -> Arc<ConnectionManager> {

@@ -66,6 +66,11 @@ pub fn run() {
             ipc::history::list_recent_query_history,
             ipc::history::clear_query_history,
             ipc::history::retain_query_history,
+            // diagrams (ER)
+            ipc::diagrams::list_diagrams,
+            ipc::diagrams::get_diagram,
+            ipc::diagrams::save_diagram,
+            ipc::diagrams::delete_diagram,
             // settings
             ipc::settings::get_setting,
             ipc::settings::set_setting,

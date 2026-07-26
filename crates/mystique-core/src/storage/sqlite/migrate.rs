@@ -3,7 +3,10 @@ use rusqlite::Connection;
 use crate::domain::now_iso;
 use crate::error::AppResult;
 
-const MIGRATIONS: &[(i32, &str)] = &[(1, include_str!("../../../migrations/001_init.sql"))];
+const MIGRATIONS: &[(i32, &str)] = &[
+    (1, include_str!("../../../migrations/001_init.sql")),
+    (2, include_str!("../../../migrations/002_er_diagrams.sql")),
+];
 
 /// Apply pending schema migrations in order.
 pub fn migrate(conn: &Connection) -> AppResult<()> {
