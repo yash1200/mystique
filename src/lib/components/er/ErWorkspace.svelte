@@ -29,6 +29,7 @@
   import { cn } from "$lib/utils/cn";
   import { listDiagrams, saveDiagram, type ErDiagramRecord } from "$lib/api/diagrams";
   import { isTauri } from "$lib/api/tauri";
+  import { diagramToDbml } from "$lib/utils/dbml";
 
   interface Props {
     family: DataFamily;
@@ -55,6 +56,9 @@
   let saving = $state(false);
   let dirty = $state(false);
   let showGrid = $state(true);
+  /** Right-hand DBML panel (dbdiagram.io-style text view). */
+  let showDbml = $state(true);
+  let dbmlCopied = $state(false);
 
   /** Undo / redo stacks (diagram snapshots taken before each change). */
   let undoStack = $state<ErDiagramState[]>([]);
@@ -109,6 +113,8 @@
   const selectionCount = $derived(selectedTableIds.length);
   const canUndo = $derived(undoStack.length > 0);
   const canRedo = $derived(redoStack.length > 0);
+  /** Live DBML text generated from the canvas diagram. */
+  const dbmlText = $derived(diagramToDbml(diagram, diagramName));
 
   /** Non-reactive: only reset workspace when the family prop actually changes. */
   let lastInitFamily: DataFamily | null = null;
@@ -1458,6 +1464,24 @@
     toolMsg = showGrid ? "Grid shown." : "Grid hidden.";
   }
 
+  function toggleDbml() {
+    showDbml = !showDbml;
+    toolMsg = showDbml ? "DBML panel shown." : "DBML panel hidden.";
+  }
+
+  async function copyDbml() {
+    try {
+      await navigator.clipboard.writeText(dbmlText);
+      dbmlCopied = true;
+      toolMsg = "DBML copied to clipboard.";
+      setTimeout(() => {
+        dbmlCopied = false;
+      }, 1600);
+    } catch {
+      toolMsg = "Could not copy DBML — select text manually.";
+    }
+  }
+
   async function handleSave() {
     if (!diagram) return;
     saving = true;
@@ -1562,6 +1586,14 @@
     </div>
     <Inline gap="sm">
       <Input bind:value={diagramName} class="w-40" inputSize="sm" aria-label="Diagram name" />
+      <Button
+        variant={showDbml ? "secondary" : "ghost"}
+        size="sm"
+        onclick={toggleDbml}
+        aria-pressed={showDbml}
+      >
+        {showDbml ? "Hide DBML" : "Show DBML"}
+      </Button>
       <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
       <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
         {saving ? "Saving…" : "Save"}
@@ -1608,6 +1640,23 @@
         <span>Grid</span>
         <span class="font-mono text-micro uppercase tracking-wide">
           {showGrid ? "ON" : "OFF"}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        class={cn(
+          "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
+          showDbml
+            ? "border-accent bg-accent-muted text-fg"
+            : "border-line bg-input text-fg-secondary hover:border-line-strong",
+        )}
+        onclick={toggleDbml}
+        aria-pressed={showDbml}
+      >
+        <span>DBML text</span>
+        <span class="font-mono text-micro uppercase tracking-wide">
+          {showDbml ? "ON" : "OFF"}
         </span>
       </button>
 
@@ -2092,6 +2141,49 @@
         {/each}
       {/if}
     </div>
+
+    <!-- DBML text panel (dbdiagram.io-style) -->
+    {#if showDbml}
+      <aside
+        class="flex w-[min(22rem,36vw)] shrink-0 flex-col border-l border-line bg-panel"
+        aria-label="DBML text view"
+      >
+        <div
+          class="flex h-control shrink-0 items-center justify-between gap-2 border-b border-line px-3"
+        >
+          <div class="min-w-0">
+            <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">
+              DBML
+            </p>
+            <p class="truncate text-caption text-fg-muted">Live from canvas</p>
+          </div>
+          <Inline gap="sm">
+            <Button variant="ghost" size="sm" onclick={copyDbml}>
+              {dbmlCopied ? "Copied" : "Copy"}
+            </Button>
+            <Button variant="ghost" size="sm" onclick={toggleDbml} aria-label="Hide DBML">
+              Hide
+            </Button>
+          </Inline>
+        </div>
+        <div class="min-h-0 flex-1 overflow-auto bg-input/40 p-3">
+          <pre
+            class="m-0 whitespace-pre-wrap break-words font-mono text-caption leading-relaxed text-fg"
+            >{dbmlText}</pre
+          >
+        </div>
+        <p class="shrink-0 border-t border-line px-3 py-2 text-caption text-fg-muted">
+          Updates as you edit tables, columns, and links. Format:
+          <a
+            class="text-accent hover:underline"
+            href="https://dbml.dbdiagram.io/docs"
+            target="_blank"
+            rel="noreferrer"
+          >DBML docs</a
+          >.
+        </p>
+      </aside>
+    {/if}
   </div>
 </div>
 
