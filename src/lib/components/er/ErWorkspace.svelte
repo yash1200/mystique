@@ -38,9 +38,10 @@
 
   let { family, onback, onchangeFamily }: Props = $props();
 
-  const TABLE_W = 248;
+  const TABLE_W = 280;
   const HEADER_H = 40;
-  const ROW_H = 30;
+  /** Row height must fit inline type Select (h-control-sm = 28px) with breathing room. */
+  const ROW_H = 34;
   const PASTE_OFFSET = ER_GRID * 2;
   const MAX_HISTORY = 80;
 
@@ -1911,7 +1912,8 @@
             class={cn(
               "absolute rounded-lg border bg-panel shadow-sm",
               isSelected ? "border-accent ring-2 ring-accent/30" : "border-line",
-              arrowTool ? "cursor-default" : "cursor-grab",
+              // Grab only on header — body uses default so inputs get a normal text caret
+              arrowTool ? "cursor-default" : "",
               dragTableId === node.id && "cursor-grabbing",
             )}
             style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px; z-index: 2;"
@@ -1922,12 +1924,16 @@
             oncontextmenu={(e) => onTableContextMenu(node.id, e)}
           >
             <div
-              class="flex items-center justify-between gap-2 border-b border-line bg-elevated px-2.5"
+              class={cn(
+                "flex items-center justify-between gap-2 border-b border-line bg-elevated px-2.5",
+                !arrowTool && "cursor-grab",
+                dragTableId === node.id && "cursor-grabbing",
+              )}
               style="height: {HEADER_H}px"
             >
               {#if primaryTableId === node.id && !arrowTool}
                 <input
-                  class="min-w-0 flex-1 rounded border border-line bg-input px-1 py-0.5 text-body font-semibold text-fg"
+                  class="min-w-0 flex-1 cursor-text rounded-md border border-line bg-input px-2 py-1 text-body font-semibold text-fg"
                   value={node.name}
                   data-no-drag
                   oninput={(e) => renameTable((e.currentTarget as HTMLInputElement).value)}
@@ -1946,7 +1952,7 @@
                     <div
                       data-er-column
                       data-no-drag
-                      class="flex h-full w-full items-center gap-1 border-b border-line/50 px-2 last:border-b-0"
+                      class="flex h-full w-full items-center gap-1.5 border-b border-line/50 px-2 last:border-b-0"
                     >
                       {#if col.pk}
                         <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
@@ -1955,7 +1961,7 @@
                         {col.name}
                       </span>
                       <div
-                        class="w-[7.5rem] shrink-0"
+                        class="w-28 shrink-0 cursor-pointer [&_button]:h-7 [&_button]:px-2 [&_button]:text-caption [&_svg]:size-3"
                         role="presentation"
                         onclick={(e) => e.stopPropagation()}
                         onpointerdown={(e) => e.stopPropagation()}
@@ -1971,11 +1977,12 @@
                       </div>
                       <button
                         type="button"
-                        class="shrink-0 px-1 text-caption text-danger"
+                        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-body text-danger hover:bg-danger/10"
                         onclick={(e) => {
                           e.stopPropagation();
                           deleteColumn(col.id);
                         }}
+                        aria-label="Delete column"
                       >
                         ×
                       </button>
@@ -1986,8 +1993,8 @@
                       data-er-column
                       data-no-drag
                       class={cn(
-                        "flex h-full w-full items-center gap-1 border-b border-line/50 px-2.5 text-left last:border-b-0",
-                        arrowTool && "hover:bg-accent-muted",
+                        "flex h-full w-full cursor-default items-center gap-1.5 border-b border-line/50 px-2.5 text-left last:border-b-0",
+                        arrowTool && "cursor-pointer hover:bg-accent-muted",
                         linkFrom?.tableId === node.id &&
                           linkFrom?.columnId === col.id &&
                           "bg-accent-muted ring-1 ring-inset ring-accent",
@@ -2010,11 +2017,11 @@
             </ul>
 
             {#if primaryTableId === node.id && !arrowTool}
-              <div class="border-t border-line p-2" data-no-drag>
+              <div class="cursor-default border-t border-line p-2.5" data-no-drag>
                 {#if !showAddCol}
                   <button
                     type="button"
-                    class="w-full rounded-md border border-dashed border-line py-1.5 text-caption font-medium text-accent hover:bg-accent-muted"
+                    class="h-control-sm w-full cursor-pointer rounded-md border border-dashed border-line text-caption font-medium text-accent hover:bg-accent-muted"
                     onclick={(e) => {
                       e.stopPropagation();
                       newColType = defaultColumnType(family);
@@ -2024,24 +2031,40 @@
                     + Add column
                   </button>
                 {:else}
-                  <div class="flex flex-col gap-1.5">
-                    <Input bind:value={newColName} placeholder="column_name" inputSize="sm" />
+                  <div class="flex flex-col gap-2">
+                    <Input
+                      bind:value={newColName}
+                      placeholder="column_name"
+                      inputSize="md"
+                      class="cursor-text font-mono text-body"
+                    />
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                    <div role="presentation" onclick={(e) => e.stopPropagation()}>
+                    <div
+                      class="cursor-pointer"
+                      role="presentation"
+                      onclick={(e) => e.stopPropagation()}
+                      onpointerdown={(e) => e.stopPropagation()}
+                    >
                       <Select
                         bind:value={newColType}
                         options={typeOptions}
-                        inputSize="sm"
+                        inputSize="md"
                         placeholder="Column type"
                       />
                     </div>
-                    <label class="flex items-center gap-1.5 text-caption text-fg-secondary">
-                      <input type="checkbox" bind:checked={newColPk} />
+                    <label
+                      class="flex cursor-pointer items-center gap-2 text-body text-fg-secondary"
+                    >
+                      <input
+                        type="checkbox"
+                        class="size-3.5 shrink-0 cursor-pointer accent-[var(--accent)]"
+                        bind:checked={newColPk}
+                      />
                       Primary key
                     </label>
-                    <div class="flex gap-1">
+                    <div class="flex gap-2 pt-0.5">
                       <Button
-                        size="sm"
+                        size="md"
                         variant="primary"
                         onclick={(e: MouseEvent) => {
                           e.stopPropagation();
@@ -2051,7 +2074,7 @@
                         Add
                       </Button>
                       <Button
-                        size="sm"
+                        size="md"
                         variant="ghost"
                         onclick={(e: MouseEvent) => {
                           e.stopPropagation();

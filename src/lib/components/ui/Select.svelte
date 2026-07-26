@@ -225,7 +225,7 @@
     type="button"
     {id}
     class={cn(
-      "flex w-full items-center justify-between gap-2 rounded-md border border-line bg-input px-2.5 text-left text-fg",
+      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-line bg-input px-2.5 text-left text-fg",
       "focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted",
       "disabled:cursor-not-allowed disabled:opacity-55",
       open && "border-focus ring-2 ring-accent-muted",
@@ -248,7 +248,8 @@
     </span>
     <svg
       class={cn(
-        "size-3.5 shrink-0 text-fg-muted transition-transform duration-150",
+        "shrink-0 text-fg-muted transition-transform duration-150",
+        inputSize === "sm" ? "size-3" : "size-3.5",
         open && "rotate-180",
       )}
       viewBox="0 0 16 16"
