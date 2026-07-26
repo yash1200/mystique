@@ -1589,7 +1589,7 @@
       return;
     }
     exporting = true;
-    toolMsg = "Exporting PNG…";
+    toolMsg = "Choose where to save the PNG…";
     try {
       // Clear selection chrome for a cleaner shot
       const prevTables = selectedTableIds;
@@ -1598,10 +1598,16 @@
       selectedEdgeId = null;
       ctxMenu = null;
       await new Promise((r) => requestAnimationFrame(() => r(null)));
-      await exportDiagramPng(canvasEl, diagramName, exportBounds());
+      const result = await exportDiagramPng(canvasEl, diagramName, exportBounds());
       selectedTableIds = prevTables;
       selectedEdgeId = prevEdge;
-      toolMsg = "PNG downloaded.";
+      if (result.ok) {
+        toolMsg = `PNG saved: ${result.path}`;
+      } else if (result.cancelled) {
+        toolMsg = "PNG export cancelled.";
+      } else {
+        toolMsg = result.error;
+      }
     } catch (e) {
       toolMsg = e instanceof Error ? e.message : "PNG export failed.";
     } finally {
@@ -1615,7 +1621,7 @@
       return;
     }
     exporting = true;
-    toolMsg = "Exporting PDF…";
+    toolMsg = "Choose where to save the PDF…";
     try {
       const prevTables = selectedTableIds;
       const prevEdge = selectedEdgeId;
@@ -1623,10 +1629,16 @@
       selectedEdgeId = null;
       ctxMenu = null;
       await new Promise((r) => requestAnimationFrame(() => r(null)));
-      await exportDiagramPdf(canvasEl, diagramName, exportBounds());
+      const result = await exportDiagramPdf(canvasEl, diagramName, exportBounds());
       selectedTableIds = prevTables;
       selectedEdgeId = prevEdge;
-      toolMsg = "PDF downloaded.";
+      if (result.ok) {
+        toolMsg = `PDF saved: ${result.path}`;
+      } else if (result.cancelled) {
+        toolMsg = "PDF export cancelled.";
+      } else {
+        toolMsg = result.error;
+      }
     } catch (e) {
       toolMsg = e instanceof Error ? e.message : "PDF export failed.";
     } finally {
