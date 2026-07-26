@@ -30,6 +30,7 @@
   import { listDiagrams, saveDiagram, type ErDiagramRecord } from "$lib/api/diagrams";
   import { isTauri } from "$lib/api/tauri";
   import { diagramToDbml, dbmlToDiagram, sampleDbml } from "$lib/utils/dbml";
+  import { exportDiagramPdf, exportDiagramPng } from "$lib/utils/exportDiagram";
 
   interface Props {
     family: DataFamily;
@@ -69,6 +70,7 @@
   let dbmlSourceMode = $state(false);
   let dbmlEditorText = $state("");
   let dbmlParseError = $state<string | null>(null);
+  let exporting = $state(false);
 
   /** Undo / redo stacks (diagram snapshots taken before each change). */
   let undoStack = $state<ErDiagramState[]>([]);
@@ -1560,6 +1562,78 @@
     }
   }
 
+  /** Content bounds so export includes all tables (not only the viewport). */
+  function exportBounds(): { width: number; height: number } {
+    if (!diagram?.nodes.length) {
+      return { width: 1400, height: 800 };
+    }
+    let maxX = 400;
+    let maxY = 300;
+    for (const n of diagram.nodes) {
+      const h = HEADER_H + n.columns.length * ROW_H + 80;
+      maxX = Math.max(maxX, n.x + TABLE_W + 120);
+      maxY = Math.max(maxY, n.y + h);
+    }
+    // Include edge corridor space
+    maxX += ER_GRID * 4;
+    maxY += ER_GRID * 4;
+    return {
+      width: Math.max(1400, Math.ceil(maxX)),
+      height: Math.max(800, Math.ceil(maxY)),
+    };
+  }
+
+  async function handleExportPng() {
+    if (!canvasEl || !diagram) {
+      toolMsg = "Nothing to export yet.";
+      return;
+    }
+    exporting = true;
+    toolMsg = "Exporting PNG…";
+    try {
+      // Clear selection chrome for a cleaner shot
+      const prevTables = selectedTableIds;
+      const prevEdge = selectedEdgeId;
+      selectedTableIds = [];
+      selectedEdgeId = null;
+      ctxMenu = null;
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      await exportDiagramPng(canvasEl, diagramName, exportBounds());
+      selectedTableIds = prevTables;
+      selectedEdgeId = prevEdge;
+      toolMsg = "PNG downloaded.";
+    } catch (e) {
+      toolMsg = e instanceof Error ? e.message : "PNG export failed.";
+    } finally {
+      exporting = false;
+    }
+  }
+
+  async function handleExportPdf() {
+    if (!canvasEl || !diagram) {
+      toolMsg = "Nothing to export yet.";
+      return;
+    }
+    exporting = true;
+    toolMsg = "Exporting PDF…";
+    try {
+      const prevTables = selectedTableIds;
+      const prevEdge = selectedEdgeId;
+      selectedTableIds = [];
+      selectedEdgeId = null;
+      ctxMenu = null;
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      await exportDiagramPdf(canvasEl, diagramName, exportBounds());
+      selectedTableIds = prevTables;
+      selectedEdgeId = prevEdge;
+      toolMsg = "PDF downloaded.";
+    } catch (e) {
+      toolMsg = e instanceof Error ? e.message : "PDF export failed.";
+    } finally {
+      exporting = false;
+    }
+  }
+
   async function handleSave() {
     if (!diagram) return;
     saving = true;
@@ -1682,6 +1756,22 @@
           {showDbml ? "Hide export" : "Show export"}
         </Button>
       {/if}
+      <Button
+        variant="secondary"
+        size="sm"
+        onclick={handleExportPng}
+        disabled={exporting || !diagram}
+      >
+        {exporting ? "…" : "Export PNG"}
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        onclick={handleExportPdf}
+        disabled={exporting || !diagram}
+      >
+        {exporting ? "…" : "Export PDF"}
+      </Button>
       <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
       <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
         {saving ? "Saving…" : "Save"}
@@ -1814,6 +1904,30 @@
               {showDbml ? "ON" : "OFF"}
             </span>
           </button>
+
+          <p class="mt-1 text-label font-semibold tracking-wider text-fg-muted uppercase">
+            File
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              fullWidth
+              onclick={handleExportPng}
+              disabled={exporting || !diagram}
+            >
+              PNG
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              fullWidth
+              onclick={handleExportPdf}
+              disabled={exporting || !diagram}
+            >
+              PDF
+            </Button>
+          </div>
 
           <p class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
             Arrows
