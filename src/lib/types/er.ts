@@ -71,6 +71,48 @@ export const SQL_TYPES = [
   "BYTEA",
 ] as const;
 
+/** Mongo / document field types for the ER designer. */
+export const NOSQL_TYPES = [
+  "ObjectId",
+  "string",
+  "number",
+  "boolean",
+  "date",
+  "array",
+  "object",
+  "null",
+  "Decimal128",
+  "Binary",
+  "mixed",
+] as const;
+
+/** Redis value / attribute types for the ER designer. */
+export const REDIS_TYPES = [
+  "string",
+  "hash",
+  "list",
+  "set",
+  "zset",
+  "stream",
+  "bitmap",
+  "geo",
+  "JSON",
+  "number",
+  "TTL",
+] as const;
+
+export function columnTypesForFamily(family: DataFamily): readonly string[] {
+  if (family === "sql") return SQL_TYPES;
+  if (family === "nosql") return NOSQL_TYPES;
+  return REDIS_TYPES;
+}
+
+export function defaultColumnType(family: DataFamily): string {
+  if (family === "sql") return "TEXT";
+  if (family === "nosql") return "string";
+  return "string";
+}
+
 export const ER_GRID = 24;
 
 export const FAMILY_META: Record<

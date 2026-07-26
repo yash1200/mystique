@@ -1,11 +1,11 @@
 <script lang="ts">
   /**
    * ER canvas — DBeaver-like column links on a grid.
-   * - Normal/Broken arrow tools: click col A → optional path → col B
-   * - Right-click table → Delete
-   * - Click a relationship path → drag bend handles (grid-snapped)
-   * - Mid-segment diamonds insert new bends
-   * - Grid show/hide toggle
+   * - Multi-select tables (Ctrl/Cmd+click, Ctrl+A)
+   * - Copy/paste tables (Ctrl+C / Ctrl+V) without relationships
+   * - Right-click delete (table or canvas selection)
+   * - Family-specific column type dropdowns
+   * - Path reshape on grid + grid toggle
    */
   import type {
     DataFamily,
@@ -19,7 +19,8 @@
   import {
     ER_GRID,
     FAMILY_META,
-    SQL_TYPES,
+    columnTypesForFamily,
+    defaultColumnType,
     emptyDiagram,
     snapToGrid,
   } from "$lib/types/er";
@@ -39,49 +40,66 @@
   const TABLE_W = 248;
   const HEADER_H = 40;
   const ROW_H = 30;
+  const PASTE_OFFSET = ER_GRID * 2;
 
   let diagram = $state<ErDiagramState | null>(null);
   let diagramId = $state<string | null>(null);
   let diagramName = $state("Untitled diagram");
-  let selectedTableId = $state<string | null>(null);
+  /** Multi-select table ids (order = selection order; last is primary for editing). */
+  let selectedTableIds = $state<string[]>([]);
   let selectedEdgeId = $state<string | null>(null);
   let toolMsg = $state<string | null>(null);
   let saving = $state(false);
   let dirty = $state(false);
   let showGrid = $state(true);
 
-  /** null = move tables · normal | broken = column linking */
   let arrowTool = $state<"normal" | "broken" | null>(null);
   let linkFrom = $state<{ tableId: string; columnId: string } | null>(null);
   let draftWaypoints = $state<ErPoint[]>([]);
   let cursorPt = $state<ErPoint | null>(null);
 
-  // table drag
+  // table drag (supports multi-drag)
   let dragTableId = $state<string | null>(null);
   let dragOffX = 0;
   let dragOffY = 0;
   let didDrag = false;
+  let multiDragOrigins: Record<string, { x: number; y: number }> | null = null;
   let canvasEl: HTMLDivElement | null = $state(null);
 
-  // edge waypoint drag: { edgeId, waypointIndex }
   let dragWaypoint = $state<{ edgeId: string; index: number } | null>(null);
 
-  // right-click context menu on a table
-  let ctxMenu = $state<{ clientX: number; clientY: number; tableId: string } | null>(null);
+  /** Context menu: table or empty canvas */
+  let ctxMenu = $state<{
+    clientX: number;
+    clientY: number;
+    kind: "table" | "canvas";
+    tableId?: string;
+  } | null>(null);
+
+  /** Internal clipboard of tables only (no relationships). */
+  let tableClipboard = $state<ErNode[] | null>(null);
 
   let showAddCol = $state(false);
   let newColName = $state("");
-  let newColType = $state("TEXT");
+  let newColType = $state(defaultColumnType("sql"));
   let newColPk = $state(false);
 
   const meta = $derived(FAMILY_META[family]);
   const isSql = $derived(family === "sql");
+  const typeOptions = $derived(
+    columnTypesForFamily(family).map((t) => ({ value: t, label: t })),
+  );
+  /** Primary table for rename / columns UI when exactly one selected. */
+  const primaryTableId = $derived(
+    selectedTableIds.length === 1 ? selectedTableIds[0]! : null,
+  );
+  const selectionCount = $derived(selectedTableIds.length);
 
   $effect(() => {
     diagram = emptyDiagram(family);
     diagramId = null;
     diagramName = `Untitled ${FAMILY_META[family].short} diagram`;
-    selectedTableId = null;
+    selectedTableIds = [];
     selectedEdgeId = null;
     arrowTool = null;
     linkFrom = null;
@@ -91,8 +109,10 @@
     dirty = false;
     ctxMenu = null;
     dragWaypoint = null;
+    tableClipboard = null;
+    newColType = defaultColumnType(family);
     toolMsg =
-      "Add a table, or pick Normal/Broken → click source column → (optional path) → target column. Right-click a table to delete. Click a link to reshape it.";
+      "Ctrl+A select all · Ctrl+C/V copy-paste tables (no links) · Right-click Delete · Type dropdowns per DB family.";
   });
 
   function uid(p: string) {
@@ -103,6 +123,14 @@
     dirty = true;
   }
 
+  function isEditableTarget(t: EventTarget | null): boolean {
+    if (!(t instanceof HTMLElement)) return false;
+    const tag = t.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (t.isContentEditable) return true;
+    return Boolean(t.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
   function canvasPoint(e: { clientX: number; clientY: number }): ErPoint | null {
     if (!canvasEl) return null;
     const rect = canvasEl.getBoundingClientRect();
@@ -110,6 +138,32 @@
       x: e.clientX - rect.left + canvasEl.scrollLeft,
       y: e.clientY - rect.top + canvasEl.scrollTop,
     };
+  }
+
+  function setSelection(ids: string[]) {
+    selectedTableIds = [...new Set(ids)];
+    selectedEdgeId = null;
+    if (selectedTableIds.length !== 1) showAddCol = false;
+  }
+
+  function selectOnly(tableId: string) {
+    setSelection([tableId]);
+  }
+
+  function toggleSelect(tableId: string) {
+    if (selectedTableIds.includes(tableId)) {
+      selectedTableIds = selectedTableIds.filter((id) => id !== tableId);
+    } else {
+      selectedTableIds = [...selectedTableIds, tableId];
+    }
+    selectedEdgeId = null;
+    showAddCol = false;
+  }
+
+  function selectAllTables() {
+    if (!diagram) return;
+    setSelection(diagram.nodes.map((n) => n.id));
+    toolMsg = `Selected ${diagram.nodes.length} table(s). Right-click → Delete, or Ctrl+C to copy.`;
   }
 
   function setArrowTool(kind: "normal" | "broken" | null) {
@@ -128,7 +182,7 @@
         "Broken (dashed) link: click source column → optional path points → target column";
     } else {
       toolMsg =
-        "Move mode: drag tables. Click a link to reshape its path. Right-click a table to delete.";
+        "Move mode: drag tables · Ctrl+click multi-select · Ctrl+A all · Ctrl+C/V copy/paste · Right-click Delete.";
     }
   }
 
@@ -149,7 +203,6 @@
     };
   }
 
-  /** Full path points: source column → waypoints → target column */
   function edgePoints(edge: ErEdge): ErPoint[] {
     if (!diagram) return [];
     const a = diagram.nodes.find((n) => n.id === edge.from);
@@ -178,7 +231,6 @@
     return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   }
 
-  /** Midpoint of each segment — drag to insert a new waypoint */
   function segmentMids(edge: ErEdge): { x: number; y: number; insertAt: number }[] {
     const pts = edgePoints(edge);
     const mids: { x: number; y: number; insertAt: number }[] = [];
@@ -186,7 +238,7 @@
       mids.push({
         x: (pts[i].x + pts[i + 1].x) / 2,
         y: (pts[i].y + pts[i + 1].y) / 2,
-        insertAt: i, // waypoint index to insert at (0 = first waypoint)
+        insertAt: i,
       });
     }
     return mids;
@@ -225,10 +277,9 @@
       y: snapToGrid(ER_GRID * 4 + (n % 4) * ER_GRID * 2),
     };
     diagram = { ...diagram, nodes: [...diagram.nodes, node] };
-    selectedTableId = node.id;
-    selectedEdgeId = null;
+    selectOnly(node.id);
     showAddCol = false;
-    toolMsg = `Added “${node.name}”. Drag on the grid, or use an arrow tool to link columns. Right-click to delete.`;
+    toolMsg = `Added “${node.name}”.`;
     markDirty();
   }
 
@@ -238,8 +289,8 @@
     ctxMenu = null;
 
     if (!arrowTool) {
-      selectedTableId = tableId;
-      selectedEdgeId = null;
+      if (e.ctrlKey || e.metaKey) toggleSelect(tableId);
+      else selectOnly(tableId);
       showAddCol = false;
       return;
     }
@@ -247,8 +298,7 @@
     if (!linkFrom) {
       linkFrom = { tableId, columnId };
       draftWaypoints = [];
-      selectedTableId = tableId;
-      selectedEdgeId = null;
+      selectOnly(tableId);
       const node = diagram?.nodes.find((n) => n.id === tableId);
       const col = node?.columns.find((c) => c.id === columnId);
       toolMsg = `From ${node?.name ?? "?"}.${col?.name ?? "?"}. Click empty grid to bend the path, or click a column on another table to finish.`;
@@ -289,7 +339,6 @@
     const toCol = toNode?.columns.find((c) => c.id === toColumnId);
     const label = `${fromNode?.name}.${fromCol?.name} → ${toNode?.name}.${toCol?.name}`;
     const kind: ErEdgeKind = arrowTool === "broken" ? "broken" : "normal";
-    // Snap any draft bends to grid (already snapped on place, belt-and-suspenders)
     const wps = draftWaypoints.map((p) => ({
       x: snapToGrid(p.x),
       y: snapToGrid(p.y),
@@ -307,12 +356,12 @@
     };
 
     diagram = { ...diagram, edges: [...diagram.edges, edge] };
-    toolMsg = `Linked: ${label}. Click the path to select and drag handles to reshape.`;
+    toolMsg = `Linked: ${label}. Click the path to reshape.`;
     linkFrom = null;
     draftWaypoints = [];
     cursorPt = null;
     selectedEdgeId = edge.id;
-    selectedTableId = null;
+    selectedTableIds = [];
     markDirty();
   }
 
@@ -330,7 +379,6 @@
 
     ctxMenu = null;
 
-    // While linking: place a grid-snapped bend point
     if (arrowTool && linkFrom) {
       const pt = canvasPoint(e);
       if (!pt) return;
@@ -340,9 +388,7 @@
       return;
     }
 
-    // With a selected edge: empty-canvas click can add a new waypoint at the end of path
-    // (more common: use mid handles). Deselect instead for clarity.
-    selectedTableId = null;
+    selectedTableIds = [];
     selectedEdgeId = null;
     showAddCol = false;
   }
@@ -352,7 +398,6 @@
       cursorPt = canvasPoint(e);
     }
 
-    // Dragging an edge waypoint
     if (dragWaypoint && diagram) {
       const pt = canvasPoint(e);
       if (!pt) return;
@@ -371,7 +416,6 @@
       return;
     }
 
-    // Dragging a table
     if (!dragTableId || !diagram || !canvasEl) return;
     const rect = canvasEl.getBoundingClientRect();
     const x = snapToGrid(
@@ -380,6 +424,29 @@
     const y = snapToGrid(
       Math.max(0, e.clientY - rect.top + canvasEl.scrollTop - dragOffY),
     );
+
+    if (multiDragOrigins && selectedTableIds.includes(dragTableId) && selectedTableIds.length > 1) {
+      const origin = multiDragOrigins[dragTableId];
+      if (!origin) return;
+      const dx = x - origin.x;
+      const dy = y - origin.y;
+      if (dx !== 0 || dy !== 0) didDrag = true;
+      diagram = {
+        ...diagram,
+        nodes: diagram.nodes.map((n) => {
+          if (!selectedTableIds.includes(n.id)) return n;
+          const o = multiDragOrigins![n.id];
+          if (!o) return n;
+          return {
+            ...n,
+            x: snapToGrid(Math.max(0, o.x + dx)),
+            y: snapToGrid(Math.max(0, o.y + dy)),
+          };
+        }),
+      };
+      return;
+    }
+
     const cur = diagram.nodes.find((n) => n.id === dragTableId);
     if (cur && (cur.x !== x || cur.y !== y)) didDrag = true;
     diagram = {
@@ -401,14 +468,34 @@
     if (!diagram || !canvasEl) return;
     const node = diagram.nodes.find((n) => n.id === tableId);
     if (!node) return;
+
+    // Selection: Ctrl/Cmd toggles; plain click selects only (unless already multi-selected for group drag)
+    if (e.ctrlKey || e.metaKey) {
+      toggleSelect(tableId);
+    } else if (!selectedTableIds.includes(tableId)) {
+      selectOnly(tableId);
+    }
+    // if already in multi-selection, keep it for group drag
+
     const rect = canvasEl.getBoundingClientRect();
     dragTableId = tableId;
     didDrag = false;
     dragOffX = e.clientX - rect.left + canvasEl.scrollLeft - node.x;
     dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y;
-    selectedTableId = tableId;
     selectedEdgeId = null;
     ctxMenu = null;
+
+    if (selectedTableIds.includes(tableId) && selectedTableIds.length > 1) {
+      multiDragOrigins = {};
+      for (const n of diagram.nodes) {
+        if (selectedTableIds.includes(n.id)) {
+          multiDragOrigins[n.id] = { x: n.x, y: n.y };
+        }
+      }
+    } else {
+      multiDragOrigins = null;
+    }
+
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
 
@@ -422,47 +509,174 @@
       }
     }
     dragTableId = null;
+    multiDragOrigins = null;
   }
 
   function onTableContextMenu(tableId: string, e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    selectedTableId = tableId;
+    // If right-clicked table is not in selection, select only it; else keep multi-selection
+    if (!selectedTableIds.includes(tableId)) {
+      selectOnly(tableId);
+    }
     selectedEdgeId = null;
-    ctxMenu = { clientX: e.clientX, clientY: e.clientY, tableId };
+    ctxMenu = { clientX: e.clientX, clientY: e.clientY, kind: "table", tableId };
   }
 
-  function deleteTableById(id: string) {
-    if (!diagram) return;
+  function onCanvasContextMenu(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (t.closest("[data-er-table]") || t.closest("[data-ctx-menu]")) return;
+    e.preventDefault();
+    ctxMenu = { clientX: e.clientX, clientY: e.clientY, kind: "canvas" };
+  }
+
+  function deleteTablesByIds(ids: string[]) {
+    if (!diagram || !ids.length) return;
+    const set = new Set(ids);
     diagram = {
       ...diagram,
-      nodes: diagram.nodes.filter((n) => n.id !== id),
-      edges: diagram.edges.filter((e) => e.from !== id && e.to !== id),
+      nodes: diagram.nodes.filter((n) => !set.has(n.id)),
+      edges: diagram.edges.filter((e) => !set.has(e.from) && !set.has(e.to)),
     };
-    if (selectedTableId === id) selectedTableId = null;
+    selectedTableIds = selectedTableIds.filter((id) => !set.has(id));
     showAddCol = false;
     ctxMenu = null;
-    toolMsg = "Table deleted.";
+    toolMsg =
+      ids.length === 1 ? "Table deleted." : `Deleted ${ids.length} tables.`;
     markDirty();
   }
 
-  function deleteSelectedTable() {
-    if (selectedTableId) deleteTableById(selectedTableId);
+  function deleteSelection() {
+    if (selectedEdgeId && !selectedTableIds.length) {
+      deleteEdge(selectedEdgeId);
+      return;
+    }
+    if (selectedTableIds.length) {
+      deleteTablesByIds([...selectedTableIds]);
+    }
+  }
+
+  function copySelectedTables() {
+    if (!diagram || !selectedTableIds.length) {
+      toolMsg = "Select one or more tables to copy (Ctrl+C).";
+      return;
+    }
+    // Deep clone tables only — no relationships
+    const nodes = diagram.nodes
+      .filter((n) => selectedTableIds.includes(n.id))
+      .map((n) => ({
+        ...n,
+        columns: n.columns.map((c) => ({ ...c })),
+      }));
+    tableClipboard = nodes;
+    toolMsg = `Copied ${nodes.length} table(s) without relationships. Ctrl+V to paste.`;
+  }
+
+  function pasteTables() {
+    if (!diagram || !tableClipboard?.length) {
+      toolMsg = "Clipboard empty — copy tables with Ctrl+C first.";
+      return;
+    }
+    const newIds: string[] = [];
+    const pasted: ErNode[] = tableClipboard.map((src) => {
+      const colIdMap = new Map<string, string>();
+      const columns = src.columns.map((c) => {
+        const nid = uid("c");
+        colIdMap.set(c.id, nid);
+        return { ...c, id: nid };
+      });
+      const id = uid("n");
+      newIds.push(id);
+      return {
+        ...src,
+        id,
+        name: `${src.name}_copy`,
+        columns,
+        x: snapToGrid(src.x + PASTE_OFFSET),
+        y: snapToGrid(src.y + PASTE_OFFSET),
+      };
+    });
+    // Shift clipboard so successive pastes cascade
+    tableClipboard = tableClipboard.map((n) => ({
+      ...n,
+      columns: n.columns.map((c) => ({ ...c })),
+      x: n.x + PASTE_OFFSET,
+      y: n.y + PASTE_OFFSET,
+    }));
+    diagram = { ...diagram, nodes: [...diagram.nodes, ...pasted] };
+    setSelection(newIds);
+    toolMsg = `Pasted ${pasted.length} table(s) (no relationships).`;
+    markDirty();
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (isEditableTarget(e.target)) return;
+    // Only when focus is in the workspace-ish UI
+    const mod = e.ctrlKey || e.metaKey;
+
+    if (mod && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      if (!arrowTool) selectAllTables();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      if (!arrowTool) copySelectedTables();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "v") {
+      e.preventDefault();
+      if (!arrowTool) pasteTables();
+      return;
+    }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (selectedTableIds.length || selectedEdgeId) {
+        e.preventDefault();
+        deleteSelection();
+      }
+      return;
+    }
+    if (e.key === "Escape") {
+      ctxMenu = null;
+      if (linkFrom) cancelLink();
+      else {
+        selectedTableIds = [];
+        selectedEdgeId = null;
+      }
+    }
   }
 
   function renameTable(name: string) {
-    if (!diagram || !selectedTableId) return;
+    if (!diagram || !primaryTableId) return;
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
-        n.id === selectedTableId ? { ...n, name: name || n.name } : n,
+        n.id === primaryTableId ? { ...n, name: name || n.name } : n,
+      ),
+    };
+    markDirty();
+  }
+
+  function updateColumnType(tableId: string, colId: string, dataType: string) {
+    if (!diagram) return;
+    diagram = {
+      ...diagram,
+      nodes: diagram.nodes.map((n) =>
+        n.id === tableId
+          ? {
+              ...n,
+              columns: n.columns.map((c) =>
+                c.id === colId ? { ...c, dataType } : c,
+              ),
+            }
+          : n,
       ),
     };
     markDirty();
   }
 
   function addColumn() {
-    if (!diagram || !selectedTableId) return;
+    if (!diagram || !primaryTableId) return;
     const name = newColName.trim();
     if (!name) {
       toolMsg = "Column name is required.";
@@ -471,13 +685,13 @@
     const col: ErColumn = {
       id: uid("c"),
       name,
-      dataType: newColType || "TEXT",
+      dataType: newColType || defaultColumnType(family),
       pk: newColPk,
     };
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) => {
-        if (n.id !== selectedTableId) return n;
+        if (n.id !== primaryTableId) return n;
         let columns = [...n.columns, col];
         if (col.pk) {
           columns = columns.map((c) =>
@@ -488,18 +702,18 @@
       }),
     };
     newColName = "";
-    newColType = "TEXT";
+    newColType = defaultColumnType(family);
     newColPk = false;
     showAddCol = false;
     markDirty();
   }
 
   function deleteColumn(colId: string) {
-    if (!diagram || !selectedTableId) return;
+    if (!diagram || !primaryTableId) return;
     diagram = {
       ...diagram,
       nodes: diagram.nodes.map((n) =>
-        n.id === selectedTableId
+        n.id === primaryTableId
           ? { ...n, columns: n.columns.filter((c) => c.id !== colId) }
           : n,
       ),
@@ -525,21 +739,20 @@
     e?.stopPropagation();
     e?.preventDefault();
     selectedEdgeId = edgeId;
-    selectedTableId = null;
+    selectedTableIds = [];
     showAddCol = false;
     ctxMenu = null;
     if (!arrowTool) {
       toolMsg =
-        "Link selected. Drag blue handles to move path points on the grid. Drag diamonds on segments to add bends. Double-click a handle to remove it.";
+        "Link selected. Drag handles to reshape. Delete key removes the link.";
     }
   }
 
-  /** Start dragging an existing waypoint */
   function onWaypointDown(edgeId: string, index: number, e: PointerEvent) {
     e.stopPropagation();
     e.preventDefault();
     selectedEdgeId = edgeId;
-    selectedTableId = null;
+    selectedTableIds = [];
     dragWaypoint = { edgeId, index };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
@@ -556,7 +769,6 @@
     }
   }
 
-  /** Drag a mid-segment handle: insert waypoint if needed, then drag it */
   function onMidHandleDown(edgeId: string, insertAt: number, e: PointerEvent) {
     e.stopPropagation();
     e.preventDefault();
@@ -575,7 +787,7 @@
       ),
     };
     selectedEdgeId = edgeId;
-    selectedTableId = null;
+    selectedTableIds = [];
     dragWaypoint = { edgeId, index: insertAt };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
@@ -677,6 +889,7 @@
       diagramId = rec.id;
       diagramName = rec.name;
       dirty = false;
+      selectedTableIds = [];
       toolMsg = `Loaded “${rec.name}”.`;
     } catch (e) {
       toolMsg = e instanceof Error ? e.message : String(e);
@@ -684,7 +897,11 @@
   }
 </script>
 
-<svelte:window onpointerup={onWindowPointerUp} onpointercancel={onWindowPointerUp} />
+<svelte:window
+  onpointerup={onWindowPointerUp}
+  onpointercancel={onWindowPointerUp}
+  onkeydown={onKeyDown}
+/>
 
 <div class="flex h-full min-h-0 flex-col">
   <div
@@ -696,6 +913,9 @@
       <span class="text-body font-semibold text-fg">ER · {meta.title}</span>
       {#if dirty}
         <Badge tone="warning" size="sm">Unsaved</Badge>
+      {/if}
+      {#if selectionCount > 0}
+        <Badge tone="neutral" size="sm">{selectionCount} selected</Badge>
       {/if}
       {#if arrowTool}
         <Badge tone="accent" size="sm">
@@ -804,27 +1024,19 @@
       </div>
 
       <ol class="m-0 list-decimal space-y-1 pl-4 text-caption text-fg-muted">
-        <li>Select Normal or Broken</li>
-        <li>Click <strong class="text-fg-secondary">column</strong> on table A</li>
-        <li>Optional: click grid to draw path bends</li>
-        <li>Click <strong class="text-fg-secondary">column</strong> on table B</li>
-        <li>Click the path later to drag bends on the grid</li>
+        <li>Normal/Broken → columns to link</li>
+        <li>Ctrl+A select all tables</li>
+        <li>Ctrl+C / Ctrl+V copy-paste (no links)</li>
+        <li>Right-click → Delete</li>
+        <li>Click path to reshape on grid</li>
       </ol>
 
       {#if linkFrom}
         <Button variant="secondary" fullWidth onclick={cancelLink}>Cancel link</Button>
       {/if}
-      {#if selectedTableId && !arrowTool}
-        <Button variant="danger-ghost" fullWidth onclick={deleteSelectedTable}>
-          Delete selected table
-        </Button>
-      {/if}
       {#if selectedEdgeId}
         <Button variant="ghost" fullWidth onclick={straightenSelectedEdge}>
           Straighten selected link
-        </Button>
-        <Button variant="danger-ghost" fullWidth onclick={() => deleteEdge(selectedEdgeId!)}>
-          Delete selected link
         </Button>
       {/if}
 
@@ -892,18 +1104,12 @@
       bind:this={canvasEl}
       role="application"
       aria-label="ER grid canvas"
+      tabindex="0"
       onclick={onCanvasClick}
       onpointermove={onCanvasPointerMove}
-      oncontextmenu={(e) => {
-        // prevent browser menu on empty canvas
-        if (!(e.target as HTMLElement).closest("[data-er-table]")) {
-          e.preventDefault();
-          ctxMenu = null;
-        }
-      }}
+      oncontextmenu={onCanvasContextMenu}
     >
       {#if diagram}
-        <!-- Edges SVG: pointer events on hit paths + handles only -->
         <svg
           class="absolute inset-0 h-full min-h-[800px] w-full min-w-[1400px]"
           style="pointer-events: none;"
@@ -920,21 +1126,10 @@
             >
               <path d="M0,0 L9,3 L0,6 Z" fill="var(--accent)" />
             </marker>
-            <marker
-              id="er-arrow-head-sel"
-              markerWidth="10"
-              markerHeight="10"
-              refX="9"
-              refY="3"
-              orient="auto"
-            >
-              <path d="M0,0 L9,3 L0,6 Z" fill="var(--accent)" />
-            </marker>
           </defs>
 
           {#each diagram.edges as edge (edge.id)}
             {@const selected = selectedEdgeId === edge.id}
-            <!-- Wide invisible hit stroke for click-to-select -->
             <path
               data-er-edge-hit
               d={edgePolyline(edge)}
@@ -944,7 +1139,6 @@
               style="pointer-events: stroke; cursor: pointer;"
               onclick={(e) => selectEdge(edge.id, e)}
             />
-            <!-- Visible path -->
             <path
               d={edgePolyline(edge)}
               fill="none"
@@ -957,7 +1151,6 @@
             />
 
             {#if selected && !arrowTool}
-              <!-- Mid-segment insert handles (diamonds) -->
               {#each segmentMids(edge) as mid (mid.insertAt + "-" + mid.x + "-" + mid.y)}
                 <g
                   data-er-edge-handle
@@ -979,7 +1172,6 @@
                 </g>
               {/each}
 
-              <!-- Existing waypoint handles (circles) -->
               {#each edge.waypoints ?? [] as wp, wi (edge.id + "-wp-" + wi)}
                 <g
                   data-er-edge-handle
@@ -1002,7 +1194,6 @@
             {/if}
           {/each}
 
-          <!-- live draft path while linking -->
           {#if linkFrom && cursorPt}
             <path
               d={previewPolyline()}
@@ -1028,14 +1219,13 @@
         </svg>
 
         {#each diagram.nodes as node (node.id)}
+          {@const isSelected = selectedTableIds.includes(node.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             data-er-table
             class={cn(
               "absolute rounded-lg border bg-panel shadow-sm",
-              selectedTableId === node.id
-                ? "border-accent ring-2 ring-accent/30"
-                : "border-line",
+              isSelected ? "border-accent ring-2 ring-accent/30" : "border-line",
               arrowTool ? "cursor-default" : "cursor-grab",
               dragTableId === node.id && "cursor-grabbing",
             )}
@@ -1050,7 +1240,7 @@
               class="flex items-center justify-between gap-2 border-b border-line bg-elevated px-2.5"
               style="height: {HEADER_H}px"
             >
-              {#if selectedTableId === node.id && !arrowTool}
+              {#if primaryTableId === node.id && !arrowTool}
                 <input
                   class="min-w-0 flex-1 rounded border border-line bg-input px-1 py-0.5 text-body font-semibold text-fg"
                   value={node.name}
@@ -1066,47 +1256,75 @@
             <ul class="m-0 list-none p-0">
               {#each node.columns as col (col.id)}
                 <li class="m-0 p-0" style="height: {ROW_H}px">
-                  <button
-                    type="button"
-                    data-er-column
-                    data-no-drag
-                    class={cn(
-                      "flex h-full w-full items-center gap-1 border-b border-line/50 px-2.5 text-left last:border-b-0",
-                      arrowTool && "hover:bg-accent-muted",
-                      linkFrom?.tableId === node.id &&
-                        linkFrom?.columnId === col.id &&
-                        "bg-accent-muted ring-1 ring-inset ring-accent",
-                    )}
-                    onclick={(e) => onColumnClick(node.id, col.id, e)}
-                  >
-                    {#if col.pk}
-                      <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
-                    {/if}
-                    <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
-                      {col.name}
-                    </span>
-                    <span class="shrink-0 font-mono text-caption text-fg-muted"
-                      >{col.dataType}</span
+                  {#if primaryTableId === node.id && !arrowTool}
+                    <!-- Edit row: name fixed, type dropdown, delete -->
+                    <div
+                      data-er-column
+                      data-no-drag
+                      class="flex h-full w-full items-center gap-1 border-b border-line/50 px-2 last:border-b-0"
                     >
-                    {#if selectedTableId === node.id && !arrowTool}
-                      <span
+                      {#if col.pk}
+                        <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
+                      {/if}
+                      <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
+                        {col.name}
+                      </span>
+                      <div
+                        class="w-[7.5rem] shrink-0"
+                        role="presentation"
+                        onclick={(e) => e.stopPropagation()}
+                        onpointerdown={(e) => e.stopPropagation()}
+                      >
+                        <Select
+                          value={col.dataType}
+                          options={typeOptions.some((o) => o.value === col.dataType)
+                            ? typeOptions
+                            : [{ value: col.dataType, label: col.dataType }, ...typeOptions]}
+                          inputSize="sm"
+                          onchange={(v) => updateColumnType(node.id, col.id, v)}
+                        />
+                      </div>
+                      <button
+                        type="button"
                         class="shrink-0 px-1 text-caption text-danger"
-                        role="button"
-                        tabindex="0"
                         onclick={(e) => {
                           e.stopPropagation();
                           deleteColumn(col.id);
                         }}
                       >
                         ×
+                      </button>
+                    </div>
+                  {:else}
+                    <button
+                      type="button"
+                      data-er-column
+                      data-no-drag
+                      class={cn(
+                        "flex h-full w-full items-center gap-1 border-b border-line/50 px-2.5 text-left last:border-b-0",
+                        arrowTool && "hover:bg-accent-muted",
+                        linkFrom?.tableId === node.id &&
+                          linkFrom?.columnId === col.id &&
+                          "bg-accent-muted ring-1 ring-inset ring-accent",
+                      )}
+                      onclick={(e) => onColumnClick(node.id, col.id, e)}
+                    >
+                      {#if col.pk}
+                        <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
+                      {/if}
+                      <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
+                        {col.name}
                       </span>
-                    {/if}
-                  </button>
+                      <span class="shrink-0 font-mono text-caption text-fg-muted"
+                        >{col.dataType}</span
+                      >
+                    </button>
+                  {/if}
                 </li>
               {/each}
             </ul>
 
-            {#if selectedTableId === node.id && !arrowTool}
+            {#if primaryTableId === node.id && !arrowTool}
               <div class="border-t border-line p-2" data-no-drag>
                 {#if !showAddCol}
                   <button
@@ -1114,6 +1332,7 @@
                     class="w-full rounded-md border border-dashed border-line py-1.5 text-caption font-medium text-accent hover:bg-accent-muted"
                     onclick={(e) => {
                       e.stopPropagation();
+                      newColType = defaultColumnType(family);
                       showAddCol = true;
                     }}
                   >
@@ -1122,18 +1341,15 @@
                 {:else}
                   <div class="flex flex-col gap-1.5">
                     <Input bind:value={newColName} placeholder="column_name" inputSize="sm" />
-                    {#if isSql}
-                      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                      <div role="presentation" onclick={(e) => e.stopPropagation()}>
-                        <Select
-                          bind:value={newColType}
-                          options={SQL_TYPES.map((t) => ({ value: t, label: t }))}
-                          inputSize="sm"
-                        />
-                      </div>
-                    {:else}
-                      <Input bind:value={newColType} placeholder="type" inputSize="sm" />
-                    {/if}
+                    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                    <div role="presentation" onclick={(e) => e.stopPropagation()}>
+                      <Select
+                        bind:value={newColType}
+                        options={typeOptions}
+                        inputSize="sm"
+                        placeholder="Column type"
+                      />
+                    </div>
                     <label class="flex items-center gap-1.5 text-caption text-fg-secondary">
                       <input type="checkbox" bind:checked={newColPk} />
                       Primary key
@@ -1171,7 +1387,7 @@
   </div>
 </div>
 
-<!-- Right-click context menu for tables -->
+<!-- Context menu: table or canvas -->
 {#if ctxMenu}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div
@@ -1185,29 +1401,100 @@
   ></div>
   <div
     data-ctx-menu
-    class="fixed z-50 min-w-[160px] overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
+    class="fixed z-50 min-w-[180px] overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
     style="left: {ctxMenu.clientX}px; top: {ctxMenu.clientY}px;"
     role="menu"
   >
-    <button
-      type="button"
-      role="menuitem"
-      class="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-fg hover:bg-accent-muted"
-      onclick={() => {
-        selectedTableId = ctxMenu!.tableId;
-        selectedEdgeId = null;
-        ctxMenu = null;
-      }}
-    >
-      Select table
-    </button>
-    <button
-      type="button"
-      role="menuitem"
-      class="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-danger hover:bg-danger/10"
-      onclick={() => deleteTableById(ctxMenu!.tableId)}
-    >
-      Delete table
-    </button>
+    {#if ctxMenu.kind === "canvas"}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-fg hover:bg-accent-muted"
+        onclick={() => {
+          selectAllTables();
+          ctxMenu = null;
+        }}
+      >
+        <span>Select all</span>
+        <span class="text-caption text-fg-muted">Ctrl+A</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class={cn(
+          "flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body hover:bg-accent-muted",
+          tableClipboard?.length ? "text-fg" : "text-fg-muted",
+        )}
+        disabled={!tableClipboard?.length}
+        onclick={() => {
+          pasteTables();
+          ctxMenu = null;
+        }}
+      >
+        <span>Paste tables</span>
+        <span class="text-caption text-fg-muted">Ctrl+V</span>
+      </button>
+      {#if selectionCount > 0}
+        <div class="my-1 border-t border-line"></div>
+        <button
+          type="button"
+          role="menuitem"
+          class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-danger hover:bg-danger/10"
+          onclick={() => {
+            deleteSelection();
+            ctxMenu = null;
+          }}
+        >
+          <span>
+            Delete {selectionCount === 1 ? "table" : `${selectionCount} tables`}
+          </span>
+          <span class="text-caption opacity-70">Del</span>
+        </button>
+      {/if}
+    {:else}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-fg hover:bg-accent-muted"
+        onclick={() => {
+          copySelectedTables();
+          ctxMenu = null;
+        }}
+      >
+        <span>Copy {selectionCount > 1 ? `${selectionCount} tables` : "table"}</span>
+        <span class="text-caption text-fg-muted">Ctrl+C</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class={cn(
+          "flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body hover:bg-accent-muted",
+          tableClipboard?.length ? "text-fg" : "text-fg-muted",
+        )}
+        disabled={!tableClipboard?.length}
+        onclick={() => {
+          pasteTables();
+          ctxMenu = null;
+        }}
+      >
+        <span>Paste</span>
+        <span class="text-caption text-fg-muted">Ctrl+V</span>
+      </button>
+      <div class="my-1 border-t border-line"></div>
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-body text-danger hover:bg-danger/10"
+        onclick={() => {
+          deleteSelection();
+          ctxMenu = null;
+        }}
+      >
+        <span>
+          Delete {selectionCount > 1 ? `${selectionCount} tables` : "table"}
+        </span>
+        <span class="text-caption opacity-70">Del</span>
+      </button>
+    {/if}
   </div>
 {/if}
