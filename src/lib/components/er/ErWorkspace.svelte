@@ -447,40 +447,129 @@
   }
 
   /**
-   * Default Manhattan elbows between two side anchors.
-   * Same side (stacked tables): outer vertical corridor left-left or right-right.
-   * Opposite sides (side-by-side): mid-X corridor.
+   * Stable lane index among edges that share the same table pair direction
+   * (A→B). Used so parallel column links get separate corridors.
+   */
+  function edgeLaneIndex(edge: ErEdge): number {
+    if (!diagram) return 0;
+    const peers = diagram.edges
+      .filter((e) => e.from === edge.from && e.to === edge.to)
+      .slice()
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const idx = peers.findIndex((e) => e.id === edge.id);
+    return idx < 0 ? 0 : idx;
+  }
+
+  /**
+   * Default path shape is always:
+   *   exit horizontally → vertical run → enter horizontally
+   * so the arrow head points left/right (──▶ or ◀──), never up/down.
+   *
+   * `lane` offsets the vertical corridor so multiple A→B links stay separate.
    */
   function defaultManhattanWaypoints(
     start: ErPoint,
     end: ErPoint,
     fromSide: TableSide,
     toSide: TableSide,
+    lane = 0,
   ): ErPoint[] {
-    // Already a pure H or V run
-    if (Math.abs(start.x - end.x) < 0.5 || Math.abs(start.y - end.y) < 0.5) {
+    const lanePad = lane * ER_GRID;
+
+    // Pure horizontal (same row): already ──▶ / ◀──, no elbows needed
+    if (Math.abs(start.y - end.y) < 0.5) {
+      // Still separate parallel same-row links slightly in Y? skip — rare
       return [];
     }
 
-    // Same side: both left or both right → outer U corridor (vertical stack)
+    // NEVER pure vertical (same X): that makes the arrow tip point up/down.
+    // Always detour: ──┐ then │ then └──▶
+
+    // Same side (stacked tables or self-loop style): outer vertical corridor
     if (fromSide === toSide) {
-      const pad = ER_GRID * 2;
+      const basePad = ER_GRID * 2 + lanePad;
       const corridorX =
         fromSide === "right"
-          ? snapToGrid(Math.max(start.x, end.x) + pad)
-          : snapToGrid(Math.min(start.x, end.x) - pad);
+          ? snapToGrid(Math.max(start.x, end.x) + basePad)
+          : snapToGrid(Math.min(start.x, end.x) - basePad);
       return [
         { x: corridorX, y: start.y },
         { x: corridorX, y: end.y },
       ];
     }
 
-    // Opposite sides: classic mid-X elbow between facing edges
-    const midX = snapToGrid((start.x + end.x) / 2);
+    // Opposite sides (side-by-side tables): mid corridor with per-lane offset
+    let midX = (start.x + end.x) / 2;
+    // Spread parallel links above/below the midpoint along X
+    const spread =
+      lane === 0
+        ? 0
+        : (lane % 2 === 1 ? 1 : -1) * Math.ceil(lane / 2) * ER_GRID;
+    midX = snapToGrid(midX + spread);
+
+    // Ensure we actually leave horizontally from start (mid ≠ start.x)
+    if (Math.abs(midX - start.x) < ER_GRID) {
+      midX = snapToGrid(
+        start.x + (fromSide === "right" ? ER_GRID * 2 : -ER_GRID * 2) + lanePad,
+      );
+    }
+    // Ensure we approach end horizontally (mid ≠ end.x)
+    if (Math.abs(midX - end.x) < ER_GRID) {
+      midX = snapToGrid(
+        end.x + (toSide === "left" ? -ER_GRID * 2 : ER_GRID * 2) - lanePad,
+      );
+    }
+
     return [
       { x: midX, y: start.y },
       { x: midX, y: end.y },
     ];
+  }
+
+  /**
+   * Guarantee the first and last path segments are horizontal so markers
+   * point left/right into the column sides.
+   */
+  function ensureHorizontalPorts(
+    pts: ErPoint[],
+    fromSide: TableSide,
+    toSide: TableSide,
+    lane = 0,
+  ): ErPoint[] {
+    if (pts.length < 2) return pts;
+    let out = pts.map((p) => ({ x: p.x, y: p.y }));
+    const pad = ER_GRID * 2 + lane * ER_GRID;
+
+    // Fix first segment if vertical
+    const s0 = out[0]!;
+    const s1 = out[1]!;
+    if (Math.abs(s0.x - s1.x) < 0.5 && Math.abs(s0.y - s1.y) > 0.5) {
+      const cx =
+        fromSide === "right"
+          ? snapToGrid(s0.x + pad)
+          : snapToGrid(s0.x - pad);
+      out = [s0, { x: cx, y: s0.y }, { x: cx, y: s1.y }, ...out.slice(2)];
+    }
+
+    // Fix last segment if vertical
+    if (out.length >= 2) {
+      const e0 = out[out.length - 2]!;
+      const e1 = out[out.length - 1]!;
+      if (Math.abs(e0.x - e1.x) < 0.5 && Math.abs(e0.y - e1.y) > 0.5) {
+        const cx =
+          toSide === "right"
+            ? snapToGrid(e1.x + pad)
+            : snapToGrid(e1.x - pad);
+        out = [
+          ...out.slice(0, -1),
+          { x: cx, y: e0.y },
+          { x: cx, y: e1.y },
+          e1,
+        ];
+      }
+    }
+
+    return toOrthogonal(out);
   }
 
   /** Raw anchors + stored waypoints (may still contain diagonals). */
@@ -496,21 +585,45 @@
     const b = diagram.nodes.find((n) => n.id === edge.to);
     if (!a || !b) return null;
     const wps = [...(edge.waypoints ?? [])];
+    // For auto layout (no custom path), pick sides from topology only
     const { fromSide, toSide } = pickLinkSides(a, b, wps);
     const start = columnSideAnchor(a, edge.fromColumnId, fromSide);
     const end = columnSideAnchor(b, edge.toColumnId, toSide);
     return { start, end, wps, fromSide, toSide };
   }
 
-  /** Full path for rendering — always orthogonal 90° grid corridors. */
+  /**
+   * Full path for rendering — always orthogonal, H-exit / V-run / H-enter,
+   * with parallel edges on separate lanes.
+   */
   function edgePoints(edge: ErEdge): ErPoint[] {
     const raw = edgeAnchorsAndWaypoints(edge);
     if (!raw) return [];
+    const lane = edgeLaneIndex(edge);
     let { start, end, wps, fromSide, toSide } = raw;
+
+    // Auto route (empty or only trivial) — always rebuild with lane separation
     if (wps.length === 0) {
-      wps = defaultManhattanWaypoints(start, end, fromSide, toSide);
+      wps = defaultManhattanWaypoints(start, end, fromSide, toSide, lane);
+    } else if (wps.length <= 2) {
+      // Likely auto-generated elbows: rebuild so parallel links don't share a spine
+      wps = defaultManhattanWaypoints(start, end, fromSide, toSide, lane);
+    } else {
+      // User multi-bend path: keep shape but nudge by lane so overlaps ease
+      if (lane > 0) {
+        const sign =
+          fromSide === "left" && toSide === "left"
+            ? -1
+            : fromSide === "right" || toSide === "right"
+              ? 1
+              : 1;
+        const dx = sign * lane * ER_GRID;
+        wps = wps.map((p) => ({ x: snapToGrid(p.x + dx), y: p.y }));
+      }
     }
-    return toOrthogonal([start, ...wps, end]);
+
+    const orth = toOrthogonal([start, ...wps, end]);
+    return ensureHorizontalPorts(orth, fromSide, toSide, lane);
   }
 
   /**
@@ -528,11 +641,17 @@
     const { fromSide, toSide } = pickLinkSides(a, b, wps);
     const start = columnSideAnchor(a, edge.fromColumnId, fromSide);
     const end = columnSideAnchor(b, edge.toColumnId, toSide);
-    const full = toOrthogonal([
-      start,
-      ...wps.map((p) => ({ x: snapToGrid(p.x), y: snapToGrid(p.y) })),
-      end,
-    ]);
+    const lane = edgeLaneIndex(edge);
+    const full = ensureHorizontalPorts(
+      toOrthogonal([
+        start,
+        ...wps.map((p) => ({ x: snapToGrid(p.x), y: snapToGrid(p.y) })),
+        end,
+      ]),
+      fromSide,
+      toSide,
+      lane,
+    );
     if (full.length <= 2) return [];
     return full.slice(1, -1);
   }
@@ -726,13 +845,30 @@
       x: snapToGrid(p.x),
       y: snapToGrid(p.y),
     }));
-    // Self-loop with no user path: auto-route outside the table so the arc is visible
-    if (isSelfLoop && wps.length === 0 && fromNode) {
-      wps = autoSelfLoopWaypoints(fromNode, linkFrom.columnId, toColumnId);
+
+    // Lane among existing A→B links (this edge not in list yet)
+    const lane = diagram.edges.filter(
+      (e) => e.from === linkFrom!.tableId && e.to === toTableId,
+    ).length;
+
+    // Auto H-V-H route when user did not draw bends (arrow always enters L/R)
+    if (wps.length === 0 && fromNode && toNode) {
+      const { fromSide, toSide } = pickLinkSides(fromNode, toNode, []);
+      const start = columnSideAnchor(fromNode, linkFrom.columnId, fromSide);
+      const end = columnSideAnchor(toNode, toColumnId, toSide);
+      if (isSelfLoop) {
+        wps = autoSelfLoopWaypoints(fromNode, linkFrom.columnId, toColumnId).map(
+          (p) => ({
+            x: snapToGrid(p.x + (fromSide === "right" ? lane : -lane) * ER_GRID),
+            y: p.y,
+          }),
+        );
+      } else {
+        wps = defaultManhattanWaypoints(start, end, fromSide, toSide, lane);
+      }
     }
 
-    // Build edge then force Manhattan intermediate corners only
-    let edge: ErEdge = {
+    const edge: ErEdge = {
       id: uid("e"),
       from: linkFrom.tableId,
       to: toTableId,
@@ -741,20 +877,6 @@
       kind,
       label,
       waypoints: wps,
-    };
-    // Default square route if still empty (non-self)
-    if ((edge.waypoints?.length ?? 0) === 0 && fromNode && toNode && !isSelfLoop) {
-      const { fromSide, toSide } = pickLinkSides(fromNode, toNode, []);
-      const start = columnSideAnchor(fromNode, linkFrom.columnId, fromSide);
-      const end = columnSideAnchor(toNode, toColumnId, toSide);
-      edge = {
-        ...edge,
-        waypoints: defaultManhattanWaypoints(start, end, fromSide, toSide),
-      };
-    }
-    edge = {
-      ...edge,
-      waypoints: normalizeEdgeWaypoints(edge, edge.waypoints ?? []),
     };
 
     snapshotBeforeChange();
@@ -1312,14 +1434,16 @@
       ...diagram,
       edges: diagram.edges.map((ed) => {
         if (ed.id !== selectedEdgeId) return ed;
-        // Reset to default Manhattan elbow corridor (handles vertical stack sides)
+        // Reset to default H-V-H corridor (separate lane for parallel links)
         const raw = edgeAnchorsAndWaypoints({ ...ed, waypoints: [] });
         if (!raw) return { ...ed, waypoints: [] };
+        const lane = edgeLaneIndex(ed);
         const wps = defaultManhattanWaypoints(
           raw.start,
           raw.end,
           raw.fromSide,
           raw.toSide,
+          lane,
         );
         return { ...ed, waypoints: wps };
       }),
