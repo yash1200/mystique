@@ -2,6 +2,13 @@
 
 Desktop app built with [Tauri 2](https://tauri.app/), [SvelteKit](https://kit.svelte.dev/), and TypeScript.
 
+| | |
+| --- | --- |
+| **License** | [MIT](./LICENSE) |
+| **Changelog** | [CHANGELOG.md](./CHANGELOG.md) |
+| **Contributing** | [CONTRIBUTING.md](./CONTRIBUTING.md) |
+| **Wiki** | [docs/wiki/](./docs/wiki/) (GitLab Wiki–friendly pages) |
+
 ## Recommended IDE setup
 
 [VS Code](https://code.visualstudio.com/) with:
@@ -151,9 +158,9 @@ mystique-db/
 
 **Engine pool API (Tauri invoke):** `list_engines`, `test_engine_connection`, `open_engine_session`, `close_engine_session`, `ping_engine_session`, `engine_session_pool_status`, `list_engine_sessions`. See `docs/BACKEND_STRUCTURE.md`.
 
-Product docs: [`docs/PRD.md`](docs/PRD.md) · kanban board: open **[`docs/kanban.html`](docs/kanban.html)** in a browser (also [`docs/KANBAN.md`](docs/KANBAN.md))
+Product docs: [`docs/PRD.md`](docs/PRD.md) · kanban: **[`docs/kanban.html`](docs/kanban.html)** · wiki: [`docs/wiki/Home.md`](docs/wiki/Home.md)
 
-**Home flow (FE):** Choose database (PostgreSQL · MongoDB · SQLite) → connection details → save profile. Live engine plugins are not wired yet.
+**V1 engines (product):** PostgreSQL · MongoDB · MySQL — each with its own **query policy** (read default, write opt-in, DELETE off). Home UI may still list SQLite until the MySQL plugin lands; see `docs/PRD.md` and `docs/kanban.html`.
 
 ## Useful scripts
 

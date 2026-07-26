@@ -2,7 +2,7 @@
 
 > **Status:** Product feature catalog (user priorities)  
 > **Related:** [`PRD.md`](./PRD.md) · [`ARCHITECTURE_AND_FEATURES.md`](./ARCHITECTURE_AND_FEATURES.md) · [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md)  
-> **Last updated:** 2026-07-25
+> **Last updated:** 2026-07-26
 
 This document lists **what MystiqueDB should offer**, with emphasis on the features called out as product priorities. It is the feature checklist for design and implementation—not a technical SPI deep-dive.
 
@@ -257,14 +257,17 @@ Still required for a coherent app; lower “signature” focus than §1.
 | **F-SHELL-4** | Object explorer tree (schemas → tables → columns) | P0 |
 | **F-SHELL-5** | SQL autocomplete (keywords + metadata) | P1 |
 | **F-SHELL-6** | Query cancel | P1 |
-| **F-SHELL-7** | Statement timeout & max rows | P0 |
+| **F-SHELL-7** | Statement timeout & max rows (server-side) | P0 |
 | **F-SHELL-8** | Copy cell / row / column | P1 |
 | **F-SHELL-9** | Null rendering | P0 |
-| **F-SHELL-10** | Engine picker on Home | P0 |
-| **F-SHELL-11** | Plugin-based engines (Postgres first) | P0 |
+| **F-SHELL-10** | Engine picker on Home (Postgres · Mongo · MySQL) | P0 |
+| **F-SHELL-11** | Plugin-based engines + **per-engine query policy SPI** | P0 |
 | **F-SHELL-12** | Secure credential storage | P0 |
 | **F-SHELL-13** | Human-readable connection errors | P0 |
-| **F-SHELL-14** | Read-only connection toggle | P0 |
+| **F-SHELL-14** | Read-only connection toggle (forces read query mode) | P0 |
+| **F-SHELL-15** | Query space: default read; **Allow writes** checkbox | P0 |
+| **F-SHELL-16** | DELETE / destructive remove blocked until productized | P0 |
+| **F-SHELL-17** | Dialect/engine validation before execute (fail closed) | P0 |
 
 ---
 

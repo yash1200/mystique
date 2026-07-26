@@ -3,7 +3,8 @@
 > **Status:** Living board (update columns when tickets move)  
 > **Visual board (open in browser):** [`kanban.html`](./kanban.html)  
 > **Sources:** [`PRD.md`](./PRD.md) · [`ARCHITECTURE_AND_FEATURES.md`](./ARCHITECTURE_AND_FEATURES.md) · [`FEATURES.md`](./FEATURES.md) · [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md) · [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md)  
-> **Last updated:** 2026-07-25
+> **Last updated:** 2026-07-26  
+> **V1 engines:** PostgreSQL · MongoDB · MySQL · **Policy:** per-engine `EngineQueryPolicy` SPI (read default · write opt-in · DELETE off)
 
 ## View the board
 
@@ -69,6 +70,11 @@ Each ticket: **ID**, **Title**, **Priority**, **Tags**, **Description**, **Relat
 - **Description:** PRD, architecture, features, UI/UX, design language, component structure, schema docs in `docs/`.
 - **Related:** docs/*
 
+### T-DOCS-META — LICENSE, CHANGELOG, CONTRIBUTING, Wiki
+- **Priority:** P1 · **Tags:** `DOCS`
+- **Description:** MIT LICENSE; Keep a Changelog; general GitLab CONTRIBUTING; `docs/wiki/` pages for GitLab Wiki.
+- **Related:** LICENSE · CHANGELOG.md · CONTRIBUTING.md · docs/wiki/
+
 
 ### T-BE-001 — Connector API crate (`mystique-connector-api`)
 - **Priority:** P0 · **Tags:** `BE` · **Status:** Deployed
@@ -123,15 +129,15 @@ _(empty — move tickets here when ready for review)_
 - **Description:** `ConnectorRegistry` loads plugins; mock connector proves SPI for tests and FE capability chrome.
 - **Related:** ARCHITECTURE §4.4 · depends on: T-BE-001
 
-#### T-BE-003 — Session manager + query policy stubs
+#### T-BE-003 — Per-engine query policy SPI + modes + limits
 - **Priority:** P0 · **Tags:** `BE`
-- **Description:** Connect/disconnect session lifecycle; read-only SQL policy, timeout, max rows (enforce before plugins).
-- **Related:** PRD Q-3/Q-4 · ARCHITECTURE §6 · depends on: T-BE-001
+- **Description:** Introduce `EngineQueryPolicy` in `mystique-connector-api` (shared request/result types only). Core orchestrates: resolve policy by `engine_id` → `validate` → execute. **Modes:** Read (default), Write (opt-in checkbox), **DELETE always denied**. Shared **max rows + timeout** hard caps. Fail closed if unclassified. **Not** a single global SQL allowlist — each engine plugin owns its policy impl. Session open/close already deployed (T-BE-004 / T-BE-POOL).
+- **Related:** PRD Q-3 / Q-3a–d / Q-4 / Q-7 · ARCHITECTURE §6.4 · BACKEND_STRUCTURE · depends on: T-BE-001
 
 #### T-BE-004 — IPC surface for engines & sessions
-- **Priority:** P0 · **Tags:** `BE` `FE`
-- **Description:** Tauri commands: `list_engines`, `test_connection`, `connect`, `disconnect`, `get_capabilities`.
-- **Related:** ARCHITECTURE §10 · depends on: T-BE-002, T-BE-003
+- **Priority:** P0 · **Tags:** `BE` `FE` · **Status:** Deployed (see Deployed column / kanban.html)
+- **Description:** Tauri commands: list/test/open/close/ping/pool-status/list sessions.
+- **Related:** ARCHITECTURE §10 · depends on: T-BE-002
 
 #### T-BE-005 — OS keychain for secrets
 - **Priority:** P0 · **Tags:** `BE`
@@ -140,94 +146,91 @@ _(empty — move tickets here when ready for review)_
 
 #### T-BE-006 — Metadata / data / query / model core services
 - **Priority:** P0 · **Tags:** `BE`
-- **Description:** MetadataService, DataService, QueryService, ModelGraphService, ExportService, AuditLog orchestrating connectors.
-- **Related:** ARCHITECTURE §5–6 · depends on: T-BE-001–004
+- **Description:** MetadataService, DataService, **QueryService** (policy → execute → history), ModelGraphService, ExportService, AuditLog.
+- **Related:** ARCHITECTURE §5–6 · depends on: T-BE-001–004, T-BE-003
 
 #### T-FE-002 — Capability-driven workspace chrome
 - **Priority:** P0 · **Tags:** `FE`
 - **Description:** After connect, show/hide Explorer, Data, Query, Model tabs from `EngineCapabilities`; engine-correct nouns (table vs collection).
 - **Related:** PRD §5.3 · UI_UX §8.6 · depends on: T-BE-004
 
-#### T-FE-003 — App workspace shell layout
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** Connection tabs + workspace tabs + object tree region + main pane + status bar per UI guidelines shell.
-- **Related:** UI_UX §5 · FEATURES F-TAB · depends on: T-FE-001
-
-### PostgreSQL plugin (M1–M2)
+### PostgreSQL (V1)
 
 #### T-BE-010 — `mystique-plugin-postgres` connect + metadata
 - **Priority:** P0 · **Tags:** `BE`
-- **Description:** tokio-postgres/sqlx; test/connect; list schemas, tables, columns, indexes, FKs.
-- **Related:** PRD V1 · ARCHITECTURE Phase 1 · depends on: T-BE-001
+- **Description:** Connect/pool; list schemas, tables, columns, indexes, FKs.
+- **Related:** PRD V1 · depends on: T-BE-001
 
-#### T-BE-011 — Postgres data page + read-only SQL execute
+#### T-BE-011 — Postgres data page + SQL execute + PostgresQueryPolicy
 - **Priority:** P0 · **Tags:** `BE`
-- **Description:** Paginated `fetch_data_page`; `execute_query` with SELECT-only policy, max rows, timeout, history append.
+- **Description:** Paginated `fetch_data_page`; `execute_query` only after **PostgresQueryPolicy** (read: SELECT/WITH; write: INSERT/UPDATE; DELETE/TRUNCATE deny; multi-statement deny); history append.
 - **Related:** PRD D-*, Q-* · depends on: T-BE-010, T-BE-003
 
 #### T-BE-012 — Postgres Model graph (ER from FKs)
 - **Priority:** P0 · **Tags:** `BE`
 - **Description:** Build ModelGraph from declared PK/FK only; no invented edges; confidence CONFIRMED.
-- **Related:** PRD V-1–V-6 · FEATURES F-REL · depends on: T-BE-010
+- **Related:** PRD V-1–V-6 · depends on: T-BE-010
 
 #### T-FE-010 — Explorer tree (relational)
 - **Priority:** P0 · **Tags:** `FE`
 - **Description:** Schemas → tables/views → columns; search; open data tab.
-- **Related:** FEATURES F-CONN · UI_UX §7.4 · depends on: T-BE-010, T-FE-003
+- **Related:** depends on: T-BE-010, T-FE-003
 
 #### T-FE-011 — Data grid + pagination
 - **Priority:** P0 · **Tags:** `FE`
-- **Description:** Dense grid, null rendering, page size, sticky header; shared results component.
-- **Related:** FEATURES F-ROW partial · PRD D-* · depends on: T-BE-011
+- **Description:** Dense grid, null rendering, page size, sticky header.
+- **Related:** PRD D-* · depends on: T-BE-011
 
-#### T-FE-012 — SQL query editor
+#### T-FE-012 — Query space (editor + run + results)
 - **Priority:** P0 · **Tags:** `FE`
-- **Description:** Editor + Run (⌘/Ctrl+Enter) + results + error panel; read-only connection hides writes.
-- **Related:** FEATURES F-SQ · UI_UX §7.5 · depends on: T-BE-011
-
-#### T-FE-013 — Model view canvas (ER)
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** Svelte Flow (or equivalent) nodes/edges; zoom/pan/search; click table → data; click edge → detail.
-- **Related:** FEATURES F-REL-1–5 · PRD Model view · depends on: T-BE-012
+- **Description:** Minimal query space: editor, Run, results/errors; **Allow writes** checkbox; respect profile read_only. Keep FE thin.
+- **Related:** F-SHELL-15 · depends on: T-BE-011
 
 #### T-FE-014 — Export results CSV/JSON
 - **Priority:** P0 · **Tags:** `FE` `BE`
 - **Description:** Export current grid/result set.
 - **Related:** PRD D-5 · depends on: T-FE-011
 
-### SQLite engine (M3)
+### MySQL (V1)
 
-#### T-BE-020 — `mystique-plugin-sqlite` (user DB files)
+#### T-BE-050 — `mystique-plugin-mysql` + MysqlQueryPolicy
 - **Priority:** P0 · **Tags:** `BE`
-- **Description:** Open path from profile; same relational SPI as Postgres; ER from SQLite FK pragma when present.
-- **Related:** PRD V1 SQLite · depends on: T-BE-001, T-FE-001
+- **Description:** V1 target. Connect/pool, metadata, data page, execute. **Own MySQL dialect policy** (not a fork of Postgres policy). Same mode rules: read default, write opt-in, DELETE denied.
+- **Related:** PRD V1 engines · ARCHITECTURE §6.4 · depends on: T-BE-001, T-BE-003
 
-#### T-FE-020 — SQLite form polish + file picker
-- **Priority:** P1 · **Tags:** `FE`
-- **Description:** Native/file dialog for path; validate extension; reuse relational workspace.
-- **Related:** Engine picker sqlite · depends on: T-BE-020
+### MongoDB (V1)
 
-### MongoDB (Next)
-
-#### T-BE-030 — `mystique-plugin-mongodb`
+#### T-BE-030 — `mystique-plugin-mongodb` + MongoQueryPolicy
 - **Priority:** P0 · **Tags:** `BE`
-- **Description:** Connect, list databases/collections, document preview page, find queries, inferred schema.
-- **Related:** PRD Next · ARCHITECTURE §7.3 · depends on: T-BE-001
+- **Description:** Connect, list DBs/collections, document preview, find/aggregate; **MongoQueryPolicy** (read default; write opt-in; delete/drop denied).
+- **Related:** PRD V1 · ARCHITECTURE §6.4 · depends on: T-BE-001, T-BE-003
 
 #### T-BE-031 — Mongo Model view builder (inferred refs)
-- **Priority:** P0 · **Tags:** `BE`
+- **Priority:** P1 · **Tags:** `BE`
 - **Description:** Collection map + inferred edges labeled with confidence; never claim FK.
-- **Related:** PRD Model view non-relational · depends on: T-BE-030
+- **Related:** depends on: T-BE-030
 
 #### T-FE-030 — Document list + JSON pretty viewer
 - **Priority:** P0 · **Tags:** `FE`
-- **Description:** Pretty JSON, tree/text toggle, edit modal pattern (writes later).
+- **Description:** Pretty JSON / document results for Mongo query space and data preview.
 - **Related:** FEATURES F-JSON · depends on: T-BE-030
 
 #### T-FE-031 — Mongo Model view UI
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** Same canvas shell as ER; different node chrome for collections.
-- **Related:** F-REL-9 · depends on: T-BE-031, T-FE-013
+- **Priority:** P1 · **Tags:** `FE`
+- **Description:** Same canvas shell as ER; collection node chrome.
+- **Related:** depends on: T-BE-031, T-FE-013
+
+### SQLite (later — not V1 target)
+
+#### T-BE-020 — `mystique-plugin-sqlite` + SqliteQueryPolicy
+- **Priority:** P2 · **Tags:** `BE`
+- **Description:** File DBs; own policy impl when prioritized. Scaffold pool may already exist.
+- **Related:** PRD Next · depends on: T-BE-001, T-BE-003
+
+#### T-FE-020 — SQLite form polish + file picker
+- **Priority:** P2 · **Tags:** `FE`
+- **Description:** Native file dialog for path.
+- **Related:** depends on: T-BE-020
 
 ### Product features (from FEATURES.md)
 
@@ -263,10 +266,10 @@ _(empty — move tickets here when ready for review)_
 
 ### Quality & packaging
 
-#### T-BE-040 — Integration tests (Postgres Testcontainers)
+#### T-BE-040 — Integration tests (Postgres + policy cases)
 - **Priority:** P1 · **Tags:** `BE`
-- **Description:** Smoke connect, metadata, ER edges golden path, policy rejects non-SELECT.
-- **Related:** PRD §14 · depends on: T-BE-010–012
+- **Description:** Smoke connect, metadata, ER edges; policy: read rejects writes; write rejects DELETE; multi-statement rejected.
+- **Related:** PRD §14 · depends on: T-BE-010–012, T-BE-003
 
 #### T-FE-050 — E2E / typecheck CI for UI
 - **Priority:** P1 · **Tags:** `FE`
@@ -280,15 +283,10 @@ _(empty — move tickets here when ready for review)_
 
 ### Later / P2+
 
-#### T-BE-050 — MySQL / MariaDB plugin
-- **Priority:** P2 · **Tags:** `BE`
-- **Description:** Second network SQL engine via same SPI.
-- **Related:** PRD Next · depends on: T-BE-001
-
 #### T-BE-051 — AWS RDS connection presets + SSL/IAM
 - **Priority:** P2 · **Tags:** `BE` `FE`
 - **Description:** Connection form presets for managed Postgres/MySQL; optional Secrets Manager later.
-- **Related:** PRD Next AWS · depends on: T-BE-010
+- **Related:** PRD Next AWS · depends on: T-BE-010, T-BE-050
 
 #### T-BE-052 — Cassandra / Keyspaces plugin
 - **Priority:** P2 · **Tags:** `BE`
@@ -314,11 +312,14 @@ _(empty — move tickets here when ready for review)_
 
 ## Suggested near-term order
 
-1. **T-BE-001 → T-BE-002 → T-BE-003 → T-BE-004** (SPI base)  
-2. **T-BE-010 → T-FE-010 → T-BE-011 → T-FE-011/012** (Postgres loop)  
-3. **T-BE-012 → T-FE-013** (Model ER)  
-4. **T-BE-020** (SQLite plugin) · **T-BE-030** (Mongo)  
-5. Tabs / row panel / saved queries UI polish  
+1. **T-BE-003** — Policy SPI + modes + limits (session IPC already deployed)  
+2. **T-BE-010 → T-BE-011** — Postgres metadata + execute **with PostgresQueryPolicy**  
+3. **T-FE-012** — Thin query space (run + results + allow-writes checkbox)  
+4. **T-BE-050** — MySQL plugin + **MysqlQueryPolicy**  
+5. **T-BE-030** — Mongo plugin + **MongoQueryPolicy**  
+6. Explorer/data grid polish · model depth · keychain (T-BE-005) as parallel  
+
+Canonical board data: **`docs/kanban.html`**. Keep this file aligned when tickets move.
 
 ---
 
@@ -326,12 +327,12 @@ _(empty — move tickets here when ready for review)_
 
 | Column | Count (approx.) |
 | ------ | --------------- |
-| Deployed | 6 |
+| Deployed | ~28 (see kanban.html) |
 | Progress | 0 |
 | QA | 0 |
-| TODO | 30+ |
+| TODO | ~30 |
 
-Update this file when starting/finishing work (move the full ticket block between sections).
+Update **kanban.html** (and this file) when starting/finishing work.
 
 ### T-FE-TEST — Test connection FE → BE
 - **Priority:** P0 · **Tags:** `FE` `BE` · **Status:** Deployed

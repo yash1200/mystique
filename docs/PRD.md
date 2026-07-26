@@ -6,16 +6,16 @@
 | -------------------------- | --------------------------------------------------------------- |
 | **Product name**           | **MystiqueDB** (working subtitle: Universal Database Studio)    |
 | **Document type**          | Product Requirements Document                                   |
-| **Version**                | 1.2                                                             |
+| **Version**                | 1.3                                                             |
 | **Status**                 | Draft for alignment · implemented in this repo                  |
-| **Last updated**           | 2026-07-25                                                      |
+| **Last updated**           | 2026-07-26                                                      |
 | **Primary platforms**      | Desktop application (primary), Web client (future-friendly API) |
 | **Backend**                | **Rust** + Tauri 2                                              |
 | **Frontend**               | **Svelte 5** / SvelteKit                                        |
 | **Kanban**                 | [`KANBAN.md`](./KANBAN.md) — TODO / Progress / QA / Deployed    |
 | **UI contract**            | [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md) · [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md) |
 
-**V1 engines (UI selection):** PostgreSQL · MongoDB · SQLite (SQL). Other engines are future connectors.
+**V1 target engines:** **PostgreSQL · MongoDB · MySQL** (first-class connect + query). SQLite and others are later connectors.
 
 ---
 
@@ -61,7 +61,7 @@ Today that usually means:
 - One app for the engines we claim to support
 - After connect, user can answer within minutes: _What objects exist? How are they related? What’s in this table/collection?_
 - Model view is always available and **trustworthy** (inferred links labeled; no fake FKs)
-- V1 feels excellent on Postgres (+ solid SQLite), not mediocre on fifteen engines
+- V1 feels excellent on Postgres (+ solid MySQL and honest Mongo), not mediocre on fifteen engines
 
 ---
 
@@ -187,9 +187,9 @@ After connect, backend returns **capabilities**. UI shows/hides or renames featu
 
 ## 6. Scope by phase
 
-### 6.1 V1 — “Postgres-first studio with multi-engine foundation”
+### 6.1 V1 — “Multi-engine studio: Postgres · Mongo · MySQL”
 
-**Goal:** Ship a polished connect → explore → data → query → model loop for relational core, plus architecture that allows more engines without redesign.
+**Goal:** Ship connect → explore → data → **query space** → model for three first-class engines, with a **pluggable per-engine query policy SPI** so more databases can be added without rewriting safety or core services.
 
 #### V1 in scope
 
@@ -199,60 +199,68 @@ After connect, backend returns **capabilities**. UI shows/hides or renames featu
 - Home screen: engine picker
 - Connection profiles (save/edit/delete, local secure storage of secrets)
 - Test connection + clear error messages
-- Single workspace layout (Explorer | Data | Query | Model view)
+- Workspace layout (Explorer | Data | Query | Model view) per open connection
+- **Query space** after connect: run engine-appropriate queries against that session
 
-**Engines**
+**Engines (V1 targets)**
 
-| Engine                                 | Depth in V1                                                             |
-| -------------------------------------- | ----------------------------------------------------------------------- |
-| **PostgreSQL**                         | Full target depth                                                       |
-| **SQLite**                             | Full relational subset (file-based)                                     |
-| **MySQL / MariaDB** (optional stretch) | Same relational module if schedule allows; otherwise first item in Next |
+| Engine           | Query language | Depth in V1                                                                 |
+| ---------------- | -------------- | --------------------------------------------------------------------------- |
+| **PostgreSQL**   | SQL            | Full target depth (metadata, data, query, ER model)                         |
+| **MySQL**        | SQL            | Same relational SPI + **own** SQL dialect policy                            |
+| **MongoDB**      | MQL / find API | Connect, catalog, document preview, query; model map as depth allows        |
+
+SQLite remains a useful local connector later; not a V1 marketing target.
+
+**Query safety (all engines)**
+
+- Default mode: **read-only** for the query space
+- User may enable **Allow writes** (checkbox / session flag) when the connection profile is not forced read-only
+- **DELETE** (and equivalent destructive remove: SQL `DELETE`/`TRUNCATE`, Mongo `delete*` / drop collections, etc.) is **blocked for now** even when writes are enabled
+- **Per-engine query policy SPI** validates syntax/intent **before** the driver runs anything (fail closed if unclassified)
+- Server-side **max rows** and **timeout** always applied
+- Profile-level `read_only` forces read mode and disables the write checkbox
 
 **Features (all V1 engines)**
 
-- Object explorer (schemas/catalogs as applicable, tables/views, columns, indexes basic)
+- Object explorer (schemas/catalogs as applicable, tables/collections, columns/fields, indexes basic)
 - Data preview with pagination, sort where safe, null rendering, copy cell
-- Query editor (SQL) with run, result grid, elapsed time, error display
-- Safety: statement timeout, max rows, **read-only mode default** (block non-SELECT for SQL)
+- Query space: editor + run + results + timing + policy/driver errors
 - Export results (CSV, JSON)
-- **Model view (ER)** from live FK/PK metadata
-- Click table in Model view → open Data tab
+- **Model view** (relational ER from live FK/PK; document map for Mongo as available)
 - Refresh metadata / refresh model
-- Dark/light theme (at least one polished default theme)
+- Dark/light theme
 
-**MongoDB in V1?**  
-**Recommendation: not full Mongo in V1**—only connector SPI stubs + capability types so Mongo is Next without re-architecture.  
-_Alternative (if team capacity is high):_ thin Mongo connect + collection list + document preview **without** polished Model view.
+**Backend foundation** — **Rust**
 
-**Backend foundation (must ship in V1 even if only 2 engines)** — **Rust**
-
-- `DatabaseConnector` trait (plugin SPI) + per-engine crates/modules
-- Normalized types (serde JSON): namespaces, containers, fields, relationships, data pages, model graph
-- Model graph builders per engine
-- Connection, metadata, and query services (async runtime)
-- Audit log of queries (local file or embedded store)—at least query text, engine, timestamp, row count, success/fail
-- HTTP API surface (Axum or equivalent) consumable by Svelte desktop UI
+- `DatabaseConnector` / `ConnectorSession` SPI + per-engine plugin crates
+- **`EngineQueryPolicy` SPI** — one implementation **per engine** (Postgres policy ≠ MySQL policy ≠ Mongo policy); core only orchestrates
+- Normalized types: namespaces, containers, fields, relationships, data pages, model graph
+- Connection, metadata, data, and query services (async runtime)
+- Audit / query history (local): text, engine, mode, timestamp, row count, success/fail
+- Desktop IPC (Tauri); HTTP surface optional later
 
 **Explicit V1 non-goals**
 
-- Write/edit rows in UI
+- Row edit / insert **modals** as primary write UX (writes via query space only when allowed)
+- **DELETE** / bulk destructive ops (always blocked until explicitly productized)
 - Migrations / schema design apply
 - Team cloud sync of connection profiles
-- Cassandra, DynamoDB, Redis
+- Cassandra, DynamoDB, Redis as V1 engines
 - AWS IAM auth (basic SSL + user/password is enough)
 - Real-time collaboration
 - Mobile
 
 #### V1 success metrics
 
-| Metric                                                   | Target                                                                    |
-| -------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Time to first useful schema view after install           | < 5 minutes on local Postgres                                             |
-| Model view correctness (Postgres sample schema with FKs) | All declared FKs visible; no invented edges                               |
-| Crash-free connect/browse session                        | No crash on happy path + common errors (bad password, refused connection) |
-| Query safety                                             | Non-SELECT rejected in read-only mode                                     |
-| Extensibility proof                                      | Second engine (SQLite) uses same SPI as Postgres                          |
+| Metric                                                   | Target                                                                                          |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Time to first useful schema view after install           | < 5 minutes on local Postgres                                                                   |
+| Model view correctness (Postgres sample schema with FKs) | All declared FKs visible; no invented edges                                                     |
+| Crash-free connect/browse session                        | No crash on happy path + common errors (bad password, refused connection)                       |
+| Query safety                                             | Read mode rejects non-reads; write mode still rejects DELETE; multi-statement SQL rejected      |
+| Extensibility proof                                      | New engine = connector plugin **+** its own `EngineQueryPolicy` without core rewrites           |
+| Three-engine query path                                  | Postgres, MySQL, Mongo each validate with their own policy before execute                       |
 
 ---
 
@@ -262,14 +270,14 @@ _Alternative (if team capacity is high):_ thin Mongo connect + collection list +
 
 | Area                        | Scope                                                                                                                            |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **MongoDB**                 | Connect, databases/collections, document preview, find queries, inferred schema, **Model view = collection map + inferred refs** |
-| **Relational expansion**    | MySQL/MariaDB complete; SQL Server candidate                                                                                     |
-| **Model view UX**           | Layout algorithms, collapse schemas, export diagram PNG/SVG, filter isolated nodes                                               |
-| **Query UX**                | History, saved queries (local), explain for Postgres                                                                             |
+| **Mongo model depth**       | Polished collection map + inferred refs with confidence labels                                                                   |
+| **Relational expansion**    | SQLite file DBs; SQL Server / MariaDB nuances; more SQL dialects via new policy plugins                                          |
+| **Model view UX**           | Layout algorithms, collapse schemas, export diagram polish, filter isolated nodes                                                |
+| **Query UX**                | History, saved queries, explain for Postgres/MySQL                                                                               |
 | **AWS (thin)**              | Connection presets for RDS Postgres/MySQL (host/SSL); Secrets Manager optional                                                   |
-| **Auth**                    | SSH tunnel; SSL cert modes; improve secret storage                                                                               |
-| **Writes (optional gated)** | Explicit “allow writes” per connection; single-row edit for relational only                                                      |
-| **Quality**                 | Integration tests per connector; larger result streaming/cancel                                                                  |
+| **Auth**                    | SSH tunnel; SSL cert modes; keychain secrets                                                                                     |
+| **Writes expansion**        | Controlled DELETE; row edit/insert modals; confirm UX for destructive ops                                                        |
+| **Quality**                 | Integration tests per connector + policy golden cases; result streaming/cancel                                                   |
 
 **Next non-goals**
 
@@ -333,14 +341,19 @@ _Alternative (if team capacity is high):_ thin Mongo connect + collection list +
 
 ### 7.4 Query
 
-| ID  | Requirement                                                      | Priority |
-| --- | ---------------------------------------------------------------- | -------- |
-| Q-1 | Engine-appropriate query editor                                  | P0       |
-| Q-2 | Run query; show rows, columns, timing, errors                    | P0       |
-| Q-3 | Read-only policy for V1 SQL (SELECT only; block multi-statement) | P0       |
-| Q-4 | Max rows and timeout enforced server-side                        | P0       |
-| Q-5 | Query history (local)                                            | P1       |
-| Q-6 | Cancel in-flight query                                           | P2       |
+| ID  | Requirement                                                                                         | Priority |
+| --- | --------------------------------------------------------------------------------------------------- | -------- |
+| Q-1 | Engine-appropriate query space after open connection (SQL vs MQL)                                   | P0       |
+| Q-2 | Run query; show rows/documents, columns/fields, timing, errors                                      | P0       |
+| Q-3 | **Per-engine query policy SPI**: validate before execute; default **read** mode                     | P0       |
+| Q-3a | Read mode: only read statements/ops for that engine (e.g. SQL `SELECT` / `WITH…SELECT`; Mongo find/aggregate read-only) | P0 |
+| Q-3b | **Allow writes** opt-in (session/query-space flag); blocked if profile `read_only`                  | P0       |
+| Q-3c | **DELETE disabled** for now (SQL `DELETE`/`TRUNCATE`; Mongo delete/drop) even when writes allowed   | P0       |
+| Q-3d | SQL engines: reject multi-statement; fail closed on unparsed/unknown                                | P0       |
+| Q-4 | Max rows and timeout enforced server-side (all engines)                                             | P0       |
+| Q-5 | Query history (local)                                                                               | P1       |
+| Q-6 | Cancel in-flight query                                                                              | P2       |
+| Q-7 | New engines ship their **own** policy implementation (no shared “one SQL for all” policy)         | P0       |
 
 ### 7.5 Model view
 
@@ -363,7 +376,7 @@ _Alternative (if team capacity is high):_ thin Mongo connect + collection list +
 | X-1 | Capability flags drive visible tabs/actions                            | P0       |
 | X-2 | All query/metadata operations go through backend (no raw driver in UI) | P0       |
 | X-3 | Structured logging / local query audit                                 | P1       |
-| X-4 | App usable offline for SQLite and local Postgres                       | P0       |
+| X-4 | App usable offline for local Postgres (and later SQLite file DBs)      | P0       |
 
 ---
 
@@ -528,7 +541,7 @@ Serialized as JSON via serde; Svelte consumes the same contract regardless of en
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | Scope explosion (“support everything”) | Phased engines; connector trait first; depth metrics per engine                            |
 | Fake relationships erode trust         | CONFIRMED vs INFERRED; no silent invention on SQL                                          |
-| Rust connector velocity                | Postgres + SQLite V1 only; checklist before “Supported”; reuse shared SQL metadata helpers |
+| Rust connector velocity                | Postgres first, then MySQL + Mongo; checklist before “Supported”; per-engine policy plugins |
 | Cross-compile / packaging              | CI matrix early; prefer Tauri bundling story; document glibc/musl targets                  |
 | Huge schemas unusable in diagram       | Search, filter, subgraph by schema, “focus neighbors”                                      |
 | Security incident via query feature    | Read-only default, timeouts, max rows, audit, no multi-statement                           |
@@ -600,7 +613,7 @@ An engine may be marketed as supported only if:
 | **Solving**                 | Tool sprawl, weak structural understanding, dishonest “universal” UIs                              |
 | **Backend**                 | **Rust** (Axum + Tokio + connector trait); native binary / Tauri-friendly                          |
 | **Frontend**                | **Svelte 5** + Svelte Flow for Model view                                                          |
-| **V1**                      | Desktop + Svelte + Rust; Postgres + SQLite; relational ER Model view; read-only SQL; connector SPI |
+| **V1**                      | Desktop + Svelte + Rust; Postgres + MySQL + Mongo; per-engine query policy; ER + query space          |
 | **Next**                    | Mongo model map, more SQL engines, AWS connection UX, query history, diagram polish                |
 | **Future**                  | Cassandra, DynamoDB, team/cloud, web client, AI assist, design/DDL modes                           |
 | **ER policy**               | Differs by DB; universal **Model view**, relational **ER** as one kind                             |
@@ -615,6 +628,7 @@ An engine may be marketed as supported only if:
 | 1.0     | 2026-07-25 | Initial PRD from product discovery (multi-DB studio, Model view, Svelte + Java/Spring, phased engines)                |
 | 1.1     | 2026-07-25 | Backend decision: **Rust** instead of Spring Boot; stack, architecture, pros/cons, milestones, open decisions updated |
 | 1.2     | 2026-07-25 | Branded **MystiqueDB** in-repo; V1 UI engines Postgres/Mongo/SQLite; linked [`KANBAN.md`](./KANBAN.md)                 |
+| 1.3     | 2026-07-26 | V1 engines **Postgres · Mongo · MySQL**; query space modes (read / write / DELETE off); **per-engine query policy SPI** |
 
 ---
 

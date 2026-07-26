@@ -8,13 +8,14 @@
 mystique-db/
 ├── Cargo.toml
 ├── crates/
-│   ├── mystique-connector-api/     # SPI: traits, DTOs, pool status (no drivers)
-│   ├── mystique-core/              # domain + storage + ConnectionManager
-│   │   └── src/connectors/         # registry + session/pool manager
+│   ├── mystique-connector-api/     # SPI: connector + EngineQueryPolicy + DTOs (no drivers)
+│   ├── mystique-core/              # domain + storage + ConnectionManager + QueryService
+│   │   └── src/connectors/         # registry (connectors + policies) + session/pool manager
 │   └── plugins/
-│       ├── mystique-plugin-postgres/   # deadpool + tokio-postgres
-│       ├── mystique-plugin-sqlite/     # r2d2 + rusqlite
-│       └── mystique-plugin-mongodb/    # mongodb client pool
+│       ├── mystique-plugin-postgres/   # pool + session + PostgresQueryPolicy
+│       ├── mystique-plugin-mysql/      # (planned) pool + session + MysqlQueryPolicy
+│       ├── mystique-plugin-mongodb/    # pool + session + MongoQueryPolicy
+│       └── mystique-plugin-sqlite/     # later / local files
 └── src-tauri/                      # thin IPC → services
 ```
 
@@ -24,15 +25,24 @@ mystique-db/
 | ----- | ------------- | -------- |
 | `mystique-connector-api` | serde, async-trait | engine drivers, tauri |
 | `plugins/*` | connector-api + one driver | tauri, mystique-core |
-| `mystique-core` | connector-api + plugins (registry only) | tauri UI types |
+| `mystique-core` | connector-api + plugins (registry only) | dialect-specific SQL/MQL parsing |
 | `src-tauri/ipc` | mystique-core, tauri | SQL, driver imports |
+
+## Query policy SPI
+
+- Trait + shared request/result types live in **`mystique-connector-api`**.
+- **One `EngineQueryPolicy` implementation per engine plugin** (Postgres ≠ MySQL ≠ Mongo).
+- Core `QueryService`: resolve policy by session `engine_id` → `validate` → execute.
+- Modes: **Read** (default) · **Write** (opt-in) · **DELETE always denied** for now.
+- Limits (max rows, timeout): core hard caps applied on every request.
 
 ## Adding a new database
 
 1. Create `crates/plugins/mystique-plugin-<engine>` implementing `DatabaseConnector` + `ConnectorSession`.
-2. Own pooling **inside** the session (`connect` builds the pool).
-3. Register in `ConnectorRegistry::bootstrap()` — **one line**.
-4. Expose via existing IPC (`list_engines`, `open_engine_session`, …) — **no new core APIs**.
+2. Implement **`EngineQueryPolicy` for that engine** (validation before any execute).
+3. Own pooling **inside** the session (`connect` builds the pool).
+4. Register connector **and** policy in `ConnectorRegistry::bootstrap()` — two lines, not a core rewrite.
+5. Expose via existing IPC (`list_engines`, `open_engine_session`, query commands, …).
 
 ## Connection pool API (IPC)
 

@@ -9,8 +9,8 @@
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md) — workspace, layers, extension points  
 > **Kanban:** [`KANBAN.md`](./KANBAN.md) — TODO / Progress / QA / Deployed tickets (`FE` / `BE`)  
 > **Stack (this repo):** Tauri 2 (Rust) · Svelte 5 / SvelteKit SPA  
-> **Date:** 2026-07-25  
-> **UI engines (picker):** PostgreSQL · MongoDB · SQLite · **Phase 1 live depth:** PostgreSQL first (plugins)
+> **Date:** 2026-07-26  
+> **V1 target engines:** PostgreSQL · MongoDB · MySQL · **Depth order:** Postgres first, then MySQL / Mongo in parallel on same SPI
 
 This document is the **engineering plan** for MystiqueDB. Product intent, scope, and success criteria come from the PRD; this file defines **how we build it**: plugin connectors, layers, DTOs, features by phase, and the current scaffold.
 
@@ -33,13 +33,14 @@ A multi-engine database studio: select engine → connect → explore structure,
 
 ## 2. Architectural goals
 
-1. **Plugin-first engines** — Adding MySQL, SQLite, MongoDB, etc. means a new connector package + optional UI form/icons, not rewiring Explorer/Data/Query/Model.
-2. **Postgres-first depth** — Phase 1 ships an excellent PostgreSQL loop before multi-engine marketing.
+1. **Plugin-first engines** — Adding MySQL, MongoDB, SQLite, etc. means a new connector package + **its own query policy** + optional UI form/icons, not rewiring Explorer/Data/Query/Model.
+2. **Postgres-first depth** — Ship an excellent PostgreSQL loop first; MySQL and Mongo share the same SPI contracts.
 3. **Capability-driven UI** — Backend returns capabilities; frontend shows/hides tabs and labels.
 4. **FE presents, BE decides** — Drivers, policy, secrets, metadata, and model graphs live in Rust; Svelte only renders.
-5. **Safety by default** — Phase 1 is **read-oriented** (SQL read-only policy, timeouts, max rows).
-6. **Normalized contracts** — Core DTOs (`Namespace`, `Container`, `Field`, `Relationship`, `DataPage`, `ModelGraph`) stay stable across plugins.
-7. **Lightweight desktop** — Tauri shell + in-process Rust core (single binary; no JVM sidecar in this repo).
+5. **Safety by default** — Query space defaults to **read**; opt-in **writes**; **DELETE blocked** for now; max rows + timeout always.
+6. **Per-engine policy SPI** — No single global SQL allowlist. Each engine implements `EngineQueryPolicy` so dialects and MQL stay honest.
+7. **Normalized contracts** — Core DTOs (`Namespace`, `Container`, `Field`, `Relationship`, `DataPage`, `ModelGraph`) stay stable across plugins.
+8. **Lightweight desktop** — Tauri shell + in-process Rust core (single binary; no JVM sidecar in this repo).
 
 ---
 
@@ -62,7 +63,7 @@ A multi-engine database studio: select engine → connect → explore structure,
 │  ┌───────────────────────────▼────────────────────────────────┐  │
 │  │  mystique-core                                             │  │
 │  │  ├── Session / ConnectionManager                           │  │
-│  │  ├── QueryPolicy (read-only, timeout, max rows)            │  │
+│  │  ├── QueryService → EngineQueryPolicy (per engine)         │  │
 │  │  ├── MetadataService                                       │  │
 │  │  ├── DataService                                           │  │
 │  │  ├── ModelGraphService                                     │  │
@@ -215,10 +216,11 @@ impl ConnectorRegistry {
 | ------- | ---------------------- | ------ |
 | Profile CRUD, encryption refs | ✓ | Provides form fields |
 | Open session, track connection id | ✓ | `connect` / `close` |
-| Read-only SQL policy, timeouts, max rows | ✓ (policy engine) | May supply dialect helpers |
+| Query mode + limits (read / write, max rows, timeout) | ✓ (shared request types + hard caps) | — |
+| **Validate query before execute** | Orchestrates: resolve policy by `engine_id` | **`EngineQueryPolicy` impl per engine** |
 | Query audit log | ✓ | — |
-| Normalize errors for UI | ✓ maps `ConnectorError` | Returns structured errors |
-| PK/FK discovery | — | ✓ (Postgres: catalogs) |
+| Normalize errors for UI | ✓ maps policy + connector errors | Returns structured errors |
+| PK/FK discovery | — | ✓ (Postgres / MySQL catalogs) |
 | Model graph layout | Optional shared layout utils | **Builds** graph nodes/edges |
 | CSV/JSON export streaming | Orchestration + file sink | Produces rows |
 | UI grid / ER canvas | Svelte | — |
@@ -348,20 +350,71 @@ Thin IPC:
 | `ExportService` | Stream results to CSV/JSON on disk |
 | `AuditService` | Local log: time, engine, query text, success, row count |
 
-### 6.4 Query policy (Phase 1)
+### 6.4 Query policy SPI (per engine)
 
-Enforced in **core** before/around plugin execution for SQL families:
+Safety is **not** one shared SQL regex in core. Core owns **modes, limits, and orchestration**; each engine owns **validation semantics**.
+
+#### 6.4.1 Shared contracts (`mystique-connector-api`)
+
+```text
+EngineQueryPolicy (trait)
+  engine_id() -> "postgres" | "mysql" | "mongodb" | …
+  validate(PolicyRequest) -> Result<ValidatedQuery, PolicyError>
+
+PolicyRequest
+  language, text (or structured body)
+  mode: Read | Write          // from query-space checkbox; forced Read if profile.read_only
+  limits: max_rows, timeout_ms
+  // profile_read_only already applied by core before call
+
+ValidatedQuery
+  normalized payload for the plugin executor
+  effective mode + limits
+```
+
+`QueryService` path:
+
+```text
+UI Run
+  → mode + text + sessionId
+  → core: force Read if profile.read_only
+  → registry.policy(engine_id).validate(...)
+  → on Ok: plugin execute(ValidatedQuery)
+  → on Err: structured PolicyError (never hit driver)
+  → history / audit
+```
+
+#### 6.4.2 Mode rules (product)
+
+| Mode | Meaning |
+| ---- | ------- |
+| **Read** (default) | Only read operations for that engine |
+| **Write** (opt-in checkbox) | Insert/update-class ops allowed per engine policy |
+| **DELETE** | Always denied for now (all engines), even in Write |
+
+Profile `read_only = true` → Write checkbox unavailable; every request runs as Read.
+
+#### 6.4.3 Per-engine implementations (separate)
+
+| Engine | Policy crate location | Read allows (examples) | Write allows (examples) | Always deny (now) |
+| ------ | --------------------- | ---------------------- | ----------------------- | ----------------- |
+| **PostgreSQL** | `mystique-plugin-postgres` (or `policy.rs`) | Single `SELECT` / `WITH…SELECT` | `INSERT`, `UPDATE` | `DELETE`, `TRUNCATE`, multi-statement, DDL |
+| **MySQL** | `mystique-plugin-mysql` | Same *shape*, **MySQL dialect** (own parser/keywords) | `INSERT`, `UPDATE` | Same destructive set; **not** a copy-paste of PG policy |
+| **MongoDB** | `mystique-plugin-mongodb` | `find`, read-only `aggregate` | `insert*`, `update*` | `delete*`, `drop*`, write stages (`$out`, `$merge`, …) |
+
+Future engines (SQLite, Cassandra, …) add **their own** `EngineQueryPolicy` + register it. Core does not grow a dialect switchyard.
+
+#### 6.4.4 Shared limits (core)
 
 | Rule | Phase 1 |
 | ---- | ------- |
-| Default connection mode | Read-only |
-| Allowed statements | Single `SELECT` (and optionally `WITH`…`SELECT`, `EXPLAIN` later) |
-| Multi-statement | Rejected |
-| Max rows | Configurable + hard cap |
-| Timeout | Statement/query timeout |
-| Writes | Not available in UI |
+| Max rows | Configurable + hard cap (data page + query results) |
+| Timeout | Statement/query timeout enforced around execute |
+| Fail closed | Unclassified / unparsed → **deny** |
 
-Plugins may expose dialect detection helpers; **policy remains centralized** so every SQL plugin stays safe by default.
+Plugins must not bypass `validate`. Execute only accepts `ValidatedQuery` (or core always validates first).
+
+**Ticket:** `T-BE-003` (SPI + modes + limits); each engine execute ticket owns that engine’s policy impl.
 
 ---
 
@@ -400,8 +453,9 @@ Aligned with PRD functional requirements; updated for **Phase 1 = PostgreSQL**.
 | NULL / type-aware rendering | P1 | json/jsonb, bool, dates |
 | Copy cell / row | P1 | |
 | SQL editor + run | P0 | Timing + errors |
-| Read-only SQL policy | P0 | Block non-SELECT; no multi-statement |
-| Max rows + timeout | P0 | Core policy |
+| Per-engine query policy SPI | P0 | `EngineQueryPolicy`; PG / MySQL / Mongo each implement |
+| Query modes: read default, write opt-in, DELETE off | P0 | Session/query-space flag |
+| Max rows + timeout | P0 | Shared limits in core |
 | Export results CSV / JSON | P0 | Stream from Rust; not full dump via WebView |
 | Model view **ER** from live PK/FK | P0 | No invented edges |
 | Node click → open Data | P0 | |
@@ -438,7 +492,9 @@ Aligned with PRD functional requirements; updated for **Phase 1 = PostgreSQL**.
 
 | Feature | Priority | Plugin |
 | ------- | -------- | ------ |
-| **SQLite** full relational subset | P0 | `mystique-plugin-sqlite` — proves SPI |
+| **MySQL** full relational subset | P0 | `mystique-plugin-mysql` + MysqlQueryPolicy |
+| **MongoDB** query + catalog | P0 | `mystique-plugin-mongodb` + MongoQueryPolicy |
+| **SQLite** file DBs | P2 | Later; own SqliteQueryPolicy when prioritized |
 | MySQL / MariaDB | P1 | `mystique-plugin-mysql` |
 | Query history + saved queries (local) | P1 | Core |
 | Postgres EXPLAIN visualization | P2 | Postgres plugin + UI |
@@ -615,7 +671,7 @@ mystique-db/
 | Area | Target |
 | ---- | ------ |
 | Performance | ≤ 200-table Postgres metadata &lt; 5s; simple data page &lt; 2s |
-| Safety | Read-only default; policy in core |
+| Safety | Read default; write opt-in; DELETE off; **per-engine** policy SPI |
 | Security | Secrets not in renderer logs; encrypted at rest |
 | Reliability | Plugin errors isolated; session failure ≠ app crash |
 | Extensibility | New engine = new plugin crate + register + form schema |
