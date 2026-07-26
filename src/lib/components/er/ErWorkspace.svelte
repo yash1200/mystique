@@ -329,10 +329,80 @@
     };
   }
 
+  type TableSide = "left" | "right";
+
   /** Pick left/right side facing the next/prev path point. */
-  function sideToward(node: ErNode, towardX: number): "left" | "right" {
+  function sideToward(node: ErNode, towardX: number): TableSide {
     const mid = node.x + TABLE_W / 2;
     return towardX >= mid ? "right" : "left";
+  }
+
+  function tableMidY(node: ErNode): number {
+    return node.y + HEADER_H + (node.columns.length * ROW_H) / 2;
+  }
+
+  /**
+   * Tables stacked one above the other (or mostly vertical): prefer same-side
+   * left→left or right→right routing instead of a mid-X cut through the cards.
+   */
+  function isVerticalStack(a: ErNode, b: ErNode): boolean {
+    const aMidX = a.x + TABLE_W / 2;
+    const bMidX = b.x + TABLE_W / 2;
+    const dx = Math.abs(aMidX - bMidX);
+    const dy = Math.abs(tableMidY(a) - tableMidY(b));
+    const hOverlap =
+      Math.min(a.x + TABLE_W, b.x + TABLE_W) - Math.max(a.x, b.x);
+    // Overlapping horizontally, or vertical separation dominates
+    return hOverlap > TABLE_W * 0.2 || (dy > dx && dy > ER_GRID);
+  }
+
+  /**
+   * Outer side for a vertical stack: same side on both tables.
+   * Prefer the side of the wider "overhang" so the corridor clears both cards.
+   */
+  function pickStackedOuterSide(a: ErNode, b: ErNode): TableSide {
+    const maxRight = Math.max(a.x + TABLE_W, b.x + TABLE_W);
+    const minLeft = Math.min(a.x, b.x);
+    // How much each side sticks out beyond the other table
+    const rightClearance =
+      maxRight - Math.min(a.x + TABLE_W, b.x + TABLE_W);
+    const leftClearance = Math.max(a.x, b.x) - minLeft;
+    // Prefer right (self-loop convention); use left only if left overhang is clearly larger
+    if (leftClearance > rightClearance + ER_GRID * 2) return "left";
+    return "right";
+  }
+
+  /**
+   * Choose exit side on source and entry side on target.
+   * - Custom path: face the first/last waypoint
+   * - Vertical stack: SAME side (left+left or right+right)
+   * - Side-by-side: face each other (right→left or left→right)
+   */
+  function pickLinkSides(
+    a: ErNode,
+    b: ErNode,
+    wps: ErPoint[],
+  ): { fromSide: TableSide; toSide: TableSide } {
+    if (a.id === b.id) {
+      return { fromSide: "right", toSide: "right" };
+    }
+    if (wps.length > 0) {
+      return {
+        fromSide: sideToward(a, wps[0]!.x),
+        toSide: sideToward(b, wps[wps.length - 1]!.x),
+      };
+    }
+    if (isVerticalStack(a, b)) {
+      const side = pickStackedOuterSide(a, b);
+      return { fromSide: side, toSide: side };
+    }
+    // Side-by-side: leave the facing edges
+    const aMid = a.x + TABLE_W / 2;
+    const bMid = b.x + TABLE_W / 2;
+    if (bMid >= aMid) {
+      return { fromSide: "right", toSide: "left" };
+    }
+    return { fromSide: "left", toSide: "right" };
   }
 
   function samePoint(a: ErPoint, b: ErPoint, eps = 0.5): boolean {
@@ -377,14 +447,35 @@
   }
 
   /**
-   * Default Manhattan elbows between two anchors when the user drew no path.
-   * Mid-X corridor: → · ↓/↑ · →  (or flipped if already aligned).
+   * Default Manhattan elbows between two side anchors.
+   * Same side (stacked tables): outer vertical corridor left-left or right-right.
+   * Opposite sides (side-by-side): mid-X corridor.
    */
-  function defaultManhattanWaypoints(start: ErPoint, end: ErPoint): ErPoint[] {
+  function defaultManhattanWaypoints(
+    start: ErPoint,
+    end: ErPoint,
+    fromSide: TableSide,
+    toSide: TableSide,
+  ): ErPoint[] {
+    // Already a pure H or V run
     if (Math.abs(start.x - end.x) < 0.5 || Math.abs(start.y - end.y) < 0.5) {
-      // Already a straight H or V run
       return [];
     }
+
+    // Same side: both left or both right → outer U corridor (vertical stack)
+    if (fromSide === toSide) {
+      const pad = ER_GRID * 2;
+      const corridorX =
+        fromSide === "right"
+          ? snapToGrid(Math.max(start.x, end.x) + pad)
+          : snapToGrid(Math.min(start.x, end.x) - pad);
+      return [
+        { x: corridorX, y: start.y },
+        { x: corridorX, y: end.y },
+      ];
+    }
+
+    // Opposite sides: classic mid-X elbow between facing edges
     const midX = snapToGrid((start.x + end.x) / 2);
     return [
       { x: midX, y: start.y },
@@ -397,38 +488,27 @@
     start: ErPoint;
     end: ErPoint;
     wps: ErPoint[];
+    fromSide: TableSide;
+    toSide: TableSide;
   } | null {
     if (!diagram) return null;
     const a = diagram.nodes.find((n) => n.id === edge.from);
     const b = diagram.nodes.find((n) => n.id === edge.to);
     if (!a || !b) return null;
     const wps = [...(edge.waypoints ?? [])];
-    const self = a.id === b.id;
-
-    let start: ErPoint;
-    let end: ErPoint;
-
-    if (self) {
-      start = columnSideAnchor(a, edge.fromColumnId, "right");
-      end = columnSideAnchor(b, edge.toColumnId, "right");
-    } else {
-      const firstToward = wps.length ? wps[0]!.x : columnCenter(b, edge.toColumnId).x;
-      const lastFrom = wps.length
-        ? wps[wps.length - 1]!.x
-        : columnCenter(a, edge.fromColumnId).x;
-      start = columnSideAnchor(a, edge.fromColumnId, sideToward(a, firstToward));
-      end = columnSideAnchor(b, edge.toColumnId, sideToward(b, lastFrom));
-    }
-    return { start, end, wps };
+    const { fromSide, toSide } = pickLinkSides(a, b, wps);
+    const start = columnSideAnchor(a, edge.fromColumnId, fromSide);
+    const end = columnSideAnchor(b, edge.toColumnId, toSide);
+    return { start, end, wps, fromSide, toSide };
   }
 
   /** Full path for rendering — always orthogonal 90° grid corridors. */
   function edgePoints(edge: ErEdge): ErPoint[] {
     const raw = edgeAnchorsAndWaypoints(edge);
     if (!raw) return [];
-    let { start, end, wps } = raw;
+    let { start, end, wps, fromSide, toSide } = raw;
     if (wps.length === 0) {
-      wps = defaultManhattanWaypoints(start, end);
+      wps = defaultManhattanWaypoints(start, end, fromSide, toSide);
     }
     return toOrthogonal([start, ...wps, end]);
   }
@@ -445,20 +525,9 @@
     const a = diagram.nodes.find((n) => n.id === edge.from);
     const b = diagram.nodes.find((n) => n.id === edge.to);
     if (!a || !b) return wps;
-    const self = a.id === b.id;
-    let start: ErPoint;
-    let end: ErPoint;
-    if (self) {
-      start = columnSideAnchor(a, edge.fromColumnId, "right");
-      end = columnSideAnchor(b, edge.toColumnId, "right");
-    } else {
-      const firstToward = wps.length ? wps[0]!.x : columnCenter(b, edge.toColumnId).x;
-      const lastFrom = wps.length
-        ? wps[wps.length - 1]!.x
-        : columnCenter(a, edge.fromColumnId).x;
-      start = columnSideAnchor(a, edge.fromColumnId, sideToward(a, firstToward));
-      end = columnSideAnchor(b, edge.toColumnId, sideToward(b, lastFrom));
-    }
+    const { fromSide, toSide } = pickLinkSides(a, b, wps);
+    const start = columnSideAnchor(a, edge.fromColumnId, fromSide);
+    const end = columnSideAnchor(b, edge.toColumnId, toSide);
     const full = toOrthogonal([
       start,
       ...wps.map((p) => ({ x: snapToGrid(p.x), y: snapToGrid(p.y) })),
@@ -675,20 +744,12 @@
     };
     // Default square route if still empty (non-self)
     if ((edge.waypoints?.length ?? 0) === 0 && fromNode && toNode && !isSelfLoop) {
-      const firstToward = columnCenter(toNode, toColumnId).x;
-      const start = columnSideAnchor(
-        fromNode,
-        linkFrom.columnId,
-        sideToward(fromNode, firstToward),
-      );
-      const end = columnSideAnchor(
-        toNode,
-        toColumnId,
-        sideToward(toNode, start.x),
-      );
+      const { fromSide, toSide } = pickLinkSides(fromNode, toNode, []);
+      const start = columnSideAnchor(fromNode, linkFrom.columnId, fromSide);
+      const end = columnSideAnchor(toNode, toColumnId, toSide);
       edge = {
         ...edge,
-        waypoints: defaultManhattanWaypoints(start, end),
+        waypoints: defaultManhattanWaypoints(start, end, fromSide, toSide),
       };
     }
     edge = {
@@ -1251,10 +1312,15 @@
       ...diagram,
       edges: diagram.edges.map((ed) => {
         if (ed.id !== selectedEdgeId) return ed;
-        // Reset to default Manhattan elbow corridor
+        // Reset to default Manhattan elbow corridor (handles vertical stack sides)
         const raw = edgeAnchorsAndWaypoints({ ...ed, waypoints: [] });
         if (!raw) return { ...ed, waypoints: [] };
-        const wps = defaultManhattanWaypoints(raw.start, raw.end);
+        const wps = defaultManhattanWaypoints(
+          raw.start,
+          raw.end,
+          raw.fromSide,
+          raw.toSide,
+        );
         return { ...ed, waypoints: wps };
       }),
     };
