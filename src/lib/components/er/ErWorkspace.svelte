@@ -1,11 +1,11 @@
 <script lang="ts">
   /**
-   * ER canvas — DBeaver-like:
-   * 1) Pick Normal or Broken arrow tool
-   * 2) Click source COLUMN
-   * 3) Optionally click empty canvas to place path bend points
-   * 4) Click target COLUMN on another table → relationship created
-   * Tables drag on a grid when no arrow tool is active.
+   * ER canvas — DBeaver-like column links on a grid.
+   * - Normal/Broken arrow tools: click col A → optional path → col B
+   * - Right-click table → Delete
+   * - Click a relationship path → drag bend handles (grid-snapped)
+   * - Mid-segment diamonds insert new bends
+   * - Grid show/hide toggle
    */
   import type {
     DataFamily,
@@ -48,23 +48,26 @@
   let toolMsg = $state<string | null>(null);
   let saving = $state(false);
   let dirty = $state(false);
+  let showGrid = $state(true);
 
   /** null = move tables · normal | broken = column linking */
   let arrowTool = $state<"normal" | "broken" | null>(null);
-
-  /** Step 1 of linking: which column we started from */
   let linkFrom = $state<{ tableId: string; columnId: string } | null>(null);
-  /** Bend points while drawing (before target column is chosen) */
   let draftWaypoints = $state<ErPoint[]>([]);
-  /** Live cursor for preview line */
   let cursorPt = $state<ErPoint | null>(null);
 
-  // table drag (only when arrowTool is null)
+  // table drag
   let dragTableId = $state<string | null>(null);
   let dragOffX = 0;
   let dragOffY = 0;
   let didDrag = false;
   let canvasEl: HTMLDivElement | null = $state(null);
+
+  // edge waypoint drag: { edgeId, waypointIndex }
+  let dragWaypoint = $state<{ edgeId: string; index: number } | null>(null);
+
+  // right-click context menu on a table
+  let ctxMenu = $state<{ clientX: number; clientY: number; tableId: string } | null>(null);
 
   let showAddCol = $state(false);
   let newColName = $state("");
@@ -86,8 +89,10 @@
     cursorPt = null;
     showAddCol = false;
     dirty = false;
+    ctxMenu = null;
+    dragWaypoint = null;
     toolMsg =
-      "Add a table, or pick Normal/Broken arrow → click source column → (optional path clicks) → target column.";
+      "Add a table, or pick Normal/Broken → click source column → (optional path) → target column. Right-click a table to delete. Click a link to reshape it.";
   });
 
   function uid(p: string) {
@@ -113,6 +118,8 @@
     draftWaypoints = [];
     cursorPt = null;
     selectedEdgeId = null;
+    ctxMenu = null;
+    dragWaypoint = null;
     if (kind === "normal") {
       toolMsg =
         "1) Click a column on table A  ·  2) Optional: click canvas to bend the path  ·  3) Click a column on table B";
@@ -120,7 +127,8 @@
       toolMsg =
         "Broken (dashed) link: click source column → optional path points → target column";
     } else {
-      toolMsg = "Move mode: drag tables on the grid. Click a table to edit columns.";
+      toolMsg =
+        "Move mode: drag tables. Click a link to reshape its path. Right-click a table to delete.";
     }
   }
 
@@ -141,15 +149,22 @@
     };
   }
 
-  /** Straight segments: source → waypoints → target */
-  function edgePolyline(edge: ErEdge): string {
-    if (!diagram) return "";
+  /** Full path points: source column → waypoints → target column */
+  function edgePoints(edge: ErEdge): ErPoint[] {
+    if (!diagram) return [];
     const a = diagram.nodes.find((n) => n.id === edge.from);
     const b = diagram.nodes.find((n) => n.id === edge.to);
-    if (!a || !b) return "";
-    const p0 = columnCenter(a, edge.fromColumnId);
-    const pN = columnCenter(b, edge.toColumnId);
-    const pts = [p0, ...(edge.waypoints ?? []), pN];
+    if (!a || !b) return [];
+    return [
+      columnCenter(a, edge.fromColumnId),
+      ...(edge.waypoints ?? []),
+      columnCenter(b, edge.toColumnId),
+    ];
+  }
+
+  function edgePolyline(edge: ErEdge): string {
+    const pts = edgePoints(edge);
+    if (!pts.length) return "";
     return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   }
 
@@ -163,15 +178,32 @@
     return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   }
 
+  /** Midpoint of each segment — drag to insert a new waypoint */
+  function segmentMids(edge: ErEdge): { x: number; y: number; insertAt: number }[] {
+    const pts = edgePoints(edge);
+    const mids: { x: number; y: number; insertAt: number }[] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      mids.push({
+        x: (pts[i].x + pts[i + 1].x) / 2,
+        y: (pts[i].y + pts[i + 1].y) / 2,
+        insertAt: i, // waypoint index to insert at (0 = first waypoint)
+      });
+    }
+    return mids;
+  }
+
+  function isBroken(kind: ErEdgeKind) {
+    return kind === "broken" || kind === "inferred" || kind === "logical";
+  }
+
   function addTable() {
     if (!diagram) return;
-    // exit link mode so user can place the table
     if (arrowTool) {
-      // keep tool, just reset partial link
       linkFrom = null;
       draftWaypoints = [];
       cursorPt = null;
     }
+    ctxMenu = null;
     const n = diagram.nodes.length;
     const node: ErNode = {
       id: uid("n"),
@@ -194,17 +226,17 @@
     };
     diagram = { ...diagram, nodes: [...diagram.nodes, node] };
     selectedTableId = node.id;
+    selectedEdgeId = null;
     showAddCol = false;
-    toolMsg = `Added “${node.name}”. Drag it on the grid, or use an arrow tool to link columns.`;
+    toolMsg = `Added “${node.name}”. Drag on the grid, or use an arrow tool to link columns. Right-click to delete.`;
     markDirty();
   }
 
-  /** Entire column row is the hit target — simple click-click linking. */
   function onColumnClick(tableId: string, columnId: string, e: MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
+    ctxMenu = null;
 
-    // Not in arrow mode → just select table
     if (!arrowTool) {
       selectedTableId = tableId;
       selectedEdgeId = null;
@@ -212,7 +244,6 @@
       return;
     }
 
-    // Arrow mode: first click = source
     if (!linkFrom) {
       linkFrom = { tableId, columnId };
       draftWaypoints = [];
@@ -224,9 +255,7 @@
       return;
     }
 
-    // Second column click = target
     if (linkFrom.tableId === tableId) {
-      // Same table: retarget source to this column
       linkFrom = { tableId, columnId };
       draftWaypoints = [];
       toolMsg = "Source column updated. Now click a column on another table.";
@@ -260,6 +289,11 @@
     const toCol = toNode?.columns.find((c) => c.id === toColumnId);
     const label = `${fromNode?.name}.${fromCol?.name} → ${toNode?.name}.${toCol?.name}`;
     const kind: ErEdgeKind = arrowTool === "broken" ? "broken" : "normal";
+    // Snap any draft bends to grid (already snapped on place, belt-and-suspenders)
+    const wps = draftWaypoints.map((p) => ({
+      x: snapToGrid(p.x),
+      y: snapToGrid(p.y),
+    }));
 
     const edge: ErEdge = {
       id: uid("e"),
@@ -269,24 +303,34 @@
       toColumnId: toColumnId,
       kind,
       label,
-      waypoints: [...draftWaypoints],
+      waypoints: wps,
     };
 
     diagram = { ...diagram, edges: [...diagram.edges, edge] };
-    toolMsg = `Linked: ${label}${draftWaypoints.length ? ` (${draftWaypoints.length} bend point(s))` : " (straight)"}`;
+    toolMsg = `Linked: ${label}. Click the path to select and drag handles to reshape.`;
     linkFrom = null;
     draftWaypoints = [];
     cursorPt = null;
     selectedEdgeId = edge.id;
+    selectedTableId = null;
     markDirty();
   }
 
-  /** Click empty canvas: add path bend if linking, else deselect */
   function onCanvasClick(e: MouseEvent) {
     const t = e.target as HTMLElement;
-    // ignore clicks that originated on tables/columns
-    if (t.closest("[data-er-table]") || t.closest("[data-er-column]")) return;
+    if (
+      t.closest("[data-er-table]") ||
+      t.closest("[data-er-column]") ||
+      t.closest("[data-er-edge-handle]") ||
+      t.closest("[data-er-edge-hit]") ||
+      t.closest("[data-ctx-menu]")
+    ) {
+      return;
+    }
 
+    ctxMenu = null;
+
+    // While linking: place a grid-snapped bend point
     if (arrowTool && linkFrom) {
       const pt = canvasPoint(e);
       if (!pt) return;
@@ -296,6 +340,8 @@
       return;
     }
 
+    // With a selected edge: empty-canvas click can add a new waypoint at the end of path
+    // (more common: use mid handles). Deselect instead for clarity.
     selectedTableId = null;
     selectedEdgeId = null;
     showAddCol = false;
@@ -305,6 +351,27 @@
     if (arrowTool && linkFrom) {
       cursorPt = canvasPoint(e);
     }
+
+    // Dragging an edge waypoint
+    if (dragWaypoint && diagram) {
+      const pt = canvasPoint(e);
+      if (!pt) return;
+      const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
+      const { edgeId, index } = dragWaypoint;
+      diagram = {
+        ...diagram,
+        edges: diagram.edges.map((ed) => {
+          if (ed.id !== edgeId) return ed;
+          const wps = [...(ed.waypoints ?? [])];
+          if (index < 0 || index >= wps.length) return ed;
+          wps[index] = snapped;
+          return { ...ed, waypoints: wps };
+        }),
+      };
+      return;
+    }
+
+    // Dragging a table
     if (!dragTableId || !diagram || !canvasEl) return;
     const rect = canvasEl.getBoundingClientRect();
     const x = snapToGrid(
@@ -313,20 +380,23 @@
     const y = snapToGrid(
       Math.max(0, e.clientY - rect.top + canvasEl.scrollTop - dragOffY),
     );
-    if (Math.abs(x - (diagram.nodes.find((n) => n.id === dragTableId)?.x ?? x)) > 0 ||
-        Math.abs(y - (diagram.nodes.find((n) => n.id === dragTableId)?.y ?? y)) > 0) {
-      didDrag = true;
-    }
+    const cur = diagram.nodes.find((n) => n.id === dragTableId);
+    if (cur && (cur.x !== x || cur.y !== y)) didDrag = true;
     diagram = {
       ...diagram,
-      nodes: diagram.nodes.map((n) =>
-        n.id === dragTableId ? { ...n, x, y } : n,
-      ),
+      nodes: diagram.nodes.map((n) => (n.id === dragTableId ? { ...n, x, y } : n)),
     };
   }
 
+  function onWindowPointerUp() {
+    if (dragWaypoint) {
+      markDirty();
+      dragWaypoint = null;
+    }
+  }
+
   function onTablePointerDown(tableId: string, e: PointerEvent) {
-    if (arrowTool) return; // no table drag while linking
+    if (arrowTool) return;
     if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
     if (!diagram || !canvasEl) return;
     const node = diagram.nodes.find((n) => n.id === tableId);
@@ -338,6 +408,7 @@
     dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y;
     selectedTableId = tableId;
     selectedEdgeId = null;
+    ctxMenu = null;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
 
@@ -353,6 +424,32 @@
     dragTableId = null;
   }
 
+  function onTableContextMenu(tableId: string, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    selectedTableId = tableId;
+    selectedEdgeId = null;
+    ctxMenu = { clientX: e.clientX, clientY: e.clientY, tableId };
+  }
+
+  function deleteTableById(id: string) {
+    if (!diagram) return;
+    diagram = {
+      ...diagram,
+      nodes: diagram.nodes.filter((n) => n.id !== id),
+      edges: diagram.edges.filter((e) => e.from !== id && e.to !== id),
+    };
+    if (selectedTableId === id) selectedTableId = null;
+    showAddCol = false;
+    ctxMenu = null;
+    toolMsg = "Table deleted.";
+    markDirty();
+  }
+
+  function deleteSelectedTable() {
+    if (selectedTableId) deleteTableById(selectedTableId);
+  }
+
   function renameTable(name: string) {
     if (!diagram || !selectedTableId) return;
     diagram = {
@@ -361,19 +458,6 @@
         n.id === selectedTableId ? { ...n, name: name || n.name } : n,
       ),
     };
-    markDirty();
-  }
-
-  function deleteSelectedTable() {
-    if (!diagram || !selectedTableId) return;
-    const id = selectedTableId;
-    diagram = {
-      ...diagram,
-      nodes: diagram.nodes.filter((n) => n.id !== id),
-      edges: diagram.edges.filter((e) => e.from !== id && e.to !== id),
-    };
-    selectedTableId = null;
-    showAddCol = false;
     markDirty();
   }
 
@@ -433,24 +517,101 @@
       edges: diagram.edges.filter((e) => e.id !== edgeId),
     };
     if (selectedEdgeId === edgeId) selectedEdgeId = null;
+    toolMsg = "Link deleted.";
     markDirty();
   }
 
-  function clearWaypointsOnSelectedEdge() {
+  function selectEdge(edgeId: string, e?: Event) {
+    e?.stopPropagation();
+    e?.preventDefault();
+    selectedEdgeId = edgeId;
+    selectedTableId = null;
+    showAddCol = false;
+    ctxMenu = null;
+    if (!arrowTool) {
+      toolMsg =
+        "Link selected. Drag blue handles to move path points on the grid. Drag diamonds on segments to add bends. Double-click a handle to remove it.";
+    }
+  }
+
+  /** Start dragging an existing waypoint */
+  function onWaypointDown(edgeId: string, index: number, e: PointerEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    selectedEdgeId = edgeId;
+    selectedTableId = null;
+    dragWaypoint = { edgeId, index };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+
+  function onWaypointUp(e: PointerEvent) {
+    if (dragWaypoint) {
+      markDirty();
+      dragWaypoint = null;
+    }
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Drag a mid-segment handle: insert waypoint if needed, then drag it */
+  function onMidHandleDown(edgeId: string, insertAt: number, e: PointerEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!diagram) return;
+    const edge = diagram.edges.find((ed) => ed.id === edgeId);
+    if (!edge) return;
+    const pt = canvasPoint(e);
+    if (!pt) return;
+    const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) };
+    const wps = [...(edge.waypoints ?? [])];
+    wps.splice(insertAt, 0, snapped);
+    diagram = {
+      ...diagram,
+      edges: diagram.edges.map((ed) =>
+        ed.id === edgeId ? { ...ed, waypoints: wps } : ed,
+      ),
+    };
+    selectedEdgeId = edgeId;
+    selectedTableId = null;
+    dragWaypoint = { edgeId, index: insertAt };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+
+  function removeWaypoint(edgeId: string, index: number, e: Event) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!diagram) return;
+    diagram = {
+      ...diagram,
+      edges: diagram.edges.map((ed) => {
+        if (ed.id !== edgeId) return ed;
+        const wps = [...(ed.waypoints ?? [])];
+        wps.splice(index, 1);
+        return { ...ed, waypoints: wps };
+      }),
+    };
+    toolMsg = "Bend point removed.";
+    markDirty();
+  }
+
+  function straightenSelectedEdge() {
     if (!diagram || !selectedEdgeId) return;
     diagram = {
       ...diagram,
-      edges: diagram.edges.map((e) =>
-        e.id === selectedEdgeId ? { ...e, waypoints: [] } : e,
+      edges: diagram.edges.map((ed) =>
+        ed.id === selectedEdgeId ? { ...ed, waypoints: [] } : ed,
       ),
     };
     toolMsg = "Edge path reset to straight.";
     markDirty();
   }
 
-  function markDirtyAndMsg(msg: string) {
-    toolMsg = msg;
-    markDirty();
+  function toggleGrid() {
+    showGrid = !showGrid;
+    toolMsg = showGrid ? "Grid shown." : "Grid hidden.";
   }
 
   async function handleSave() {
@@ -521,11 +682,9 @@
       toolMsg = e instanceof Error ? e.message : String(e);
     }
   }
-
-  function isBroken(kind: ErEdgeKind) {
-    return kind === "broken" || kind === "inferred" || kind === "logical";
-  }
 </script>
+
+<svelte:window onpointerup={onWindowPointerUp} onpointercancel={onWindowPointerUp} />
 
 <div class="flex h-full min-h-0 flex-col">
   <div
@@ -564,6 +723,23 @@
         + Add {meta.nodeLabel.toLowerCase()}
       </Button>
 
+      <button
+        type="button"
+        class={cn(
+          "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
+          showGrid
+            ? "border-accent bg-accent-muted text-fg"
+            : "border-line bg-input text-fg-secondary hover:border-line-strong",
+        )}
+        onclick={toggleGrid}
+        aria-pressed={showGrid}
+      >
+        <span>Grid</span>
+        <span class="font-mono text-micro uppercase tracking-wide">
+          {showGrid ? "ON" : "OFF"}
+        </span>
+      </button>
+
       <p class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
         Arrows
       </p>
@@ -584,7 +760,15 @@
                 <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
               </marker>
             </defs>
-            <line x1="2" y1="7" x2="28" y2="7" stroke="currentColor" stroke-width="2" marker-end="url(#tn)" />
+            <line
+              x1="2"
+              y1="7"
+              x2="28"
+              y2="7"
+              stroke="currentColor"
+              stroke-width="2"
+              marker-end="url(#tn)"
+            />
           </svg>
           <span class="text-caption font-medium text-fg">Normal</span>
         </button>
@@ -624,6 +808,7 @@
         <li>Click <strong class="text-fg-secondary">column</strong> on table A</li>
         <li>Optional: click grid to draw path bends</li>
         <li>Click <strong class="text-fg-secondary">column</strong> on table B</li>
+        <li>Click the path later to drag bends on the grid</li>
       </ol>
 
       {#if linkFrom}
@@ -635,7 +820,7 @@
         </Button>
       {/if}
       {#if selectedEdgeId}
-        <Button variant="ghost" fullWidth onclick={clearWaypointsOnSelectedEdge}>
+        <Button variant="ghost" fullWidth onclick={straightenSelectedEdge}>
           Straighten selected link
         </Button>
         <Button variant="danger-ghost" fullWidth onclick={() => deleteEdge(selectedEdgeId!)}>
@@ -644,7 +829,10 @@
       {/if}
 
       {#if toolMsg}
-        <p class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary" role="status">
+        <p
+          class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary"
+          role="status"
+        >
           {toolMsg}
         </p>
       {/if}
@@ -663,10 +851,7 @@
                       ? "border-accent bg-accent-muted"
                       : "border-line bg-input",
                   )}
-                  onclick={() => {
-                    selectedEdgeId = edge.id;
-                    selectedTableId = null;
-                  }}
+                  onclick={() => selectEdge(edge.id)}
                 >
                   <span class="min-w-0 truncate text-fg-secondary">
                     {isBroken(edge.kind) ? "┄" : "─"}
@@ -697,43 +882,127 @@
       class="relative min-w-0 flex-1 overflow-auto"
       style="
         background-color: var(--bg-app);
-        background-image:
-          linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
-          linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px);
+        background-image: {showGrid
+        ? `linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
+          linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px)`
+        : "none"};
         background-size: {ER_GRID}px {ER_GRID}px;
-        cursor: {arrowTool ? 'crosshair' : 'default'};
+        cursor: {arrowTool ? "crosshair" : "default"};
       "
       bind:this={canvasEl}
       role="application"
       aria-label="ER grid canvas"
       onclick={onCanvasClick}
       onpointermove={onCanvasPointerMove}
+      oncontextmenu={(e) => {
+        // prevent browser menu on empty canvas
+        if (!(e.target as HTMLElement).closest("[data-er-table]")) {
+          e.preventDefault();
+          ctxMenu = null;
+        }
+      }}
     >
       {#if diagram}
+        <!-- Edges SVG: pointer events on hit paths + handles only -->
         <svg
-          class="pointer-events-none absolute inset-0 h-full min-h-[800px] w-full min-w-[1400px]"
+          class="absolute inset-0 h-full min-h-[800px] w-full min-w-[1400px]"
+          style="pointer-events: none;"
           aria-hidden="true"
         >
           <defs>
-            <marker id="er-arrow-head" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <marker
+              id="er-arrow-head"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L9,3 L0,6 Z" fill="var(--accent)" />
+            </marker>
+            <marker
+              id="er-arrow-head-sel"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
               <path d="M0,0 L9,3 L0,6 Z" fill="var(--accent)" />
             </marker>
           </defs>
 
           {#each diagram.edges as edge (edge.id)}
+            {@const selected = selectedEdgeId === edge.id}
+            <!-- Wide invisible hit stroke for click-to-select -->
+            <path
+              data-er-edge-hit
+              d={edgePolyline(edge)}
+              fill="none"
+              stroke="transparent"
+              stroke-width="14"
+              style="pointer-events: stroke; cursor: pointer;"
+              onclick={(e) => selectEdge(edge.id, e)}
+            />
+            <!-- Visible path -->
             <path
               d={edgePolyline(edge)}
               fill="none"
               stroke="var(--accent)"
-              stroke-width={selectedEdgeId === edge.id ? 3 : 2}
+              stroke-width={selected ? 3 : 2}
               stroke-dasharray={isBroken(edge.kind) ? "7 5" : "0"}
               marker-end="url(#er-arrow-head)"
               opacity="0.95"
+              style="pointer-events: none;"
             />
-            <!-- wider invisible hit path would need pointer-events; select via list for now -->
+
+            {#if selected && !arrowTool}
+              <!-- Mid-segment insert handles (diamonds) -->
+              {#each segmentMids(edge) as mid (mid.insertAt + "-" + mid.x + "-" + mid.y)}
+                <g
+                  data-er-edge-handle
+                  style="pointer-events: all; cursor: move;"
+                  onpointerdown={(e) => onMidHandleDown(edge.id, mid.insertAt, e)}
+                  onpointerup={onWaypointUp}
+                  onpointercancel={onWaypointUp}
+                >
+                  <rect
+                    x={mid.x - 5}
+                    y={mid.y - 5}
+                    width="10"
+                    height="10"
+                    transform="rotate(45 {mid.x} {mid.y})"
+                    fill="var(--bg-panel, #1a1a1a)"
+                    stroke="var(--accent)"
+                    stroke-width="1.5"
+                  />
+                </g>
+              {/each}
+
+              <!-- Existing waypoint handles (circles) -->
+              {#each edge.waypoints ?? [] as wp, wi (edge.id + "-wp-" + wi)}
+                <g
+                  data-er-edge-handle
+                  style="pointer-events: all; cursor: grab;"
+                  onpointerdown={(e) => onWaypointDown(edge.id, wi, e)}
+                  onpointerup={onWaypointUp}
+                  onpointercancel={onWaypointUp}
+                  ondblclick={(e) => removeWaypoint(edge.id, wi, e)}
+                >
+                  <circle
+                    cx={wp.x}
+                    cy={wp.y}
+                    r="7"
+                    fill="var(--accent)"
+                    stroke="var(--bg-panel, #fff)"
+                    stroke-width="2"
+                  />
+                </g>
+              {/each}
+            {/if}
           {/each}
 
-          <!-- live draft path -->
+          <!-- live draft path while linking -->
           {#if linkFrom && cursorPt}
             <path
               d={previewPolyline()}
@@ -743,10 +1012,17 @@
               stroke-dasharray="5 4"
               opacity="0.75"
               marker-end="url(#er-arrow-head)"
+              style="pointer-events: none;"
             />
             {#each draftWaypoints as wp, i}
-              <circle cx={wp.x} cy={wp.y} r="4" fill="var(--accent)" />
-              <text x={wp.x + 6} y={wp.y - 6} fill="var(--text-muted)" font-size="10">{i + 1}</text>
+              <circle cx={wp.x} cy={wp.y} r="4" fill="var(--accent)" style="pointer-events: none;" />
+              <text
+                x={wp.x + 6}
+                y={wp.y - 6}
+                fill="var(--text-muted)"
+                font-size="10"
+                style="pointer-events: none;">{i + 1}</text
+              >
             {/each}
           {/if}
         </svg>
@@ -757,15 +1033,18 @@
             data-er-table
             class={cn(
               "absolute rounded-lg border bg-panel shadow-sm",
-              selectedTableId === node.id ? "border-accent ring-2 ring-accent/30" : "border-line",
+              selectedTableId === node.id
+                ? "border-accent ring-2 ring-accent/30"
+                : "border-line",
               arrowTool ? "cursor-default" : "cursor-grab",
               dragTableId === node.id && "cursor-grabbing",
             )}
-            style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px;"
+            style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px; z-index: 2;"
             onpointerdown={(e) => onTablePointerDown(node.id, e)}
             onpointermove={onCanvasPointerMove}
             onpointerup={onTablePointerUp}
             onpointercancel={onTablePointerUp}
+            oncontextmenu={(e) => onTableContextMenu(node.id, e)}
           >
             <div
               class="flex items-center justify-between gap-2 border-b border-line bg-elevated px-2.5"
@@ -806,7 +1085,9 @@
                     <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
                       {col.name}
                     </span>
-                    <span class="shrink-0 font-mono text-caption text-fg-muted">{col.dataType}</span>
+                    <span class="shrink-0 font-mono text-caption text-fg-muted"
+                      >{col.dataType}</span
+                    >
                     {#if selectedTableId === node.id && !arrowTool}
                       <span
                         class="shrink-0 px-1 text-caption text-danger"
@@ -889,3 +1170,44 @@
     </div>
   </div>
 </div>
+
+<!-- Right-click context menu for tables -->
+{#if ctxMenu}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-40"
+    role="presentation"
+    onclick={() => (ctxMenu = null)}
+    oncontextmenu={(e) => {
+      e.preventDefault();
+      ctxMenu = null;
+    }}
+  ></div>
+  <div
+    data-ctx-menu
+    class="fixed z-50 min-w-[160px] overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
+    style="left: {ctxMenu.clientX}px; top: {ctxMenu.clientY}px;"
+    role="menu"
+  >
+    <button
+      type="button"
+      role="menuitem"
+      class="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-fg hover:bg-accent-muted"
+      onclick={() => {
+        selectedTableId = ctxMenu!.tableId;
+        selectedEdgeId = null;
+        ctxMenu = null;
+      }}
+    >
+      Select table
+    </button>
+    <button
+      type="button"
+      role="menuitem"
+      class="flex w-full items-center gap-2 px-3 py-2 text-left text-body text-danger hover:bg-danger/10"
+      onclick={() => deleteTableById(ctxMenu!.tableId)}
+    >
+      Delete table
+    </button>
+  </div>
+{/if}
