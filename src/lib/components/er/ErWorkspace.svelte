@@ -25,7 +25,7 @@
     emptyDiagram,
     snapToGrid,
   } from "$lib/types/er";
-  import { onMount } from "svelte";
+  import { onMount, type Snippet } from "svelte";
   import { Button, Badge, Inline, Input, Select } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
   import { listDiagrams, saveDiagram, type ErDiagramRecord } from "$lib/api/diagrams";
@@ -48,6 +48,8 @@
     embedded?: boolean;
     /** Optional note shown in the toolbar (e.g. "4 tables · 3 relationships"). */
     statusNote?: string | null;
+    /** Optional trailing toolbar controls (e.g. theme toggle). */
+    toolbarEnd?: Snippet;
   }
 
   let {
@@ -58,6 +60,7 @@
     initialName = "",
     embedded = false,
     statusNote = null,
+    toolbarEnd,
   }: Props = $props();
 
   /**
@@ -1819,15 +1822,16 @@
 />
 
 <div class="flex h-full min-h-0 flex-col">
+  <!-- Single row: chrome left · name field fills remaining space · actions right (no wrap). -->
   <div
-    class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4"
+    class="flex h-topbar shrink-0 items-center gap-3 border-b border-line bg-panel px-4"
   >
-    <div class="flex min-w-0 items-center gap-2">
+    <div class="flex min-w-0 shrink-0 items-center gap-2">
       {#if onback && !embedded}
         <Button variant="ghost" size="sm" onclick={onback}>← Back</Button>
         <span class="text-fg-muted">/</span>
       {/if}
-      <span class="text-body font-semibold text-fg">
+      <span class="max-w-[10rem] truncate text-body font-semibold text-fg sm:max-w-[14rem]">
         {embedded ? diagramName || "Live schema" : `ER · ${meta.title}`}
       </span>
       {#if embedded}
@@ -1848,9 +1852,17 @@
         </Badge>
       {/if}
     </div>
-    <Inline gap="sm">
+
+    {#if !readOnly}
+      <div class="min-w-[8rem] flex-1">
+        <Input bind:value={diagramName} class="w-full" inputSize="sm" aria-label="Diagram name" />
+      </div>
+    {:else}
+      <div class="min-w-0 flex-1"></div>
+    {/if}
+
+    <div class="flex shrink-0 items-center gap-2">
       {#if !readOnly}
-        <Input bind:value={diagramName} class="w-40" inputSize="sm" aria-label="Diagram name" />
         <Button
           variant={dbmlSourceMode ? "secondary" : "ghost"}
           size="sm"
@@ -1904,7 +1916,10 @@
       {#if onchangeFamily && !embedded}
         <Button variant="ghost" size="sm" onclick={onchangeFamily}>Change family</Button>
       {/if}
-    </Inline>
+      {#if toolbarEnd}
+        {@render toolbarEnd()}
+      {/if}
+    </div>
   </div>
 
   <div class="flex min-h-0 flex-1">
@@ -2394,6 +2409,9 @@
             {#if selected && !arrowTool}
               {#each segmentMids(edge) as mid (mid.insertAt + "-" + mid.x + "-" + mid.y)}
                 <g
+                  role="button"
+                  tabindex="-1"
+                  aria-label="Add edge waypoint"
                   data-er-edge-handle
                   style="pointer-events: all; cursor: var(--cursor-move);"
                   onpointerdown={(e) => onMidHandleDown(edge.id, mid.insertAt, e)}
@@ -2415,6 +2433,9 @@
 
               {#each edge.waypoints ?? [] as wp, wi (edge.id + "-wp-" + wi)}
                 <g
+                  role="button"
+                  tabindex="-1"
+                  aria-label="Drag edge waypoint (double-click to remove)"
                   data-er-edge-handle
                   style="pointer-events: all; cursor: var(--cursor-grab);"
                   onpointerdown={(e) => onWaypointDown(edge.id, wi, e)}
