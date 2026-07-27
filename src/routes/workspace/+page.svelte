@@ -5,6 +5,9 @@
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import { workspaceSession } from "$lib/stores/workspace-session.svelte";
   import { listProfiles } from "$lib/api/profiles";
+  import { openEngineSession } from "$lib/api/engines";
+  import { isTauri } from "$lib/api/tauri";
+  import { draftFromProfile, pluginConfigForSession } from "$lib/types/connection";
   import type { ConnectionProfile } from "$lib/types/connection";
 
   type ThemePref = "light" | "dark" | "system";
@@ -40,8 +43,32 @@
       return;
     }
 
-    if (workspaceSession.sessions.some((s) => s.profile.id === connectionId)) {
+    const existing = workspaceSession.sessions.find(
+      (s) => s.profile.id === connectionId,
+    );
+    if (existing) {
       workspaceSession.setActiveConnection(connectionId);
+      // Ensure live engine session if missing (e.g. soft reload).
+      if (isTauri() && !existing.engineSessionId) {
+        try {
+          const draft = draftFromProfile(existing.profile);
+          const pluginConfig = pluginConfigForSession(existing.profile);
+          const password =
+            draft.password.trim().length > 0
+              ? draft.password
+              : existing.profile.password?.trim() || null;
+          const session = await openEngineSession({
+            engine: String(existing.profile.engine),
+            pluginConfig,
+            password,
+            pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+            sessionId: existing.profile.id,
+          });
+          workspaceSession.connect(existing.profile, session.sessionId);
+        } catch {
+          /* query will show "no session" */
+        }
+      }
       return;
     }
 
@@ -54,7 +81,35 @@
         bootError = "Connection not found.";
         return;
       }
-      workspaceSession.connect({ ...profile, status: "connected" });
+      let engineSessionId: string | null = null;
+      if (isTauri()) {
+        try {
+          const draft = draftFromProfile(profile);
+          const pluginConfig = pluginConfigForSession(profile);
+          const password =
+            draft.password.trim().length > 0
+              ? draft.password
+              : profile.password?.trim() || null;
+          const session = await openEngineSession({
+            engine: String(profile.engine),
+            pluginConfig,
+            password,
+            pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+            sessionId: profile.id,
+          });
+          engineSessionId = session.sessionId;
+        } catch (e) {
+          bootError =
+            e instanceof Error
+              ? `Could not open engine session: ${e.message}`
+              : String(e);
+          return;
+        }
+      }
+      workspaceSession.connect(
+        { ...profile, status: "connected" },
+        engineSessionId,
+      );
     } catch (e) {
       bootError = e instanceof Error ? e.message : String(e);
     }

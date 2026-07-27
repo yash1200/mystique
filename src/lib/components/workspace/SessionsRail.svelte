@@ -11,6 +11,8 @@
     activeId: string | null;
     /** Which second-pane view is active. */
     mode?: SideNavMode;
+    /** Number of history runs for the active connection (badge). */
+    historyCount?: number;
     onselect: (id: string) => void;
     ondisconnect: (id: string) => void;
     onhome: () => void;
@@ -21,6 +23,7 @@
     sessions,
     activeId,
     mode = "explorer",
+    historyCount = 0,
     onselect,
     ondisconnect,
     onhome,
@@ -155,14 +158,18 @@
       <button
         type="button"
         class={cn(
-          "grid size-9 place-items-center rounded-md border transition-colors",
+          "relative grid size-9 place-items-center rounded-md border transition-colors",
           "focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1",
           mode === "history"
             ? "border-accent bg-accent-muted text-accent"
             : "border-line bg-elevated text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg",
         )}
-        title="Query history"
-        aria-label="Query history"
+        title={historyCount > 0
+          ? `Query history (${historyCount})`
+          : "Query history"}
+        aria-label={historyCount > 0
+          ? `Query history, ${historyCount} runs`
+          : "Query history"}
         aria-pressed={mode === "history"}
         onclick={() => onmode("history")}
       >
@@ -176,6 +183,14 @@
             stroke-linejoin="round"
           />
         </svg>
+        {#if historyCount > 0}
+          <span
+            class="absolute -top-1 -right-1 min-w-3.5 rounded-full bg-accent px-0.5 text-center text-[9px] leading-3.5 font-semibold text-fg-inverse"
+            aria-hidden="true"
+          >
+            {historyCount > 99 ? "99+" : historyCount}
+          </span>
+        {/if}
       </button>
     </div>
   </div>

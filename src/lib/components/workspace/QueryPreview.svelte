@@ -10,9 +10,10 @@
     kind: "saved" | "history";
     saved?: SavedQuery | null;
     history?: QueryHistoryEntry | null;
+    onopeneditor?: (sql: string) => void;
   }
 
-  let { kind, saved = null, history = null }: Props = $props();
+  let { kind, saved = null, history = null, onopeneditor }: Props = $props();
 
   const title = $derived(
     kind === "saved" ? (saved?.name ?? "Saved query") : "Query history",
@@ -20,6 +21,10 @@
   const sql = $derived(
     kind === "saved" ? (saved?.sql ?? "") : (history?.sql ?? ""),
   );
+
+  function openEditor() {
+    if (sql.trim()) onopeneditor?.(sql);
+  }
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
@@ -54,8 +59,22 @@
       </div>
     </div>
     <div class="flex shrink-0 gap-1.5">
-      <Button variant="secondary" size="sm" disabled>Open in editor</Button>
-      <Button variant="primary" size="sm" disabled>Run</Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={!sql.trim()}
+        onclick={openEditor}
+      >
+        Open in editor
+      </Button>
+      <Button
+        variant="primary"
+        size="sm"
+        disabled={!sql.trim()}
+        onclick={openEditor}
+      >
+        Open &amp; edit
+      </Button>
     </div>
   </div>
 
@@ -75,6 +94,10 @@
   <footer
     class="flex h-statusbar shrink-0 items-center border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
   >
-    Dummy data · Run / editor wiring later
+    {#if kind === "history"}
+      Saved from live query runs · Open in editor to re-run
+    {:else}
+      Saved query preview
+    {/if}
   </footer>
 </div>

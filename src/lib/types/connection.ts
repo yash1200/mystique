@@ -137,7 +137,7 @@ export function asEnvironment(env: string): Environment {
 
 /**
  * Engines offered on the Home “choose database” step.
- * V1 product focus: PostgreSQL, MongoDB, and SQLite (SQL) only.
+ * V1 product focus: PostgreSQL, MongoDB, MySQL, and SQLite.
  */
 export const ENGINE_OPTIONS: EngineOption[] = [
   {
@@ -150,6 +150,18 @@ export const ENGINE_OPTIONS: EngineOption[] = [
     family: "relational",
     mark: "Pg",
     defaultPort: 5432,
+    modelViewLabel: "ER diagram",
+  },
+  {
+    id: "mysql",
+    name: "MySQL",
+    description:
+      "MySQL / MariaDB — databases, tables, SQL query space, and relational Model view.",
+    available: true,
+    queryLanguage: "SQL",
+    family: "relational",
+    mark: "My",
+    defaultPort: 3306,
     modelViewLabel: "ER diagram",
   },
   {
@@ -186,20 +198,34 @@ export function selectableEngines(): EngineOption[] {
 export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
   const opt = ENGINE_OPTIONS.find((e) => e.id === engine);
   const port = opt?.defaultPort ?? 5432;
+  const isMysql = engine === "mysql" || engine === "mariadb";
   return {
     name: "",
     engine,
     colorId: "teal",
     host: engine === "sqlite" || engine === "mongodb" ? "" : "127.0.0.1",
     port: engine === "mongodb" ? 27017 : port || 5432,
-    // Postgres: Docker images use db/user `postgres`. Homebrew macOS often
-    // needs your OS username instead — the form shows these so they are editable.
-    // MongoDB uses a connection URI only (no discrete host/user fields).
-    database: engine === "mongodb" || engine === "sqlite" ? "" : "postgres",
+    // Postgres: Docker images use db/user `postgres`.
+    // MySQL docker seed: admin/123, database mystique (see docs/DEV_MYSQL.md).
+    // MongoDB: default URI includes /mystique (seed DB); database is also parsed from URI.
+    database:
+      engine === "mongodb" || isMysql
+        ? "mystique"
+        : engine === "sqlite"
+          ? ""
+          : "postgres",
     path: "",
-    uri: engine === "mongodb" ? "mongodb://127.0.0.1:27017" : "",
-    username: engine === "mongodb" || engine === "sqlite" ? "" : "postgres",
-    password: "",
+    uri:
+      engine === "mongodb"
+        ? "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin"
+        : "",
+    username:
+      engine === "mongodb" || engine === "sqlite"
+        ? ""
+        : isMysql
+          ? "admin"
+          : "postgres",
+    password: isMysql ? "123" : "",
     ssl: false,
     readOnly: true,
     environment: "local",
@@ -233,6 +259,24 @@ export function configBool(config: PluginConfig, key: string, fallback = false):
   return fallback;
 }
 
+/** Extract `/dbname` from a mongodb:// or mongodb+srv:// URI (before `?` / `#`). */
+export function databaseFromMongoUri(uri: string): string | null {
+  const trimmed = uri.trim();
+  const rest = trimmed.startsWith("mongodb+srv://")
+    ? trimmed.slice("mongodb+srv://".length)
+    : trimmed.startsWith("mongodb://")
+      ? trimmed.slice("mongodb://".length)
+      : null;
+  if (rest == null) return null;
+  const at = rest.lastIndexOf("@");
+  const hostPath = at >= 0 ? rest.slice(at + 1) : rest;
+  const slash = hostPath.indexOf("/");
+  if (slash < 0) return null;
+  const path = hostPath.slice(slash + 1);
+  const name = path.split(/[?#]/)[0]?.trim() ?? "";
+  return name.length > 0 ? name : null;
+}
+
 /** Short endpoint label for the sidebar (host:port, path, or uri). */
 export function connectionEndpoint(profile: ConnectionProfile): string {
   const c = profile.pluginConfig ?? {};
@@ -251,15 +295,20 @@ export function draftFromProfile(profile: ConnectionProfile): ConnectionFormDraf
   const c = profile.pluginConfig ?? {};
   const eng = String(profile.engine);
   const opt = ENGINE_OPTIONS.find((e) => e.id === eng);
+  const uri = configStr(c, "uri");
+  let database = configStr(c, "database");
+  if (!database && eng === "mongodb") {
+    database = databaseFromMongoUri(uri) ?? "";
+  }
   return {
     name: profile.name,
     engine: profile.engine,
     colorId: asColorId(profile.colorId),
     host: configStr(c, "host", eng === "sqlite" ? "" : "127.0.0.1"),
     port: configNum(c, "port", opt?.defaultPort || 5432),
-    database: configStr(c, "database"),
+    database,
     path: configStr(c, "path"),
-    uri: configStr(c, "uri"),
+    uri,
     username: configStr(c, "username"),
     password: profile.password ?? "",
     ssl: configBool(c, "ssl", false) || configStr(c, "sslMode") === "require",
@@ -277,8 +326,31 @@ export function pluginConfigFromDraft(draft: ConnectionFormDraft): PluginConfig 
     };
   }
   if (draft.engine === "mongodb") {
+    const uri = draft.uri.trim();
+    const fromUri = databaseFromMongoUri(uri);
+    const database = draft.database.trim() || fromUri || "";
+    // Prefer URI when present; otherwise keep discrete fields for legacy profiles.
+    if (uri) {
+      const cfg: PluginConfig = { uri };
+      if (database) cfg.database = database;
+      return cfg;
+    }
+    const cfg: PluginConfig = {};
+    if (draft.host.trim()) cfg.host = draft.host.trim();
+    if (draft.port) cfg.port = Number(draft.port) || 27017;
+    if (draft.username.trim()) cfg.username = draft.username.trim();
+    if (database) cfg.database = database;
+    return cfg;
+  }
+  // mysql / mariadb
+  if (draft.engine === "mysql" || draft.engine === "mariadb") {
     return {
-      uri: draft.uri.trim(),
+      host: draft.host.trim() || "127.0.0.1",
+      port: Number(draft.port) || 3306,
+      database: draft.database.trim() || "mystique",
+      username: draft.username.trim() || "admin",
+      ssl: draft.ssl,
+      sslMode: draft.ssl ? "require" : "disable",
     };
   }
   // postgres (default relational network)
@@ -291,6 +363,83 @@ export function pluginConfigFromDraft(draft: ConnectionFormDraft): PluginConfig 
     ssl: draft.ssl,
     sslMode: draft.ssl ? "require" : "disable",
   };
+}
+
+/**
+ * Build a mongodb:// URI from discrete host/user fields (legacy profiles).
+ * Returns null when there is nothing useful to assemble.
+ */
+export function buildMongoUriFromFields(
+  cfg: PluginConfig,
+  password?: string | null,
+): string | null {
+  const existing = String(cfg.uri ?? "").trim();
+  if (existing) return existing;
+
+  const host = String(cfg.host ?? "").trim() || "127.0.0.1";
+  const portRaw = cfg.port;
+  const port =
+    typeof portRaw === "number"
+      ? portRaw
+      : typeof portRaw === "string" && portRaw.trim()
+        ? Number(portRaw)
+        : 27017;
+  const user = String(cfg.username ?? "").trim();
+  const pass = (password ?? String(cfg.password ?? "")).trim();
+  const database = String(cfg.database ?? "").trim();
+  const authSource =
+    String(cfg.authSource ?? cfg.auth_source ?? "").trim() ||
+    (user ? "admin" : "");
+
+  let authority = host;
+  if (port && !Number.isNaN(port)) authority = `${host}:${port}`;
+  if (user) {
+    const encUser = encodeURIComponent(user);
+    const encPass = pass ? `:${encodeURIComponent(pass)}` : "";
+    authority = `${encUser}${encPass}@${authority}`;
+  }
+  const path = database ? `/${database}` : "/";
+  const qs = authSource ? `?authSource=${encodeURIComponent(authSource)}` : "";
+  return `mongodb://${authority}${path}${qs}`;
+}
+
+/**
+ * Plugin config used when testing / opening a live session.
+ * Merges stored profile fields with draft-derived defaults and always
+ * re-derives Mongo `database` / URI for legacy host-based profiles.
+ */
+export function pluginConfigForSession(profile: ConnectionProfile): PluginConfig {
+  const draft = draftFromProfile(profile);
+  const fromDraft = pluginConfigFromDraft(draft);
+  const stored = (profile.pluginConfig ?? {}) as PluginConfig;
+  const cfg: PluginConfig = { ...stored, ...fromDraft };
+
+  if (String(profile.engine).toLowerCase() === "mongodb") {
+    let uri = String(cfg.uri ?? "").trim();
+    if (!uri) {
+      uri =
+        buildMongoUriFromFields(
+          { ...stored, ...cfg },
+          profile.password,
+        ) ?? "";
+    }
+    if (uri) cfg.uri = uri;
+
+    // Prefer path / explicit field; upgrade empty → mystique only when URI has no path
+    // (session still lists all DBs; this is just the default find target).
+    let db =
+      String(cfg.database ?? "").trim() ||
+      databaseFromMongoUri(uri) ||
+      "";
+    // Legacy local seed used mystique_dev; app seed is mystique.
+    if (!db || db === "test" || db === "app") {
+      const fromPath = databaseFromMongoUri(uri);
+      db = fromPath || "mystique";
+    }
+    if (db) cfg.database = db;
+    else delete cfg.database;
+  }
+  return cfg;
 }
 
 /** Build SaveConnectionInput from the form draft (engine-aware plugin_config). */

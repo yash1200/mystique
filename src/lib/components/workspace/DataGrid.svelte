@@ -1,6 +1,11 @@
 <script lang="ts">
   import type { TableMeta } from "$lib/types/workspace";
   import { Button, IconButton, Input, Select } from "$lib/components/ui";
+  import {
+    exportRowsAsCsv,
+    exportRowsAsPdf,
+    objectsToRows,
+  } from "$lib/utils/exportTable";
   import { cn } from "$lib/utils/cn";
 
   interface Props {
@@ -60,9 +65,10 @@
   let inputEl = $state<HTMLInputElement | null>(null);
 
   let page = $state(0);
-  let pageSize = $state(50);
+  let pageSize = $state(25);
   let refreshing = $state(false);
   let saving = $state(false);
+  let exporting = $state<"csv" | "pdf" | null>(null);
   let statusMsg = $state<string | null>(null);
 
   /** Tracks which table the local buffers belong to. */
@@ -528,8 +534,52 @@
   }
 
   function setPageSize(value: string) {
-    pageSize = Number(value) || 50;
+    pageSize = Number(value) || 25;
     page = 0;
+  }
+
+  async function exportGrid(format: "csv" | "pdf") {
+    if (exporting) return;
+    const cols = table.columns.map((c) => ({ name: c.name }));
+    // Export currently filtered view (or all loaded rows when no filter).
+    const objects = filteredEntries.map((e) => e.row);
+    if (objects.length === 0) {
+      statusMsg = "Nothing to export";
+      setTimeout(() => {
+        if (statusMsg === "Nothing to export") statusMsg = null;
+      }, 2000);
+      return;
+    }
+    exporting = format;
+    statusMsg = null;
+    try {
+      const rows = objectsToRows(cols, objects);
+      const fileBase = tablePath.replace(/\./g, "-");
+      const res =
+        format === "csv"
+          ? await exportRowsAsCsv(cols, rows, fileBase)
+          : await exportRowsAsPdf(cols, rows, {
+              title: tablePath,
+              fileBase,
+            });
+      if (res.ok) {
+        statusMsg = format === "csv" ? "CSV exported" : "PDF exported";
+      } else if (!res.cancelled) {
+        statusMsg = res.error;
+      }
+    } catch (e) {
+      statusMsg = e instanceof Error ? e.message : String(e);
+    } finally {
+      exporting = null;
+      setTimeout(() => {
+        if (
+          statusMsg === "CSV exported" ||
+          statusMsg === "PDF exported"
+        ) {
+          statusMsg = null;
+        }
+      }, 2500);
+    }
   }
 
   function goPrev() {
@@ -1031,6 +1081,25 @@
           ›
         </Button>
       </div>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={exporting !== null || filteredCount === 0}
+        onclick={() => void exportGrid("csv")}
+        title="Export filtered rows as CSV"
+      >
+        {exporting === "csv" ? "CSV…" : "CSV"}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={exporting !== null || filteredCount === 0}
+        onclick={() => void exportGrid("pdf")}
+        title="Export filtered rows as PDF"
+      >
+        {exporting === "pdf" ? "PDF…" : "PDF"}
+      </Button>
 
       <Button variant="ghost" size="sm" disabled={refreshing} onclick={refresh}>
         {refreshing ? "Refreshing…" : "Refresh"}

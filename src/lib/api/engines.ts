@@ -108,3 +108,41 @@ export async function getEngineSession(
   requireTauri();
   return invoke("get_engine_session", { sessionId });
 }
+
+export type QueryMode = "read" | "write";
+
+export interface ExecuteQueryRequest {
+  sessionId: string;
+  text: string;
+  mode?: QueryMode;
+  maxRows?: number;
+  timeoutMs?: number;
+  profileReadOnly?: boolean;
+  /** MongoDB collection name */
+  collection?: string | null;
+  /** MongoDB database override (explorer multi-DB) */
+  database?: string | null;
+}
+
+export interface QueryColumn {
+  name: string;
+  dataType?: string | null;
+}
+
+export interface QueryResult {
+  engine: string;
+  mode: QueryMode;
+  columns: QueryColumn[];
+  rows: unknown[][];
+  rowCount: number;
+  truncated: boolean;
+  durationMs: number;
+  message?: string | null;
+}
+
+export async function executeEngineQuery(
+  request: ExecuteQueryRequest,
+): Promise<QueryResult> {
+  requireTauri();
+  return invoke("execute_engine_query", { request });
+}

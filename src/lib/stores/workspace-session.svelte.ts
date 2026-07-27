@@ -8,6 +8,8 @@ import type { SelectedRow, WorkspaceTab } from "$lib/types/workspace";
 export type ConnectedSession = {
   profile: ConnectionProfile;
   connectedAt: string;
+  /** Live engine pool session (Tauri ConnectionManager). */
+  engineSessionId?: string | null;
 };
 
 class WorkspaceSessionStore {
@@ -29,17 +31,29 @@ class WorkspaceSessionStore {
     );
   }
 
+  queryTabId(connectionId: string): string {
+    // Prefer existing query tab id; used by history re-open helpers.
+    const existing = this.openTabs.find(
+      (t) => t.connectionId === connectionId && t.kind === "query",
+    );
+    return existing?.id ?? `${connectionId}::query`;
+  }
+
   get activeTab(): WorkspaceTab | null {
     return this.openTabs.find((t) => t.id === this.activeTabId) ?? null;
   }
 
   /** Register / refresh a live session and focus it (no tabs opened by default). */
-  connect(profile: ConnectionProfile) {
+  connect(profile: ConnectionProfile, engineSessionId?: string | null) {
     const now = new Date().toISOString();
     const existing = this.sessions.findIndex((s) => s.profile.id === profile.id);
+    const prevId =
+      existing >= 0 ? this.sessions[existing]?.engineSessionId : null;
     const next: ConnectedSession = {
       profile: { ...profile, status: "connected" },
       connectedAt: now,
+      engineSessionId:
+        engineSessionId !== undefined ? engineSessionId : (prevId ?? null),
     };
     if (existing >= 0) {
       this.sessions = this.sessions.map((s, i) => (i === existing ? next : s));
@@ -147,6 +161,33 @@ class WorkspaceSessionStore {
     this.activeConnectionId = connectionId;
     this.selectedRow = null;
   }
+
+  /** Open / focus live ER · Model diagram tab for a connection (+ optional database). */
+  openModel(connectionId: string, database: string, title = "ER diagram") {
+    const dbKey = database?.trim() || "_";
+    const id = `${connectionId}::model::${dbKey}`;
+    if (!this.openTabs.some((t) => t.id === id)) {
+      this.openTabs = [
+        ...this.openTabs,
+        {
+          id,
+          connectionId,
+          kind: "model",
+          modelDatabase: database?.trim() || "",
+          title,
+        },
+      ];
+    } else {
+      // Refresh title if provided
+      this.openTabs = this.openTabs.map((t) =>
+        t.id === id ? { ...t, title } : t,
+      );
+    }
+    this.activeTabId = id;
+    this.activeConnectionId = connectionId;
+    this.selectedRow = null;
+  }
+
 
   closeTab(tabId: string) {
     const tab = this.openTabs.find((t) => t.id === tabId);

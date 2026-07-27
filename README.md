@@ -122,7 +122,7 @@ Then open [http://localhost:1420](http://localhost:1420) in a browser. Tauri API
 
 ### UI scale (large monitors / Linux)
 
-Design-language sizes stay proportional (rem). Default UI scale is **1×** (design-language base: 16px root, 13px body).
+Design-language sizes stay proportional (rem). Default UI scale is **1×** (design-language base: 16px root, 13px body). Optional zoom:
 
 | Shortcut | Action |
 | -------- | ------ |

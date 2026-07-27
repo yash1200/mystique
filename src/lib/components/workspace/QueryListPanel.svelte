@@ -217,9 +217,14 @@
   </div>
 
   <footer
-    class="flex h-statusbar shrink-0 items-center border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
+    class="flex h-statusbar shrink-0 items-center justify-between gap-2 border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
   >
-    {count}
-    {mode === "saved-queries" ? "saved" : "runs"}
+    <span>
+      {count}
+      {mode === "saved-queries" ? "saved" : "runs"}
+    </span>
+    {#if mode === "history" && history.length > 0 && count === history.length}
+      <span class="truncate text-fg-muted">newest first</span>
+    {/if}
   </footer>
 </aside>

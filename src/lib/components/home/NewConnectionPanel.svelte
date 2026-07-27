@@ -28,12 +28,14 @@
   } from "$lib/components/ui";
   import {
     MongodbFields,
+    MysqlFields,
     PostgresFields,
     SqliteFields,
     namePlaceholder,
     validateDraftForSave,
     validateDraftForTest,
   } from "./connection-forms";
+
 
   interface Props {
     /** When set, form is in edit mode and fields are prefilled. */
@@ -262,6 +264,18 @@
         <SqliteFields bind:path bind:readOnly />
       {:else if engine === "mongodb"}
         <MongodbFields bind:uri bind:readOnly />
+      {:else if engine === "mysql" || engine === "mariadb"}
+        <MysqlFields
+          bind:host
+          bind:port
+          bind:database
+          bind:username
+          bind:password
+          bind:ssl
+          bind:readOnly
+          {isEdit}
+          passwordSet={!!initial?.passwordSet}
+        />
       {:else}
         <PostgresFields
           bind:host

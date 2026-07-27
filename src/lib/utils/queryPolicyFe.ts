@@ -173,7 +173,7 @@ export function queryLanguageForEngine(engine: string): "sql" | "mql" {
 export function queryPlaceholder(engine: string): string {
   const lang = queryLanguageForEngine(engine);
   if (lang === "mql") {
-    return '{\n  "status": "active"\n}\n// or: db.users.find({ status: "active" })';
+    return 'db.users.find()\n// or shell-style:\n// db.users.find({ _id: ObjectId("64f123456789abcdef123456") })\n// or JSON:\n// { "status": "active" }';
   }
   return "SELECT *\nFROM your_table\nLIMIT 100;";
 }

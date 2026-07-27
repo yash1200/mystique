@@ -18,11 +18,14 @@ export function validateDraftForTest(
     }
     return null;
   }
-  // postgres / relational network engines
+  // postgres / mysql / relational network engines
   if (!draft.host.trim() || !draft.database.trim()) {
     return "Host and database are required.";
   }
   if (!draft.username.trim()) {
+    if (draft.engine === "mysql" || draft.engine === "mariadb") {
+      return "Username is required (Docker seed: admin).";
+    }
     return "Username is required (Docker: postgres · Homebrew: your macOS login).";
   }
   return null;
@@ -61,5 +64,6 @@ export function validateDraftForSave(
 export function namePlaceholder(engine: EngineId): string {
   if (engine === "mongodb") return "e.g. local-mongo";
   if (engine === "sqlite") return "e.g. app-dev.sqlite";
+  if (engine === "mysql" || engine === "mariadb") return "e.g. local-mysql";
   return "e.g. local-pg";
 }

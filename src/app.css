@@ -105,6 +105,7 @@
     Optional zoom via `uiScale.ts` (Ctrl/Cmd +/- / 0). Do not hard-code px type in UI.
   */
   html {
+    /* Design-language base (16px). uiScale.ts may adjust if user zooms. */
     font-size: 16px;
   }
 
@@ -128,11 +129,163 @@
   }
 
   button {
-    @apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-55;
+    @apply disabled:cursor-not-allowed disabled:opacity-55;
   }
 
   a {
     @apply text-accent;
+  }
+
+  /*
+    Compact in-app cursors for every common pointer type.
+    WebKitGTK often ignores OS XCURSOR_SIZE — custom PNGs keep them small.
+  */
+  :root {
+    --cursor-arrow: url("/cursors/arrow-12.png") 0 0, default;
+    --cursor-pointer: url("/cursors/pointer-12.png") 3 0, pointer;
+    --cursor-text: url("/cursors/text-11.png") 5 7, text;
+    --cursor-not-allowed: url("/cursors/not-allowed-14.png") 7 7, not-allowed;
+    --cursor-grab: url("/cursors/grab-14.png") 7 7, grab;
+    --cursor-grabbing: url("/cursors/grabbing-14.png") 7 7, grabbing;
+    --cursor-crosshair: url("/cursors/crosshair-15.png") 7 7, crosshair;
+    --cursor-move: url("/cursors/move-15.png") 7 7, move;
+    --cursor-col-resize: url("/cursors/col-resize-15.png") 7 7, col-resize;
+    --cursor-row-resize: url("/cursors/row-resize-15.png") 7 7, row-resize;
+    --cursor-wait: url("/cursors/wait-12.png") 6 7, wait;
+    --cursor-progress: url("/cursors/wait-12.png") 6 7, progress;
+    --cursor-copy: url("/cursors/copy-14.png") 0 0, copy;
+    --cursor-help: url("/cursors/help-14.png") 0 0, help;
+    --cursor-zoom-in: url("/cursors/zoom-in-14.png") 6 6, zoom-in;
+    --cursor-zoom-out: url("/cursors/zoom-out-14.png") 6 6, zoom-out;
+  }
+
+  html,
+  body,
+  #app {
+    cursor: var(--cursor-arrow);
+  }
+
+  a,
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="option"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  label,
+  summary,
+  select:not(:disabled),
+  .cursor-pointer {
+    cursor: var(--cursor-pointer) !important;
+  }
+
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not(
+      [type="checkbox"]
+    ):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+      [type="file"]
+    ),
+  textarea,
+  [contenteditable="true"],
+  [contenteditable=""],
+  pre,
+  code,
+  .cursor-text {
+    cursor: var(--cursor-text) !important;
+  }
+
+  :disabled,
+  [disabled],
+  [aria-disabled="true"],
+  .cursor-not-allowed {
+    cursor: var(--cursor-not-allowed) !important;
+  }
+
+  .cursor-default {
+    cursor: var(--cursor-arrow) !important;
+  }
+
+  .cursor-grab {
+    cursor: var(--cursor-grab) !important;
+  }
+
+  .cursor-grabbing {
+    cursor: var(--cursor-grabbing) !important;
+  }
+
+  .cursor-crosshair {
+    cursor: var(--cursor-crosshair) !important;
+  }
+
+  .cursor-move {
+    cursor: var(--cursor-move) !important;
+  }
+
+  .cursor-col-resize {
+    cursor: var(--cursor-col-resize) !important;
+  }
+
+  .cursor-row-resize {
+    cursor: var(--cursor-row-resize) !important;
+  }
+
+  .cursor-wait {
+    cursor: var(--cursor-wait) !important;
+  }
+
+  .cursor-progress {
+    cursor: var(--cursor-progress) !important;
+  }
+
+  .cursor-copy {
+    cursor: var(--cursor-copy) !important;
+  }
+
+  .cursor-help {
+    cursor: var(--cursor-help) !important;
+  }
+
+  .cursor-zoom-in {
+    cursor: var(--cursor-zoom-in) !important;
+  }
+
+  .cursor-zoom-out {
+    cursor: var(--cursor-zoom-out) !important;
+  }
+
+  /* Inline style helpers used by ER canvas */
+  [data-cursor="crosshair"],
+  [style*="cursor: crosshair"],
+  [style*="cursor:crosshair"] {
+    cursor: var(--cursor-crosshair) !important;
+  }
+
+  [data-cursor="move"],
+  [style*="cursor: move"],
+  [style*="cursor:move"] {
+    cursor: var(--cursor-move) !important;
+  }
+
+  [data-cursor="grab"],
+  [style*="cursor: grab"],
+  [style*="cursor:grab"] {
+    cursor: var(--cursor-grab) !important;
+  }
+
+  [data-cursor="grabbing"],
+  [style*="cursor: grabbing"],
+  [style*="cursor:grabbing"] {
+    cursor: var(--cursor-grabbing) !important;
+  }
+
+  [data-cursor="pointer"],
+  [style*="cursor: pointer"],
+  [style*="cursor:pointer"] {
+    cursor: var(--cursor-pointer) !important;
+  }
+
+  [data-cursor="default"],
+  [style*="cursor: default"],
+  [style*="cursor:default"] {
+    cursor: var(--cursor-arrow) !important;
   }
 
   :focus-visible {

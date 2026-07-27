@@ -28,6 +28,9 @@ export function clampScale(n: number): number {
 export function computeAutoScale(): number {
   if (typeof window === "undefined") return DEFAULT_UI_SCALE;
 
+  const dpr = window.devicePixelRatio || 1;
+  if (dpr >= 1.5) return 1;
+
   const screenW = window.screen?.width ?? 0;
   const innerW = window.innerWidth ?? 0;
   const w = Math.max(screenW, innerW);

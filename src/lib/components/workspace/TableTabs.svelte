@@ -41,6 +41,9 @@
         {#if tab.kind === "query"}
           <span class="text-accent">◇</span>
           {" "}
+        {:else if tab.kind === "model"}
+          <span class="text-info">⬡</span>
+          {" "}
         {/if}
         {tab.title}
       </button>

@@ -45,8 +45,8 @@ export type DatabaseMeta = {
   tables: TableMeta[];
 };
 
-/** Main workspace tab: query canvas or table data. */
-export type WorkspaceTabKind = "query" | "table";
+/** Main workspace tab: query canvas, table data, or live ER / model diagram. */
+export type WorkspaceTabKind = "query" | "table" | "model";
 
 export type WorkspaceTab = {
   id: string;
@@ -54,6 +54,11 @@ export type WorkspaceTab = {
   kind: WorkspaceTabKind;
   /** Present when kind === "table". */
   tableId?: string;
+  /**
+   * Database name the model/ER tab was opened for (kind === "model").
+   * Empty string for single-db engines when unknown.
+   */
+  modelDatabase?: string;
   title: string;
 };
 

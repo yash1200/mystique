@@ -16,7 +16,7 @@
     saveProfile,
     touchProfileConnected,
   } from "$lib/api/profiles";
-  import { testEngineConnection } from "$lib/api/engines";
+  import { openEngineSession, testEngineConnection } from "$lib/api/engines";
   import { isTauri } from "$lib/api/tauri";
   import { workspaceSession } from "$lib/stores/workspace-session.svelte";
   import type {
@@ -26,6 +26,7 @@
   import {
     draftFromProfile,
     pluginConfigFromDraft,
+    pluginConfigForSession,
     saveInputFromDraft,
   } from "$lib/types/connection";
 
@@ -348,8 +349,14 @@
     }
   }
 
-  async function openWorkspace(profile: ConnectionProfile) {
-    workspaceSession.connect({ ...profile, status: "connected" });
+  async function openWorkspace(
+    profile: ConnectionProfile,
+    engineSessionId?: string | null,
+  ) {
+    workspaceSession.connect(
+      { ...profile, status: "connected" },
+      engineSessionId,
+    );
     await goto(`/workspace?c=${encodeURIComponent(profile.id)}`);
   }
 
@@ -374,10 +381,7 @@
     try {
       // Live test first — proves the DB is reachable with stored config + password.
       const draft = draftFromProfile(selected);
-      const pluginConfig = {
-        ...pluginConfigFromDraft(draft),
-        ...(selected.pluginConfig ?? {}),
-      };
+      const pluginConfig = pluginConfigForSession(selected);
       const password =
         draft.password.trim().length > 0
           ? draft.password
@@ -406,6 +410,16 @@
           ? { ...updated, status: "connected" as const }
           : c,
       );
+
+      // Open a pooled engine session for query execute in the workspace.
+      const session = await openEngineSession({
+        engine: String(selected.engine),
+        pluginConfig,
+        password,
+        pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+        sessionId: selected.id,
+      });
+
       const version = result.serverVersion ? ` · ${result.serverVersion}` : "";
       showToast(
         "success",
@@ -415,7 +429,10 @@
         ok: true,
         message: `Connection established (${result.latencyMs}ms)${version}`,
       };
-      await openWorkspace({ ...updated, status: "connected" });
+      await openWorkspace(
+        { ...updated, status: "connected" },
+        session.sessionId,
+      );
     } catch (err) {
       connections = connections.map((c) =>
         c.id === selected.id ? { ...c, status: "error" as const } : c,

@@ -1,15 +1,40 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { workspaceSession } from "$lib/stores/workspace-session.svelte";
   import { mockCatalogForEngine } from "$lib/data/mock-workspace";
   import {
-    MOCK_QUERY_HISTORY,
+    historyItemToEntry,
     MOCK_SAVED_QUERIES,
+    type QueryHistoryEntry,
   } from "$lib/data/mock-queries";
-  import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
+  import {
+    appendQueryHistory,
+    listQueryHistory,
+    listRecentQueryHistory,
+    type QueryHistoryItem,
+  } from "$lib/api/history";
+  import {
+    isMockCatalog,
+    loadLiveCatalog,
+    loadTablePreview,
+    preferDatabase,
+  } from "$lib/api/catalog";
+  import { openEngineSession } from "$lib/api/engines";
+  import {
+    familyForEngine,
+    loadLiveErDiagram,
+  } from "$lib/api/liveEr";
   import { isTauri } from "$lib/api/tauri";
+  import {
+    configStr,
+    databaseFromMongoUri,
+    pluginConfigForSession,
+  } from "$lib/types/connection";
+  import type { ConnectionProfile } from "$lib/types/connection";
+  import type { ErDiagramState } from "$lib/types/er";
+  import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
   import { EmptyState } from "$lib/components/ui";
+  import ErWorkspace from "$lib/components/er/ErWorkspace.svelte";
   import SessionsRail, {
     type SideNavMode,
   } from "./SessionsRail.svelte";
@@ -32,32 +57,198 @@
   let catalogs = $state<Record<string, DatabaseMeta[]>>({});
   let selectedDb = $state<Record<string, string>>({});
   let refreshing = $state(false);
+  let tableLoading = $state(false);
+  let catalogError = $state<string | null>(null);
   let rowSyncTick = $state(0);
   let baselineEpoch = $state(0);
+  /** connectionId → last engineSessionId we loaded a live catalog for */
+  let liveCatalogKey = $state<Record<string, string>>({});
+  /** Prevent overlapping catalog loads for the same connection. */
+  let catalogLoadInFlight = $state<Record<string, boolean>>({});
 
   /** Second-pane mode: schema explorer vs saved queries vs history. */
   let sideMode = $state<SideNavMode>("explorer");
   let selectedQueryId = $state<string | null>(null);
   let selectedHistoryId = $state<string | null>(null);
+  let queryHistory = $state<QueryHistoryEntry[]>([]);
+  let historyLoading = $state(false);
+  let historyError = $state<string | null>(null);
+  /** Monotonic token so overlapping history fetches don't clobber newer data. */
+  let historyFetchGen = 0;
+
+  /** Live ER / model diagrams keyed by connectionId::database */
+  let liveModels = $state<
+    Record<
+      string,
+      { diagram: ErDiagramState; title: string; summary: string; rev: number }
+    >
+  >({});
+  let modelLoading = $state(false);
+  let modelError = $state<string | null>(null);
+
+  function preferredDbForProfile(profile: {
+    engine: string;
+    pluginConfig?: Record<string, unknown>;
+  }): string | null {
+    // Use the same normalization as session open (URI path, legacy host fields).
+    try {
+      const cfg = pluginConfigForSession(profile as ConnectionProfile);
+      const explicit = configStr(cfg, "database").trim();
+      if (explicit) return explicit;
+      if (String(profile.engine).toLowerCase() === "mongodb") {
+        return databaseFromMongoUri(configStr(cfg, "uri"));
+      }
+    } catch {
+      /* fall through */
+    }
+    const cfg = profile.pluginConfig ?? {};
+    const explicit = configStr(cfg, "database").trim();
+    if (explicit) return explicit;
+    if (String(profile.engine).toLowerCase() === "mongodb") {
+      return databaseFromMongoUri(configStr(cfg, "uri"));
+    }
+    return null;
+  }
+
+  /** Open / re-open a pooled engine session for a profile (fixes stale old connections). */
+  async function reopenEngineSession(
+    profile: ConnectionProfile,
+  ): Promise<string> {
+    const pluginConfig = pluginConfigForSession(profile);
+    const password = profile.password?.trim() || null;
+    const session = await openEngineSession({
+      engine: String(profile.engine),
+      pluginConfig,
+      password,
+      pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+      sessionId: profile.id,
+    });
+    workspaceSession.connect(profile, session.sessionId);
+    return session.sessionId;
+  }
+
+  function isSessionMissingError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /session not found/i.test(msg);
+  }
+
+  async function ensureLiveCatalog(
+    connectionId: string,
+    engine: string,
+    engineSessionId: string,
+    preferredDatabase: string | null,
+    force = false,
+  ) {
+    const existing = catalogs[connectionId];
+    const mockStuck = isMockCatalog(engine, existing);
+    if (
+      !force &&
+      !mockStuck &&
+      liveCatalogKey[connectionId] === engineSessionId &&
+      existing &&
+      existing.length > 0
+    ) {
+      return;
+    }
+    if (catalogLoadInFlight[connectionId]) return;
+    catalogLoadInFlight = { ...catalogLoadInFlight, [connectionId]: true };
+    refreshing = true;
+    catalogError = null;
+    let sessionId = engineSessionId;
+    try {
+      const live = await loadLiveCatalog(sessionId, engine, {
+        preferredDatabase,
+      });
+      catalogs = { ...catalogs, [connectionId]: live };
+      liveCatalogKey = { ...liveCatalogKey, [connectionId]: sessionId };
+      const names = live.map((d) => d.name);
+      const pick = preferDatabase(names, preferredDatabase);
+      if (pick) {
+        selectedDb = { ...selectedDb, [connectionId]: pick };
+      } else if (live[0]) {
+        selectedDb = { ...selectedDb, [connectionId]: live[0].name };
+      }
+    } catch (e) {
+      // Stale pool session (common for older workspace tabs): reopen and retry once.
+      const session = sessions.find((s) => s.profile.id === connectionId);
+      if (session && isSessionMissingError(e)) {
+        try {
+          sessionId = await reopenEngineSession(session.profile);
+          const live = await loadLiveCatalog(sessionId, engine, {
+            preferredDatabase,
+          });
+          catalogs = { ...catalogs, [connectionId]: live };
+          liveCatalogKey = { ...liveCatalogKey, [connectionId]: sessionId };
+          const names = live.map((d) => d.name);
+          const pick = preferDatabase(names, preferredDatabase);
+          if (pick) {
+            selectedDb = { ...selectedDb, [connectionId]: pick };
+          }
+          catalogError = null;
+          return;
+        } catch (retryErr) {
+          catalogError =
+            retryErr instanceof Error ? retryErr.message : String(retryErr);
+        }
+      } else {
+        catalogError = e instanceof Error ? e.message : String(e);
+      }
+      // Do not leave mock data sitting as if it were live for Tauri sessions.
+      if (!catalogs[connectionId] || isMockCatalog(engine, catalogs[connectionId])) {
+        catalogs = {
+          ...catalogs,
+          [connectionId]: [],
+        };
+      }
+    } finally {
+      catalogLoadInFlight = { ...catalogLoadInFlight, [connectionId]: false };
+      refreshing = false;
+    }
+  }
 
   $effect(() => {
     const session = activeSession;
     if (!session) return;
     const id = session.profile.id;
     const engine = String(session.profile.engine);
-
-    if (!catalogs[id]) {
-      catalogs = {
-        ...catalogs,
-        [id]: structuredClone(mockCatalogForEngine(engine)),
-      };
-    }
-    const list = catalogs[id] ?? [];
-    if (list.length > 0 && !selectedDb[id]) {
-      selectedDb = { ...selectedDb, [id]: list[0].name };
-    }
+    const engineSessionId = session.engineSessionId ?? null;
+    const preferred = preferredDbForProfile(session.profile);
 
     // Catalog only — do not auto-open a Query tab (empty workspace is intentional).
+    if (!isTauri()) {
+      // Browser preview only.
+      if (!catalogs[id]) {
+        catalogs = {
+          ...catalogs,
+          [id]: structuredClone(mockCatalogForEngine(engine)),
+        };
+      }
+      const list = catalogs[id] ?? [];
+      if (list.length > 0 && !selectedDb[id]) {
+        selectedDb = {
+          ...selectedDb,
+          [id]: preferDatabase(
+            list.map((d) => d.name),
+            preferred,
+          ) || list[0].name,
+        };
+      }
+      return;
+    }
+
+    // Live Tauri: ensure engine session + live catalog (including old connections).
+    void (async () => {
+      let sid = engineSessionId;
+      if (!sid) {
+        try {
+          sid = await reopenEngineSession(session.profile);
+        } catch (e) {
+          catalogError = e instanceof Error ? e.message : String(e);
+          return;
+        }
+      }
+      await ensureLiveCatalog(id, engine, sid, preferred);
+    })();
   });
 
   const databases = $derived(
@@ -140,13 +331,184 @@
     MOCK_SAVED_QUERIES.find((q) => q.id === selectedQueryId) ?? null,
   );
   const selectedHistory = $derived(
-    MOCK_QUERY_HISTORY.find((h) => h.id === selectedHistoryId) ?? null,
+    queryHistory.find((h) => h.id === selectedHistoryId) ?? null,
   );
 
-  function openTable(table: TableMeta) {
+  function historyNameMap(): Map<string, string> {
+    return new Map(
+      sessions.map((s) => [s.profile.id, s.profile.name] as const),
+    );
+  }
+
+  function entryFromItem(it: QueryHistoryItem): QueryHistoryEntry {
+    const nameById = historyNameMap();
+    return historyItemToEntry(
+      it,
+      (it.connectionId && nameById.get(it.connectionId)) || undefined,
+    );
+  }
+
+  /** Immediate UI update after a successful append (all engines). */
+  function prependHistoryItem(item: QueryHistoryItem | null | undefined) {
+    if (!item?.id) {
+      void refreshHistory({ preferSelectLatest: true });
+      return;
+    }
+    const entry = entryFromItem(item);
+    // Only show for active connection (or global if none).
+    if (
+      activeId &&
+      entry.connectionId &&
+      entry.connectionId !== activeId
+    ) {
+      return;
+    }
+    queryHistory = [
+      entry,
+      ...queryHistory.filter((h) => h.id !== entry.id),
+    ].slice(0, 150);
+    historyError = null;
+    if (sideMode === "history") {
+      selectedHistoryId = entry.id;
+    }
+  }
+
+  async function refreshHistory(opts?: { preferSelectLatest?: boolean }) {
+    if (!isTauri()) {
+      queryHistory = [];
+      return;
+    }
+    const gen = ++historyFetchGen;
+    historyLoading = true;
+    try {
+      let items: QueryHistoryItem[] = [];
+      if (activeId) {
+        items = await listQueryHistory(activeId, 150);
+        // If connection-scoped list is empty, still try recent and filter —
+        // covers older rows / edge cases after engine switches.
+        if (items.length === 0) {
+          const recent = await listRecentQueryHistory(150);
+          items = recent.filter((it) => it.connectionId === activeId);
+        }
+      } else {
+        items = await listRecentQueryHistory(150);
+      }
+      if (gen !== historyFetchGen) return;
+      queryHistory = items.map((it) => entryFromItem(it));
+      historyError = null;
+      if (opts?.preferSelectLatest && queryHistory[0]) {
+        selectedHistoryId = queryHistory[0].id;
+      } else if (
+        selectedHistoryId &&
+        !queryHistory.some((h) => h.id === selectedHistoryId)
+      ) {
+        selectedHistoryId = queryHistory[0]?.id ?? null;
+      } else if (!selectedHistoryId && sideMode === "history" && queryHistory[0]) {
+        selectedHistoryId = queryHistory[0].id;
+      }
+    } catch (e) {
+      if (gen !== historyFetchGen) return;
+      // Keep existing rows; surface the error instead of wiping the list.
+      historyError = e instanceof Error ? e.message : String(e);
+      console.warn("[mystique] refreshHistory failed:", historyError);
+    } finally {
+      if (gen === historyFetchGen) historyLoading = false;
+    }
+  }
+
+  $effect(() => {
+    // Reload history when connection changes or history pane is focused.
+    const _id = activeId;
+    const mode = sideMode;
+    if (mode === "history" || _id) {
+      void refreshHistory({ preferSelectLatest: mode === "history" });
+    }
+  });
+
+  function openSqlInEditor(sql: string) {
     if (!activeId) return;
     sideMode = "explorer";
+    workspaceSession.openQuery(activeId);
+    const tabId = workspaceSession.queryTabId(activeId);
+    workspaceSession.setQueryDraft(tabId, sql);
+  }
+
+  async function openTable(table: TableMeta) {
+    if (!activeId || !activeSession) return;
+    sideMode = "explorer";
     workspaceSession.openTable(activeId, table.id, table.name);
+
+    if (!isTauri()) return;
+
+    // Always fetch live preview so reseed / external writes show up.
+    tableLoading = true;
+    catalogError = null;
+    try {
+      let engineSessionId = activeSession.engineSessionId;
+      if (!engineSessionId) {
+        engineSessionId = await reopenEngineSession(activeSession.profile);
+      }
+      const engine = String(activeSession.profile.engine);
+      let preview;
+      try {
+        preview = await loadTablePreview(engineSessionId, engine, table, 100);
+      } catch (e) {
+        if (!isSessionMissingError(e)) throw e;
+        engineSessionId = await reopenEngineSession(activeSession.profile);
+        preview = await loadTablePreview(engineSessionId, engine, table, 100);
+      }
+      const list = catalogs[activeId] ?? [];
+      const next = list.map((db) => ({
+        ...db,
+        tables: db.tables.map((t) => (t.id === table.id ? preview : t)),
+      }));
+      catalogs = { ...catalogs, [activeId]: next };
+      rowSyncTick += 1;
+
+      // Log table preview as history so Explore clicks show up next to Query runs.
+      if (isTauri()) {
+        const e = engine.toLowerCase();
+        let body: string;
+        if (e === "mongodb" || e === "mongo") {
+          const db = table.database ? `${table.database}.` : "";
+          body = `// preview\ndb.${db}${table.name}.find({})`;
+        } else if (e === "mysql" || e === "mariadb") {
+          const tick = (id: string) => `\`${id.replace(/`/g, "``")}\``;
+          const q =
+            table.schema || table.database
+              ? `${tick(table.schema || table.database)}.${tick(table.name)}`
+              : tick(table.name);
+          body = `SELECT * FROM ${q} LIMIT 100`;
+        } else if (e === "sqlite") {
+          body = `SELECT * FROM "${table.name.replace(/"/g, '""')}" LIMIT 100`;
+        } else {
+          const q =
+            table.schema && table.schema.length > 0
+              ? `"${table.schema.replace(/"/g, '""')}"."${table.name.replace(/"/g, '""')}"`
+              : `"${table.name.replace(/"/g, '""')}"`;
+          body = `SELECT * FROM ${q} LIMIT 100`;
+        }
+        try {
+          const item = await appendQueryHistory({
+            connectionId: activeId,
+            engine,
+            body,
+            language: e === "mongodb" || e === "mongo" ? "mql" : "sql",
+            success: true,
+            rowCount: preview.rows?.length ?? preview.rowCount ?? null,
+            durationMs: null,
+            errorMessage: null,
+          });
+          prependHistoryItem(item);
+        } catch (histErr) {
+          console.warn("[mystique] table preview history:", histErr);
+        }
+      }
+    } catch (e) {
+      catalogError = e instanceof Error ? e.message : String(e);
+    } finally {
+      tableLoading = false;
+    }
   }
 
   function selectDatabase(name: string) {
@@ -154,21 +516,126 @@
     selectedDb = { ...selectedDb, [activeId]: name };
   }
 
+  function modelCacheKey(connectionId: string, database: string): string {
+    return `${connectionId}::${database.trim() || "_"}`;
+  }
+
+  /** Open live ER / model diagram for the currently selected database. */
+  async function openModelDiagram(force = false) {
+    if (!activeSession || !activeId) return;
+    sideMode = "explorer";
+    const engine = String(activeSession.profile.engine);
+    const database = currentDatabaseName || "";
+    const title =
+      engine.toLowerCase() === "mongodb" || engine.toLowerCase() === "mongo"
+        ? `Model · ${database || "db"}`
+        : `ER · ${database || "schema"}`;
+
+    const key = modelCacheKey(activeId, database);
+    const alreadyOpen =
+      activeTab?.kind === "model" &&
+      (activeTab.modelDatabase ?? "") === (database.trim() || "");
+    workspaceSession.openModel(activeId, database, title);
+
+    // Reuse cache when switching back to the tab; force rebuild when user
+    // clicks “ER diagram” while already viewing this model.
+    if (
+      !force &&
+      !alreadyOpen &&
+      liveModels[key]?.diagram?.nodes?.length
+    ) {
+      modelError = null;
+      return;
+    }
+
+    if (!isTauri()) {
+      modelError =
+        "Live ER diagram requires Tauri. Run `npm run tauri dev` and Connect.";
+      return;
+    }
+
+    modelLoading = true;
+    modelError = null;
+    try {
+      let sid = activeSession.engineSessionId;
+      if (!sid) {
+        sid = await reopenEngineSession(activeSession.profile);
+      }
+      const loaded = await loadLiveErDiagram(sid, engine, database || null);
+      liveModels = {
+        ...liveModels,
+        [key]: {
+          diagram: loaded.diagram,
+          title: loaded.title,
+          summary: loaded.summary,
+          rev: Date.now(),
+        },
+      };
+      workspaceSession.openModel(activeId, database, loaded.title);
+    } catch (e) {
+      // Session missing — reopen once
+      if (isSessionMissingError(e)) {
+        try {
+          const sid = await reopenEngineSession(activeSession.profile);
+          const loaded = await loadLiveErDiagram(sid, engine, database || null);
+          liveModels = {
+            ...liveModels,
+            [key]: {
+              diagram: loaded.diagram,
+              title: loaded.title,
+              summary: loaded.summary,
+              rev: Date.now(),
+            },
+          };
+          workspaceSession.openModel(activeId, database, loaded.title);
+          modelError = null;
+          return;
+        } catch (retryErr) {
+          modelError =
+            retryErr instanceof Error ? retryErr.message : String(retryErr);
+          return;
+        }
+      }
+      modelError = e instanceof Error ? e.message : String(e);
+    } finally {
+      modelLoading = false;
+    }
+  }
+
+  const activeModel = $derived.by(() => {
+    if (!activeTab || activeTab.kind !== "model" || !activeId) return null;
+    const db = activeTab.modelDatabase ?? currentDatabaseName ?? "";
+    return liveModels[modelCacheKey(activeId, db)] ?? null;
+  });
+
   async function refreshDatabases() {
     if (!activeSession || !activeId) return;
-    refreshing = true;
-    await new Promise((r) => setTimeout(r, 450));
     const engine = String(activeSession.profile.engine);
-    const base = structuredClone(mockCatalogForEngine(engine));
-    const existing = catalogs[activeId] ?? [];
-    const seedNames = new Set(base.map((d) => d.name));
-    const extras = existing.filter((d) => !seedNames.has(d.name));
-    const next = [...base, ...extras];
-    catalogs = { ...catalogs, [activeId]: next };
-    if (!next.some((d) => d.name === selectedDb[activeId])) {
-      selectedDb = { ...selectedDb, [activeId]: next[0]?.name ?? "" };
+    const preferred = preferredDbForProfile(activeSession.profile);
+
+    if (!isTauri()) {
+      refreshing = true;
+      await new Promise((r) => setTimeout(r, 200));
+      const base = structuredClone(mockCatalogForEngine(engine));
+      catalogs = { ...catalogs, [activeId]: base };
+      if (!base.some((d) => d.name === selectedDb[activeId])) {
+        selectedDb = { ...selectedDb, [activeId]: base[0]?.name ?? "" };
+      }
+      refreshing = false;
+      return;
     }
-    refreshing = false;
+
+    // Always re-open the pool session so *old* connections pick up URI/DB fixes.
+    liveCatalogKey = { ...liveCatalogKey, [activeId]: "" };
+    refreshing = true;
+    catalogError = null;
+    try {
+      const sid = await reopenEngineSession(activeSession.profile);
+      await ensureLiveCatalog(activeId, engine, sid, preferred, true);
+    } catch (e) {
+      catalogError = e instanceof Error ? e.message : String(e);
+      refreshing = false;
+    }
   }
 
   function createDatabase(name: string) {
@@ -196,9 +663,7 @@
       }
     } else if (mode === "history") {
       selectedQueryId = null;
-      if (!selectedHistoryId && MOCK_QUERY_HISTORY[0]) {
-        selectedHistoryId = MOCK_QUERY_HISTORY[0].id;
-      }
+      void refreshHistory({ preferSelectLatest: true });
     }
   }
 
@@ -226,66 +691,6 @@
     if (!tab || tab.kind !== "table" || !tab.tableId) return;
     workspaceSession.selectRow(tab.connectionId, tab.tableId, index);
   }
-
-  function shortcutNewQuery() {
-    const id = workspaceSession.activeConnectionId;
-    if (!id) return;
-    sideMode = "explorer";
-    workspaceSession.openNewQuery(id);
-  }
-
-  function shortcutCloseTab() {
-    workspaceSession.closeActiveTab();
-  }
-
-  /**
-   * ⌘/Ctrl+W → close active tab (not the window)
-   * ⌘/Ctrl+T → new query tab
-   * Capture phase + preventDefault so the browser does not close the tab/window.
-   * Tauri also registers a File menu with the same accelerators (see src-tauri).
-   */
-  onMount(() => {
-    // In Tauri the native File menu owns Cmd/Ctrl+W/T (avoids closing the window
-    // and double-firing with the webview). In browser/dev, handle keydown ourselves.
-    if (isTauri()) {
-      let unlistenClose: (() => void) | undefined;
-      let unlistenNew: (() => void) | undefined;
-      void import("@tauri-apps/api/event").then(({ listen }) => {
-        void listen("workspace://close-tab", () => shortcutCloseTab()).then(
-          (u) => {
-            unlistenClose = u;
-          },
-        );
-        void listen("workspace://new-query", () => shortcutNewQuery()).then(
-          (u) => {
-            unlistenNew = u;
-          },
-        );
-      });
-      return () => {
-        unlistenClose?.();
-        unlistenNew?.();
-      };
-    }
-
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "w") {
-        e.preventDefault();
-        e.stopPropagation();
-        shortcutCloseTab();
-        return;
-      }
-      if (key === "t") {
-        e.preventDefault();
-        e.stopPropagation();
-        shortcutNewQuery();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  });
 </script>
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
@@ -293,13 +698,24 @@
     {sessions}
     {activeId}
     mode={sideMode}
+    historyCount={queryHistory.length}
     onselect={onSelectConnection}
     ondisconnect={(id) => {
       workspaceSession.disconnect(id);
       const { [id]: _c, ...restCat } = catalogs;
       const { [id]: _d, ...restDb } = selectedDb;
+      const { [id]: _k, ...restKey } = liveCatalogKey;
+      const { [id]: _f, ...restFlight } = catalogLoadInFlight;
       catalogs = restCat;
       selectedDb = restDb;
+      liveCatalogKey = restKey;
+      catalogLoadInFlight = restFlight;
+      // Drop cached live models for this connection
+      const nextModels: typeof liveModels = {};
+      for (const [k, v] of Object.entries(liveModels)) {
+        if (!k.startsWith(`${id}::`)) nextModels[k] = v;
+      }
+      liveModels = nextModels;
       if (workspaceSession.sessions.length === 0) goto("/");
     }}
     onhome={goHome}
@@ -310,7 +726,7 @@
     <QueryListPanel
       mode="saved-queries"
       savedQueries={MOCK_SAVED_QUERIES}
-      history={MOCK_QUERY_HISTORY}
+      history={queryHistory}
       selectedId={selectedQueryId}
       onselect={(id) => {
         selectedQueryId = id;
@@ -320,7 +736,7 @@
     <QueryListPanel
       mode="history"
       savedQueries={MOCK_SAVED_QUERIES}
-      history={MOCK_QUERY_HISTORY}
+      history={queryHistory}
       selectedId={selectedHistoryId}
       onselect={(id) => {
         selectedHistoryId = id;
@@ -333,10 +749,12 @@
       selectedDatabase={currentDatabaseName}
       activeTableId={activeTableIdForExplorer}
       {refreshing}
+      {modelLoading}
       onselectdatabase={selectDatabase}
       onrefresh={refreshDatabases}
       oncreatedatabase={createDatabase}
       onopen={openTable}
+      onopenmodel={() => void openModelDiagram(false)}
     />
   {:else}
     <aside
@@ -360,7 +778,11 @@
     <div class="flex min-h-0 flex-1">
       {#if sideMode === "saved-queries"}
         {#if selectedSaved}
-          <QueryPreview kind="saved" saved={selectedSaved} />
+          <QueryPreview
+            kind="saved"
+            saved={selectedSaved}
+            onopeneditor={(sql) => openSqlInEditor(sql)}
+          />
         {:else}
           <div class="flex flex-1 items-center justify-center p-8">
             <EmptyState
@@ -370,16 +792,33 @@
           </div>
         {/if}
       {:else if sideMode === "history"}
-        {#if selectedHistory}
-          <QueryPreview kind="history" history={selectedHistory} />
-        {:else}
-          <div class="flex flex-1 items-center justify-center p-8">
-            <EmptyState
-              title="Query history"
-              description="Pick a past run from the list to inspect the statement."
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+          {#if historyError}
+            <div
+              class="shrink-0 border-b border-line bg-warning/10 px-3 py-2 text-caption text-warning"
+            >
+              History load issue: {historyError}
+            </div>
+          {/if}
+          {#if selectedHistory}
+            <QueryPreview
+              kind="history"
+              history={selectedHistory}
+              onopeneditor={(sql) => openSqlInEditor(sql)}
             />
-          </div>
-        {/if}
+          {:else}
+            <div class="flex flex-1 items-center justify-center p-8">
+              <EmptyState
+                title={historyLoading ? "Loading history…" : "Query history"}
+                description={historyLoading
+                  ? "Fetching recent runs…"
+                  : queryHistory.length > 0
+                    ? "Select a run from the list on the left."
+                    : "Run a query from the Query tab (or open a table) — successful and failed runs show up here for every engine."}
+              />
+            </div>
+          {/if}
+        </div>
       {:else if activeSession && activeTab?.kind === "query"}
         {#key activeTab.id}
           <QueryCanvas
@@ -387,24 +826,92 @@
             connectionName={activeSession.profile.name}
             engine={String(activeSession.profile.engine)}
             profileReadOnly={!!activeSession.profile.readOnly}
+            engineSessionId={activeSession.engineSessionId}
+            database={currentDatabaseName}
             text={workspaceSession.queryDrafts[activeTab.id] ?? ""}
             writeEnabled={workspaceSession.queryWriteMode[activeTab.id] ?? false}
             ontextchange={(v) => workspaceSession.setQueryDraft(activeTab.id, v)}
             onwritechange={(v) =>
               workspaceSession.setQueryWriteMode(activeTab.id, v)}
+            onhistory={(item) => prependHistoryItem(item)}
           />
         {/key}
-      {:else if activeSession && activeTab?.kind === "table" && gridTable}
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-          {#key gridTable.id}
-            <DataGrid
-              table={gridTable}
-              selectedRowIndex={rowSelectionIndex}
-              {rowSyncTick}
-              onbaselinechange={onGridBaselineChange}
-              onselectrow={onSelectGridRow}
-            />
-          {/key}
+      {:else if activeSession && activeTab?.kind === "model"}
+        <div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+          {#if modelError}
+            <div
+              class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
+            >
+              {modelError}
+              <button
+                type="button"
+                class="ml-2 border-none bg-transparent text-accent underline"
+                onclick={() => void openModelDiagram(true)}
+              >
+                Retry
+              </button>
+            </div>
+          {/if}
+          {#if modelLoading && !activeModel}
+            <div class="flex flex-1 items-center justify-center p-8">
+              <EmptyState
+                title="Building diagram…"
+                description="Reading tables, columns, and foreign keys from the live database."
+              />
+            </div>
+          {:else if activeModel}
+            {#key `${activeTab.id}:${activeModel.rev}`}
+              <ErWorkspace
+                family={activeModel.diagram.family || familyForEngine(String(activeSession.profile.engine))}
+                initialDiagram={activeModel.diagram}
+                initialName={activeModel.title}
+                statusNote={activeModel.summary}
+                embedded={true}
+              />
+            {/key}
+          {:else}
+            <div class="flex flex-1 items-center justify-center p-8">
+              <EmptyState
+                title="ER diagram"
+                description="Click “ER diagram” in the explorer to build a live schema map for this database."
+              />
+            </div>
+          {/if}
+        </div>
+      {:else if activeSession && activeTab?.kind === "table"}
+        <div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+          {#if catalogError}
+            <div
+              class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
+            >
+              {catalogError}
+            </div>
+          {/if}
+          {#if gridTable}
+            {#key `${gridTable.id}:${gridTable.rows.length}:${tableLoading}`}
+              <DataGrid
+                table={gridTable}
+                selectedRowIndex={rowSelectionIndex}
+                {rowSyncTick}
+                onbaselinechange={onGridBaselineChange}
+                onselectrow={onSelectGridRow}
+              />
+            {/key}
+            {#if tableLoading}
+              <div
+                class="pointer-events-none absolute bottom-4 right-4 z-10 rounded-md border border-line bg-panel px-3 py-1.5 text-caption text-fg-muted shadow"
+              >
+                Loading live rows…
+              </div>
+            {/if}
+          {:else}
+            <div class="flex flex-1 items-center justify-center p-8">
+              <EmptyState
+                title="Table"
+                description="Loading table metadata…"
+              />
+            </div>
+          {/if}
         </div>
         {#if inspectorData}
           <RowInspector
@@ -425,10 +932,10 @@
           }}
         />
       {:else}
-        <div class="flex flex-1 items-center justify-center bg-app-wash p-8">
+        <div class="flex flex-1 items-center justify-center p-8">
           <EmptyState
-            title="No connection"
-            description="Connect from Home, or pick a live session in the left rail."
+            title="No session selected"
+            description="Pick a connection from the rail or return home to connect."
           />
         </div>
       {/if}

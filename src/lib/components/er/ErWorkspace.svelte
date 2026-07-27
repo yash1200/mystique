@@ -36,11 +36,29 @@
 
   interface Props {
     family: DataFamily;
-    onback: () => void;
-    onchangeFamily: () => void;
+    onback?: () => void;
+    onchangeFamily?: () => void;
+    /**
+     * Seed canvas with a pre-built diagram (live schema / model).
+     * When set, skips the sample emptyDiagram for this family.
+     */
+    initialDiagram?: ErDiagramState | null;
+    initialName?: string;
+    /** Workspace embed: hide Home / change-family chrome. */
+    embedded?: boolean;
+    /** Optional note shown in the toolbar (e.g. "4 tables · 3 relationships"). */
+    statusNote?: string | null;
   }
 
-  let { family, onback, onchangeFamily }: Props = $props();
+  let {
+    family,
+    onback,
+    onchangeFamily,
+    initialDiagram = null,
+    initialName = "",
+    embedded = false,
+    statusNote = null,
+  }: Props = $props();
 
   /**
    * Base geometry at UI scale 1 (design-language dense chrome).
@@ -52,7 +70,7 @@
   const ROW_H_BASE = 34;
 
   let uiScale = $state(
-    typeof document !== "undefined" ? currentUiScale() : 2,
+    typeof document !== "undefined" ? currentUiScale() : 1,
   );
   const TABLE_W = $derived(Math.round(TABLE_W_BASE * uiScale));
   const HEADER_H = $derived(Math.round(HEADER_H_BASE * uiScale));
@@ -134,6 +152,8 @@
   let newColPk = $state(false);
 
   const meta = $derived(FAMILY_META[family]);
+  /** Live DB diagram from workspace — view/export only, no design tools. */
+  const readOnly = $derived(embedded);
   const isSql = $derived(family === "sql");
   const typeOptions = $derived(
     columnTypesForFamily(family).map((t) => ({ value: t, label: t })),
@@ -150,17 +170,49 @@
   /** Right panel only when export view is on AND source editor is off. */
   const showRightDbml = $derived(showDbml && !dbmlSourceMode);
 
-  /** Non-reactive: only reset workspace when the family prop actually changes. */
-  let lastInitFamily: DataFamily | null = null;
+  /**
+   * Reset canvas when family or live diagram identity changes.
+   * Live diagrams pass a new `initialDiagram` reference when the DB reloads.
+   */
+  let lastInitKey = "";
 
   $effect(() => {
     const f = family;
-    if (lastInitFamily === f) return;
-    lastInitFamily = f;
+    const live = initialDiagram;
+    const nameHint = initialName?.trim() || "";
+    // Key: family + live node/edge counts + name (cheap identity for reloads)
+    const liveKey = live
+      ? `live:${live.nodes.length}:${live.edges.length}:${nameHint}`
+      : "empty";
+    const key = `${f}::${liveKey}`;
+    if (lastInitKey === key) return;
+    lastInitKey = key;
 
-    diagram = emptyDiagram(f);
+    if (live && live.nodes) {
+      // JSON clone avoids $state proxy issues on seeded live diagrams
+      diagram = JSON.parse(
+        JSON.stringify({
+          family: live.family || f,
+          nodes: live.nodes,
+          edges: live.edges ?? [],
+        }),
+      ) as ErDiagramState;
+      diagramName =
+        nameHint ||
+        (embedded ? "Live schema diagram" : `Untitled ${FAMILY_META[f].short} diagram`);
+      toolMsg =
+        statusNote ||
+        (embedded
+          ? "Live schema from the connected database · rearrange freely · export PNG/PDF/DBML."
+          : "Live schema loaded.");
+    } else {
+      diagram = emptyDiagram(f);
+      diagramName =
+        nameHint || `Untitled ${FAMILY_META[f].short} diagram`;
+      toolMsg =
+        "DBML editor (left) builds the diagram from text · export panel (right) shows live DBML.";
+    }
     diagramId = null;
-    diagramName = `Untitled ${FAMILY_META[f].short} diagram`;
     selectedTableIds = [];
     selectedEdgeId = null;
     arrowTool = null;
@@ -176,11 +228,9 @@
     dbmlSourceMode = false;
     dbmlEditorText = "";
     dbmlParseError = null;
-    showDbml = true;
+    showDbml = !embedded;
     clearHistory();
     renameHistoryPushed = false;
-    toolMsg =
-      "DBML editor (left) builds the diagram from text · export panel (right) shows live DBML.";
   });
 
   function uid(p: string) {
@@ -318,6 +368,7 @@
   }
 
   function setArrowTool(kind: "normal" | "broken" | null) {
+    if (readOnly) return;
     arrowTool = kind;
     linkFrom = null;
     draftWaypoints = [];
@@ -759,6 +810,7 @@
   }
 
   function addTable() {
+    if (readOnly) return;
     if (!diagram) {
       // Ensure we always have a diagram (effect may not have run yet)
       diagram = emptyDiagram(family);
@@ -806,6 +858,12 @@
     e.stopPropagation();
     e.preventDefault();
     ctxMenu = null;
+
+    if (readOnly) {
+      if (e.ctrlKey || e.metaKey) toggleSelect(tableId);
+      else selectOnly(tableId);
+      return;
+    }
 
     if (!arrowTool) {
       if (e.ctrlKey || e.metaKey) toggleSelect(tableId);
@@ -1158,6 +1216,7 @@
   }
 
   function deleteSelection() {
+    if (readOnly) return;
     // Snapshot selection first — menu close / focus changes must not clear it mid-action
     const tableIds = [...selectedTableIds];
     const edgeId = selectedEdgeId;
@@ -1242,6 +1301,20 @@
     if (isEditableTarget(e.target) && isDeleteKey) {
       // Don't steal Backspace from inputs
       if (e.key === "Backspace" || e.code === "Backspace") return;
+    }
+
+    // Live schema view: no edit shortcuts (delete / paste / undo / redo).
+    if (readOnly) {
+      if (mod && key === "a") {
+        e.preventDefault();
+        selectAllTables();
+      }
+      if (e.key === "Escape") {
+        ctxMenu = null;
+        selectedTableIds = [];
+        selectedEdgeId = null;
+      }
+      return;
     }
 
     if (mod && key === "z" && !e.shiftKey) {
@@ -1750,9 +1823,16 @@
     class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4"
   >
     <div class="flex min-w-0 items-center gap-2">
-      <Button variant="ghost" size="sm" onclick={onback}>← Back</Button>
-      <span class="text-fg-muted">/</span>
-      <span class="text-body font-semibold text-fg">ER · {meta.title}</span>
+      {#if onback && !embedded}
+        <Button variant="ghost" size="sm" onclick={onback}>← Back</Button>
+        <span class="text-fg-muted">/</span>
+      {/if}
+      <span class="text-body font-semibold text-fg">
+        {embedded ? diagramName || "Live schema" : `ER · ${meta.title}`}
+      </span>
+      {#if embedded}
+        <Badge tone="info" size="sm">Live</Badge>
+      {/if}
       {#if dirty}
         <Badge tone="warning" size="sm">Unsaved</Badge>
       {/if}
@@ -1769,23 +1849,34 @@
       {/if}
     </div>
     <Inline gap="sm">
-      <Input bind:value={diagramName} class="w-40" inputSize="sm" aria-label="Diagram name" />
-      <Button
-        variant={dbmlSourceMode ? "secondary" : "ghost"}
-        size="sm"
-        onclick={toggleDbmlSourceEditor}
-        aria-pressed={dbmlSourceMode}
-      >
-        {dbmlSourceMode ? "Close DBML editor" : "DBML editor"}
-      </Button>
-      {#if !dbmlSourceMode}
+      {#if !readOnly}
+        <Input bind:value={diagramName} class="w-40" inputSize="sm" aria-label="Diagram name" />
+        <Button
+          variant={dbmlSourceMode ? "secondary" : "ghost"}
+          size="sm"
+          onclick={toggleDbmlSourceEditor}
+          aria-pressed={dbmlSourceMode}
+        >
+          {dbmlSourceMode ? "Close DBML editor" : "DBML editor"}
+        </Button>
+        {#if !dbmlSourceMode}
+          <Button
+            variant={showDbml ? "secondary" : "ghost"}
+            size="sm"
+            onclick={toggleDbml}
+            aria-pressed={showDbml}
+          >
+            {showDbml ? "Hide export" : "Show export"}
+          </Button>
+        {/if}
+      {:else}
         <Button
           variant={showDbml ? "secondary" : "ghost"}
           size="sm"
           onclick={toggleDbml}
           aria-pressed={showDbml}
         >
-          {showDbml ? "Hide export" : "Show export"}
+          {showDbml ? "Hide DBML" : "Show DBML"}
         </Button>
       {/if}
       <Button
@@ -1804,15 +1895,20 @@
       >
         {exporting ? "…" : "Export PDF"}
       </Button>
-      <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
-      <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
-        {saving ? "Saving…" : "Save"}
-      </Button>
-      <Button variant="ghost" size="sm" onclick={onchangeFamily}>Change family</Button>
+      {#if !readOnly}
+        <Button variant="secondary" size="sm" onclick={handleLoadLatest}>Load last</Button>
+        <Button variant="primary" size="sm" onclick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      {/if}
+      {#if onchangeFamily && !embedded}
+        <Button variant="ghost" size="sm" onclick={onchangeFamily}>Change family</Button>
+      {/if}
     </Inline>
   </div>
 
   <div class="flex min-h-0 flex-1">
+    {#if !readOnly}
     <aside
       class={cn(
         "flex shrink-0 flex-col border-r border-line bg-panel",
@@ -2089,6 +2185,108 @@
         </div>
       {/if}
     </aside>
+    {:else}
+      <!-- Live DB diagram: slim read-only rail (no design tools) -->
+      <aside
+        class="flex w-52 shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-panel p-3"
+        aria-label="Live diagram info"
+      >
+        <p class="text-label font-semibold tracking-wider text-fg-muted uppercase">
+          Live schema
+        </p>
+        <p class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary">
+          Read-only view of the connected database. Tools are hidden — rearrange tables for viewing, then export.
+        </p>
+        {#if statusNote}
+          <p class="text-caption font-medium text-fg">{statusNote}</p>
+        {/if}
+        {#if diagram}
+          <p class="font-mono text-caption text-fg-muted">
+            {diagram.nodes.length} {meta.nodeLabel.toLowerCase()}s
+            {#if diagram.edges.length > 0}
+              · {diagram.edges.length} links
+            {/if}
+          </p>
+        {/if}
+
+        <button
+          type="button"
+          class={cn(
+            "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors",
+            showGrid
+              ? "border-accent bg-accent-muted text-fg"
+              : "border-line bg-input text-fg-secondary hover:border-line-strong",
+          )}
+          onclick={toggleGrid}
+          aria-pressed={showGrid}
+        >
+          <span>Grid</span>
+          <span class="font-mono text-micro uppercase tracking-wide">
+            {showGrid ? "ON" : "OFF"}
+          </span>
+        </button>
+
+        <p class="mt-1 text-label font-semibold tracking-wider text-fg-muted uppercase">
+          Export
+        </p>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            fullWidth
+            onclick={handleExportPng}
+            disabled={exporting || !diagram}
+          >
+            PNG
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            fullWidth
+            onclick={handleExportPdf}
+            disabled={exporting || !diagram}
+          >
+            PDF
+          </Button>
+        </div>
+
+        {#if toolMsg}
+          <p
+            class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary"
+            role="status"
+          >
+            {toolMsg}
+          </p>
+        {/if}
+
+        {#if diagram && diagram.edges.length > 0}
+          <div class="border-t border-line pt-2">
+            <p class="mb-1 text-label font-semibold text-fg-muted uppercase">Links</p>
+            <ul class="m-0 max-h-48 list-none space-y-1 overflow-auto p-0">
+              {#each diagram.edges as edge (edge.id)}
+                <li>
+                  <button
+                    type="button"
+                    class={cn(
+                      "flex w-full items-start gap-1 rounded-md border px-2 py-1 text-left text-caption",
+                      selectedEdgeId === edge.id
+                        ? "border-accent bg-accent-muted"
+                        : "border-line bg-input",
+                    )}
+                    onclick={() => selectEdge(edge.id)}
+                  >
+                    <span class="min-w-0 truncate text-fg-secondary">
+                      {isBroken(edge.kind) ? "┄" : "─"}
+                      {edge.label}
+                    </span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+      </aside>
+    {/if}
 
     <!-- Canvas -->
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -2101,15 +2299,25 @@
           linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px)`
         : "none"};
         background-size: {ER_GRID}px {ER_GRID}px;
-        cursor: {arrowTool ? "crosshair" : "default"};
+        cursor: {readOnly
+          ? "var(--cursor-arrow)"
+          : arrowTool
+            ? "var(--cursor-crosshair)"
+            : "var(--cursor-arrow)"};
       "
       bind:this={canvasEl}
       role="application"
-      aria-label="ER grid canvas"
+      aria-label={readOnly ? "Live ER diagram (read-only)" : "ER grid canvas"}
       tabindex="0"
       onclick={onCanvasClick}
       onpointermove={onCanvasPointerMove}
-      oncontextmenu={onCanvasContextMenu}
+      oncontextmenu={(e) => {
+        if (readOnly) {
+          e.preventDefault();
+          return;
+        }
+        onCanvasContextMenu(e);
+      }}
     >
       {#if diagram}
         <svg
@@ -2166,7 +2374,7 @@
               fill="none"
               stroke="transparent"
               stroke-width="14"
-              style="pointer-events: stroke; cursor: pointer;"
+              style="pointer-events: stroke; cursor: var(--cursor-pointer);"
               onclick={(e) => selectEdge(edge.id, e)}
             />
             <path
@@ -2187,20 +2395,20 @@
               {#each segmentMids(edge) as mid (mid.insertAt + "-" + mid.x + "-" + mid.y)}
                 <g
                   data-er-edge-handle
-                  style="pointer-events: all; cursor: move;"
+                  style="pointer-events: all; cursor: var(--cursor-move);"
                   onpointerdown={(e) => onMidHandleDown(edge.id, mid.insertAt, e)}
                   onpointerup={onWaypointUp}
                   onpointercancel={onWaypointUp}
                 >
                   <rect
-                    x={mid.x - 5}
-                    y={mid.y - 5}
-                    width="10"
-                    height="10"
+                    x={mid.x - 3.5}
+                    y={mid.y - 3.5}
+                    width="7"
+                    height="7"
                     transform="rotate(45 {mid.x} {mid.y})"
                     fill="var(--bg-panel, #1a1a1a)"
                     stroke="var(--accent)"
-                    stroke-width="1.5"
+                    stroke-width="1.25"
                   />
                 </g>
               {/each}
@@ -2208,7 +2416,7 @@
               {#each edge.waypoints ?? [] as wp, wi (edge.id + "-wp-" + wi)}
                 <g
                   data-er-edge-handle
-                  style="pointer-events: all; cursor: grab;"
+                  style="pointer-events: all; cursor: var(--cursor-grab);"
                   onpointerdown={(e) => onWaypointDown(edge.id, wi, e)}
                   onpointerup={onWaypointUp}
                   onpointercancel={onWaypointUp}
@@ -2217,10 +2425,10 @@
                   <circle
                     cx={wp.x}
                     cy={wp.y}
-                    r="7"
+                    r="4.5"
                     fill="var(--accent)"
                     stroke="var(--bg-panel, #fff)"
-                    stroke-width="2"
+                    stroke-width="1.5"
                   />
                 </g>
               {/each}
@@ -2271,7 +2479,13 @@
             onpointermove={onCanvasPointerMove}
             onpointerup={onTablePointerUp}
             onpointercancel={onTablePointerUp}
-            oncontextmenu={(e) => onTableContextMenu(node.id, e)}
+            oncontextmenu={(e) => {
+              if (readOnly) {
+                e.preventDefault();
+                return;
+              }
+              onTableContextMenu(node.id, e);
+            }}
           >
             <div
               class={cn(
@@ -2281,7 +2495,7 @@
               )}
               style="height: {HEADER_H}px"
             >
-              {#if primaryTableId === node.id && !arrowTool}
+              {#if !readOnly && primaryTableId === node.id && !arrowTool}
                 <input
                   class="box-border h-control-sm min-w-0 max-w-full flex-1 cursor-text truncate rounded-md border border-line bg-input px-2 text-body font-semibold leading-none text-fg"
                   value={node.name}
@@ -2299,7 +2513,7 @@
             <ul class="m-0 list-none overflow-hidden p-0">
               {#each node.columns as col (col.id)}
                 <li class="m-0 overflow-hidden p-0" style="height: {ROW_H}px">
-                  {#if primaryTableId === node.id && !arrowTool}
+                  {#if !readOnly && primaryTableId === node.id && !arrowTool}
                     <!-- Edit row: name + type dropdown + delete (heights match scaled ROW_H) -->
                     <div
                       data-er-column
@@ -2379,7 +2593,7 @@
               {/each}
             </ul>
 
-            {#if primaryTableId === node.id && !arrowTool}
+            {#if !readOnly && primaryTableId === node.id && !arrowTool}
               <div class="cursor-default border-t border-line p-2.5" data-no-drag>
                 {#if !showAddCol}
                   <button
@@ -2501,8 +2715,8 @@
   </div>
 </div>
 
-<!-- Context menu: table or canvas -->
-{#if ctxMenu}
+<!-- Context menu: table or canvas (hidden for live read-only diagrams) -->
+{#if ctxMenu && !readOnly}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-40"

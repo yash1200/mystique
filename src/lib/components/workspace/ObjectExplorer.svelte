@@ -11,10 +11,14 @@
     selectedDatabase: string;
     activeTableId: string | null;
     refreshing?: boolean;
+    /** Building live ER / model diagram. */
+    modelLoading?: boolean;
     onselectdatabase: (name: string) => void;
     onrefresh: () => void;
     oncreatedatabase: (name: string) => void;
     onopen: (table: TableMeta) => void;
+    /** Open live ER / model diagram for the selected database (all engines). */
+    onopenmodel?: () => void;
   }
 
   let {
@@ -23,10 +27,12 @@
     selectedDatabase,
     activeTableId,
     refreshing = false,
+    modelLoading = false,
     onselectdatabase,
     onrefresh,
     oncreatedatabase,
     onopen,
+    onopenmodel,
   }: Props = $props();
 
   let query = $state("");
@@ -270,6 +276,32 @@
       bind:value={query}
       inputSize="sm"
     />
+
+    {#if onopenmodel}
+      <button
+        type="button"
+        class={cn(
+          "flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-label font-medium transition-colors",
+          "border-line bg-elevated text-fg hover:border-accent hover:bg-accent-muted hover:text-accent",
+          "disabled:cursor-not-allowed disabled:opacity-60",
+        )}
+        disabled={modelLoading || !currentDb}
+        title="Show full ER / model diagram for this database"
+        onclick={() => onopenmodel?.()}
+      >
+        <svg class="size-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="1.5" y="2" width="5" height="4.5" rx="0.8" stroke="currentColor" stroke-width="1.2" />
+          <rect x="9.5" y="2" width="5" height="4.5" rx="0.8" stroke="currentColor" stroke-width="1.2" />
+          <rect x="5.5" y="9.5" width="5" height="4.5" rx="0.8" stroke="currentColor" stroke-width="1.2" />
+          <path d="M4 6.5v1.5M12 6.5v1.5M8 9.5V8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+        </svg>
+        {#if modelLoading}
+          Building diagram…
+        {:else}
+          ER diagram
+        {/if}
+      </button>
+    {/if}
   </div>
 
   <div
