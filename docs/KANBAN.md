@@ -289,4 +289,12 @@ Canonical board data: **`docs/kanban.html`**. Keep this file aligned when ticket
 | MySQL plugin + seeds | T-BE-050, T-DEV-MYSQL | #41 |
 | History for all engines | T-FE-QUERY-HISTORY, T-FE-044 | #39 |
 | Grid + export | T-FE-QUERY-RESULTS, T-FE-014, T-FE-011 | #19, #23 |
-| Live ER from connected DB (read-only) | T-FE-LIVE-ER, T-BE-012 (QA) | #22 |
+| Live ER from connected DB (read-only) | T-FE-LIVE-ER, T-BE-012 (QA) | **#68**, #22 |
+
+### Resolving commits (2026-07-27)
+
+| Commit | Summary |
+| ------ | ------- |
+| `39f2bc3` | feat(engines): query policy SPI, MySQL plugin, live execute path |
+| `c127169` | feat(workspace): live catalog, MySQL UI, history, live ER diagram |
+| `62cb4d6` | docs(kanban): board sync after MySQL / history / live ER |
