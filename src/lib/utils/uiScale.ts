@@ -1,13 +1,14 @@
 /**
  * UI scale — multiplies root font-size so rem-based design-language tokens scale together.
  *
- * Default is 2× (100% larger than the design-language base of 16px root / 13px body).
+ * Default is 1× (design-language base: 16px root → 13px body via text-body).
+ * Users can zoom with Ctrl/Cmd + / - / 0.
  */
 
 export const UI_SCALE_STORAGE_KEY = "mystique-ui-scale";
 
-/** Default: 100% larger than design-language base. */
-export const DEFAULT_UI_SCALE = 2;
+/** Design-language base (no artificial upscale). */
+export const DEFAULT_UI_SCALE = 1;
 
 /** Stored preference: auto or a fixed multiplier. */
 export type UiScalePreference = "auto" | number;
@@ -21,8 +22,8 @@ export function clampScale(n: number): number {
 }
 
 /**
- * Auto scale — always at least 2× so UI is readable on large/low-DPI desktops.
- * Slightly higher on very wide screens.
+ * Auto scale — stay at 1× by default (dense DB chrome).
+ * Optional slight bump only on very large displays.
  */
 export function computeAutoScale(): number {
   if (typeof window === "undefined") return DEFAULT_UI_SCALE;
@@ -31,8 +32,9 @@ export function computeAutoScale(): number {
   const innerW = window.innerWidth ?? 0;
   const w = Math.max(screenW, innerW);
 
-  if (w >= 3840) return 2.25;
-  if (w >= 2560) return 2.1;
+  // Keep default density; only nudge on ultra-wide 4K+ if needed later.
+  // Currently always 1× so the product matches the design language.
+  void w;
   return DEFAULT_UI_SCALE;
 }
 

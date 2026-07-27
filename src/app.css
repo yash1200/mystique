@@ -101,13 +101,11 @@
 
 @layer base {
   /*
-    Root font-size anchors rem → design-language px at scale 1.
-    `uiScale.ts` may raise this on large/low-DPI screens so the whole token
-    scale grows together (ratios preserved). Do not hard-code px type in UI.
+    Root font-size anchors rem → design-language px at scale 1 (16px).
+    Optional zoom via `uiScale.ts` (Ctrl/Cmd +/- / 0). Do not hard-code px type in UI.
   */
   html {
-    /* 2× design-language base (16px → 32px). uiScale.ts may adjust further. */
-    font-size: 32px;
+    font-size: 16px;
   }
 
   html,

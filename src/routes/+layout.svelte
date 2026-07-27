@@ -12,13 +12,12 @@
   let { children } = $props();
 
   onMount(() => {
-    // Default 2× root scale (100% larger type/chrome); rem ratios stay design-language.
-    // Clear stale 1.x prefs from earlier sessions so default 2× actually applies.
+    // Reset accidental 2× prefs from the 53bdc11 experiment so default is 1×.
     try {
       const raw = localStorage.getItem("mystique-ui-scale");
-      if (raw != null) {
+      if (raw != null && raw !== "auto") {
         const n = Number(raw);
-        if (Number.isFinite(n) && n < 2) {
+        if (Number.isFinite(n) && n >= 2) {
           localStorage.setItem("mystique-ui-scale", "auto");
         }
       }
