@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { workspaceSession } from "$lib/stores/workspace-session.svelte";
   import { mockCatalogForEngine } from "$lib/data/mock-workspace";
@@ -7,6 +8,7 @@
     MOCK_SAVED_QUERIES,
   } from "$lib/data/mock-queries";
   import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
+  import { isTauri } from "$lib/api/tauri";
   import { EmptyState } from "$lib/components/ui";
   import SessionsRail, {
     type SideNavMode,
@@ -18,6 +20,7 @@
   import TableTabs from "./TableTabs.svelte";
   import DataGrid from "./DataGrid.svelte";
   import RowInspector from "./RowInspector.svelte";
+  import WorkspaceEmpty from "./WorkspaceEmpty.svelte";
 
   const sessions = $derived(workspaceSession.sessions);
   const activeId = $derived(workspaceSession.activeConnectionId);
@@ -54,13 +57,7 @@
       selectedDb = { ...selectedDb, [id]: list[0].name };
     }
 
-    // Always have a Query tab for the active connection.
-    const hasQuery = workspaceSession.openTabs.some(
-      (t) => t.connectionId === id && t.kind === "query",
-    );
-    if (!hasQuery) {
-      workspaceSession.openQuery(id);
-    }
+    // Catalog only — do not auto-open a Query tab (empty workspace is intentional).
   });
 
   const databases = $derived(
@@ -229,6 +226,66 @@
     if (!tab || tab.kind !== "table" || !tab.tableId) return;
     workspaceSession.selectRow(tab.connectionId, tab.tableId, index);
   }
+
+  function shortcutNewQuery() {
+    const id = workspaceSession.activeConnectionId;
+    if (!id) return;
+    sideMode = "explorer";
+    workspaceSession.openNewQuery(id);
+  }
+
+  function shortcutCloseTab() {
+    workspaceSession.closeActiveTab();
+  }
+
+  /**
+   * ⌘/Ctrl+W → close active tab (not the window)
+   * ⌘/Ctrl+T → new query tab
+   * Capture phase + preventDefault so the browser does not close the tab/window.
+   * Tauri also registers a File menu with the same accelerators (see src-tauri).
+   */
+  onMount(() => {
+    // In Tauri the native File menu owns Cmd/Ctrl+W/T (avoids closing the window
+    // and double-firing with the webview). In browser/dev, handle keydown ourselves.
+    if (isTauri()) {
+      let unlistenClose: (() => void) | undefined;
+      let unlistenNew: (() => void) | undefined;
+      void import("@tauri-apps/api/event").then(({ listen }) => {
+        void listen("workspace://close-tab", () => shortcutCloseTab()).then(
+          (u) => {
+            unlistenClose = u;
+          },
+        );
+        void listen("workspace://new-query", () => shortcutNewQuery()).then(
+          (u) => {
+            unlistenNew = u;
+          },
+        );
+      });
+      return () => {
+        unlistenClose?.();
+        unlistenNew?.();
+      };
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "w") {
+        e.preventDefault();
+        e.stopPropagation();
+        shortcutCloseTab();
+        return;
+      }
+      if (key === "t") {
+        e.preventDefault();
+        e.stopPropagation();
+        shortcutNewQuery();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
 </script>
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
@@ -296,7 +353,7 @@
         {activeTabId}
         onactivate={(id) => workspaceSession.setActiveTab(id)}
         onclose={(id) => workspaceSession.closeTab(id)}
-        onopenquery={() => workspaceSession.openQuery(activeId)}
+        onopenquery={() => workspaceSession.openNewQuery(activeId)}
       />
     {/if}
 
@@ -337,28 +394,18 @@
               workspaceSession.setQueryWriteMode(activeTab.id, v)}
           />
         {/key}
-      {:else}
+      {:else if activeSession && activeTab?.kind === "table" && gridTable}
         <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-          {#if gridTable && activeTab?.kind === "table"}
-            {#key gridTable.id}
-              <DataGrid
-                table={gridTable}
-                selectedRowIndex={rowSelectionIndex}
-                {rowSyncTick}
-                onbaselinechange={onGridBaselineChange}
-                onselectrow={onSelectGridRow}
-              />
-            {/key}
-          {:else}
-            <div class="flex flex-1 items-center justify-center p-8">
-              <EmptyState
-                title="Query or open a table"
-                description="Use the Query tab to run statements, or pick a table from the explorer."
-              />
-            </div>
-          {/if}
+          {#key gridTable.id}
+            <DataGrid
+              table={gridTable}
+              selectedRowIndex={rowSelectionIndex}
+              {rowSyncTick}
+              onbaselinechange={onGridBaselineChange}
+              onselectrow={onSelectGridRow}
+            />
+          {/key}
         </div>
-
         {#if inspectorData}
           <RowInspector
             tableTitle={inspectorData.tableTitle}
@@ -370,6 +417,20 @@
             onchange={onInspectorFieldChange}
           />
         {/if}
+      {:else if activeSession}
+        <WorkspaceEmpty
+          profile={activeSession.profile}
+          onnewquery={() => {
+            if (activeId) workspaceSession.openNewQuery(activeId);
+          }}
+        />
+      {:else}
+        <div class="flex flex-1 items-center justify-center bg-app-wash p-8">
+          <EmptyState
+            title="No connection"
+            description="Connect from Home, or pick a live session in the left rail."
+          />
+        </div>
       {/if}
     </div>
   </main>

@@ -33,11 +33,7 @@ class WorkspaceSessionStore {
     return this.openTabs.find((t) => t.id === this.activeTabId) ?? null;
   }
 
-  queryTabId(connectionId: string): string {
-    return `${connectionId}::query`;
-  }
-
-  /** Register / refresh a live session, open Query tab, focus it. */
+  /** Register / refresh a live session and focus it (no tabs opened by default). */
   connect(profile: ConnectionProfile) {
     const now = new Date().toISOString();
     const existing = this.sessions.findIndex((s) => s.profile.id === profile.id);
@@ -50,33 +46,48 @@ class WorkspaceSessionStore {
     } else {
       this.sessions = [...this.sessions, next];
     }
-    this.activeConnectionId = profile.id;
-    this.openQuery(profile.id);
+    this.setActiveConnection(profile.id);
   }
 
-  /** Ensure a Query canvas tab exists and is active for this connection. */
+  /**
+   * Ensure a Query canvas tab exists for this connection and focus one.
+   * Does not create a second query tab if one already exists.
+   */
   openQuery(connectionId: string) {
-    const id = this.queryTabId(connectionId);
-    if (!this.openTabs.some((t) => t.id === id)) {
-      this.openTabs = [
-        ...this.openTabs,
-        {
-          id,
-          connectionId,
-          kind: "query",
-          title: "Query",
-        },
-      ];
+    const existing = this.openTabs.find(
+      (t) => t.connectionId === connectionId && t.kind === "query",
+    );
+    if (existing) {
+      this.activeTabId = existing.id;
+      this.activeConnectionId = connectionId;
+      this.selectedRow = null;
+      return;
     }
-    if (this.queryDrafts[id] === undefined) {
-      this.queryDrafts = { ...this.queryDrafts, [id]: "" };
-    }
-    if (this.queryWriteMode[id] === undefined) {
-      this.queryWriteMode = { ...this.queryWriteMode, [id]: false };
-    }
+    this.openNewQuery(connectionId);
+  }
+
+  /** Always open a fresh Query canvas tab (⌘/Ctrl+T, “+ Query”). */
+  openNewQuery(connectionId: string) {
+    const count = this.openTabs.filter(
+      (t) => t.connectionId === connectionId && t.kind === "query",
+    ).length;
+    const id = `${connectionId}::query::${crypto.randomUUID()}`;
+    const title = count === 0 ? "Query" : `Query ${count + 1}`;
+    this.openTabs = [
+      ...this.openTabs,
+      { id, connectionId, kind: "query", title },
+    ];
+    this.queryDrafts = { ...this.queryDrafts, [id]: "" };
+    this.queryWriteMode = { ...this.queryWriteMode, [id]: false };
     this.activeTabId = id;
     this.activeConnectionId = connectionId;
     this.selectedRow = null;
+  }
+
+  /** Close the active workspace tab (⌘/Ctrl+W). */
+  closeActiveTab() {
+    if (!this.activeTabId) return;
+    this.closeTab(this.activeTabId);
   }
 
   setActiveConnection(id: string) {
@@ -85,16 +96,12 @@ class WorkspaceSessionStore {
     if (this.selectedRow && this.selectedRow.connectionId !== id) {
       this.selectedRow = null;
     }
-    // Prefer existing tab for this connection; else open Query.
+    // Prefer an existing tab for this connection; otherwise show empty workspace.
     const tab =
       this.openTabs.find(
         (t) => t.connectionId === id && t.id === this.activeTabId,
       ) ?? this.openTabs.find((t) => t.connectionId === id);
-    if (tab) {
-      this.activeTabId = tab.id;
-    } else {
-      this.openQuery(id);
-    }
+    this.activeTabId = tab?.id ?? null;
   }
 
   disconnect(id: string) {
@@ -119,7 +126,6 @@ class WorkspaceSessionStore {
           (t) => t.connectionId === this.activeConnectionId,
         );
         this.activeTabId = tab?.id ?? null;
-        if (!tab) this.openQuery(this.activeConnectionId);
       } else {
         this.activeTabId = null;
       }
@@ -145,7 +151,6 @@ class WorkspaceSessionStore {
   closeTab(tabId: string) {
     const tab = this.openTabs.find((t) => t.id === tabId);
     if (!tab) return;
-    // Keep at least the Query tab for a live session — re-open if closed.
     const connectionId = tab.connectionId;
     const idx = this.openTabs.findIndex((t) => t.id === tabId);
     const wasActive = this.activeTabId === tabId;
@@ -160,15 +165,7 @@ class WorkspaceSessionStore {
       this.queryWriteMode = writes;
     }
 
-    const stillConnected = this.sessions.some((s) => s.profile.id === connectionId);
-    if (
-      stillConnected &&
-      !this.openTabs.some((t) => t.connectionId === connectionId)
-    ) {
-      this.openQuery(connectionId);
-      return;
-    }
-
+    // No auto-reopen — empty workspace is valid until the user opens a tab.
     if (wasActive) {
       const sameConn = this.openTabs.filter((t) => t.connectionId === connectionId);
       const next =
@@ -178,6 +175,10 @@ class WorkspaceSessionStore {
         this.openTabs[0];
       this.activeTabId = next?.id ?? null;
       if (next) this.activeConnectionId = next.connectionId;
+      // Stay on this connection with no tab selected when all its tabs closed.
+      else if (this.sessions.some((s) => s.profile.id === connectionId)) {
+        this.activeConnectionId = connectionId;
+      }
     }
     if (this.selectedRow) {
       const active = this.openTabs.find((t) => t.id === this.activeTabId);

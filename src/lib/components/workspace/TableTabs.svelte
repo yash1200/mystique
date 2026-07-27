@@ -66,8 +66,8 @@
     <button
       type="button"
       class="flex shrink-0 items-center border-none bg-transparent px-2 text-caption text-fg-muted hover:bg-hover hover:text-fg"
-      title="Focus query canvas"
-      aria-label="Focus query canvas"
+      title="New query tab (⌘/Ctrl+T)"
+      aria-label="New query tab"
       onclick={onopenquery}
     >
       + Query

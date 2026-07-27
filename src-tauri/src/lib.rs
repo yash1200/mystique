@@ -4,6 +4,7 @@
 //! - Window / plugin lifecycle
 //! - Open local DB path via Tauri path API
 //! - IPC adapters → [`mystique_core::AppServices`]
+//! - App menu accelerators (⌘W close tab, ⌘T new query) so they don't close the window
 //!
 //! Business logic lives in `mystique-core`, not here.
 
@@ -12,7 +13,10 @@ mod ipc;
 use std::sync::Arc;
 
 use mystique_core::{AppDatabase, AppServices};
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    Emitter, Manager,
+};
 
 /// Tauri-managed application state.
 pub struct AppState {
@@ -37,7 +41,48 @@ pub fn run() {
             let services = Arc::new(AppServices::new(db));
 
             app.manage(AppState { services });
+
+            // Custom File menu: Cmd/Ctrl+W closes a workspace tab (not the window).
+            // Cmd/Ctrl+T opens a new query tab. Events are handled in the webview.
+            let new_query = MenuItem::with_id(
+                app,
+                "workspace_new_query",
+                "New Query",
+                true,
+                Some("CmdOrCtrl+T"),
+            )?;
+            let close_tab = MenuItem::with_id(
+                app,
+                "workspace_close_tab",
+                "Close Tab",
+                true,
+                Some("CmdOrCtrl+W"),
+            )?;
+            let file_menu = Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[
+                    &new_query,
+                    &close_tab,
+                    &PredefinedMenuItem::separator(app)?,
+                    // Explicitly omit CloseWindow with Cmd+W — use Quit only.
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?;
+            let menu = Menu::with_items(app, &[&file_menu])?;
+            app.set_menu(menu)?;
+
             Ok(())
+        })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "workspace_close_tab" => {
+                let _ = app.emit("workspace://close-tab", ());
+            }
+            "workspace_new_query" => {
+                let _ = app.emit("workspace://new-query", ());
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             // engines / connection pools
