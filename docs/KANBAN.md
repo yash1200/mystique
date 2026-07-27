@@ -142,7 +142,7 @@ Each ticket: **ID**, **Title**, **Priority**, **Tags**, **Description**, **Relat
 
 ### T-FE-LIVE-ER — Live ER / Model from connected database
 - **Priority:** P0 · **Tags:** `FE` `BE` · **Status:** Deployed
-- **Description:** Explorer **ER diagram** button; full schema map for selected DB (MySQL/PG FKs, SQLite, Mongo collections); read-only tools chrome; model workspace tab. **Related:** `liveEr.ts` · T-BE-012 (QA depth)
+- **Description:** Explorer **ER diagram** button; full schema map for selected DB (MySQL/PG FKs, SQLite, Mongo collections); read-only tools chrome; model workspace tab. **Related:** `liveEr.ts` · T-BE-012 (QA depth) · GitLab **#68** · commits `c127169`, `39f2bc3`
 
 ### T-FE-001 — Engine picker (Postgres / Mongo / MySQL / SQLite)
 - **Priority:** P0 · **Tags:** `FE` · **Status:** Deployed
