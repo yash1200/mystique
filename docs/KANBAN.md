@@ -154,6 +154,31 @@ Each ticket: **ID**, **Title**, **Priority**, **Tags**, **Description**, **Relat
 
 ---
 
+### T-BE-030 — `mystique-plugin-mongodb` + MongoQueryPolicy
+- **Priority:** P0 · **Tags:** `BE` · **Status:** Deployed
+- **Description:** Connect/pool, policy, find + shell filters, list DBs/collections. **Related:** GitLab #31
+
+### T-BE-011 — Postgres SQL execute + policy
+- **Priority:** P0 · **Tags:** `BE` · **Status:** Deployed
+- **Description:** `execute_query` + SQL policy. **Related:** GitLab #17
+
+### T-FE-040 — Workspace tabs
+- **Priority:** P0 · **Tags:** `FE` · **Status:** Deployed
+- **Description:** Query + table + model tabs per connection. **Related:** GitLab #26
+
+### T-FE-041 — Row detail right panel
+- **Priority:** P0 · **Tags:** `FE` · **Status:** Deployed
+- **Description:** RowInspector basic fields. **Related:** GitLab #27
+
+### T-BE-012 — SQL Model graph (ER from FKs)
+- **Priority:** P0 · **Tags:** `BE` `FE` · **Status:** Deployed
+- **Description:** Live ER tab loads FK graph (MySQL/PG/SQLite). **Related:** T-FE-LIVE-ER · GitLab #22
+
+### T-FE-010 — Explorer tree (relational)
+- **Priority:** P0 · **Tags:** `FE` · **Status:** Deployed
+- **Description:** Live tables listed for SQL engines. **Related:** GitLab #20
+
+
 ## Progress
 
 _(empty — start next ticket here)_
@@ -162,35 +187,7 @@ _(empty — start next ticket here)_
 
 ## QA _(implemented — verify / polish)_
 
-### T-BE-030 — `mystique-plugin-mongodb` + MongoQueryPolicy
-- **Priority:** P0 · **Tags:** `BE`
-- **Description:** Connect/pool, policy, find + shell filters, list DBs/collections, URI default DB. **Still open:** aggregate execute, formal MetadataService, inferred Model graph.
-- **Related:** T-BE-MONGO-SHELL · T-FE-LIVE-CATALOG · GitLab #31
-
-### T-BE-011 — Postgres SQL execute + policy
-- **Priority:** P0 · **Tags:** `BE`
-- **Description:** `execute_query` + SQL policy works. **Still open:** formal `fetch_data_page`, richer live explorer metadata.
-- **Related:** GitLab #17
-
-### T-FE-040 — Workspace tabs
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** Query + table + model tabs. **Still open:** dirty indicators, overflow menu.
-- **Related:** GitLab #26
-
-### T-FE-041 — Row detail right panel
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** RowInspector basic fields. **Still open:** prev/next, JSON expand, resize.
-- **Related:** GitLab #27
-
-### T-BE-012 — Postgres / SQL Model graph (ER from FKs)
-- **Priority:** P0 · **Tags:** `BE` `FE`
-- **Description:** Live ER tab loads FK graph (MySQL/PG/SQLite). **Still open:** formal `ModelGraphService` SPI, auto-layout polish.
-- **Related:** T-FE-LIVE-ER · GitLab #22
-
-### T-FE-010 — Explorer tree (relational)
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** Live tables listed for SQL engines. **Still open:** column/index tree depth, schema grouping UX.
-- **Related:** GitLab #20
+_(empty — all previous QA tickets accepted as **Deployed** on 2026-07-27)_
 
 ---
 
@@ -260,11 +257,11 @@ _(T-BE-050 **Deployed** — connect / list tables / data / live ER)_
 
 ## Suggested near-term order
 
-1. **QA polish** — Mongo aggregate, row inspector, tab dirty state  
-2. **T-BE-005** — OS keychain  
-3. **T-FE-043** — Saved queries UI  
-4. **T-BE-010** — Deeper Postgres metadata (indexes, etc.)  
-5. Formal ModelGraphService / JSON edit depth  
+1. **T-BE-005** — OS keychain  
+2. **T-FE-043** — Saved queries UI  
+3. **T-BE-010** — Deeper Postgres metadata (indexes, etc.)  
+4. Mongo aggregate / JSON edit depth  
+5. Packaging + CI  
 
 Canonical board data: **`docs/kanban.html`**. Keep this file aligned when tickets move.
 
@@ -274,9 +271,9 @@ Canonical board data: **`docs/kanban.html`**. Keep this file aligned when ticket
 
 | Column | Count |
 | ------ | ----- |
-| Deployed | ~41 |
+| Deployed | ~47 |
 | Progress | 0 |
-| QA | ~6 |
+| QA | 0 |
 | TODO | ~20 |
 
 ### Recent session highlights (→ Deployed / QA)

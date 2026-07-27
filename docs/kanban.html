@@ -658,7 +658,7 @@
       {
         id: "T-BE-011",
         title: "Postgres data page + SQL execute + PostgresQueryPolicy",
-        column: "qa",
+        column: "deployed",
         tags: ["be", "p0"],
         description: "execute_query via SQL policy works (SELECT etc.). Still TODO: formal paginated fetch_data_page SPI, richer metadata list for explorer (live SQL catalog partial).",
         related: "PRD D-*, Q-* · depends: T-BE-010, T-BE-003",
@@ -666,7 +666,7 @@
       {
         id: "T-BE-012",
         title: "Postgres Model graph (ER from FKs)",
-        column: "qa",
+        column: "deployed",
         tags: ["be", "p0"],
         description: "Live ER tab builds FK graph from information_schema (MySQL/PG) / pragma (SQLite). Formal ModelGraphService SPI still later.",
         related: "PRD V-* · FEATURES F-REL · depends: T-BE-010",
@@ -674,7 +674,7 @@
       {
         id: "T-FE-010",
         title: "Explorer tree (relational)",
-        column: "qa",
+        column: "deployed",
         tags: ["fe", "p0"],
         description: "Live SQL catalog lists tables (MySQL/PG/SQLite information_schema). Deeper column/index tree still open.",
         related: "UI_UX §7.4 · depends: T-BE-010, T-FE-003",
@@ -724,7 +724,7 @@
       {
         id: "T-BE-030",
         title: "mystique-plugin-mongodb + MongoQueryPolicy",
-        column: "qa",
+        column: "deployed",
         tags: ["be", "p0"],
         description: "Connect/pool; MongoQueryPolicy; find + shell filters; listDatabases/listCollections; default DB from URI path; database override on execute. Still open: aggregate pipeline execute, formal MetadataService, Model graph.",
         related: "PRD V1 · shell_filter · session.rs · T-BE-MONGO-SHELL · T-FE-LIVE-CATALOG",
@@ -774,7 +774,7 @@
       {
         id: "T-FE-040",
         title: "Browser-like workspace tabs",
-        column: "qa",
+        column: "deployed",
         tags: ["fe", "p0"],
         description: "Per-connection Query + table tabs, activate/close, query drafts. Still open: dirty indicators, overflow menu, model tabs.",
         related: "WorkspaceShell · workspace-session · F-TAB-1–4",
@@ -782,7 +782,7 @@
       {
         id: "T-FE-041",
         title: "Row detail right panel",
-        column: "qa",
+        column: "deployed",
         tags: ["fe", "p0"],
         description: "RowInspector for selected grid row with field edits. Still open: prev/next, JSON expand polish, resize.",
         related: "RowInspector · F-ROW-1–6 · T-FE-011",
