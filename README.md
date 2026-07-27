@@ -57,7 +57,7 @@ cargo --version
 echo "$PATH" | tr ':' '\n' | grep cargo   # should show ~/.cargo/bin
 ```
 
-`npm run tauri` uses `scripts/tauri.sh`, which loads `~/.cargo/env` automatically so npm scripts find `cargo` even if your shell PATH is incomplete.
+`yarn tauri` / `npm run tauri` uses `scripts/tauri.mjs`, which puts `~/.cargo/bin` on PATH so npm scripts find `cargo` even if your shell PATH is incomplete. It is Node-based so it works on Windows PowerShell without bash/WSL.
 
 ### 4. Platform dependencies (Tauri)
 
@@ -81,8 +81,20 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
 
 #### Windows
 
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (or Visual Studio with the “Desktop development with C++” workload)
 - [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (usually preinstalled on Windows 10/11)
+- Rust via [rustup](https://rustup.rs/) for **Windows** (MSVC toolchain). After install, open a **new** PowerShell/terminal so `cargo` is on `PATH`.
+
+You do **not** need WSL or Git Bash to run `yarn tauri dev`. The launcher is Node-based (`scripts/tauri.mjs`). Avoid relying on the Windows `bash` shim if it points at a broken/minimal WSL distro.
+
+Verify in PowerShell:
+
+```powershell
+node -v
+yarn -v
+rustc --version
+cargo --version
+```
 
 See the full list in the [Tauri prerequisites docs](https://tauri.app/start/prerequisites/).
 
@@ -98,17 +110,23 @@ This installs frontend dependencies. Rust crates are fetched automatically on th
 
 ## Development
 
-Start the full Tauri app (SvelteKit frontend + Rust backend):
+Start the full Tauri app (SvelteKit frontend + Rust backend). Same command on macOS, Linux, and Windows:
 
 ```bash
 yarn tauri dev
+# equivalents:
+yarn tauri:dev
+# or
+npx tauri dev
 ```
 
 This:
 
-1. Runs `yarn dev` (Vite on [http://localhost:1420](http://localhost:1420))
-2. Compiles the Rust backend
+1. Runs the Vite frontend (`beforeDevCommand` → `npm run dev` on [http://localhost:1420](http://localhost:1420))
+2. Compiles the Rust backend (Cargo workspace → root `target/` and `src-tauri/`)
 3. Opens the native desktop window with hot reload
+
+First compile can take several minutes. Subsequent runs are much faster.
 
 ### Frontend only
 
@@ -190,3 +208,6 @@ Product docs: [`docs/PRD.md`](docs/PRD.md) · kanban: **[`docs/kanban.html`](doc
 - **Port 1420 already in use** — stop any process on that port, or change `server.port` in `vite.config.js` and `build.devUrl` in `src-tauri/tauri.conf.json` together.
 - **Rust compile errors on first run** — ensure platform dependencies (step 4) are installed; the first compile can take several minutes.
 - **`yarn` not found** — install Yarn globally with `npm install -g yarn`, or use `corepack enable` if you prefer Corepack.
+- **`bash` / WSL error on `yarn tauri dev`** — scripts must use `node scripts/tauri.mjs` (not `bash scripts/tauri.sh`). On Windows, system `bash` often launches WSL; a missing `/bin/bash` in the distro fails the script. Pull latest main or run `npx tauri dev` as a workaround. See GitLab [#69](https://nova.teachx.ai/trace-analysis/mystique-db/-/issues/69).
+- **`EBUSY: resource busy or locked, watch ...\target\...\*.dll`** — Vite was watching Cargo build output under the workspace `target/` directory. `vite.config.js` ignores `**/target/**` (and `**/src-tauri/**`). Pull latest or ensure those `server.watch.ignored` entries are present, then restart `yarn tauri dev`.
+- **`cargo not found` from yarn scripts** — ensure `%USERPROFILE%\.cargo\bin` (Windows) or `~/.cargo/bin` (Unix) is on PATH in the same terminal. `scripts/tauri.mjs` prepends that path automatically when present.

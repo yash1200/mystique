@@ -22,10 +22,12 @@ Thanks for helping improve MystiqueDB. This guide is intentionally general so it
 git clone <repo-url>
 cd mystique-db
 yarn install          # or npm install
-yarn tauri dev        # full desktop app
+yarn tauri dev        # full desktop app (macOS / Linux / Windows)
 # or
 yarn dev              # frontend only (no Tauri APIs)
 ```
+
+Windows: use PowerShell with Node, Yarn, and the MSVC Rust toolchain. You do not need WSL/bash for `yarn tauri` — scripts use `scripts/tauri.mjs`. Details and troubleshooting: [README](./README.md) and [docs/wiki/Development.md](./docs/wiki/Development.md). Related: GitLab [#69](https://nova.teachx.ai/trace-analysis/mystique-db/-/issues/69).
 
 Typecheck:
 
