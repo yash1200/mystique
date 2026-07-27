@@ -45,12 +45,20 @@ export type DatabaseMeta = {
   tables: TableMeta[];
 };
 
-export type OpenTableTab = {
+/** Main workspace tab: query canvas or table data. */
+export type WorkspaceTabKind = "query" | "table";
+
+export type WorkspaceTab = {
   id: string;
   connectionId: string;
-  tableId: string;
+  kind: WorkspaceTabKind;
+  /** Present when kind === "table". */
+  tableId?: string;
   title: string;
 };
+
+/** @deprecated Use WorkspaceTab */
+export type OpenTableTab = WorkspaceTab;
 
 export type SelectedRow = {
   connectionId: string;

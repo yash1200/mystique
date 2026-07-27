@@ -27,6 +27,16 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Linux WebKitGTK: avoid broken GPU/dmabuf paths that produce MESA/EGL spam
+# and occasionally leave the webview at 1× scale on large monitors.
+if [ "$(uname -s)" = "Linux" ]; then
+  export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
+  # Soft fallback when no DRM GPU is available (VMs / remote desktops).
+  if [ ! -e /dev/dri/renderD128 ] && [ ! -e /dev/dri/card0 ]; then
+    export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+  fi
+fi
+
 # Default to `dev` when npm runs bare `npm run tauri` with extra args via npm_config
 # npm run tauri -- dev  → args: dev
 # npm run tauri:dev     → we pass dev from package.json

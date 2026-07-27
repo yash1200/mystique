@@ -111,6 +111,12 @@
   --mds-shadow-md: 0 8px 28px rgb(26 32 48 / 0.1);
 }
 
+/* Compact is default (design language + UI_UX). Comfortable loosens lists/sidebar only. */
+[data-density="compact"] {
+  --row-height: 2.5rem;
+  --sidebar-width: 17.5rem;
+}
+
 [data-density="comfortable"] {
   --row-height: 2.875rem;
   --sidebar-width: 18.75rem;

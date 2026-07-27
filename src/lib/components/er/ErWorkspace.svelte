@@ -25,12 +25,14 @@
     emptyDiagram,
     snapToGrid,
   } from "$lib/types/er";
+  import { onMount } from "svelte";
   import { Button, Badge, Inline, Input, Select } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
   import { listDiagrams, saveDiagram, type ErDiagramRecord } from "$lib/api/diagrams";
   import { isTauri } from "$lib/api/tauri";
   import { diagramToDbml, dbmlToDiagram, sampleDbml } from "$lib/utils/dbml";
   import { exportDiagramPdf, exportDiagramPng } from "$lib/utils/exportDiagram";
+  import { currentUiScale, onUiScaleChange } from "$lib/utils/uiScale";
 
   interface Props {
     family: DataFamily;
@@ -40,12 +42,30 @@
 
   let { family, onback, onchangeFamily }: Props = $props();
 
-  const TABLE_W = 280;
-  const HEADER_H = 40;
-  /** Row height must fit inline type Select (h-control-sm = 28px) with breathing room. */
-  const ROW_H = 34;
-  const PASTE_OFFSET = ER_GRID * 2;
+  /**
+   * Base geometry at UI scale 1 (design-language dense chrome).
+   * Must scale with root rem / uiScale — otherwise rem text+Selects overflow fixed px boxes.
+   */
+  const TABLE_W_BASE = 280;
+  const HEADER_H_BASE = 40;
+  /** Fits h-control-sm (28px) + padding at scale 1. */
+  const ROW_H_BASE = 34;
+
+  let uiScale = $state(
+    typeof document !== "undefined" ? currentUiScale() : 2,
+  );
+  const TABLE_W = $derived(Math.round(TABLE_W_BASE * uiScale));
+  const HEADER_H = $derived(Math.round(HEADER_H_BASE * uiScale));
+  const ROW_H = $derived(Math.round(ROW_H_BASE * uiScale));
+  const PASTE_OFFSET = $derived(Math.round(ER_GRID * 2 * uiScale));
   const MAX_HISTORY = 80;
+
+  onMount(() => {
+    uiScale = currentUiScale();
+    return onUiScaleChange((s) => {
+      uiScale = s;
+    });
+  });
 
   let diagram = $state<ErDiagramState | null>(null);
   let diagramId = $state<string | null>(null);
@@ -2240,7 +2260,7 @@
           <div
             data-er-table
             class={cn(
-              "absolute rounded-lg border bg-panel shadow-sm",
+              "absolute overflow-hidden rounded-lg border bg-panel shadow-sm",
               isSelected ? "border-accent ring-2 ring-accent/30" : "border-line",
               // Grab only on header — body uses default so inputs get a normal text caret
               arrowTool ? "cursor-default" : "",
@@ -2255,7 +2275,7 @@
           >
             <div
               class={cn(
-                "flex items-center justify-between gap-2 border-b border-line bg-elevated px-2.5",
+                "flex min-w-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-elevated px-2.5",
                 !arrowTool && "cursor-grab",
                 dragTableId === node.id && "cursor-grabbing",
               )}
@@ -2263,35 +2283,42 @@
             >
               {#if primaryTableId === node.id && !arrowTool}
                 <input
-                  class="min-w-0 flex-1 cursor-text rounded-md border border-line bg-input px-2 py-1 text-body font-semibold text-fg"
+                  class="box-border h-control-sm min-w-0 max-w-full flex-1 cursor-text truncate rounded-md border border-line bg-input px-2 text-body font-semibold leading-none text-fg"
                   value={node.name}
                   data-no-drag
                   oninput={(e) => renameTable((e.currentTarget as HTMLInputElement).value)}
                   onclick={(e) => e.stopPropagation()}
                 />
               {:else}
-                <span class="truncate text-body font-semibold text-fg">{node.name}</span>
+                <span class="min-w-0 flex-1 truncate text-body font-semibold leading-tight text-fg"
+                  >{node.name}</span
+                >
               {/if}
             </div>
 
-            <ul class="m-0 list-none p-0">
+            <ul class="m-0 list-none overflow-hidden p-0">
               {#each node.columns as col (col.id)}
-                <li class="m-0 p-0" style="height: {ROW_H}px">
+                <li class="m-0 overflow-hidden p-0" style="height: {ROW_H}px">
                   {#if primaryTableId === node.id && !arrowTool}
-                    <!-- Edit row: name fixed, type dropdown, delete -->
+                    <!-- Edit row: name + type dropdown + delete (heights match scaled ROW_H) -->
                     <div
                       data-er-column
                       data-no-drag
-                      class="flex h-full w-full items-center gap-1.5 border-b border-line/50 px-2 last:border-b-0"
+                      class="box-border flex h-full w-full min-w-0 items-center gap-1 overflow-hidden border-b border-line/50 px-1.5 last:border-b-0"
                     >
                       {#if col.pk}
-                        <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
+                        <span class="shrink-0 text-micro font-semibold leading-none text-accent"
+                          >PK</span
+                        >
                       {/if}
-                      <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
+                      <span
+                        class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
+                        title={col.name}
+                      >
                         {col.name}
                       </span>
                       <div
-                        class="w-28 shrink-0 cursor-pointer [&_button]:h-7 [&_button]:px-2 [&_button]:text-caption [&_svg]:size-3"
+                        class="w-[min(7.5rem,38%)] max-w-[42%] shrink-0 cursor-pointer [&_button]:box-border [&_button]:h-control-sm [&_button]:max-h-full [&_button]:px-1.5 [&_button]:text-caption [&_svg]:size-3"
                         role="presentation"
                         onclick={(e) => e.stopPropagation()}
                         onpointerdown={(e) => e.stopPropagation()}
@@ -2307,7 +2334,7 @@
                       </div>
                       <button
                         type="button"
-                        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-body text-danger hover:bg-danger/10"
+                        class="flex size-control-sm shrink-0 cursor-pointer items-center justify-center rounded text-body leading-none text-danger hover:bg-danger/10"
                         onclick={(e) => {
                           e.stopPropagation();
                           deleteColumn(col.id);
@@ -2323,7 +2350,7 @@
                       data-er-column
                       data-no-drag
                       class={cn(
-                        "flex h-full w-full cursor-default items-center gap-1.5 border-b border-line/50 px-2.5 text-left last:border-b-0",
+                        "box-border flex h-full w-full min-w-0 cursor-default items-center gap-1.5 overflow-hidden border-b border-line/50 px-2.5 text-left last:border-b-0",
                         arrowTool && "cursor-pointer hover:bg-accent-muted",
                         linkFrom?.tableId === node.id &&
                           linkFrom?.columnId === col.id &&
@@ -2332,13 +2359,19 @@
                       onclick={(e) => onColumnClick(node.id, col.id, e)}
                     >
                       {#if col.pk}
-                        <span class="shrink-0 text-micro font-semibold text-accent">PK</span>
+                        <span class="shrink-0 text-micro font-semibold leading-none text-accent"
+                          >PK</span
+                        >
                       {/if}
-                      <span class="min-w-0 flex-1 truncate font-mono text-caption text-fg">
+                      <span
+                        class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
+                        title={col.name}
+                      >
                         {col.name}
                       </span>
-                      <span class="shrink-0 font-mono text-caption text-fg-muted"
-                        >{col.dataType}</span
+                      <span
+                        class="max-w-[40%] shrink-0 truncate font-mono text-caption leading-none text-fg-muted"
+                        title={col.dataType}>{col.dataType}</span
                       >
                     </button>
                   {/if}

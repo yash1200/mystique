@@ -14,6 +14,7 @@
   import ObjectExplorer from "./ObjectExplorer.svelte";
   import QueryListPanel from "./QueryListPanel.svelte";
   import QueryPreview from "./QueryPreview.svelte";
+  import QueryCanvas from "./QueryCanvas.svelte";
   import TableTabs from "./TableTabs.svelte";
   import DataGrid from "./DataGrid.svelte";
   import RowInspector from "./RowInspector.svelte";
@@ -52,6 +53,14 @@
     if (list.length > 0 && !selectedDb[id]) {
       selectedDb = { ...selectedDb, [id]: list[0].name };
     }
+
+    // Always have a Query tab for the active connection.
+    const hasQuery = workspaceSession.openTabs.some(
+      (t) => t.connectionId === id && t.kind === "query",
+    );
+    if (!hasQuery) {
+      workspaceSession.openQuery(id);
+    }
   });
 
   const databases = $derived(
@@ -62,12 +71,21 @@
     activeId ? (selectedDb[activeId] ?? databases[0]?.name ?? "") : "",
   );
 
+  /** Tabs belonging to the active connection (query + tables). */
+  const connectionTabs = $derived(
+    activeId
+      ? openTabs.filter((t) => t.connectionId === activeId)
+      : [],
+  );
+
   const activeTab = $derived(
     openTabs.find((t) => t.id === activeTabId) ?? null,
   );
 
   const gridTable = $derived.by(() => {
-    if (!activeTab) return null;
+    if (!activeTab || activeTab.kind !== "table" || !activeTab.tableId) {
+      return null;
+    }
     const cat = catalogs[activeTab.connectionId];
     if (!cat) {
       const session = sessions.find((s) => s.profile.id === activeTab.connectionId);
@@ -87,11 +105,15 @@
   });
 
   const activeTableIdForExplorer = $derived(
-    activeTab && activeTab.connectionId === activeId ? activeTab.tableId : null,
+    activeTab &&
+      activeTab.kind === "table" &&
+      activeTab.connectionId === activeId
+      ? (activeTab.tableId ?? null)
+      : null,
   );
 
   const rowSelectionIndex = $derived.by(() => {
-    if (!selectedRow || !activeTab) return null;
+    if (!selectedRow || !activeTab || activeTab.kind !== "table") return null;
     if (
       selectedRow.connectionId === activeTab.connectionId &&
       selectedRow.tableId === activeTab.tableId
@@ -204,7 +226,7 @@
     const tab = workspaceSession.openTabs.find(
       (t) => t.id === workspaceSession.activeTabId,
     );
-    if (!tab) return;
+    if (!tab || tab.kind !== "table" || !tab.tableId) return;
     workspaceSession.selectRow(tab.connectionId, tab.tableId, index);
   }
 </script>
@@ -268,12 +290,13 @@
   {/if}
 
   <main class="flex min-w-0 flex-1 flex-col">
-    {#if sideMode === "explorer"}
+    {#if sideMode === "explorer" && activeId}
       <TableTabs
-        tabs={openTabs}
+        tabs={connectionTabs}
         {activeTabId}
         onactivate={(id) => workspaceSession.setActiveTab(id)}
         onclose={(id) => workspaceSession.closeTab(id)}
+        onopenquery={() => workspaceSession.openQuery(activeId)}
       />
     {/if}
 
@@ -300,9 +323,23 @@
             />
           </div>
         {/if}
+      {:else if activeSession && activeTab?.kind === "query"}
+        {#key activeTab.id}
+          <QueryCanvas
+            connectionId={activeSession.profile.id}
+            connectionName={activeSession.profile.name}
+            engine={String(activeSession.profile.engine)}
+            profileReadOnly={!!activeSession.profile.readOnly}
+            text={workspaceSession.queryDrafts[activeTab.id] ?? ""}
+            writeEnabled={workspaceSession.queryWriteMode[activeTab.id] ?? false}
+            ontextchange={(v) => workspaceSession.setQueryDraft(activeTab.id, v)}
+            onwritechange={(v) =>
+              workspaceSession.setQueryWriteMode(activeTab.id, v)}
+          />
+        {/key}
       {:else}
         <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-          {#if gridTable && activeTab}
+          {#if gridTable && activeTab?.kind === "table"}
             {#key gridTable.id}
               <DataGrid
                 table={gridTable}
@@ -315,8 +352,8 @@
           {:else}
             <div class="flex flex-1 items-center justify-center p-8">
               <EmptyState
-                title="Open a table"
-                description="Choose a database, then pick a table from the explorer. Multiple tables open as tabs."
+                title="Query or open a table"
+                description="Use the Query tab to run statements, or pick a table from the explorer."
               />
             </div>
           {/if}

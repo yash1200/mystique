@@ -182,9 +182,9 @@ _(empty — move tickets here when ready for review)_
 - **Related:** PRD D-* · depends on: T-BE-011
 
 #### T-FE-012 — Query space (editor + run + results)
-- **Priority:** P0 · **Tags:** `FE`
-- **Description:** Minimal query space: editor, Run, results/errors; **Allow writes** checkbox; respect profile read_only. Keep FE thin.
-- **Related:** F-SHELL-15 · depends on: T-BE-011
+- **Priority:** P0 · **Tags:** `FE` · **Status:** Deployed (FE canvas; BE execute later)
+- **Description:** Query canvas opens on connect for any engine. Editor + Run + **Allow writes** toggle; FE policy stub blocks DELETE / read-only violations. Live driver execute still T-BE-011 / T-BE-003.
+- **Related:** QueryCanvas.svelte · queryPolicyFe.ts · F-SHELL-15
 
 #### T-FE-014 — Export results CSV/JSON
 - **Priority:** P0 · **Tags:** `FE` `BE`

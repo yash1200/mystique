@@ -158,7 +158,8 @@ Opacity steps **allowed:** `/10` `/12` `/15` `/25` `/35` `/40` `/45` `/50` only 
 | `text-title` | 18px | 1.3 | Empty states, minor headings |
 | `text-display` | 22px | 1.25 | Page / connection titles |
 
-**Default:** `body` uses `text-body`. Do not use Tailwind’s default `text-xs`…`text-xl` for product UI.
+**Default:** `body` uses `text-body`. Do not use Tailwind’s default `text-xs`…`text-xl` for product UI.  
+**Density:** `data-density="compact"` is default (`UI_UX_GUIDELINES`); `comfortable` only loosens row height / sidebar width.
 
 ### 4.3 Weight scale (closed set)
 

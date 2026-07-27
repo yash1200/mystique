@@ -120,6 +120,18 @@ yarn dev
 
 Then open [http://localhost:1420](http://localhost:1420) in a browser. Tauri APIs will not be available in this mode.
 
+### UI scale (large monitors / Linux)
+
+Design-language sizes stay proportional (rem). Default UI scale is **2×** (about 100% larger than the base token sizes) so type stays readable on large desktops.
+
+| Shortcut | Action |
+| -------- | ------ |
+| `Ctrl`/`⌘` `+` | Zoom in |
+| `Ctrl`/`⌘` `-` | Zoom out |
+| `Ctrl`/`⌘` `0` | Reset to auto |
+
+Preference is stored in `localStorage` (`mystique-ui-scale`).
+
 ### Type checking
 
 ```bash
