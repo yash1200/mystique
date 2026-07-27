@@ -13,7 +13,7 @@ mystique-db/
 │   │   └── src/connectors/         # registry (connectors + policies) + session/pool manager
 │   └── plugins/
 │       ├── mystique-plugin-postgres/   # pool + session + PostgresQueryPolicy
-│       ├── mystique-plugin-mysql/      # (planned) pool + session + MysqlQueryPolicy
+│       ├── mystique-plugin-mysql/      # pool + session + SqlQueryPolicy("mysql")
 │       ├── mystique-plugin-mongodb/    # pool + session + MongoQueryPolicy
 │       └── mystique-plugin-sqlite/     # later / local files
 └── src-tauri/                      # thin IPC → services

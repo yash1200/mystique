@@ -26,6 +26,6 @@ pub use storage::AppDatabase;
 
 // Re-export API types for IPC adapters
 pub use mystique_connector_api::{
-    ConnectionConfig, EngineCapabilities, EngineDescriptor, PoolConfig, PoolStatus, SessionInfo,
-    TestResult,
+    ConnectionConfig, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, PoolConfig,
+    PoolStatus, QueryColumn, QueryMode, QueryResult, SessionInfo, TestResult,
 };

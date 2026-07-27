@@ -26,6 +26,9 @@ pub enum ConnectorError {
     #[error("query failed: {0}")]
     Query(String),
 
+    #[error("policy: {0}")]
+    Policy(String),
+
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -40,6 +43,7 @@ impl ConnectorError {
             Self::Timeout(_) => "timeout",
             Self::NotSupported(_) => "not_supported",
             Self::Query(_) => "query",
+            Self::Policy(_) => "policy",
             Self::Internal(_) => "internal",
         }
     }

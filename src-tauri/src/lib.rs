@@ -94,6 +94,7 @@ pub fn run() {
             ipc::engines::engine_session_pool_status,
             ipc::engines::list_engine_sessions,
             ipc::engines::get_engine_session,
+            ipc::engines::execute_engine_query,
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

@@ -5,6 +5,7 @@ use crate::config::ConnectionConfig;
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
 use crate::pool::{PoolStatus, TestResult};
+use crate::query::{QueryResult, ValidatedQuery};
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;
 
@@ -55,4 +56,12 @@ pub trait ConnectorSession: Send + Sync {
 
     /// Drain the pool and release resources.
     async fn close(&self) -> ConnectorResult<()>;
+
+    /// Run a policy-validated query. Default: not supported.
+    async fn execute_query(&self, _query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "execute_query not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
 }

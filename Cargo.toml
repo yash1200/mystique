@@ -6,6 +6,7 @@ members = [
     "crates/plugins/mystique-plugin-postgres",
     "crates/plugins/mystique-plugin-sqlite",
     "crates/plugins/mystique-plugin-mongodb",
+    "crates/plugins/mystique-plugin-mysql",
     "src-tauri",
 ]
 

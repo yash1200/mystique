@@ -118,4 +118,22 @@ impl EngineCapabilities {
             object_labels: ObjectLabels::document(),
         }
     }
+
+    pub fn mysql_defaults() -> Self {
+        Self {
+            engine: "mysql".into(),
+            family: EngineFamily::Relational,
+            query_language: "SQL".into(),
+            supports_schema: true,
+            supports_foreign_keys: true,
+            supports_er_diagram: true,
+            supports_model_view: true,
+            model_view_kind: ModelViewKind::Er,
+            supports_pagination: true,
+            supports_write: false,
+            supports_cancel_query: true,
+            supports_pooling: true,
+            object_labels: ObjectLabels::relational(),
+        }
+    }
 }

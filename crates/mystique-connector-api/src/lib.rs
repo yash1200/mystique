@@ -17,7 +17,9 @@ mod config;
 mod connector;
 mod error;
 mod form;
+mod policy;
 mod pool;
+mod query;
 mod types;
 
 pub use capabilities::*;
@@ -25,5 +27,7 @@ pub use config::*;
 pub use connector::*;
 pub use error::*;
 pub use form::*;
+pub use policy::*;
 pub use pool::*;
+pub use query::*;
 pub use types::*;

@@ -2,6 +2,7 @@
 
 mod connector;
 mod session;
+mod shell_filter;
 
 pub use connector::MongoConnector;
 

@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use chrono::Utc;
 use mystique_connector_api::{
     ConnectionConfig, ConnectorError, ConnectorResult, ConnectorSession, EngineDescriptor,
-    PoolConfig, PoolStatus, SessionInfo, TestResult,
+    ExecuteQueryRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo, TestResult,
+    ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -28,7 +30,7 @@ pub struct OpenSessionRequest {
 }
 
 struct LiveSession {
-    session: Box<dyn ConnectorSession>,
+    session: Arc<dyn ConnectorSession>,
     display_name: String,
     opened_at: String,
 }
@@ -115,6 +117,7 @@ impl ConnectionManager {
         };
 
         let session = connector.connect(&config).await?;
+        let session: Arc<dyn ConnectorSession> = Arc::from(session);
         let session_id = req
             .session_id
             .filter(|s| !s.is_empty())
@@ -198,7 +201,48 @@ impl ConnectionManager {
             opened_at: live.opened_at.clone(),
         })
     }
+    /// Validate via per-engine policy SPI, then execute on the live session.
+    pub async fn execute_query(&self, req: ExecuteQueryRequest) -> ConnectorResult<QueryResult> {
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+
+        let engine = session.engine_id().to_string();
+        let mode = if req.profile_read_only {
+            QueryMode::Read
+        } else {
+            req.mode
+        };
+
+        let policy = self.registry.policy(&engine).ok_or_else(|| {
+            ConnectorError::Internal(format!("no query policy registered for engine `{engine}`"))
+        })?;
+        policy.validate(&req.text, mode)?;
+
+        let max_rows = req
+            .max_rows
+            .unwrap_or(DEFAULT_MAX_ROWS)
+            .clamp(1, HARD_MAX_ROWS);
+        let timeout_ms = req.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS).max(1_000);
+
+        let validated = ValidatedQuery {
+            text: req.text,
+            mode,
+            max_rows,
+            timeout_ms,
+            collection: req.collection,
+            database: req.database,
+        };
+
+        session.execute_query(&validated).await
+    }
+
 }
+
 
 #[cfg(test)]
 mod tests {

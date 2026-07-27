@@ -87,3 +87,16 @@ pub async fn get_engine_session(
 ) -> Result<Option<SessionInfo>, String> {
     Ok(state.services.connections().get_session(&session_id).await)
 }
+
+#[tauri::command]
+pub async fn execute_engine_query(
+    state: State<'_, AppState>,
+    request: mystique_core::ExecuteQueryRequest,
+) -> Result<mystique_core::QueryResult, String> {
+    state
+        .services
+        .connections()
+        .execute_query(request)
+        .await
+        .map_err(|e| e.to_string())
+}

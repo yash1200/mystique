@@ -2,80 +2,68 @@
 
 ## Container
 
-```bash
-docker run -d \
-  --name mystique-mongo \
-  --restart unless-stopped \
-  -p 27017:27017 \
-  -e MONGO_INITDB_ROOT_USERNAME=abc \
-  -e MONGO_INITDB_ROOT_PASSWORD=abc \
-  mongo:7
-```
+Already running as `mystique-mongo` (mongo:7 on port **27017**).
+
+Root-style user for app testing:
 
 | Setting | Value |
 | ------- | ----- |
 | Host | `127.0.0.1` |
 | Port | `27017` |
-| Username | `abc` |
-| Password | `abc` |
+| Username | `admin` |
+| Password | `123` |
 | Auth DB | `admin` |
-| Sample app DB | `mystique_dev` |
+| App DB | `mystique` |
+
+Also present (legacy seed user): `abc` / `abc` (authSource `admin`).
 
 ## Connection strings
 
 ```text
-mongodb://abc:abc@127.0.0.1:27017/?authSource=admin
-mongodb://abc:abc@127.0.0.1:27017/mystique_dev?authSource=admin
+mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin
+mongodb://admin:123@127.0.0.1:27017/?authSource=admin
 ```
 
-## Mystique `OpenSessionRequest` example
+## MystiqueDB connection form
 
-```json
-{
-  "engine": "mongodb",
-  "pluginConfig": {
-    "uri": "mongodb://abc:abc@127.0.0.1:27017/?authSource=admin",
-    "database": "mystique_dev"
-  },
-  "pool": { "maxSize": 5, "minIdle": 1, "acquireTimeoutMs": 10000 }
-}
-```
+- Engine: **MongoDB**
+- URI: `mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin`
+- **Include `/mystique` in the URI** — that path is the default database for finds and is preferred in the explorer.
 
-Or host form:
+Also present: legacy DB `mystique_dev` (small sample). The workspace explorer loads **live** databases/collections from the server (not mock data). Pick **`mystique`** in the database dropdown to see the 10k seed; refresh the explorer after reseeding.
 
-```json
-{
-  "engine": "mongodb",
-  "pluginConfig": {
-    "host": "127.0.0.1",
-    "port": 27017,
-    "database": "mystique_dev",
-    "username": "abc",
-    "authSource": "admin"
-  },
-  "password": "abc"
-}
-```
+If the UI still shows only a few rows, you are likely on `mystique_dev` or an old mock session — disconnect, reconnect with the URI above, then click Refresh on the explorer.
 
-## Sample collections (`mystique_dev`)
+## Sample data (`mystique`, ~10k docs)
 
-| Collection | Docs | Notes |
-| ---------- | ---- | ----- |
-| `users` | 3 | email unique index |
-| `products` | 4 | sku unique index |
-| `orders` | 3 | refs users by email |
-| `order_items` | 4 | refs orders by orderId |
-
-## Useful commands
+Reseed:
 
 ```bash
-# shell
-docker exec -it mystique-mongo mongosh -u abc -p abc --authenticationDatabase admin
+docker cp scripts/seed/mongo_seed_mystique.js mystique-mongo:/tmp/mongo_seed_mystique.js
+docker exec mystique-mongo mongosh -u admin -p 123 --authenticationDatabase admin --file /tmp/mongo_seed_mystique.js
+```
 
-# ping
-docker exec mystique-mongo mongosh -u abc -p abc --authenticationDatabase admin --eval 'db.runCommand({ping:1})'
+| Collection | ~Docs | Relations |
+| ---------- | ----- | --------- |
+| `categories` | 20 | — |
+| `users` | 2000 | — |
+| `products` | 1500 | `categoryId` → categories |
+| `orders` | 3500 | `userId` / `userEmail` → users |
+| `order_items` | 2200 | `orderId` → orders, `productId` → products |
+| `reviews` | 780 | `userId` → users, `productId` → products |
+| **Total** | **10000** | |
 
-# stop / start
-docker stop mystique-mongo
-docker start mystique-mongo
+### Try in Query canvas
+
+```js
+db.users.find()
+db.orders.find({ status: "paid" })
+db.order_items.find({ orderNumber: "ORD-000001" })
+db.users.find({ _id: ObjectId("…paste from results…") })
+```
+
+## Shell
+
+```bash
+docker exec -it mystique-mongo mongosh -u admin -p 123 --authenticationDatabase admin mystique
 ```

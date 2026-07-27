@@ -31,6 +31,9 @@ cd "$ROOT"
 # and occasionally leave the webview at 1× scale on large monitors.
 if [ "$(uname -s)" = "Linux" ]; then
   export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
+  # Prefer a compact mouse cursor (large HiDPI cursors look huge in the webview).
+  # Override with XCURSOR_SIZE=24 (etc.) if you want bigger.
+  export XCURSOR_SIZE="${XCURSOR_SIZE:-16}"
   # Soft fallback when no DRM GPU is available (VMs / remote desktops).
   if [ ! -e /dev/dri/renderD128 ] && [ ! -e /dev/dri/card0 ]; then
     export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"

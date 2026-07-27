@@ -13,7 +13,13 @@ use crate::session::MongoSession;
 
 pub struct MongoConnector;
 
-async fn build_client(config: &ConnectionConfig) -> ConnectorResult<Client> {
+/// Build a Mongo client and resolve the default application database.
+///
+/// Default DB resolution order:
+/// 1. explicit `pluginConfig.database`
+/// 2. path segment in the connection URI (`…/mystique?…`)
+/// 3. `None` (caller / explorer must pick a database)
+async fn build_client(config: &ConnectionConfig) -> ConnectorResult<(Client, Option<String>)> {
     let mut options = if let Some(uri) = config.str_field("uri") {
         ClientOptions::parse(&uri)
             .await
@@ -61,7 +67,30 @@ async fn build_client(config: &ConnectionConfig) -> ConnectorResult<Client> {
 
     options.app_name = Some("MystiqueDB".into());
 
-    Client::with_options(options).map_err(|e| ConnectorError::Connect(e.to_string()))
+    let default_db = config
+        .str_field("database")
+        .filter(|s| !s.is_empty())
+        .or_else(|| options.default_database.clone())
+        .or_else(|| config.str_field("uri").and_then(|u| database_from_mongo_uri(&u)));
+
+    let client = Client::with_options(options).map_err(|e| ConnectorError::Connect(e.to_string()))?;
+    Ok((client, default_db))
+}
+
+/// Extract `/dbname` from a mongodb:// or mongodb+srv:// URI (before `?` / `#`).
+fn database_from_mongo_uri(uri: &str) -> Option<String> {
+    let rest = uri
+        .strip_prefix("mongodb://")
+        .or_else(|| uri.strip_prefix("mongodb+srv://"))?;
+    // Authority ends at first `/` that starts the path (not credentials@host).
+    let after_at = rest.rsplit_once('@').map(|(_, host_path)| host_path).unwrap_or(rest);
+    let path = after_at.split_once('/')?.1;
+    let name = path.split(['?', '#']).next()?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
 }
 
 #[async_trait]
@@ -95,10 +124,14 @@ impl DatabaseConnector for MongoConnector {
                 field_type: FormFieldType::Uri,
                 required: true,
                 secret: true,
-                default: Some(serde_json::json!("mongodb://127.0.0.1:27017")),
-                placeholder: Some("mongodb://user:pass@127.0.0.1:27017/mydb".into()),
+                default: Some(serde_json::json!(
+                    "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin"
+                )),
+                placeholder: Some(
+                    "mongodb://user:pass@127.0.0.1:27017/mydb?authSource=admin".into(),
+                ),
                 hint: Some(
-                    "Credentials and TLS options belong in the URI (mongodb:// or mongodb+srv://)."
+                    "Include the database path (e.g. /mystique) so the explorer and finds target the right DB. Credentials and TLS options belong in the URI."
                         .into(),
                 ),
             }],
@@ -107,7 +140,7 @@ impl DatabaseConnector for MongoConnector {
 
     async fn test_connection(&self, config: &ConnectionConfig) -> ConnectorResult<TestResult> {
         let start = Instant::now();
-        let client = build_client(config).await?;
+        let (client, default_db) = build_client(config).await?;
         client
             .database("admin")
             .run_command(doc! { "ping": 1 })
@@ -121,12 +154,17 @@ impl DatabaseConnector for MongoConnector {
             .ok()
             .and_then(|d| d.get_str("version").ok().map(|s| s.to_string()));
 
+        let message = match default_db.as_deref() {
+            Some(db) => format!("Connected (default db: {db})"),
+            None => "Connected (no default database in URI — pick one in the explorer)".into(),
+        };
+
         Ok(TestResult {
             ok: true,
             engine: "mongodb".into(),
             server_version: version,
             latency_ms: start.elapsed().as_millis() as u64,
-            message: "Connected".into(),
+            message,
         })
     }
 
@@ -134,14 +172,13 @@ impl DatabaseConnector for MongoConnector {
         &self,
         config: &ConnectionConfig,
     ) -> ConnectorResult<Box<dyn ConnectorSession>> {
-        let client = build_client(config).await?;
+        let (client, default_db) = build_client(config).await?;
         client
             .database("admin")
             .run_command(doc! { "ping": 1 })
             .await
             .map_err(|e| ConnectorError::Connect(e.to_string()))?;
 
-        let default_db = config.str_field("database");
         Ok(Box::new(MongoSession::new(
             client,
             config.pool.max_size,
@@ -162,13 +199,10 @@ mod live_tests {
         let config = ConnectionConfig {
             engine: "mongodb".into(),
             plugin_config: json!({
-                "host": "127.0.0.1",
-                "port": 27017,
-                "database": "mystique_dev",
-                "username": "abc",
-                "authSource": "admin"
+                "uri": "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin",
+                "database": "mystique",
             }),
-            password: Some("abc".into()),
+            password: None,
             pool: PoolConfig {
                 max_size: 2,
                 min_idle: 0,
