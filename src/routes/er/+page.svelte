@@ -75,15 +75,16 @@
       <FamilyPicker onselect={(f) => (family = f)} onback={goHome} />
     </div>
   {:else}
-    <div class="relative min-h-0 flex-1">
-      <div class="absolute top-0 right-4 z-10 pt-2.5">
-        <ThemeToggle preference={themePref} onchange={setThemePref} />
-      </div>
+    <div class="min-h-0 flex-1">
       <ErWorkspace
         {family}
         onback={goHome}
         onchangeFamily={() => (family = null)}
-      />
+      >
+        {#snippet toolbarEnd()}
+          <ThemeToggle preference={themePref} onchange={setThemePref} />
+        {/snippet}
+      </ErWorkspace>
     </div>
   {/if}
 </div>
