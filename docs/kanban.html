@@ -296,6 +296,7 @@
       <span>track progress · FE / BE</span>
     </h1>
     <div class="meta">
+      <span>Updated 2026-07-27</span>
       <span>Sources: PRD · Architecture · Features</span>
       <a href="./PRD.md">PRD.md</a>
       <a href="./KANBAN.md">KANBAN.md</a>
@@ -453,11 +454,60 @@
       },
       {
         id: "T-DEV-MONGO",
-        title: "Local MongoDB docker seed (abc/abc)",
+        title: "Local MongoDB docker seed (mystique 10k)",
         column: "deployed",
         tags: ["be", "docs", "p1"],
-        description: "Docker mongo:7 on :27017, root abc/abc, DB mystique_dev with users/products/orders/order_items samples.",
+        description: "Docker mongo:7 :27017. App user admin/123 authSource=admin; seed DB mystique (~10k docs: categories/users/products/orders/order_items/reviews). Legacy mystique_dev still present. scripts/seed/mongo_seed_mystique.js.",
         related: "docs/DEV_MONGO.md · container mystique-mongo",
+      },
+      {
+        id: "T-DEV-MYSQL",
+        title: "Local MySQL docker seed docs + SQL",
+        column: "deployed",
+        tags: ["be", "docs", "p1"],
+        description: "DEV_MYSQL.md + scripts/seed/mysql_seed_mystique.sql for local MySQL dummy data. Plugin landed (T-BE-050 QA).",
+        related: "docs/DEV_MYSQL.md · scripts/seed/",
+      },
+      {
+        id: "T-FE-QUERY-RESULTS",
+        title: "Query results: 25-row pagination + CSV/PDF export",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "QueryCanvas pages results 25/page (Prev/Next). Export full result set as CSV (UTF-8 BOM) or multi-page landscape PDF. DataGrid default 25/page + same export for filtered rows. utils/exportTable.ts.",
+        related: "QueryCanvas · DataGrid · exportTable.ts · T-FE-012 · T-FE-014",
+      },
+      {
+        id: "T-FE-LIVE-CATALOG",
+        title: "Live Mongo explorer catalog + session rebind",
+        column: "deployed",
+        tags: ["fe", "be", "p0"],
+        description: "Live explorer for Mongo + SQL (MySQL/PG/SQLite tables); session rebind; TABLE_ROWS counts on MySQL.",
+        related: "catalog.ts · WorkspaceShell · pluginConfigForSession · T-BE-030",
+      },
+      {
+        id: "T-BE-MONGO-SHELL",
+        title: "Mongo shell filter parser (ObjectId / ISODate)",
+        column: "deployed",
+        tags: ["be", "p0"],
+        description: "shell_filter.rs: unquoted keys, ObjectId(), ISODate()/Date(), NumberLong/Int, trailing commas → BSON find filter. Supports db.coll.find({…}) and bare JSON.",
+        related: "mystique-plugin-mongodb · session.rs · T-BE-030",
+      },
+      {
+        id: "T-FE-QUERY-HISTORY",
+        title: "Query history pane (append + list + re-open)",
+        column: "deployed",
+        tags: ["fe", "p1"],
+        description: "Workspace history mode lists recent runs from BE; Run appends history; open SQL/MQL back into editor. Editor undo/redo stacks (Ctrl+Z/Y).",
+        related: "history.ts · QueryListPanel · QueryCanvas · T-FE-044",
+      },
+
+      {
+        id: "T-FE-LIVE-ER",
+        title: "Live ER / Model diagram from connected database",
+        column: "deployed",
+        tags: ["fe", "be", "p0"],
+        description: "Explorer ER diagram button loads full schema map for selected DB (MySQL/PG FKs, SQLite, Mongo collections). Read-only tools chrome. Tab kind model + liveEr.ts.",
+        related: "liveEr.ts · ObjectExplorer · ErWorkspace embedded · T-BE-012 · T-FE-013",
       },
 
       // —— Deployed ——
@@ -514,7 +564,7 @@
         title: "Engine picker (Postgres / Mongo / SQLite)",
         column: "deployed",
         tags: ["fe", "p0"],
-        description: "Engine cards for new connection. V1 product targets Postgres · Mongo · MySQL — swap/add MySQL when plugin lands (SQLite demoted to later).",
+        description: "Engine cards for Postgres / Mongo / MySQL / SQLite on new connection.",
         related: "PRD §5 · NewConnectionPanel · T-BE-050",
       },
       {
@@ -550,10 +600,10 @@
       {
         id: "T-BE-003",
         title: "Per-engine query policy SPI + modes + limits",
-        column: "todo",
+        column: "deployed",
         tags: ["be", "p0"],
-        description: "EngineQueryPolicy trait in connector-api; modes Read|Write; DELETE always denied; max rows/timeout; core orchestrates validate→execute. Session manager already deployed (T-BE-004/POOL). Each engine ships its own policy impl.",
-        related: "PRD Q-3/Q-3a–d/Q-4/Q-7 · ARCHITECTURE §6.4 · depends: T-BE-001",
+        description: "EngineQueryPolicy SPI (SQL shared + Mongo). ConnectionManager validate→execute; IPC execute_engine_query. Read default, write opt-in, DELETE/drop denied; max rows/timeout; QueryResult table on FE.",
+        related: "policy.rs · manager.rs · QueryCanvas · ARCHITECTURE §6.4",
       },
       {
         id: "T-BE-004",
@@ -608,42 +658,42 @@
       {
         id: "T-BE-011",
         title: "Postgres data page + SQL execute + PostgresQueryPolicy",
-        column: "todo",
+        column: "qa",
         tags: ["be", "p0"],
-        description: "Paginated fetch_data_page; execute_query after PostgresQueryPolicy (read default; write opt-in; DELETE deny; no multi-statement); history.",
+        description: "execute_query via SQL policy works (SELECT etc.). Still TODO: formal paginated fetch_data_page SPI, richer metadata list for explorer (live SQL catalog partial).",
         related: "PRD D-*, Q-* · depends: T-BE-010, T-BE-003",
       },
       {
         id: "T-BE-012",
         title: "Postgres Model graph (ER from FKs)",
-        column: "todo",
+        column: "qa",
         tags: ["be", "p0"],
-        description: "Build ModelGraph from declared PK/FK only; no invented edges.",
+        description: "Live ER tab builds FK graph from information_schema (MySQL/PG) / pragma (SQLite). Formal ModelGraphService SPI still later.",
         related: "PRD V-* · FEATURES F-REL · depends: T-BE-010",
       },
       {
         id: "T-FE-010",
         title: "Explorer tree (relational)",
-        column: "todo",
+        column: "qa",
         tags: ["fe", "p0"],
-        description: "Schemas → tables/views → columns; search; open data tab.",
+        description: "Live SQL catalog lists tables (MySQL/PG/SQLite information_schema). Deeper column/index tree still open.",
         related: "UI_UX §7.4 · depends: T-BE-010, T-FE-003",
       },
       {
         id: "T-FE-011",
         title: "Data grid + pagination",
-        column: "todo",
+        column: "deployed",
         tags: ["fe", "p0"],
-        description: "Dense grid, null rendering, page size, sticky header.",
-        related: "PRD D-* · depends: T-BE-011",
+        description: "Grid, filters, 25–200/page, CSV/PDF. Server-side data-page SPI still optional polish.",
+        related: "DataGrid.svelte · PRD D-* · T-FE-QUERY-RESULTS",
       },
       {
         id: "T-FE-012",
         title: "Query space (editor + run + results)",
         column: "deployed",
         tags: ["fe", "p0"],
-        description: "Query canvas on connect: editor, Run, Allow writes toggle, DELETE blocked via FE policy stub. Live BE execute still T-BE-011.",
-        related: "QueryCanvas · queryPolicyFe · F-SHELL-15 · T-BE-003",
+        description: "Query canvas: editor, Run, Allow writes, FE+BE policy, live execute_engine_query, results table, 25-row pagination, CSV/PDF, undo/redo, history append, Mongo collection + database from explorer.",
+        related: "QueryCanvas · queryPolicyFe · T-BE-003 · T-FE-QUERY-RESULTS",
       },
       {
         id: "T-FE-013",
@@ -655,29 +705,29 @@
       },
       {
         id: "T-FE-014",
-        title: "Export results CSV/JSON",
-        column: "todo",
-        tags: ["fe", "be", "p0"],
-        description: "Export current grid/result set.",
-        related: "PRD D-5 · depends: T-FE-011",
+        title: "Export results CSV/PDF",
+        column: "deployed",
+        tags: ["fe", "p0"],
+        description: "Export query results + data grid as CSV or PDF (save dialog). JSON export still optional later.",
+        related: "exportTable.ts · PRD D-5 · T-FE-QUERY-RESULTS",
       },
 
       // —— MySQL / Mongo / SQLite (later) ——
       {
         id: "T-BE-050",
         title: "mystique-plugin-mysql + MysqlQueryPolicy",
-        column: "todo",
+        column: "deployed",
         tags: ["be", "p0"],
-        description: "V1 target engine. Connect/pool, metadata, data page, execute via own MySQL dialect policy (not PG copy). DELETE denied; write opt-in.",
-        related: "PRD V1 engines · ARCHITECTURE §6.4 · depends: T-BE-001, T-BE-003",
+        description: "Connect/pool (mysql_async); SqlQueryPolicy(mysql); list tables; SELECT preview; FE MySQL picker + MysqlFields + live catalog. formal MetadataService/Model-from-FKs still via live ER tab.",
+        related: "PRD V1 · plugin-mysql · catalog.ts · DEV_MYSQL.md · depends: T-BE-001, T-BE-003",
       },
       {
         id: "T-BE-030",
         title: "mystique-plugin-mongodb + MongoQueryPolicy",
-        column: "todo",
+        column: "qa",
         tags: ["be", "p0"],
-        description: "V1 target. Connect, list DBs/collections, document preview, find/aggregate; MongoQueryPolicy (read default; write opt-in; delete/drop denied).",
-        related: "PRD V1 · ARCHITECTURE §6.4 · depends: T-BE-001, T-BE-003",
+        description: "Connect/pool; MongoQueryPolicy; find + shell filters; listDatabases/listCollections; default DB from URI path; database override on execute. Still open: aggregate pipeline execute, formal MetadataService, Model graph.",
+        related: "PRD V1 · shell_filter · session.rs · T-BE-MONGO-SHELL · T-FE-LIVE-CATALOG",
       },
       {
         id: "T-BE-031",
@@ -724,18 +774,18 @@
       {
         id: "T-FE-040",
         title: "Browser-like workspace tabs",
-        column: "todo",
+        column: "qa",
         tags: ["fe", "p0"],
-        description: "Unlimited tabs per connection; table/query/model; dirty indicator.",
-        related: "F-TAB-1–4 · depends: T-FE-003",
+        description: "Per-connection Query + table tabs, activate/close, query drafts. Still open: dirty indicators, overflow menu, model tabs.",
+        related: "WorkspaceShell · workspace-session · F-TAB-1–4",
       },
       {
         id: "T-FE-041",
         title: "Row detail right panel",
-        column: "todo",
+        column: "qa",
         tags: ["fe", "p0"],
-        description: "Vertical field list; prev/next; JSON expand; resize/collapse.",
-        related: "F-ROW-1–6 · depends: T-FE-011",
+        description: "RowInspector for selected grid row with field edits. Still open: prev/next, JSON expand polish, resize.",
+        related: "RowInspector · F-ROW-1–6 · T-FE-011",
       },
       {
         id: "T-FE-042",
@@ -756,10 +806,10 @@
       {
         id: "T-FE-044",
         title: "Query history UI",
-        column: "todo",
+        column: "deployed",
         tags: ["fe", "p1"],
-        description: "Browse past runs; re-run; filter by connection.",
-        related: "depends: T-BASE-003, T-FE-012",
+        description: "History list + re-open + append for all engines (MySQL/PG/Mongo/SQLite). Optimistic UI, badge count, table-preview logging. Search/filter polish optional later.",
+        related: "T-FE-QUERY-HISTORY · depends: T-BASE-003, T-FE-012",
       },
       {
         id: "T-FE-045",
