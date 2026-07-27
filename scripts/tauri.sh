@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Optional Unix helper. package.json uses scripts/tauri.mjs (cross-platform; works
+# on Windows PowerShell without bash/WSL). Prefer: yarn tauri / yarn tauri:dev
 # Ensure Rust/Cargo are on PATH for npm scripts (they often skip .bashrc).
 set -euo pipefail
 
