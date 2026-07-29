@@ -295,6 +295,148 @@ async function loadMysqlCatalog(
   });
 }
 
+/** Column type / nullability / enum labels from information_schema. */
+type ColumnMetaExtra = {
+  type: string;
+  nullable: boolean;
+  pk: boolean;
+  enumValues?: string[];
+};
+
+async function loadMysqlColumnMeta(
+  sessionId: string,
+  database: string,
+  tableName: string,
+): Promise<Map<string, ColumnMetaExtra>> {
+  const db = database.replace(/'/g, "''");
+  const tbl = tableName.replace(/'/g, "''");
+  const sql = `SELECT column_name, column_type, is_nullable, column_key
+    FROM information_schema.columns
+    WHERE table_schema = '${db}' AND table_name = '${tbl}'
+    ORDER BY ordinal_position`;
+  const result = await executeEngineQuery({
+    sessionId,
+    text: sql,
+    maxRows: 500,
+  });
+  const nameI = colIndex(result, "column_name");
+  const typeI = colIndex(result, "column_type");
+  const nullI = colIndex(result, "is_nullable");
+  const keyI = colIndex(result, "column_key");
+  const map = new Map<string, ColumnMetaExtra>();
+  for (const row of result.rows) {
+    const name = cellStr(row[nameI]);
+    if (!name) continue;
+    const columnType = cellStr(row[typeI]);
+    const nullable = cellStr(row[nullI]).toUpperCase() !== "NO";
+    const pk = cellStr(row[keyI]).toUpperCase() === "PRI";
+    let enumValues: string[] | undefined;
+    const m = columnType.match(/^(enum|set)\s*\(/i);
+    if (m) {
+      const parsed = columnType.match(/'((?:\\'|[^'])*)'/g);
+      if (parsed) {
+        enumValues = parsed.map((s) =>
+          s.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, "\\"),
+        );
+      }
+    }
+    map.set(name, {
+      type: columnType || "unknown",
+      nullable,
+      pk,
+      enumValues,
+    });
+  }
+  return map;
+}
+
+async function loadPostgresColumnMeta(
+  sessionId: string,
+  schema: string,
+  tableName: string,
+): Promise<Map<string, ColumnMetaExtra>> {
+  const sch = (schema || "public").replace(/'/g, "''");
+  const tbl = tableName.replace(/'/g, "''");
+  // format_type + enum labels for USER-DEFINED enums
+  const sql = `SELECT
+      c.column_name,
+      c.data_type,
+      c.udt_name,
+      c.is_nullable,
+      c.column_default,
+      (
+        SELECT string_agg(e.enumlabel, E'\\x1f' ORDER BY e.enumsortorder)
+        FROM pg_catalog.pg_type t
+        JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
+        JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+        WHERE t.typname = c.udt_name
+          AND (n.nspname = c.udt_schema OR c.udt_schema IS NULL)
+      ) AS enum_labels,
+      (
+        SELECT COUNT(*) > 0
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+          AND tc.table_schema = c.table_schema
+          AND tc.table_name = c.table_name
+          AND kcu.column_name = c.column_name
+      ) AS is_pk
+    FROM information_schema.columns c
+    WHERE c.table_schema = '${sch}' AND c.table_name = '${tbl}'
+    ORDER BY c.ordinal_position`;
+  const result = await executeEngineQuery({
+    sessionId,
+    text: sql,
+    maxRows: 500,
+  });
+  const nameI = colIndex(result, "column_name");
+  const dataI = colIndex(result, "data_type");
+  const udtI = colIndex(result, "udt_name");
+  const nullI = colIndex(result, "is_nullable");
+  const enumI = colIndex(result, "enum_labels");
+  const pkI = colIndex(result, "is_pk");
+  const map = new Map<string, ColumnMetaExtra>();
+  for (const row of result.rows) {
+    const name = cellStr(row[nameI]);
+    if (!name) continue;
+    const dataType = cellStr(row[dataI]);
+    const udt = cellStr(row[udtI]);
+    const typeLabel =
+      dataType.toLowerCase() === "user-defined" && udt
+        ? udt
+        : dataType || udt || "unknown";
+    const nullable = cellStr(row[nullI]).toUpperCase() !== "NO";
+    const pkRaw = row[pkI];
+    const pk =
+      pkRaw === true ||
+      pkRaw === "t" ||
+      pkRaw === "true" ||
+      pkRaw === 1 ||
+      String(pkRaw).toLowerCase() === "true";
+    let enumValues: string[] | undefined;
+    const labels = cellStr(row[enumI]);
+    if (labels) {
+      // string_agg with unit separator, or Postgres array text
+      enumValues = labels.includes("\x1f")
+        ? labels.split("\x1f").filter(Boolean)
+        : labels
+            .replace(/^\{|\}$/g, "")
+            .split(",")
+            .map((s) => s.replace(/^"|"$/g, "").trim())
+            .filter(Boolean);
+    }
+    map.set(name, {
+      type: typeLabel,
+      nullable,
+      pk,
+      enumValues: enumValues && enumValues.length > 0 ? enumValues : undefined,
+    });
+  }
+  return map;
+}
+
 /** Fetch a page of rows for a table/collection and merge into TableMeta. */
 export async function loadTablePreview(
   sessionId: string,
@@ -304,6 +446,7 @@ export async function loadTablePreview(
 ): Promise<TableMeta> {
   const e = engine.toLowerCase();
   let result: QueryResult;
+  let meta = new Map<string, ColumnMetaExtra>();
 
   if (e === "mongodb") {
     result = await executeEngineQuery({
@@ -328,6 +471,12 @@ export async function loadTablePreview(
       text: `SELECT * FROM ${qualified} LIMIT ${maxRows + 1}`,
       maxRows,
     });
+    try {
+      const db = table.schema || table.database;
+      if (db) meta = await loadMysqlColumnMeta(sessionId, db, table.name);
+    } catch (err) {
+      console.warn("[mystique] mysql column meta:", err);
+    }
   } else {
     const qualified =
       table.schema && table.schema.length > 0
@@ -342,20 +491,38 @@ export async function loadTablePreview(
       text: sql,
       maxRows,
     });
+    if (e === "postgres" || e === "postgresql" || e === "pg") {
+      try {
+        meta = await loadPostgresColumnMeta(
+          sessionId,
+          table.schema || "public",
+          table.name,
+        );
+      } catch (err) {
+        console.warn("[mystique] postgres column meta:", err);
+      }
+    }
   }
 
-  return queryResultToTableMeta(table, result);
+  return queryResultToTableMeta(table, result, meta);
 }
 
 export function queryResultToTableMeta(
   base: TableMeta,
   result: QueryResult,
+  meta?: Map<string, ColumnMetaExtra>,
 ): TableMeta {
-  const columns: ColumnDef[] = result.columns.map((c) => ({
-    name: c.name,
-    type: c.dataType ?? "unknown",
-    pk: c.name === "_id" || c.name === "id",
-  }));
+  const columns: ColumnDef[] = result.columns.map((c) => {
+    const extra = meta?.get(c.name);
+    const type = extra?.type || c.dataType || "unknown";
+    return {
+      name: c.name,
+      type,
+      nullable: extra?.nullable ?? true,
+      pk: extra?.pk ?? (c.name === "_id" || c.name === "id"),
+      enumValues: extra?.enumValues,
+    };
+  });
 
   const rows: Record<string, unknown>[] = result.rows.map((cells) => {
     const obj: Record<string, unknown> = {};

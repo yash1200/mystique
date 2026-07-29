@@ -49,7 +49,8 @@
             <span class="text-success">success</span>
             {#if history.rowCount != null}
               <span aria-hidden="true"> · </span>
-              <span class="font-mono tabular-nums">{history.rowCount} rows</span>
+              <span class="font-mono tabular-nums">{history.rowCount} rows</span
+              >
             {/if}
           {:else}
             <span aria-hidden="true"> · </span>
@@ -80,8 +81,7 @@
 
   <div class="min-h-0 flex-1 overflow-auto p-3">
     <pre
-      class="m-0 rounded-md border border-line bg-panel p-3 font-mono text-label leading-relaxed text-fg whitespace-pre-wrap"
-    >{sql}</pre>
+      class="m-0 rounded-md border border-line bg-panel p-3 font-mono text-label leading-relaxed text-fg whitespace-pre-wrap">{sql}</pre>
     {#if kind === "history" && history?.error}
       <div
         class="mt-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-label text-danger"

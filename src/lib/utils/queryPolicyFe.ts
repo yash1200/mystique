@@ -23,14 +23,12 @@ function firstSqlKeyword(sql: string): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
-function hasMultipleSqlStatements(sql: string): boolean {
-  const cleaned = stripSqlComments(sql);
-  // Trailing semicolon only is OK; more than one non-empty segment is not.
-  const parts = cleaned
+/** Split a SQL batch into statements (`;`-separated). Multi-statement is allowed. */
+export function splitSqlStatements(sql: string): string[] {
+  return stripSqlComments(sql)
     .split(";")
     .map((p) => p.trim())
     .filter(Boolean);
-  return parts.length > 1;
 }
 
 const SQL_READ = new Set([
@@ -41,22 +39,32 @@ const SQL_READ = new Set([
   "desc",
   "explain",
   "values",
+  "pragma",
+  "table",
+]);
+/** Session utilities (search_path, USE, BEGIN, …) — allowed without write mode. */
+const SQL_SESSION = new Set([
+  "set",
+  "reset",
+  "use",
+  "begin",
+  "start",
+  "commit",
+  "rollback",
+  "savepoint",
+  "release",
+  "discard",
+  "deallocate",
+  "prepare",
+  "execute",
+  "listen",
+  "unlisten",
+  "notify",
 ]);
 const SQL_WRITE = new Set(["insert", "update", "replace", "merge"]);
 const SQL_DELETE = new Set(["delete", "truncate", "drop", "alter", "create", "grant", "revoke"]);
 
-function validateSql(text: string, mode: QueryMode): FePolicyResult {
-  const cleaned = stripSqlComments(text);
-  if (!cleaned) {
-    return { ok: false, code: "empty", message: "Query is empty." };
-  }
-  if (hasMultipleSqlStatements(text)) {
-    return {
-      ok: false,
-      code: "multi_statement",
-      message: "Multi-statement SQL is not allowed. Run one statement at a time.",
-    };
-  }
+function validateOneSql(text: string, mode: QueryMode): FePolicyResult {
   const kw = firstSqlKeyword(text);
   if (!kw) {
     return {
@@ -75,6 +83,9 @@ function validateSql(text: string, mode: QueryMode): FePolicyResult {
   if (SQL_READ.has(kw)) {
     return { ok: true, summary: `Read SQL (${kw.toUpperCase()}) allowed.` };
   }
+  if (SQL_SESSION.has(kw)) {
+    return { ok: true, summary: `Session SQL (${kw.toUpperCase()}) allowed.` };
+  }
   if (SQL_WRITE.has(kw)) {
     if (mode === "read") {
       return {
@@ -90,6 +101,26 @@ function validateSql(text: string, mode: QueryMode): FePolicyResult {
     code: "unparsed",
     message: `Statement type “${kw.toUpperCase()}” is not allowed in this mode.`,
   };
+}
+
+function validateSql(text: string, mode: QueryMode): FePolicyResult {
+  const stmts = splitSqlStatements(text);
+  if (stmts.length === 0) {
+    return { ok: false, code: "empty", message: "Query is empty." };
+  }
+  let lastOk: FePolicyResult = { ok: true, summary: "SQL allowed." };
+  for (const stmt of stmts) {
+    const r = validateOneSql(stmt, mode);
+    if (!r.ok) return r;
+    lastOk = r;
+  }
+  if (stmts.length > 1 && lastOk.ok) {
+    return {
+      ok: true,
+      summary: `${stmts.length} statements · last: ${lastOk.summary}`,
+    };
+  }
+  return lastOk;
 }
 
 function validateMongo(text: string, mode: QueryMode): FePolicyResult {

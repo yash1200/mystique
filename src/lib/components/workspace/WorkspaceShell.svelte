@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { workspaceSession } from "$lib/stores/workspace-session.svelte";
   import { mockCatalogForEngine } from "$lib/data/mock-workspace";
@@ -20,32 +21,22 @@
     preferDatabase,
   } from "$lib/api/catalog";
   import { openEngineSession } from "$lib/api/engines";
-  import {
-    familyForEngine,
-    loadLiveErDiagram,
-  } from "$lib/api/liveEr";
+  import { loadLiveErDiagram } from "$lib/api/liveEr";
   import { isTauri } from "$lib/api/tauri";
-  import {
-    configStr,
-    databaseFromMongoUri,
-    pluginConfigForSession,
-  } from "$lib/types/connection";
+  import { pluginConfigForSession } from "$lib/types/connection";
   import type { ConnectionProfile } from "$lib/types/connection";
+  import {
+    preferredDbForProfile,
+    isSessionMissingError,
+    modelCacheKey,
+  } from "./shell/sessionUtils";
+  import { previewBodyForTable } from "./shell/tablePreviewSql";
+  import { mountWorkspaceShortcuts } from "./shell/workspaceShortcuts";
   import type { ErDiagramState } from "$lib/types/er";
   import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
-  import { EmptyState } from "$lib/components/ui";
-  import ErWorkspace from "$lib/components/er/ErWorkspace.svelte";
-  import SessionsRail, {
-    type SideNavMode,
-  } from "./SessionsRail.svelte";
-  import ObjectExplorer from "./ObjectExplorer.svelte";
-  import QueryListPanel from "./QueryListPanel.svelte";
-  import QueryPreview from "./QueryPreview.svelte";
-  import QueryCanvas from "./QueryCanvas.svelte";
-  import TableTabs from "./TableTabs.svelte";
-  import DataGrid from "./DataGrid.svelte";
-  import RowInspector from "./RowInspector.svelte";
-  import WorkspaceEmpty from "./WorkspaceEmpty.svelte";
+  import SessionsRail, { type SideNavMode } from "./SessionsRail.svelte";
+  import WorkspaceSidePane from "./shell/WorkspaceSidePane.svelte";
+  import WorkspaceMainPane from "./shell/WorkspaceMainPane.svelte";
 
   const sessions = $derived(workspaceSession.sessions);
   const activeId = $derived(workspaceSession.activeConnectionId);
@@ -86,30 +77,6 @@
   let modelLoading = $state(false);
   let modelError = $state<string | null>(null);
 
-  function preferredDbForProfile(profile: {
-    engine: string;
-    pluginConfig?: Record<string, unknown>;
-  }): string | null {
-    // Use the same normalization as session open (URI path, legacy host fields).
-    try {
-      const cfg = pluginConfigForSession(profile as ConnectionProfile);
-      const explicit = configStr(cfg, "database").trim();
-      if (explicit) return explicit;
-      if (String(profile.engine).toLowerCase() === "mongodb") {
-        return databaseFromMongoUri(configStr(cfg, "uri"));
-      }
-    } catch {
-      /* fall through */
-    }
-    const cfg = profile.pluginConfig ?? {};
-    const explicit = configStr(cfg, "database").trim();
-    if (explicit) return explicit;
-    if (String(profile.engine).toLowerCase() === "mongodb") {
-      return databaseFromMongoUri(configStr(cfg, "uri"));
-    }
-    return null;
-  }
-
   /** Open / re-open a pooled engine session for a profile (fixes stale old connections). */
   async function reopenEngineSession(
     profile: ConnectionProfile,
@@ -125,11 +92,6 @@
     });
     workspaceSession.connect(profile, session.sessionId);
     return session.sessionId;
-  }
-
-  function isSessionMissingError(err: unknown): boolean {
-    const msg = err instanceof Error ? err.message : String(err);
-    return /session not found/i.test(msg);
   }
 
   async function ensureLiveCatalog(
@@ -194,7 +156,10 @@
         catalogError = e instanceof Error ? e.message : String(e);
       }
       // Do not leave mock data sitting as if it were live for Tauri sessions.
-      if (!catalogs[connectionId] || isMockCatalog(engine, catalogs[connectionId])) {
+      if (
+        !catalogs[connectionId] ||
+        isMockCatalog(engine, catalogs[connectionId])
+      ) {
         catalogs = {
           ...catalogs,
           [connectionId]: [],
@@ -227,10 +192,11 @@
       if (list.length > 0 && !selectedDb[id]) {
         selectedDb = {
           ...selectedDb,
-          [id]: preferDatabase(
-            list.map((d) => d.name),
-            preferred,
-          ) || list[0].name,
+          [id]:
+            preferDatabase(
+              list.map((d) => d.name),
+              preferred,
+            ) || list[0].name,
         };
       }
       return;
@@ -251,9 +217,7 @@
     })();
   });
 
-  const databases = $derived(
-    activeId ? (catalogs[activeId] ?? []) : [],
-  );
+  const databases = $derived(activeId ? (catalogs[activeId] ?? []) : []);
 
   const currentDatabaseName = $derived(
     activeId ? (selectedDb[activeId] ?? databases[0]?.name ?? "") : "",
@@ -261,9 +225,7 @@
 
   /** Tabs belonging to the active connection (query + tables). */
   const connectionTabs = $derived(
-    activeId
-      ? openTabs.filter((t) => t.connectionId === activeId)
-      : [],
+    activeId ? openTabs.filter((t) => t.connectionId === activeId) : [],
   );
 
   const activeTab = $derived(
@@ -276,7 +238,9 @@
     }
     const cat = catalogs[activeTab.connectionId];
     if (!cat) {
-      const session = sessions.find((s) => s.profile.id === activeTab.connectionId);
+      const session = sessions.find(
+        (s) => s.profile.id === activeTab.connectionId,
+      );
       if (!session) return null;
       const list = mockCatalogForEngine(String(session.profile.engine));
       for (const d of list) {
@@ -356,11 +320,7 @@
     }
     const entry = entryFromItem(item);
     // Only show for active connection (or global if none).
-    if (
-      activeId &&
-      entry.connectionId &&
-      entry.connectionId !== activeId
-    ) {
+    if (activeId && entry.connectionId && entry.connectionId !== activeId) {
       return;
     }
     queryHistory = [
@@ -403,7 +363,11 @@
         !queryHistory.some((h) => h.id === selectedHistoryId)
       ) {
         selectedHistoryId = queryHistory[0]?.id ?? null;
-      } else if (!selectedHistoryId && sideMode === "history" && queryHistory[0]) {
+      } else if (
+        !selectedHistoryId &&
+        sideMode === "history" &&
+        queryHistory[0]
+      ) {
         selectedHistoryId = queryHistory[0].id;
       }
     } catch (e) {
@@ -468,26 +432,7 @@
       // Log table preview as history so Explore clicks show up next to Query runs.
       if (isTauri()) {
         const e = engine.toLowerCase();
-        let body: string;
-        if (e === "mongodb" || e === "mongo") {
-          const db = table.database ? `${table.database}.` : "";
-          body = `// preview\ndb.${db}${table.name}.find({})`;
-        } else if (e === "mysql" || e === "mariadb") {
-          const tick = (id: string) => `\`${id.replace(/`/g, "``")}\``;
-          const q =
-            table.schema || table.database
-              ? `${tick(table.schema || table.database)}.${tick(table.name)}`
-              : tick(table.name);
-          body = `SELECT * FROM ${q} LIMIT 100`;
-        } else if (e === "sqlite") {
-          body = `SELECT * FROM "${table.name.replace(/"/g, '""')}" LIMIT 100`;
-        } else {
-          const q =
-            table.schema && table.schema.length > 0
-              ? `"${table.schema.replace(/"/g, '""')}"."${table.name.replace(/"/g, '""')}"`
-              : `"${table.name.replace(/"/g, '""')}"`;
-          body = `SELECT * FROM ${q} LIMIT 100`;
-        }
+        const body = previewBodyForTable(engine, table);
         try {
           const item = await appendQueryHistory({
             connectionId: activeId,
@@ -516,10 +461,6 @@
     selectedDb = { ...selectedDb, [activeId]: name };
   }
 
-  function modelCacheKey(connectionId: string, database: string): string {
-    return `${connectionId}::${database.trim() || "_"}`;
-  }
-
   /** Open live ER / model diagram for the currently selected database. */
   async function openModelDiagram(force = false) {
     if (!activeSession || !activeId) return;
@@ -539,11 +480,7 @@
 
     // Reuse cache when switching back to the tab; force rebuild when user
     // clicks “ER diagram” while already viewing this model.
-    if (
-      !force &&
-      !alreadyOpen &&
-      liveModels[key]?.diagram?.nodes?.length
-    ) {
+    if (!force && !alreadyOpen && liveModels[key]?.diagram?.nodes?.length) {
       modelError = null;
       return;
     }
@@ -691,6 +628,25 @@
     if (!tab || tab.kind !== "table" || !tab.tableId) return;
     workspaceSession.selectRow(tab.connectionId, tab.tableId, index);
   }
+
+  function shortcutNewQuery() {
+    const id = workspaceSession.activeConnectionId;
+    if (!id) return;
+    sideMode = "explorer";
+    workspaceSession.openNewQuery(id);
+  }
+
+  function shortcutCloseTab() {
+    workspaceSession.closeActiveTab();
+  }
+
+  onMount(() =>
+    mountWorkspaceShortcuts({
+      onNewQuery: shortcutNewQuery,
+      onCloseTab: shortcutCloseTab,
+      isTauri: isTauri(),
+    }),
+  );
 </script>
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
@@ -710,7 +666,6 @@
       selectedDb = restDb;
       liveCatalogKey = restKey;
       catalogLoadInFlight = restFlight;
-      // Drop cached live models for this connection
       const nextModels: typeof liveModels = {};
       for (const [k, v] of Object.entries(liveModels)) {
         if (!k.startsWith(`${id}::`)) nextModels[k] = v;
@@ -722,223 +677,54 @@
     onmode={setSideMode}
   />
 
-  {#if sideMode === "saved-queries"}
-    <QueryListPanel
-      mode="saved-queries"
-      savedQueries={MOCK_SAVED_QUERIES}
-      history={queryHistory}
-      selectedId={selectedQueryId}
-      onselect={(id) => {
-        selectedQueryId = id;
-      }}
-    />
-  {:else if sideMode === "history"}
-    <QueryListPanel
-      mode="history"
-      savedQueries={MOCK_SAVED_QUERIES}
-      history={queryHistory}
-      selectedId={selectedHistoryId}
-      onselect={(id) => {
-        selectedHistoryId = id;
-      }}
-    />
-  {:else if activeSession}
-    <ObjectExplorer
-      engine={String(activeSession.profile.engine)}
-      {databases}
-      selectedDatabase={currentDatabaseName}
-      activeTableId={activeTableIdForExplorer}
-      {refreshing}
-      {modelLoading}
-      onselectdatabase={selectDatabase}
-      onrefresh={refreshDatabases}
-      oncreatedatabase={createDatabase}
-      onopen={openTable}
-      onopenmodel={() => void openModelDiagram(false)}
-    />
-  {:else}
-    <aside
-      class="flex w-60 shrink-0 flex-col items-center justify-center border-r border-line bg-panel px-4 text-center"
-    >
-      <p class="text-caption text-fg-muted">Select a session</p>
-    </aside>
-  {/if}
+  <WorkspaceSidePane
+    {sideMode}
+    {activeSession}
+    {databases}
+    {currentDatabaseName}
+    activeTableId={activeTableIdForExplorer}
+    {refreshing}
+    {modelLoading}
+    {queryHistory}
+    {selectedQueryId}
+    {selectedHistoryId}
+    onselectquery={(id) => (selectedQueryId = id)}
+    onselecthistory={(id) => (selectedHistoryId = id)}
+    onselectdatabase={selectDatabase}
+    onrefresh={refreshDatabases}
+    oncreatedatabase={createDatabase}
+    onopen={openTable}
+    onopenmodel={() => void openModelDiagram(false)}
+  />
 
-  <main class="flex min-w-0 flex-1 flex-col">
-    {#if sideMode === "explorer" && activeId}
-      <TableTabs
-        tabs={connectionTabs}
-        {activeTabId}
-        onactivate={(id) => workspaceSession.setActiveTab(id)}
-        onclose={(id) => workspaceSession.closeTab(id)}
-        onopenquery={() => workspaceSession.openNewQuery(activeId)}
-      />
-    {/if}
-
-    <div class="flex min-h-0 flex-1">
-      {#if sideMode === "saved-queries"}
-        {#if selectedSaved}
-          <QueryPreview
-            kind="saved"
-            saved={selectedSaved}
-            onopeneditor={(sql) => openSqlInEditor(sql)}
-          />
-        {:else}
-          <div class="flex flex-1 items-center justify-center p-8">
-            <EmptyState
-              title="Saved queries"
-              description="Pick a saved query from the list to preview its SQL."
-            />
-          </div>
-        {/if}
-      {:else if sideMode === "history"}
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-          {#if historyError}
-            <div
-              class="shrink-0 border-b border-line bg-warning/10 px-3 py-2 text-caption text-warning"
-            >
-              History load issue: {historyError}
-            </div>
-          {/if}
-          {#if selectedHistory}
-            <QueryPreview
-              kind="history"
-              history={selectedHistory}
-              onopeneditor={(sql) => openSqlInEditor(sql)}
-            />
-          {:else}
-            <div class="flex flex-1 items-center justify-center p-8">
-              <EmptyState
-                title={historyLoading ? "Loading history…" : "Query history"}
-                description={historyLoading
-                  ? "Fetching recent runs…"
-                  : queryHistory.length > 0
-                    ? "Select a run from the list on the left."
-                    : "Run a query from the Query tab (or open a table) — successful and failed runs show up here for every engine."}
-              />
-            </div>
-          {/if}
-        </div>
-      {:else if activeSession && activeTab?.kind === "query"}
-        {#key activeTab.id}
-          <QueryCanvas
-            connectionId={activeSession.profile.id}
-            connectionName={activeSession.profile.name}
-            engine={String(activeSession.profile.engine)}
-            profileReadOnly={!!activeSession.profile.readOnly}
-            engineSessionId={activeSession.engineSessionId}
-            database={currentDatabaseName}
-            text={workspaceSession.queryDrafts[activeTab.id] ?? ""}
-            writeEnabled={workspaceSession.queryWriteMode[activeTab.id] ?? false}
-            ontextchange={(v) => workspaceSession.setQueryDraft(activeTab.id, v)}
-            onwritechange={(v) =>
-              workspaceSession.setQueryWriteMode(activeTab.id, v)}
-            onhistory={(item) => prependHistoryItem(item)}
-          />
-        {/key}
-      {:else if activeSession && activeTab?.kind === "model"}
-        <div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-          {#if modelError}
-            <div
-              class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
-            >
-              {modelError}
-              <button
-                type="button"
-                class="ml-2 border-none bg-transparent text-accent underline"
-                onclick={() => void openModelDiagram(true)}
-              >
-                Retry
-              </button>
-            </div>
-          {/if}
-          {#if modelLoading && !activeModel}
-            <div class="flex flex-1 items-center justify-center p-8">
-              <EmptyState
-                title="Building diagram…"
-                description="Reading tables, columns, and foreign keys from the live database."
-              />
-            </div>
-          {:else if activeModel}
-            {#key `${activeTab.id}:${activeModel.rev}`}
-              <ErWorkspace
-                family={activeModel.diagram.family || familyForEngine(String(activeSession.profile.engine))}
-                initialDiagram={activeModel.diagram}
-                initialName={activeModel.title}
-                statusNote={activeModel.summary}
-                embedded={true}
-              />
-            {/key}
-          {:else}
-            <div class="flex flex-1 items-center justify-center p-8">
-              <EmptyState
-                title="ER diagram"
-                description="Click “ER diagram” in the explorer to build a live schema map for this database."
-              />
-            </div>
-          {/if}
-        </div>
-      {:else if activeSession && activeTab?.kind === "table"}
-        <div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-          {#if catalogError}
-            <div
-              class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
-            >
-              {catalogError}
-            </div>
-          {/if}
-          {#if gridTable}
-            {#key `${gridTable.id}:${gridTable.rows.length}:${tableLoading}`}
-              <DataGrid
-                table={gridTable}
-                selectedRowIndex={rowSelectionIndex}
-                {rowSyncTick}
-                onbaselinechange={onGridBaselineChange}
-                onselectrow={onSelectGridRow}
-              />
-            {/key}
-            {#if tableLoading}
-              <div
-                class="pointer-events-none absolute bottom-4 right-4 z-10 rounded-md border border-line bg-panel px-3 py-1.5 text-caption text-fg-muted shadow"
-              >
-                Loading live rows…
-              </div>
-            {/if}
-          {:else}
-            <div class="flex flex-1 items-center justify-center p-8">
-              <EmptyState
-                title="Table"
-                description="Loading table metadata…"
-              />
-            </div>
-          {/if}
-        </div>
-        {#if inspectorData}
-          <RowInspector
-            tableTitle={inspectorData.tableTitle}
-            columns={inspectorData.columns}
-            row={inspectorData.row}
-            rowIndex={inspectorData.rowIndex}
-            {baselineEpoch}
-            onclose={() => workspaceSession.clearRowSelection()}
-            onchange={onInspectorFieldChange}
-          />
-        {/if}
-      {:else if activeSession}
-        <WorkspaceEmpty
-          profile={activeSession.profile}
-          onnewquery={() => {
-            if (activeId) workspaceSession.openNewQuery(activeId);
-          }}
-        />
-      {:else}
-        <div class="flex flex-1 items-center justify-center p-8">
-          <EmptyState
-            title="No session selected"
-            description="Pick a connection from the rail or return home to connect."
-          />
-        </div>
-      {/if}
-    </div>
-  </main>
+  <WorkspaceMainPane
+    {sideMode}
+    {activeId}
+    {activeSession}
+    {connectionTabs}
+    {activeTabId}
+    {activeTab}
+    {currentDatabaseName}
+    {selectedSaved}
+    {selectedHistory}
+    {queryHistory}
+    {historyLoading}
+    {historyError}
+    {catalogError}
+    {modelError}
+    {modelLoading}
+    {activeModel}
+    {gridTable}
+    {tableLoading}
+    {rowSelectionIndex}
+    {rowSyncTick}
+    {baselineEpoch}
+    {inspectorData}
+    onopeneditor={openSqlInEditor}
+    onhistory={(item) => prependHistoryItem(item)}
+    onbaselinechange={onGridBaselineChange}
+    onselectrow={onSelectGridRow}
+    onopenmodelretry={() => void openModelDiagram(true)}
+    oninspectorchange={onInspectorFieldChange}
+  />
 </div>

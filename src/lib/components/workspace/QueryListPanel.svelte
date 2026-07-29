@@ -144,7 +144,9 @@
                         stroke-linejoin="round"
                       />
                     </svg>
-                    <span class="min-w-0 flex-1 truncate text-label font-medium">
+                    <span
+                      class="min-w-0 flex-1 truncate text-label font-medium"
+                    >
                       {item.name}
                     </span>
                   </span>
@@ -206,7 +208,9 @@
                 <span class="font-mono tabular-nums">{item.durationMs}ms</span>
                 {#if item.status === "success" && item.rowCount != null}
                   <span aria-hidden="true">·</span>
-                  <span class="font-mono tabular-nums">{item.rowCount} rows</span>
+                  <span class="font-mono tabular-nums"
+                    >{item.rowCount} rows</span
+                  >
                 {/if}
               </span>
             </button>

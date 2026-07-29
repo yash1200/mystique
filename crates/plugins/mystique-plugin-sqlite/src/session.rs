@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn,
-    QueryResult, ValidatedQuery,
+    split_sql_statements, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
+    PoolStatus, QueryColumn, QueryResult, ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -86,78 +86,121 @@ impl ConnectorSession for SqliteSession {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
         }
+        // Multi-statement batches: run each in order; return only the last result.
         let start = Instant::now();
         let pool = self.pool.clone();
-        let sql = query.text.trim().trim_end_matches(';').trim().to_string();
         let max_rows = query.max_rows as usize;
         let mode = query.mode;
+        let stmts = split_sql_statements(&query.text);
+        if stmts.is_empty() {
+            return Err(ConnectorError::Query("Query is empty.".into()));
+        }
 
         let result = tokio::task::spawn_blocking(move || -> ConnectorResult<QueryResult> {
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
 
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let batch_n = stmts.len();
+            let mut last: Option<QueryResult> = None;
 
-            let col_count = stmt.column_count();
-            let columns: Vec<QueryColumn> = (0..col_count)
-                .map(|i| QueryColumn {
-                    name: stmt.column_name(i).unwrap_or("?").to_string(),
-                    data_type: None,
-                })
-                .collect();
+            for (i, sql) in stmts.iter().enumerate() {
+                let lower = sql.to_ascii_lowercase();
+                let is_select_like = lower.starts_with("select")
+                    || lower.starts_with("with")
+                    || lower.starts_with("pragma")
+                    || lower.starts_with("explain")
+                    || lower.starts_with("values");
 
-            let mut rows_iter = stmt
-                .query([])
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let result = if is_select_like {
+                    let mut stmt = conn
+                        .prepare(sql)
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
 
-            let mut out_rows = Vec::new();
-            let mut truncated = false;
-            while let Some(row) = rows_iter
-                .next()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-            {
-                if out_rows.len() >= max_rows {
-                    truncated = true;
-                    break;
-                }
-                let mut cells = Vec::with_capacity(col_count);
-                for i in 0..col_count {
-                    let v = row.get_ref(i).map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    cells.push(value_ref_json(v));
-                }
-                out_rows.push(cells);
+                    let col_count = stmt.column_count();
+                    let columns: Vec<QueryColumn> = (0..col_count)
+                        .map(|j| QueryColumn {
+                            name: stmt.column_name(j).unwrap_or("?").to_string(),
+                            data_type: None,
+                        })
+                        .collect();
+
+                    let mut rows_iter = stmt
+                        .query([])
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+                    let mut out_rows = Vec::new();
+                    let mut truncated = false;
+                    while let Some(row) = rows_iter
+                        .next()
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?
+                    {
+                        if out_rows.len() >= max_rows {
+                            truncated = true;
+                            break;
+                        }
+                        let mut cells = Vec::with_capacity(col_count);
+                        for j in 0..col_count {
+                            let v = row
+                                .get_ref(j)
+                                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                            cells.push(value_ref_json(v));
+                        }
+                        out_rows.push(cells);
+                    }
+
+                    let mut message = if truncated {
+                        Some(format!("Result truncated to {max_rows} rows."))
+                    } else {
+                        None
+                    };
+                    if batch_n > 1 && i + 1 == batch_n {
+                        let note = format!("Last of {batch_n} statements.");
+                        message = Some(match message {
+                            Some(m) => format!("{m} {note}"),
+                            None => note,
+                        });
+                    }
+
+                    QueryResult {
+                        engine: "sqlite".into(),
+                        mode,
+                        columns,
+                        row_count: out_rows.len() as u64,
+                        rows: out_rows,
+                        truncated,
+                        duration_ms: 0,
+                        message,
+                    }
+                } else {
+                    conn.execute(sql, [])
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+                    let mut message = Some(
+                        "Statement executed. Tabular rows only for SELECT-like queries.".into(),
+                    );
+                    if batch_n > 1 && i + 1 == batch_n {
+                        message = Some(format!(
+                            "Statement executed; last of {batch_n} statements."
+                        ));
+                    }
+
+                    QueryResult {
+                        engine: "sqlite".into(),
+                        mode,
+                        columns: Vec::new(),
+                        row_count: 0,
+                        rows: Vec::new(),
+                        truncated: false,
+                        duration_ms: 0,
+                        message,
+                    }
+                };
+
+                last = Some(result);
             }
 
-            let lower = sql.to_ascii_lowercase();
-            let is_select_like = lower.starts_with("select")
-                || lower.starts_with("with")
-                || lower.starts_with("pragma")
-                || lower.starts_with("explain")
-                || lower.starts_with("values");
-
-            Ok(QueryResult {
-                engine: "sqlite".into(),
-                mode,
-                columns: if out_rows.is_empty() && !is_select_like {
-                    Vec::new()
-                } else {
-                    columns
-                },
-                row_count: out_rows.len() as u64,
-                rows: out_rows,
-                truncated,
-                duration_ms: 0, // filled below
-                message: if !is_select_like {
-                    Some("Statement executed. Tabular rows only for SELECT-like queries.".into())
-                } else if truncated {
-                    Some(format!("Result truncated to {max_rows} rows."))
-                } else {
-                    None
-                },
-            })
+            last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))
         })
         .await
         .map_err(|e| ConnectorError::Internal(e.to_string()))??;

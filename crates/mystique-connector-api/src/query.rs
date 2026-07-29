@@ -64,7 +64,8 @@ pub struct QueryResult {
 
 /// Defaults applied by core when client omits limits.
 pub const DEFAULT_MAX_ROWS: u32 = 500;
-pub const HARD_MAX_ROWS: u32 = 5_000;
+/// Hard ceiling for a single query fetch (query canvas uses up to this).
+pub const HARD_MAX_ROWS: u32 = 50_000;
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
 /// Validated payload handed to the plugin (never skip policy).

@@ -1,48 +1,35 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { TableMeta } from "$lib/types/workspace";
-  import { Button, IconButton, Input, Select } from "$lib/components/ui";
+  import GridFilterBar from "./grid/GridFilterBar.svelte";
+  import GridTable, { type CellRef } from "./grid/GridTable.svelte";
+  import GridStatusBar from "./grid/GridStatusBar.svelte";
   import {
-    exportRowsAsCsv,
-    exportRowsAsPdf,
-    objectsToRows,
-  } from "$lib/utils/exportTable";
-  import { cn } from "$lib/utils/cn";
+    type FilterMode,
+    type FilterOp,
+    type FilterRule,
+    opNeedsValue,
+    newRule,
+    matchRule,
+    parseCodeFilters,
+    rulesToCode,
+    cellText,
+    valuesEqual,
+    parseDraft,
+  } from "./grid/filterLogic";
+  import {
+    selectDraftToValue,
+    usesSelectEditor,
+    valueToSelectDraft,
+  } from "$lib/utils/columnEditor";
 
   interface Props {
     table: TableMeta;
     selectedRowIndex: number | null;
     onselectrow: (index: number) => void;
-    /**
-     * Bumps when another UI (row inspector) mutates `table.rows`.
-     * Re-syncs the grid without resetting the save baseline.
-     */
     rowSyncTick?: number;
-    /** Fires when the save baseline changes (save / reset / refresh only). */
     onbaselinechange?: () => void;
   }
-
-  type FilterMode = "ui" | "code";
-  type FilterOp =
-    | "eq"
-    | "neq"
-    | "gt"
-    | "gte"
-    | "lt"
-    | "lte"
-    | "contains"
-    | "starts"
-    | "ends"
-    | "is_null"
-    | "not_null"
-    | "is_empty"
-    | "not_empty";
-
-  type FilterRule = {
-    id: string;
-    column: string;
-    op: FilterOp;
-    value: string;
-  };
 
   let {
     table,
@@ -52,31 +39,28 @@
     onbaselinechange,
   }: Props = $props();
 
-  /** Last saved / server snapshot (refresh restores this). */
   let seed = $state<Record<string, unknown>[]>([]);
-  /** Working copy (edits live here + mirrored onto `table.rows`). */
   let rows = $state<Record<string, unknown>[]>([]);
-  /** Baseline for dirty detection (updated on save). */
   let originals = $state<Record<string, unknown>[]>([]);
-  /** Keys: `${rowIndex}::${columnName}` */
   let dirtyKeys = $state<Set<string>>(new Set());
-  let editing = $state<{ row: number; col: string } | null>(null);
+  /** Absolute indices of rows added locally (not yet saved). */
+  let newRowIndices = $state<Set<number>>(new Set());
+  let editing = $state<CellRef | null>(null);
+  /** Focused cell for keyboard nav / copy-paste (absolute row index). */
+  let selectedCell = $state<CellRef | null>(null);
   let draft = $state("");
-  let inputEl = $state<HTMLInputElement | null>(null);
+  let inputEl = $state<HTMLInputElement | HTMLSelectElement | null>(null);
+  let gridShellEl = $state<HTMLDivElement | null>(null);
 
   let page = $state(0);
-  let pageSize = $state(25);
+  let pageSize = $state(100);
   let refreshing = $state(false);
   let saving = $state(false);
-  let exporting = $state<"csv" | "pdf" | null>(null);
   let statusMsg = $state<string | null>(null);
 
-  /** Tracks which table the local buffers belong to. */
   let loadedTableId = $state<string | null>(null);
-  /** Last applied external sync tick. */
   let appliedSyncTick = $state(0);
 
-  /** Filter bar: visual builder vs raw expression. */
   let filterMode = $state<FilterMode>("ui");
   let filterRules = $state<FilterRule[]>([]);
   let filterCode = $state("");
@@ -89,33 +73,8 @@
     { value: "200", label: "200 / page" },
   ];
 
-  const FILTER_OPS: { value: FilterOp; label: string; needsValue: boolean }[] =
-    [
-      { value: "eq", label: "= equals", needsValue: true },
-      { value: "neq", label: "≠ not equal", needsValue: true },
-      { value: "gt", label: "> greater", needsValue: true },
-      { value: "gte", label: "≥ greater or equal", needsValue: true },
-      { value: "lt", label: "< less", needsValue: true },
-      { value: "lte", label: "≤ less or equal", needsValue: true },
-      { value: "contains", label: "contains", needsValue: true },
-      { value: "starts", label: "starts with", needsValue: true },
-      { value: "ends", label: "ends with", needsValue: true },
-      { value: "is_null", label: "is null", needsValue: false },
-      { value: "not_null", label: "is not null", needsValue: false },
-      { value: "is_empty", label: "is empty", needsValue: false },
-      { value: "not_empty", label: "is not empty", needsValue: false },
-    ];
-
-  const opOptions = FILTER_OPS.map((o) => ({
-    value: o.value,
-    label: o.label,
-  }));
-
   const columnOptions = $derived(
-    table.columns.map((c) => ({
-      value: c.name,
-      label: c.name,
-    })),
+    table.columns.map((c) => ({ value: c.name, label: c.name })),
   );
 
   const tablePath = $derived(
@@ -124,162 +83,11 @@
       : `${table.database}.${table.name}`,
   );
 
-  const dirtyCount = $derived(dirtyKeys.size);
+  /** Unsaved cell edits + newly added rows (even if still empty). */
+  const dirtyCount = $derived(dirtyKeys.size + newRowIndices.size);
 
-  function opNeedsValue(op: FilterOp): boolean {
-    return FILTER_OPS.find((o) => o.value === op)?.needsValue ?? true;
-  }
-
-  function newRule(): FilterRule {
-    return {
-      id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      column: table.columns[0]?.name ?? "",
-      op: "eq",
-      value: "",
-    };
-  }
-
-  function matchRule(row: Record<string, unknown>, rule: FilterRule): boolean {
-    if (!rule.column) return true;
-    const raw = row[rule.column];
-    const isNull = raw === null || raw === undefined;
-    const str = isNull ? "" : String(raw);
-    const needle = rule.value;
-
-    switch (rule.op) {
-      case "is_null":
-        return isNull;
-      case "not_null":
-        return !isNull;
-      case "is_empty":
-        return !isNull && str.trim() === "";
-      case "not_empty":
-        return !isNull && str.trim() !== "";
-      case "contains":
-        return str.toLowerCase().includes(needle.toLowerCase());
-      case "starts":
-        return str.toLowerCase().startsWith(needle.toLowerCase());
-      case "ends":
-        return str.toLowerCase().endsWith(needle.toLowerCase());
-      case "eq":
-        if (needle.trim().toUpperCase() === "NULL") return isNull;
-        if (typeof raw === "number" && needle.trim() !== "" && !Number.isNaN(Number(needle))) {
-          return raw === Number(needle);
-        }
-        if (typeof raw === "boolean") {
-          const n = needle.trim().toLowerCase();
-          return (
-            (raw && (n === "true" || n === "1")) ||
-            (!raw && (n === "false" || n === "0"))
-          );
-        }
-        return str === needle;
-      case "neq":
-        return !matchRule(row, { ...rule, op: "eq" });
-      case "gt":
-      case "gte":
-      case "lt":
-      case "lte": {
-        const a = typeof raw === "number" ? raw : Number(str);
-        const b = Number(needle);
-        if (Number.isNaN(a) || Number.isNaN(b)) {
-          // fallback string compare
-          if (rule.op === "gt") return str > needle;
-          if (rule.op === "gte") return str >= needle;
-          if (rule.op === "lt") return str < needle;
-          return str <= needle;
-        }
-        if (rule.op === "gt") return a > b;
-        if (rule.op === "gte") return a >= b;
-        if (rule.op === "lt") return a < b;
-        return a <= b;
-      }
-      default:
-        return true;
-    }
-  }
-
-  /** Parse simple code filters: `col = value` lines joined by AND. */
-  function parseCodeFilters(code: string): FilterRule[] | null {
-    const lines = code
-      .split(/\n+|(?:\s+AND\s+)/i)
-      .map((l) => l.trim())
-      .filter(Boolean);
-    if (lines.length === 0) return [];
-    const rules: FilterRule[] = [];
-    for (const line of lines) {
-      const m = line.match(
-        /^([A-Za-z_][\w.]*)\s*(=|!=|<>|>=|<=|>|<|contains|starts with|ends with|is null|is not null|is empty|is not empty)\s*(.*)$/i,
-      );
-      if (!m) return null;
-      const col = m[1];
-      const opRaw = m[2].toLowerCase();
-      let val = m[3].trim();
-      if (
-        (val.startsWith("'") && val.endsWith("'")) ||
-        (val.startsWith('"') && val.endsWith('"'))
-      ) {
-        val = val.slice(1, -1);
-      }
-      let op: FilterOp = "eq";
-      if (opRaw === "=") op = "eq";
-      else if (opRaw === "!=" || opRaw === "<>") op = "neq";
-      else if (opRaw === ">") op = "gt";
-      else if (opRaw === ">=") op = "gte";
-      else if (opRaw === "<") op = "lt";
-      else if (opRaw === "<=") op = "lte";
-      else if (opRaw === "contains") op = "contains";
-      else if (opRaw === "starts with") op = "starts";
-      else if (opRaw === "ends with") op = "ends";
-      else if (opRaw === "is null") op = "is_null";
-      else if (opRaw === "is not null") op = "not_null";
-      else if (opRaw === "is empty") op = "is_empty";
-      else if (opRaw === "is not empty") op = "not_empty";
-      rules.push({
-        id: `f-${rules.length}-${col}`,
-        column: col,
-        op,
-        value: val,
-      });
-    }
-    return rules;
-  }
-
-  function rulesToCode(rules: FilterRule[]): string {
-    return rules
-      .filter((r) => r.column)
-      .map((r) => {
-        const col = r.column;
-        switch (r.op) {
-          case "eq":
-            return `${col} = '${r.value}'`;
-          case "neq":
-            return `${col} != '${r.value}'`;
-          case "gt":
-            return `${col} > ${r.value}`;
-          case "gte":
-            return `${col} >= ${r.value}`;
-          case "lt":
-            return `${col} < ${r.value}`;
-          case "lte":
-            return `${col} <= ${r.value}`;
-          case "contains":
-            return `${col} contains '${r.value}'`;
-          case "starts":
-            return `${col} starts with '${r.value}'`;
-          case "ends":
-            return `${col} ends with '${r.value}'`;
-          case "is_null":
-            return `${col} is null`;
-          case "not_null":
-            return `${col} is not null`;
-          case "is_empty":
-            return `${col} is empty`;
-          case "not_empty":
-            return `${col} is not empty`;
-        }
-      })
-      .join("\nAND ");
+  function makeRule(): FilterRule {
+    return newRule(table.columns[0]?.name ?? "");
   }
 
   function activeRules(): FilterRule[] {
@@ -293,6 +101,8 @@
       return r.value.trim() !== "";
     });
   }
+
+  const hasActiveFilters = $derived(activeRules().length > 0);
 
   const filteredEntries = $derived.by(() => {
     const rules = activeRules();
@@ -322,7 +132,7 @@
       if (parsed && parsed.length > 0) {
         filterRules = parsed;
       } else if (filterRules.length === 0) {
-        filterRules = [newRule()];
+        filterRules = [makeRule()];
       }
     }
     filterMode = mode;
@@ -335,18 +145,18 @@
 
   function clearFilters() {
     filtersActive = false;
-    filterRules = [newRule()];
+    filterRules = [makeRule()];
     filterCode = "";
     page = 0;
   }
 
   function addRule() {
-    filterRules = [...filterRules, newRule()];
+    filterRules = [...filterRules, makeRule()];
   }
 
   function removeRule(id: string) {
     filterRules = filterRules.filter((r) => r.id !== id);
-    if (filterRules.length === 0) filterRules = [newRule()];
+    if (filterRules.length === 0) filterRules = [makeRule()];
   }
 
   function updateRule(id: string, patch: Partial<FilterRule>) {
@@ -357,11 +167,10 @@
 
   function updateFirstRule(patch: Partial<FilterRule>) {
     if (filterRules.length === 0) {
-      filterRules = [{ ...newRule(), ...patch }];
+      filterRules = [{ ...makeRule(), ...patch }];
       return;
     }
-    const id = filterRules[0].id;
-    updateRule(id, patch);
+    updateRule(filterRules[0].id, patch);
   }
 
   function cellKey(row: number, col: string): string {
@@ -370,18 +179,6 @@
 
   function isDirty(row: number, col: string): boolean {
     return dirtyKeys.has(cellKey(row, col));
-  }
-
-  function valuesEqual(a: unknown, b: unknown): boolean {
-    if (a === b) return true;
-    if (a == null && b == null) return true;
-    return String(a) === String(b);
-  }
-
-  function cellText(value: unknown): string {
-    if (value === null || value === undefined) return "NULL";
-    if (typeof value === "boolean") return value ? "true" : "false";
-    return String(value);
   }
 
   function recomputeDirty(
@@ -406,6 +203,7 @@
       seed = cloned.map((r) => ({ ...r }));
       originals = cloned.map((r) => ({ ...r }));
       dirtyKeys = new Set();
+      newRowIndices = new Set();
     } else {
       recomputeDirty(cloned, originals);
     }
@@ -414,7 +212,42 @@
     loadedTableId = table.id;
   }
 
-  // Load / switch table — do NOT call parent setters here (avoids update loops).
+  function blankRow(): Record<string, unknown> {
+    const row: Record<string, unknown> = {};
+    for (const col of table.columns) {
+      row[col.name] = null;
+    }
+    return row;
+  }
+
+  function addNewRow() {
+    if (editing) commitEdit();
+    const row = blankRow();
+    const idx = rows.length;
+    rows = [...rows, { ...row }];
+    table.rows.push({ ...row });
+    // Baseline equals blank so only real field edits add dirtyKeys;
+    // membership in newRowIndices keeps Save/Reset visible.
+    originals = [...originals, { ...row }];
+    seed = [...seed, { ...row }];
+    newRowIndices = new Set([...newRowIndices, idx]);
+    // Jump to last page and focus first column
+    page = Math.max(0, Math.ceil((idx + 1) / pageSize) - 1);
+    const firstCol = table.columns[0]?.name;
+    if (firstCol) {
+      selectedCell = { row: idx, col: firstCol };
+      onselectrow(idx);
+      requestAnimationFrame(() => {
+        scrollCellIntoView(idx, firstCol);
+        focusGridShell();
+      });
+    }
+    statusMsg = "Row added";
+    setTimeout(() => {
+      if (statusMsg === "Row added") statusMsg = null;
+    }, 1500);
+  }
+
   $effect(() => {
     const id = table.id;
     if (loadedTableId === id) return;
@@ -422,14 +255,12 @@
     page = 0;
     statusMsg = null;
     filtersActive = false;
-    filterRules = [newRule()];
+    filterRules = [makeRule()];
     filterCode = "";
     filterMode = "ui";
-    // Align sync cursor without tracking rowSyncTick as a dependency of this effect.
     appliedSyncTick = -1;
   });
 
-  // External edits from row inspector.
   $effect(() => {
     const tick = rowSyncTick;
     const tableId = table.id;
@@ -437,14 +268,15 @@
     if (tick === appliedSyncTick) return;
     if (editing) return;
     appliedSyncTick = tick;
-    // tick 0 on fresh mount: still safe — just re-reads same data once
     loadFromTable(false);
   });
 
   $effect(() => {
     if (editing && inputEl) {
       inputEl.focus();
-      inputEl.select();
+      if (inputEl instanceof HTMLInputElement) {
+        inputEl.select();
+      }
     }
   });
 
@@ -452,134 +284,351 @@
     if (page > totalPages - 1) page = Math.max(0, totalPages - 1);
   });
 
-  function parseDraft(raw: string, previous: unknown): unknown {
-    const t = raw.trim();
-    if (t === "" || t.toUpperCase() === "NULL") return null;
-    if (typeof previous === "boolean") {
-      const lower = t.toLowerCase();
-      if (lower === "true" || lower === "1" || lower === "yes") return true;
-      if (lower === "false" || lower === "0" || lower === "no") return false;
-    }
-    if (typeof previous === "number") {
-      const n = Number(t);
-      if (!Number.isNaN(n)) return n;
-    }
-    if (
-      previous !== null &&
-      previous !== undefined &&
-      typeof previous !== "boolean" &&
-      typeof previous !== "object" &&
-      /^-?\d+(\.\d+)?$/.test(t)
-    ) {
-      const n = Number(t);
-      if (!Number.isNaN(n)) return n;
-    }
-    return raw;
+  function columnDef(name: string) {
+    return table.columns.find((c) => c.name === name);
   }
 
-  function startEdit(row: number, col: string, e: MouseEvent) {
-    e.stopPropagation();
+  function colNames(): string[] {
+    return table.columns.map((c) => c.name);
+  }
+
+  function focusGridShell() {
+    // Defer so we don't steal focus mid-edit open.
+    queueMicrotask(() => {
+      if (!editing) gridShellEl?.focus({ preventScroll: true });
+    });
+  }
+
+  function selectCell(row: number, col: string) {
+    if (editing) {
+      if (editing.row === row && editing.col === col) return;
+      commitEdit();
+    }
+    selectedCell = { row, col };
     onselectrow(row);
-    if (editing?.row === row && editing.col === col) return;
+    focusGridShell();
+    scrollCellIntoView(row, col);
+  }
+
+  function selectRowOnly(row: number) {
+    if (editing) commitEdit();
+    selectedCell = null;
+    onselectrow(row);
+    focusGridShell();
+  }
+
+  function scrollCellIntoView(row: number, col: string) {
+    const root = gridShellEl;
+    if (!root) return;
+    const esc =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(col)
+        : col.replace(/"/g, '\\"');
+    const el = root.querySelector<HTMLElement>(
+      `[data-grid-cell][data-row="${row}"][data-col="${esc}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  /** Ensure absolute row is on the current page; change page if needed. */
+  function ensureRowVisible(absoluteRow: number) {
+    if (absoluteRow < pageStart) {
+      page = Math.floor(absoluteRow / pageSize);
+    } else if (absoluteRow >= pageEnd) {
+      page = Math.floor(absoluteRow / pageSize);
+    }
+  }
+
+  function moveSelection(dRow: number, dCol: number) {
+    const cols = colNames();
+    if (cols.length === 0 || filteredEntries.length === 0) return;
+
+    let row = selectedCell?.row ?? filteredEntries[0]!.index;
+    let colIdx = selectedCell
+      ? Math.max(0, cols.indexOf(selectedCell.col))
+      : 0;
+
+    // Map absolute row → position in filtered list
+    let filterIdx = filteredEntries.findIndex((e) => e.index === row);
+    if (filterIdx < 0) filterIdx = 0;
+
+    filterIdx = Math.max(
+      0,
+      Math.min(filteredEntries.length - 1, filterIdx + dRow),
+    );
+    colIdx = Math.max(0, Math.min(cols.length - 1, colIdx + dCol));
+
+    const nextAbs = filteredEntries[filterIdx]!.index;
+    const nextCol = cols[colIdx]!;
+    ensureRowVisible(nextAbs);
+    selectedCell = { row: nextAbs, col: nextCol };
+    onselectrow(nextAbs);
+    // Wait a frame for page change DOM
+    requestAnimationFrame(() => scrollCellIntoView(nextAbs, nextCol));
+  }
+
+  function startEdit(
+    row: number,
+    col: string,
+    e?: MouseEvent,
+    /** When set (type-to-edit), replace cell with this seed text. */
+    seedDraft?: string,
+  ) {
+    e?.stopPropagation();
+    onselectrow(row);
+    selectedCell = { row, col };
+    if (editing?.row === row && editing.col === col && seedDraft === undefined)
+      return;
     if (editing) commitEdit();
     const value = rows[row]?.[col];
+    const def = columnDef(col);
     editing = { row, col };
-    draft = value === null || value === undefined ? "" : cellText(value);
+    if (seedDraft !== undefined) {
+      draft = seedDraft;
+    } else if (def && usesSelectEditor(def, value)) {
+      draft = valueToSelectDraft(value);
+    } else {
+      draft = value === null || value === undefined ? "" : cellText(value);
+    }
   }
 
-  function commitEdit() {
-    if (!editing) return;
-    const { row, col } = editing;
+  function applyCellValue(row: number, col: string, rawText: string) {
     const prev = rows[row]?.[col];
-    const next = parseDraft(draft, prev);
+    const def = columnDef(col);
+    const next =
+      def && usesSelectEditor(def, prev)
+        ? selectDraftToValue(rawText, def, prev)
+        : parseDraft(rawText, prev);
     rows = rows.map((r, i) => (i === row ? { ...r, [col]: next } : r));
     if (table.rows[row]) {
       table.rows[row] = { ...table.rows[row], [col]: next };
     } else {
-      // Ensure array slot exists
       table.rows[row] = { ...(rows[row] ?? {}), [col]: next };
     }
-
     const key = cellKey(row, col);
     const original = originals[row]?.[col];
     const nextDirty = new Set(dirtyKeys);
     if (valuesEqual(next, original)) nextDirty.delete(key);
     else nextDirty.add(key);
     dirtyKeys = nextDirty;
+  }
 
+  function commitEdit() {
+    if (!editing) return;
+    const { row, col } = editing;
+    applyCellValue(row, col, draft);
+    selectedCell = { row, col };
     editing = null;
     draft = "";
+    focusGridShell();
   }
 
   function cancelEdit() {
+    if (!editing) return;
+    selectedCell = { row: editing.row, col: editing.col };
     editing = null;
     draft = "";
+    focusGridShell();
   }
 
   function onInputKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
+      e.stopPropagation();
       commitEdit();
+      // Excel-like: Enter moves down after commit
+      moveSelection(1, 0);
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       cancelEdit();
     } else if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
       commitEdit();
+      moveSelection(0, e.shiftKey ? -1 : 1);
     }
   }
 
-  function onRowClick(absoluteIndex: number) {
-    if (editing) commitEdit();
-    onselectrow(absoluteIndex);
+  function copySelectedCell(e?: ClipboardEvent) {
+    if (!selectedCell || editing) return;
+    const v = rows[selectedCell.row]?.[selectedCell.col];
+    // Clipboard: empty string for NULL (paste-friendly)
+    const text = v === null || v === undefined ? "" : String(v);
+    if (e?.clipboardData) {
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", text);
+    } else if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(text);
+    }
+    statusMsg = "Cell copied";
+    setTimeout(() => {
+      if (statusMsg === "Cell copied") statusMsg = null;
+    }, 1200);
   }
 
-  function setPageSize(value: string) {
-    pageSize = Number(value) || 25;
-    page = 0;
+  function pasteIntoGrid(text: string) {
+    if (!selectedCell) return;
+    const cols = colNames();
+    if (cols.length === 0) return;
+
+    const startColIdx = cols.indexOf(selectedCell.col);
+    if (startColIdx < 0) return;
+
+    // Normalize line endings; support TSV multi-cell paste from sheets
+    const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    // Drop trailing empty line from Excel
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    if (lines.length === 0) return;
+
+    let filterIdx = filteredEntries.findIndex(
+      (e) => e.index === selectedCell!.row,
+    );
+    if (filterIdx < 0) filterIdx = 0;
+
+    let changed = 0;
+    for (let r = 0; r < lines.length; r++) {
+      const cells = lines[r]!.split("\t");
+      const entry = filteredEntries[filterIdx + r];
+      if (!entry) break;
+      const absRow = entry.index;
+      for (let c = 0; c < cells.length; c++) {
+        const colName = cols[startColIdx + c];
+        if (!colName) break;
+        applyCellValue(absRow, colName, cells[c] ?? "");
+        changed += 1;
+      }
+    }
+
+    statusMsg =
+      changed === 1 ? "Pasted 1 cell" : `Pasted ${changed} cells`;
+    setTimeout(() => {
+      if (statusMsg?.startsWith("Pasted")) statusMsg = null;
+    }, 1500);
   }
 
-  async function exportGrid(format: "csv" | "pdf") {
-    if (exporting) return;
-    const cols = table.columns.map((c) => ({ name: c.name }));
-    // Export currently filtered view (or all loaded rows when no filter).
-    const objects = filteredEntries.map((e) => e.row);
-    if (objects.length === 0) {
-      statusMsg = "Nothing to export";
-      setTimeout(() => {
-        if (statusMsg === "Nothing to export") statusMsg = null;
-      }, 2000);
+  function onGridKeydown(e: KeyboardEvent) {
+    const mod = e.metaKey || e.ctrlKey;
+
+    // ⌘/Ctrl+S — save (works even while a cell is being edited)
+    if (mod && !e.altKey && (e.key === "s" || e.key === "S")) {
+      e.preventDefault();
+      e.stopPropagation();
+      void saveChanges();
       return;
     }
-    exporting = format;
-    statusMsg = null;
-    try {
-      const rows = objectsToRows(cols, objects);
-      const fileBase = tablePath.replace(/\./g, "-");
-      const res =
-        format === "csv"
-          ? await exportRowsAsCsv(cols, rows, fileBase)
-          : await exportRowsAsPdf(cols, rows, {
-              title: tablePath,
-              fileBase,
-            });
-      if (res.ok) {
-        statusMsg = format === "csv" ? "CSV exported" : "PDF exported";
-      } else if (!res.cancelled) {
-        statusMsg = res.error;
-      }
-    } catch (e) {
-      statusMsg = e instanceof Error ? e.message : String(e);
-    } finally {
-      exporting = null;
-      setTimeout(() => {
-        if (
-          statusMsg === "CSV exported" ||
-          statusMsg === "PDF exported"
-        ) {
-          statusMsg = null;
-        }
-      }, 2500);
+
+    // Ignore when focus is in filter bar / other controls outside shell table
+    const t = e.target as HTMLElement | null;
+    if (
+      t &&
+      (t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.tagName === "SELECT" ||
+        t.isContentEditable)
+    ) {
+      // Editing cell input has its own handler
+      if (editing && (t === inputEl || inputEl?.contains(t))) return;
+      // Filter inputs etc.
+      if (!editing) return;
     }
+
+    if (editing) return;
+
+    if (mod && (e.key === "c" || e.key === "C")) {
+      e.preventDefault();
+      copySelectedCell();
+      return;
+    }
+    // Ctrl/Cmd+V: let the `paste` event handle (has clipboardData).
+
+    if (e.key === "Enter" && selectedCell) {
+      e.preventDefault();
+      startEdit(selectedCell.row, selectedCell.col);
+      return;
+    }
+
+    if (e.key === "F2" && selectedCell) {
+      e.preventDefault();
+      startEdit(selectedCell.row, selectedCell.col);
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      selectedCell = null;
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveSelection(-1, 0);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveSelection(1, 0);
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      moveSelection(0, -1);
+      return;
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      moveSelection(0, 1);
+      return;
+    }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      moveSelection(0, e.shiftKey ? -1 : 1);
+      return;
+    }
+
+    // Type-to-edit: printable character replaces cell content
+    if (
+      selectedCell &&
+      !mod &&
+      !e.altKey &&
+      e.key.length === 1 &&
+      !e.metaKey
+    ) {
+      const def = columnDef(selectedCell.col);
+      const prev = rows[selectedCell.row]?.[selectedCell.col];
+      // Selects: open editor so user picks from list
+      if (def && usesSelectEditor(def, prev)) {
+        e.preventDefault();
+        startEdit(selectedCell.row, selectedCell.col);
+        return;
+      }
+      e.preventDefault();
+      startEdit(selectedCell.row, selectedCell.col, undefined, e.key);
+    }
+  }
+
+  function onGridCopy(e: ClipboardEvent) {
+    if (editing) return;
+    copySelectedCell(e);
+  }
+
+  function onGridPaste(e: ClipboardEvent) {
+    if (editing) return;
+    const text = e.clipboardData?.getData("text/plain");
+    if (text == null) return;
+    e.preventDefault();
+    pasteIntoGrid(text);
+  }
+
+  // Clear cell focus when table reloads
+  $effect(() => {
+    void table.id;
+    selectedCell = null;
+  });
+
+  function setPageSize(value: string) {
+    pageSize = Number(value) || 100;
+    page = 0;
   }
 
   function goPrev() {
@@ -593,6 +642,7 @@
   }
 
   async function refresh() {
+    if (refreshing) return;
     if (editing) cancelEdit();
     refreshing = true;
     statusMsg = null;
@@ -612,6 +662,7 @@
   }
 
   async function saveChanges() {
+    if (saving) return;
     if (editing) commitEdit();
     if (dirtyCount === 0) return;
     saving = true;
@@ -622,6 +673,7 @@
     seed = snap.map((r) => ({ ...r }));
     table.rows.splice(0, table.rows.length, ...snap.map((r) => ({ ...r })));
     dirtyKeys = new Set();
+    newRowIndices = new Set();
     saving = false;
     statusMsg = "Changes saved";
     onbaselinechange?.();
@@ -630,13 +682,48 @@
     }, 2000);
   }
 
+  // Global shortcuts while this table is open (filter bar, inspector, etc.)
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "s") {
+        e.preventDefault();
+        e.stopPropagation();
+        void saveChanges();
+        return;
+      }
+      if (k === "r") {
+        // Block browser reload; refresh table data instead.
+        e.preventDefault();
+        e.stopPropagation();
+        void refresh();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
+
   function resetChanges() {
     if (editing) cancelEdit();
     if (dirtyCount === 0) return;
+
+    // Drop locally added rows, restore the rest from baseline
+    if (newRowIndices.size > 0) {
+      const keep = rows
+        .map((r, i) => ({ r, i }))
+        .filter(({ i }) => !newRowIndices.has(i));
+      rows = keep.map(({ r }) => ({ ...r }));
+      originals = keep.map(({ i }) => ({ ...(originals[i] ?? {}) }));
+      seed = keep.map(({ i }) => ({ ...(seed[i] ?? {}) }));
+      newRowIndices = new Set();
+    }
+
     const restored = originals.map((r) => ({ ...r }));
     rows = restored.map((r) => ({ ...r }));
     table.rows.splice(0, table.rows.length, ...restored.map((r) => ({ ...r })));
     dirtyKeys = new Set();
+    selectedCell = null;
     statusMsg = "Changes discarded";
     onbaselinechange?.();
     setTimeout(() => {
@@ -646,482 +733,72 @@
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-  <!-- Filters: fixed single-row height so UI ↔ code does not shift layout -->
-  <div class="shrink-0 border-b border-line bg-elevated px-2.5 py-2">
-    <div class="flex w-full min-w-0 items-center gap-1.5">
-      <!-- Mode switch (funnel = UI, code = expression) -->
-      <IconButton
-        label={filterMode === "ui"
-          ? "Switch to code filters"
-          : "Switch to UI filters"}
-        size="sm"
-        variant="ghost"
-        active={filterMode === "code"}
-        onclick={() => setFilterMode(filterMode === "ui" ? "code" : "ui")}
-      >
-        {#if filterMode === "ui"}
-          <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M2.5 3.5h11l-4 4.5v3.5L6.5 13V8L2.5 3.5z"
-              stroke="currentColor"
-              stroke-width="1.3"
-              stroke-linejoin="round"
-            />
-          </svg>
-        {:else}
-          <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M5.5 4.25 2.75 8 5.5 11.75M10.5 4.25 13.25 8 10.5 11.75M9 3.5l-2 9"
-              stroke="currentColor"
-              stroke-width="1.3"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        {/if}
-      </IconButton>
+  <GridFilterBar
+    {filterMode}
+    {filterRules}
+    bind:filterCode
+    {columnOptions}
+    onSetMode={setFilterMode}
+    onUpdateFirst={updateFirstRule}
+    onUpdateRule={updateRule}
+    onRemoveRule={removeRule}
+    onAddRule={addRule}
+    onApply={applyFilters}
+    onClear={clearFilters}
+  />
 
-      {#if filterMode === "ui"}
-        {@const rule = filterRules[0]}
-        {#if rule}
-          <div class="w-[15%] min-w-0 shrink-0">
-            <Select
-              value={rule.column}
-              options={columnOptions}
-              inputSize="sm"
-              placeholder="Column"
-              onchange={(v) => updateFirstRule({ column: v })}
-            />
-          </div>
-          <div class="w-[15%] min-w-0 shrink-0">
-            <Select
-              value={rule.op}
-              options={opOptions}
-              inputSize="sm"
-              placeholder="Operator"
-              onchange={(v) => updateFirstRule({ op: v as FilterOp })}
-            />
-          </div>
-          <div class="min-w-0 flex-1">
-            <Input
-              inputSize="sm"
-              class="font-mono"
-              placeholder={opNeedsValue(rule.op) ? "Value" : "—"}
-              value={rule.value}
-              disabled={!opNeedsValue(rule.op)}
-              oninput={(e) =>
-                updateFirstRule({
-                  value: (e.currentTarget as HTMLInputElement).value,
-                })}
-              onkeydown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  applyFilters();
-                }
-              }}
-            />
-          </div>
-        {/if}
-      {:else}
-        <div class="min-w-0 flex-1">
-          <Input
-            inputSize="sm"
-            class="font-mono"
-            placeholder={"status = 'pending' AND total_cents > 1000"}
-            bind:value={filterCode}
-            onkeydown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                applyFilters();
-              }
-            }}
-          />
-        </div>
-      {/if}
-
-      <!-- Trailing actions: same three slots in both modes (stable width/height) -->
-      <div class="flex h-control-sm shrink-0 items-center gap-1">
-        {#if filterMode === "ui"}
-          <IconButton
-            label="Remove condition"
-            size="sm"
-            variant="ghost"
-            disabled={filterRules.length <= 1}
-            onclick={() => {
-              if (filterRules[0]) removeRule(filterRules[0].id);
-            }}
-          >
-            <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M4 4l8 8M12 4l-8 8"
-                stroke="currentColor"
-                stroke-width="1.4"
-                stroke-linecap="round"
-              />
-            </svg>
-          </IconButton>
-          <IconButton
-            label="Add condition"
-            size="sm"
-            variant="ghost"
-            onclick={addRule}
-          >
-            <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M8 3.25v9.5M3.25 8h9.5"
-                stroke="currentColor"
-                stroke-width="1.4"
-                stroke-linecap="round"
-              />
-            </svg>
-          </IconButton>
-        {:else}
-          <IconButton
-            label="Clear filters"
-            size="sm"
-            variant="ghost"
-            onclick={clearFilters}
-          >
-            <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M4 4l8 8M12 4l-8 8"
-                stroke="currentColor"
-                stroke-width="1.4"
-                stroke-linecap="round"
-              />
-            </svg>
-          </IconButton>
-          <!-- Placeholder keeps action group width identical to UI mode -->
-          <span class="size-control-sm shrink-0" aria-hidden="true"></span>
-        {/if}
-        <IconButton
-          label="Apply filters"
-          size="sm"
-          variant="accent"
-          active
-          onclick={applyFilters}
-        >
-          <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
-            <path
-              d="M10.25 10.25 13.5 13.5"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
-        </IconButton>
-      </div>
-    </div>
-
-    <!-- Extra UI conditions (below first row; does not affect code/UI toggle height) -->
-    {#if filterMode === "ui" && filterRules.length > 1}
-      <div class="mt-1.5 flex flex-col gap-1.5">
-        {#each filterRules.slice(1) as rule (rule.id)}
-          <div class="flex w-full min-w-0 items-center gap-1.5">
-            <span class="size-control-sm shrink-0" aria-hidden="true"></span>
-            <div class="w-[15%] min-w-0 shrink-0">
-              <Select
-                value={rule.column}
-                options={columnOptions}
-                inputSize="sm"
-                placeholder="Column"
-                onchange={(v) => updateRule(rule.id, { column: v })}
-              />
-            </div>
-            <div class="w-[15%] min-w-0 shrink-0">
-              <Select
-                value={rule.op}
-                options={opOptions}
-                inputSize="sm"
-                placeholder="Operator"
-                onchange={(v) =>
-                  updateRule(rule.id, { op: v as FilterOp })}
-              />
-            </div>
-            <div class="min-w-0 flex-1">
-              <Input
-                inputSize="sm"
-                class="font-mono"
-                placeholder={opNeedsValue(rule.op) ? "Value" : "—"}
-                value={rule.value}
-                disabled={!opNeedsValue(rule.op)}
-                oninput={(e) =>
-                  updateRule(rule.id, {
-                    value: (e.currentTarget as HTMLInputElement).value,
-                  })}
-                onkeydown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    applyFilters();
-                  }
-                }}
-              />
-            </div>
-            <div class="flex h-control-sm shrink-0 items-center gap-1">
-              <IconButton
-                label="Remove condition"
-                size="sm"
-                variant="ghost"
-                onclick={() => removeRule(rule.id)}
-              >
-                <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path
-                    d="M4 4l8 8M12 4l-8 8"
-                    stroke="currentColor"
-                    stroke-width="1.4"
-                    stroke-linecap="round"
-                  />
-                </svg>
-              </IconButton>
-              <span class="size-control-sm shrink-0" aria-hidden="true"></span>
-              <span class="size-control-sm shrink-0" aria-hidden="true"></span>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-
-  <div class="min-h-0 flex-1 overflow-auto">
-    <table class="w-full min-w-max border-collapse text-left">
-      <thead class="sticky top-0 z-10">
-        <tr class="bg-elevated">
-          <th
-            class="w-10 border-b border-line px-2 py-1.5 text-caption font-semibold text-fg-muted"
-          >
-            #
-          </th>
-          {#each table.columns as col (col.name)}
-            <th
-              class="border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary"
-              title={col.type}
-            >
-              <span class="text-fg">{col.name}</span>
-              {#if col.pk}
-                <span
-                  class="ml-1 text-caption font-semibold text-accent"
-                  title="Primary key">PK</span
-                >
-              {/if}
-              <span class="ml-1.5 font-mono font-normal text-fg-muted"
-                >{col.type}</span
-              >
-            </th>
-          {/each}
-        </tr>
-      </thead>
-      <tbody>
-        {#each pageEntries as entry (entry.index)}
-          {@const i = entry.index}
-          {@const row = entry.row}
-          {@const selected = selectedRowIndex === i}
-          {@const stripe = i % 2 === 1}
-          <tr
-            class={cn(
-              "cursor-pointer border-b border-line/70 transition-colors",
-              selected
-                ? "bg-selected"
-                : stripe
-                  ? "bg-panel hover:bg-hover"
-                  : "bg-transparent hover:bg-hover",
-            )}
-            onclick={() => onRowClick(i)}
-            aria-selected={selected}
-          >
-            <td
-              class="px-2 py-1 font-mono text-caption text-fg-muted tabular-nums"
-            >
-              {i + 1}
-            </td>
-            {#each table.columns as col (col.name)}
-              {@const raw = row[col.name]}
-              {@const isNull = raw === null || raw === undefined}
-              {@const dirty = isDirty(i, col.name)}
-              {@const isEditing =
-                editing?.row === i && editing.col === col.name}
-              <td
-                class={cn(
-                  "relative max-w-64 border-l border-transparent p-0 font-mono text-label",
-                  dirty &&
-                    !isEditing &&
-                    "bg-warning/15 ring-1 ring-inset ring-warning/40",
-                  isEditing && "bg-input ring-2 ring-inset ring-accent",
-                )}
-                title={isEditing
-                  ? undefined
-                  : dirty
-                    ? `Edited · original: ${cellText(originals[i]?.[col.name])}`
-                    : cellText(raw)}
-                ondblclick={(e) => startEdit(i, col.name, e)}
-              >
-                <div
-                  class={cn(
-                    "flex min-h-7 items-center gap-1 px-2.5 py-1",
-                    isEditing && "invisible",
-                    !isEditing && isNull && "italic text-fg-muted",
-                    !isEditing && !isNull && "text-fg",
-                  )}
-                  aria-hidden={isEditing}
-                >
-                  <span class="min-w-0 flex-1 truncate">{cellText(raw)}</span>
-                  {#if dirty}
-                    <span
-                      class="size-1.5 shrink-0 rounded-full bg-warning"
-                      title="Edited"
-                      aria-label="Edited"
-                    ></span>
-                  {/if}
-                </div>
-                {#if isEditing}
-                  <input
-                    bind:this={inputEl}
-                    class={cn(
-                      "absolute inset-0 box-border h-full w-full border-none bg-transparent px-2.5 py-1",
-                      "font-mono text-label text-fg focus:outline-none",
-                    )}
-                    bind:value={draft}
-                    onkeydown={onInputKeydown}
-                    onblur={commitEdit}
-                    onclick={(e) => e.stopPropagation()}
-                    aria-label="Edit {col.name}"
-                  />
-                {/if}
-              </td>
-            {/each}
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-
-    {#if pageEntries.length === 0}
-      <div class="px-4 py-8 text-center text-caption text-fg-muted">
-        {#if filtersActive && activeRules().length > 0}
-          No rows match the current filters.
-        {:else}
-          No rows on this page.
-        {/if}
-      </div>
-    {/if}
-  </div>
-
-  <footer
-    class="flex h-statusbar shrink-0 items-center gap-2 overflow-x-auto border-t border-line bg-elevated px-2.5"
+  <!-- tabindex so arrow/copy/paste work when grid is focused -->
+  <div
+    bind:this={gridShellEl}
+    class="flex min-h-0 min-w-0 flex-1 flex-col outline-none"
+    tabindex="0"
+    role="grid"
+    aria-label="Table data"
+    onkeydown={onGridKeydown}
+    oncopy={onGridCopy}
+    onpaste={onGridPaste}
   >
-    <div class="min-w-0 flex-1 basis-32">
-      <div
-        class="truncate font-mono text-caption font-medium leading-tight text-fg"
-        title={tablePath}
-      >
-        {tablePath}
-      </div>
-      <div class="truncate text-caption leading-tight text-fg-muted">
-        {#if filteredCount === 0}
-          No sample rows
-        {:else}
-          {pageStart + 1}–{pageEnd} of {filteredCount}
-          {#if filtersActive && activeRules().length > 0}
-            filtered
-          {:else}
-            sample
-          {/if}
-        {/if}
-        <span aria-hidden="true"> · </span>
-        ~{table.rowCount.toLocaleString()} rows
-        {#if dirtyCount > 0}
-          <span
-            class="ml-1 rounded-sm border border-warning/45 bg-warning/15 px-1 py-px font-medium text-warning"
-          >
-            {dirtyCount} unsaved
-          </span>
-        {/if}
-        {#if statusMsg}
-          <span class="ml-1 text-success">{statusMsg}</span>
-        {/if}
-      </div>
-    </div>
+    <GridTable
+      {table}
+      {pageEntries}
+      {selectedRowIndex}
+      {selectedCell}
+      {originals}
+      {editing}
+      bind:draft
+      bind:inputEl
+      {filtersActive}
+      {hasActiveFilters}
+      {isDirty}
+      onSelectCell={selectCell}
+      onSelectRow={selectRowOnly}
+      onStartEdit={startEdit}
+      {onInputKeydown}
+      onCommitEdit={commitEdit}
+    />
+  </div>
 
-    <div class="flex shrink-0 items-center gap-1.5">
-      <div class="w-28">
-        <Select
-          id="grid-page-size"
-          value={String(pageSize)}
-          options={pageSizeOptions}
-          inputSize="sm"
-          onchange={setPageSize}
-        />
-      </div>
-
-      <div
-        class="flex items-center gap-0.5 rounded-md border border-line bg-input p-0.5"
-        role="group"
-        aria-label="Pagination"
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={safePage <= 0}
-          onclick={goPrev}
-          aria-label="Previous page"
-        >
-          ‹
-        </Button>
-        <span
-          class="min-w-14 px-1 text-center font-mono text-caption text-fg-secondary tabular-nums"
-        >
-          {safePage + 1}/{totalPages}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={safePage >= totalPages - 1}
-          onclick={goNext}
-          aria-label="Next page"
-        >
-          ›
-        </Button>
-      </div>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={exporting !== null || filteredCount === 0}
-        onclick={() => void exportGrid("csv")}
-        title="Export filtered rows as CSV"
-      >
-        {exporting === "csv" ? "CSV…" : "CSV"}
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={exporting !== null || filteredCount === 0}
-        onclick={() => void exportGrid("pdf")}
-        title="Export filtered rows as PDF"
-      >
-        {exporting === "pdf" ? "PDF…" : "PDF"}
-      </Button>
-
-      <Button variant="ghost" size="sm" disabled={refreshing} onclick={refresh}>
-        {refreshing ? "Refreshing…" : "Refresh"}
-      </Button>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={dirtyCount === 0 || saving}
-        onclick={resetChanges}
-      >
-        Reset changes
-      </Button>
-
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={dirtyCount === 0 || saving}
-        onclick={saveChanges}
-      >
-        {saving ? "Saving…" : "Save changes"}
-      </Button>
-    </div>
-  </footer>
+  <GridStatusBar
+    {filteredCount}
+    {pageStart}
+    {pageEnd}
+    {filtersActive}
+    {hasActiveFilters}
+    tableRowCount={Math.max(table.rowCount, rows.length)}
+    {dirtyCount}
+    {statusMsg}
+    {pageSize}
+    {pageSizeOptions}
+    {safePage}
+    {totalPages}
+    {refreshing}
+    {saving}
+    onSetPageSize={setPageSize}
+    onPrev={goPrev}
+    onNext={goNext}
+    onRefresh={() => void refresh()}
+    onAddRow={addNewRow}
+    onReset={resetChanges}
+    onSave={() => void saveChanges()}
+  />
 </div>

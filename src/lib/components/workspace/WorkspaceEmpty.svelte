@@ -80,7 +80,9 @@
   }
 </script>
 
-<div class="flex flex-1 items-center justify-center overflow-auto bg-app-wash p-6">
+<div
+  class="flex flex-1 items-center justify-center overflow-auto bg-app-wash p-6"
+>
   <div class="w-full max-w-panel-md">
     <div
       class="mb-4 rounded-xl border border-line border-l-4 bg-elevated p-5 shadow-sm"
@@ -105,7 +107,9 @@
                 <Pill>Read-only</Pill>
               {/if}
             </div>
-            <p class="mt-1.5 flex flex-wrap items-center gap-2 text-body text-fg-secondary">
+            <p
+              class="mt-1.5 flex flex-wrap items-center gap-2 text-body text-fg-secondary"
+            >
               <EngineBadge engine={profile.engine} size="md" />
               <span>{engineLabel(profile.engine)}</span>
               <span class="text-fg-muted">·</span>

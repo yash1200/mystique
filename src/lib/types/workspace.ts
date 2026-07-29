@@ -5,6 +5,11 @@ export type ColumnDef = {
   type: string;
   nullable?: boolean;
   pk?: boolean;
+  /**
+   * Discrete options for enum / set-like types (MySQL ENUM, Postgres enum).
+   * When set, the grid/inspector use a dropdown instead of free text.
+   */
+  enumValues?: string[];
 };
 
 /**

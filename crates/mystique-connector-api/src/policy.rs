@@ -60,18 +60,25 @@ fn first_sql_keyword(sql: &str) -> Option<String> {
     }
 }
 
-fn multi_statement_sql(sql: &str) -> bool {
+/// Split a SQL batch into individual statements (`;`-separated, comments stripped).
+/// Multi-statement batches are allowed; callers should run each and keep the last result.
+pub fn split_sql_statements(sql: &str) -> Vec<String> {
     let cleaned = strip_sql_comments(sql);
     cleaned
         .split(';')
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .count()
-        > 1
+        .map(|s| s.to_string())
+        .collect()
 }
 
 const SQL_READ: &[&str] = &[
     "select", "with", "show", "describe", "desc", "explain", "values", "table", "pragma",
+];
+/// Session / connection utilities (search_path, timezone, USE db, etc.) — allowed in read mode.
+const SQL_SESSION: &[&str] = &[
+    "set", "reset", "use", "begin", "start", "commit", "rollback", "savepoint", "release",
+    "discard", "deallocate", "prepare", "execute", "listen", "unlisten", "notify",
 ];
 const SQL_WRITE: &[&str] = &["insert", "update", "replace", "merge"];
 const SQL_DELETE: &[&str] = &[
@@ -79,17 +86,7 @@ const SQL_DELETE: &[&str] = &[
     "reindex", "attach", "detach",
 ];
 
-/// Shared SQL policy used by relational engines (dialect-agnostic keyword gate).
-pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
-    let cleaned = strip_sql_comments(text);
-    if cleaned.trim().is_empty() {
-        return Err(ConnectorError::Policy("Query is empty.".into()));
-    }
-    if multi_statement_sql(text) {
-        return Err(ConnectorError::Policy(
-            "Multi-statement SQL is not allowed. Run one statement at a time.".into(),
-        ));
-    }
+fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
     let Some(kw) = first_sql_keyword(text) else {
         return Err(ConnectorError::Policy(
             "Could not classify this SQL. Blocked (fail closed).".into(),
@@ -101,6 +98,10 @@ pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
         ));
     }
     if SQL_READ.contains(&kw.as_str()) {
+        return Ok(());
+    }
+    // e.g. SET search_path TO content; — session config, not a data write.
+    if SQL_SESSION.contains(&kw.as_str()) {
         return Ok(());
     }
     if SQL_WRITE.contains(&kw.as_str()) {
@@ -116,6 +117,19 @@ pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
         "Statement type “{}” is not allowed in this mode.",
         kw.to_ascii_uppercase()
     )))
+}
+
+/// Shared SQL policy used by relational engines (dialect-agnostic keyword gate).
+/// Multi-statement batches are allowed; every statement is validated.
+pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
+    let stmts = split_sql_statements(text);
+    if stmts.is_empty() {
+        return Err(ConnectorError::Policy("Query is empty.".into()));
+    }
+    for stmt in &stmts {
+        validate_one_sql_statement(stmt, mode)?;
+    }
+    Ok(())
 }
 
 pub struct SqlQueryPolicy {

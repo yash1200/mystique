@@ -2,6 +2,12 @@
   import type { ColumnDef } from "$lib/types/workspace";
   import { IconButton } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
+  import {
+    selectDraftToValue,
+    selectOptionsForColumn,
+    usesSelectEditor,
+    valueToSelectDraft,
+  } from "$lib/utils/columnEditor";
 
   interface Props {
     tableTitle: string;
@@ -31,7 +37,8 @@
   let drafts = $state<Record<string, string>>({});
   let focusedCol = $state<string | null>(null);
 
-  function formatForEdit(value: unknown): string {
+  function formatForEdit(col: ColumnDef, value: unknown): string {
+    if (usesSelectEditor(col, value)) return valueToSelectDraft(value);
     if (value === null || value === undefined) return "";
     if (typeof value === "boolean") return value ? "true" : "false";
     if (typeof value === "object") return JSON.stringify(value, null, 2);
@@ -44,7 +51,14 @@
     return String(a) === String(b);
   }
 
-  function parseDraft(raw: string, previous: unknown): unknown {
+  function parseDraft(
+    col: ColumnDef,
+    raw: string,
+    previous: unknown,
+  ): unknown {
+    if (usesSelectEditor(col, previous)) {
+      return selectDraftToValue(raw, col, previous);
+    }
     const t = raw.trim();
     if (t === "" || t.toUpperCase() === "NULL") return null;
     if (typeof previous === "boolean") {
@@ -80,13 +94,16 @@
   }
 
   function useTextarea(col: ColumnDef, value: unknown): boolean {
+    if (usesSelectEditor(col, value)) return false;
     const t = col.type.toLowerCase();
     if (t.includes("json") || t.includes("text") || t.includes("object")) {
       return true;
     }
-    if (t.includes("varchar") && formatForEdit(value).length > 48) return true;
+    if (t.includes("varchar") && formatForEdit(col, value).length > 48) {
+      return true;
+    }
     if (typeof value === "object" && value !== null) return true;
-    return formatForEdit(value).length > 64;
+    return formatForEdit(col, value).length > 64;
   }
 
   function captureBaselineFromRow() {
@@ -94,7 +111,7 @@
     const nextDrafts: Record<string, string> = {};
     for (const col of columns) {
       nextBaseline[col.name] = row[col.name];
-      nextDrafts[col.name] = formatForEdit(row[col.name]);
+      nextDrafts[col.name] = formatForEdit(col, row[col.name]);
     }
     baseline = nextBaseline;
     drafts = nextDrafts;
@@ -120,7 +137,7 @@
     const next: Record<string, string> = {};
     let changed = false;
     for (const col of columns) {
-      const v = formatForEdit(row[col.name]);
+      const v = formatForEdit(col, row[col.name]);
       next[col.name] = v;
       if (drafts[col.name] !== v) changed = true;
     }
@@ -128,14 +145,18 @@
   });
 
   function isDirty(colName: string): boolean {
-    const parsed = parseDraft(drafts[colName] ?? "", baseline[colName]);
+    const col = columns.find((c) => c.name === colName);
+    if (!col) return false;
+    const parsed = parseDraft(col, drafts[colName] ?? "", baseline[colName]);
     return !valuesEqual(parsed, baseline[colName]);
   }
 
   function commitField(colName: string) {
+    const col = columns.find((c) => c.name === colName);
+    if (!col) return;
     const previous = row[colName];
-    const next = parseDraft(drafts[colName] ?? "", previous);
-    drafts = { ...drafts, [colName]: formatForEdit(next) };
+    const next = parseDraft(col, drafts[colName] ?? "", previous);
+    drafts = { ...drafts, [colName]: formatForEdit(col, next) };
     if (!valuesEqual(next, previous)) {
       onchange?.(colName, next);
     }
@@ -149,9 +170,12 @@
   ) {
     if (e.key === "Escape") {
       e.preventDefault();
+      const col = columns.find((c) => c.name === colName);
       drafts = {
         ...drafts,
-        [colName]: formatForEdit(row[colName]),
+        [colName]: col
+          ? formatForEdit(col, row[colName])
+          : String(row[colName] ?? ""),
       };
       focusedCol = null;
       (e.currentTarget as HTMLElement).blur();
@@ -189,9 +213,16 @@
           </span>
         {/if}
       </div>
-      <div class="truncate font-mono text-caption text-fg-muted">{tableTitle}</div>
+      <div class="truncate font-mono text-caption text-fg-muted">
+        {tableTitle}
+      </div>
     </div>
-    <IconButton label="Close row inspector" size="sm" variant="ghost" onclick={onclose}>
+    <IconButton
+      label="Close row inspector"
+      size="sm"
+      variant="ghost"
+      onclick={onclose}
+    >
       ×
     </IconButton>
   </header>
@@ -233,7 +264,34 @@
             {/if}
           </span>
 
-          {#if multiline}
+          {#if usesSelectEditor(col, raw)}
+            {@const options = selectOptionsForColumn(col, raw)}
+            <select
+              class={cn(
+                "m-0 w-full rounded-sm border border-line bg-input px-1.5 py-1",
+                "font-mono text-label text-fg focus:outline-none focus:ring-1 focus:ring-accent",
+                (drafts[col.name] ?? "") === "" && "italic text-fg-muted",
+              )}
+              value={drafts[col.name] ?? ""}
+              onfocus={() => (focusedCol = col.name)}
+              onchange={(e) => {
+                drafts = {
+                  ...drafts,
+                  [col.name]: (e.currentTarget as HTMLSelectElement).value,
+                };
+                commitField(col.name);
+              }}
+              onblur={() => {
+                if (focusedCol === col.name) commitField(col.name);
+              }}
+              onkeydown={(e) => onFieldKeydown(e, col.name, false)}
+              aria-label={col.name}
+            >
+              {#each options as opt (opt.value === "" ? "__null__" : opt.value)}
+                <option value={opt.value}>{opt.label}</option>
+              {/each}
+            </select>
+          {:else if multiline}
             <textarea
               class={cn(
                 "m-0 min-h-16 w-full resize-y rounded-sm border-none bg-transparent p-0",

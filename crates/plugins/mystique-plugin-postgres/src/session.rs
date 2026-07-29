@@ -3,9 +3,10 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn,
-    QueryMode, QueryResult, ValidatedQuery,
+    split_sql_statements, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
+    PoolStatus, QueryColumn, QueryMode, QueryResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -25,6 +26,25 @@ impl PostgresSession {
             closed: AtomicBool::new(false),
         }
     }
+}
+
+fn opt_string(s: Option<String>) -> JsonValue {
+    s.map(JsonValue::String).unwrap_or(JsonValue::Null)
+}
+
+/// Format naive timestamp without trailing empty fractional part.
+fn fmt_naive_dt(dt: NaiveDateTime) -> String {
+    let s = dt.format("%Y-%m-%d %H:%M:%S%.6f").to_string();
+    s.trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn fmt_naive_time(t: NaiveTime) -> String {
+    let s = t.format("%H:%M:%S%.6f").to_string();
+    s.trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
 }
 
 fn cell_json(row: &Row, idx: usize) -> JsonValue {
@@ -50,12 +70,79 @@ fn cell_json(row: &Row, idx: usize) -> JsonValue {
             Ok(v) => v.unwrap_or(JsonValue::Null),
             Err(_) => JsonValue::Null,
         },
+        // Timestamps / dates require chrono FromSql (with-chrono-0_4). Reading as
+        // String always fails → previously rendered as NULL.
+        Type::TIMESTAMP => match row.try_get::<_, Option<NaiveDateTime>>(idx) {
+            Ok(v) => v
+                .map(|dt| JsonValue::String(fmt_naive_dt(dt)))
+                .unwrap_or(JsonValue::Null),
+            Err(_) => JsonValue::Null,
+        },
+        Type::TIMESTAMPTZ => match row.try_get::<_, Option<DateTime<Utc>>>(idx) {
+            Ok(v) => v
+                .map(|dt| JsonValue::String(dt.to_rfc3339()))
+                .unwrap_or(JsonValue::Null),
+            Err(_) => JsonValue::Null,
+        },
+        Type::DATE => match row.try_get::<_, Option<NaiveDate>>(idx) {
+            Ok(v) => v
+                .map(|d| JsonValue::String(d.format("%Y-%m-%d").to_string()))
+                .unwrap_or(JsonValue::Null),
+            Err(_) => JsonValue::Null,
+        },
+        Type::TIME => match row.try_get::<_, Option<NaiveTime>>(idx) {
+            Ok(v) => v
+                .map(|t| JsonValue::String(fmt_naive_time(t)))
+                .unwrap_or(JsonValue::Null),
+            Err(_) => JsonValue::Null,
+        },
+        Type::NUMERIC => {
+            // Prefer text form so precision is preserved.
+            match row.try_get::<_, Option<String>>(idx) {
+                Ok(v) => opt_string(v),
+                Err(_) => match row.try_get::<_, Option<f64>>(idx) {
+                    Ok(v) => v.map(|n| json!(n)).unwrap_or(JsonValue::Null),
+                    Err(_) => JsonValue::Null,
+                },
+            }
+        }
         _ => match row.try_get::<_, Option<String>>(idx) {
-            Ok(v) => v.map(JsonValue::String).unwrap_or(JsonValue::Null),
-            Err(_) => match row.try_get::<_, Option<Vec<u8>>>(idx) {
-                Ok(Some(b)) => JsonValue::String(format!("\\x{}", encode_hex(&b))),
-                _ => JsonValue::Null,
-            },
+            Ok(v) => opt_string(v),
+            Err(_) => {
+                // Last resort: chrono types (domains / unknown aliases) + bytes.
+                if let Ok(v) = row.try_get::<_, Option<DateTime<Utc>>>(idx) {
+                    return v
+                        .map(|dt| JsonValue::String(dt.to_rfc3339()))
+                        .unwrap_or(JsonValue::Null);
+                }
+                if let Ok(v) = row.try_get::<_, Option<NaiveDateTime>>(idx) {
+                    return v
+                        .map(|dt| JsonValue::String(fmt_naive_dt(dt)))
+                        .unwrap_or(JsonValue::Null);
+                }
+                if let Ok(v) = row.try_get::<_, Option<NaiveDate>>(idx) {
+                    return v
+                        .map(|d| JsonValue::String(d.format("%Y-%m-%d").to_string()))
+                        .unwrap_or(JsonValue::Null);
+                }
+                if let Ok(v) = row.try_get::<_, Option<NaiveTime>>(idx) {
+                    return v
+                        .map(|t| JsonValue::String(fmt_naive_time(t)))
+                        .unwrap_or(JsonValue::Null);
+                }
+                match row.try_get::<_, Option<Vec<u8>>>(idx) {
+                    Ok(Some(b)) => {
+                        // UUID binary / text-as-bytes etc.
+                        if let Ok(s) = std::str::from_utf8(&b) {
+                            JsonValue::String(s.to_string())
+                        } else {
+                            JsonValue::String(format!("\\x{}", encode_hex(&b)))
+                        }
+                    }
+                    Ok(None) => JsonValue::Null,
+                    Err(_) => JsonValue::Null,
+                }
+            }
         },
     }
 }
@@ -117,8 +204,7 @@ impl ConnectorSession for PostgresSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
 
-        // Writes: policy allowed but we only execute SELECT-class for tabular results MVP.
-        // INSERT/UPDATE without RETURNING still runs and returns empty grid + message.
+        // Multi-statement batches: run each in order; return only the last result.
         let start = Instant::now();
         let client = self
             .pool
@@ -126,95 +212,121 @@ impl ConnectorSession for PostgresSession {
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
 
-        // Statement timeout (ms)
         let timeout = query.timeout_ms.max(1);
         let _ = client
             .batch_execute(&format!("SET statement_timeout = {timeout}"))
             .await;
 
-        let sql = query.text.trim().trim_end_matches(';').trim();
-        // Fetch one extra row to detect truncation
-        let limit = query.max_rows as usize;
-        let fetch_limit = limit + 1;
-
-        // Prefer wrapping SELECT-like statements; otherwise run as-is.
-        let lower = sql.to_ascii_lowercase();
-        let is_select_like = lower.starts_with("select")
-            || lower.starts_with("with")
-            || lower.starts_with("values")
-            || lower.starts_with("table")
-            || lower.starts_with("show")
-            || lower.starts_with("explain");
-
-        let exec_sql = if is_select_like {
-            // Subquery wrap to enforce max rows without rewriting complex SQL badly.
-            // If SQL already has LIMIT, still cap client-side.
-            sql.to_string()
-        } else {
-            sql.to_string()
-        };
-
-        let rows = client
-            .query(&exec_sql, &[])
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let truncated = rows.len() > limit;
-        let take = rows.len().min(limit);
-        let slice = &rows[..take];
-
-        let columns: Vec<QueryColumn> = if let Some(first) = slice.first() {
-            first
-                .columns()
-                .iter()
-                .map(|c| QueryColumn {
-                    name: c.name().to_string(),
-                    data_type: Some(c.type_().name().to_string()),
-                })
-                .collect()
-        } else if is_select_like {
-            // Empty result — try to DESCRIBE isn't free; return empty cols
-            Vec::new()
-        } else {
-            Vec::new()
-        };
-
-        let mut out_rows = Vec::with_capacity(take);
-        for row in slice {
-            let mut cells = Vec::with_capacity(row.len());
-            for i in 0..row.len() {
-                cells.push(cell_json(row, i));
-            }
-            out_rows.push(cells);
+        let stmts = split_sql_statements(&query.text);
+        if stmts.is_empty() {
+            return Err(ConnectorError::Query("Query is empty.".into()));
         }
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-        let message = if !is_select_like {
-            Some(format!(
-                "Statement executed ({}). Tabular rows only for SELECT-like queries.",
-                match query.mode {
-                    QueryMode::Read => "read",
-                    QueryMode::Write => "write",
+        let limit = query.max_rows as usize;
+        let mut last: Option<QueryResult> = None;
+        let batch_n = stmts.len();
+
+        for (i, sql) in stmts.iter().enumerate() {
+            let lower = sql.to_ascii_lowercase();
+            let is_select_like = lower.starts_with("select")
+                || lower.starts_with("with")
+                || lower.starts_with("values")
+                || lower.starts_with("table")
+                || lower.starts_with("show")
+                || lower.starts_with("explain");
+
+            let result = if is_select_like {
+                let rows = client
+                    .query(sql.as_str(), &[])
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+                let truncated = rows.len() > limit;
+                let take = rows.len().min(limit);
+                let slice = &rows[..take];
+
+                let columns: Vec<QueryColumn> = if let Some(first) = slice.first() {
+                    first
+                        .columns()
+                        .iter()
+                        .map(|c| QueryColumn {
+                            name: c.name().to_string(),
+                            data_type: Some(c.type_().name().to_string()),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
+                let mut out_rows = Vec::with_capacity(take);
+                for row in slice {
+                    let mut cells = Vec::with_capacity(row.len());
+                    for j in 0..row.len() {
+                        cells.push(cell_json(row, j));
+                    }
+                    out_rows.push(cells);
                 }
-            ))
-        } else if truncated {
-            Some(format!("Result truncated to {limit} rows."))
-        } else {
-            None
-        };
 
-        // silence unused
-        let _ = fetch_limit;
+                let mut message = if truncated {
+                    Some(format!("Result truncated to {limit} rows."))
+                } else {
+                    None
+                };
+                if batch_n > 1 && i + 1 == batch_n {
+                    let note = format!("Last of {batch_n} statements.");
+                    message = Some(match message {
+                        Some(m) => format!("{m} {note}"),
+                        None => note,
+                    });
+                }
 
-        Ok(QueryResult {
-            engine: "postgres".into(),
-            mode: query.mode,
-            columns,
-            row_count: out_rows.len() as u64,
-            rows: out_rows,
-            truncated,
-            duration_ms,
-            message,
-        })
+                QueryResult {
+                    engine: "postgres".into(),
+                    mode: query.mode,
+                    columns,
+                    row_count: out_rows.len() as u64,
+                    rows: out_rows,
+                    truncated,
+                    duration_ms: 0,
+                    message,
+                }
+            } else {
+                client
+                    .batch_execute(sql.as_str())
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+                let mut message = Some(format!(
+                    "Statement executed ({}). Tabular rows only for SELECT-like queries.",
+                    match query.mode {
+                        QueryMode::Read => "read",
+                        QueryMode::Write => "write",
+                    }
+                ));
+                if batch_n > 1 && i + 1 == batch_n {
+                    message = Some(format!(
+                        "{}; last of {batch_n} statements.",
+                        message.unwrap_or_default().trim_end_matches('.')
+                    ));
+                }
+
+                QueryResult {
+                    engine: "postgres".into(),
+                    mode: query.mode,
+                    columns: Vec::new(),
+                    row_count: 0,
+                    rows: Vec::new(),
+                    truncated: false,
+                    duration_ms: 0,
+                    message,
+                }
+            };
+
+            last = Some(result);
+        }
+
+        let mut out = last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))?;
+        out.duration_ms = start.elapsed().as_millis() as u64;
+        Ok(out)
     }
 }

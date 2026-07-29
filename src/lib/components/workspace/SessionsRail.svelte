@@ -40,7 +40,9 @@
   class="flex h-full w-12 shrink-0 flex-col items-center border-r border-line bg-panel"
   aria-label="Workspace navigation"
 >
-  <header class="flex h-topbar w-full shrink-0 items-center justify-center border-b border-line">
+  <header
+    class="flex h-topbar w-full shrink-0 items-center justify-center border-b border-line"
+  >
     <button
       type="button"
       class="grid size-8 place-items-center rounded-md border-none bg-linear-to-br from-accent to-conn-indigo text-caption font-bold text-fg-inverse transition-opacity hover:opacity-90"
@@ -174,7 +176,13 @@
         onclick={() => onmode("history")}
       >
         <svg class="size-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <circle cx="8" cy="8" r="5.25" stroke="currentColor" stroke-width="1.3" />
+          <circle
+            cx="8"
+            cy="8"
+            r="5.25"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
           <path
             d="M8 5.25V8l2 1.5"
             stroke="currentColor"

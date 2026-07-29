@@ -3,7 +3,8 @@
   import { catalogPresentation } from "$lib/types/workspace";
   import { IconButton, Input, Select } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
-  import CatalogIcon from "./CatalogIcon.svelte";
+  import CreateDatabaseForm from "./explorer/CreateDatabaseForm.svelte";
+  import ObjectTree from "./explorer/ObjectTree.svelte";
 
   interface Props {
     engine: string;
@@ -11,13 +12,11 @@
     selectedDatabase: string;
     activeTableId: string | null;
     refreshing?: boolean;
-    /** Building live ER / model diagram. */
     modelLoading?: boolean;
     onselectdatabase: (name: string) => void;
     onrefresh: () => void;
     oncreatedatabase: (name: string) => void;
     onopen: (table: TableMeta) => void;
-    /** Open live ER / model diagram for the selected database (all engines). */
     onopenmodel?: () => void;
   }
 
@@ -36,7 +35,8 @@
   }: Props = $props();
 
   let query = $state("");
-  let collapsed = $state<Set<string>>(new Set());
+  /** Schema groups start closed; membership means expanded. */
+  let expanded = $state<Set<string>>(new Set());
   let creating = $state(false);
   let newDbName = $state("");
   let createError = $state<string | null>(null);
@@ -103,28 +103,23 @@
   const totalCount = $derived(filtered.length);
 
   function toggleGroup(key: string) {
-    const next = new Set(collapsed);
+    const next = new Set(expanded);
     if (next.has(key)) next.delete(key);
     else next.add(key);
-    collapsed = next;
+    expanded = next;
   }
 
   function isExpanded(key: string): boolean {
+    // While filtering, open groups so matches are visible.
     if (query.trim()) return true;
+    // Keep the active table's schema open.
     if (activeTableId) {
       const hit = filtered.some(
         (t) => t.id === activeTableId && (t.schema || "public") === key,
       );
       if (hit) return true;
     }
-    return !collapsed.has(key);
-  }
-
-  function formatCount(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 10_000) return `${Math.round(n / 1000)}k`;
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-    return n.toLocaleString();
+    return expanded.has(key);
   }
 
   function openCreate() {
@@ -163,7 +158,7 @@
 
   function onDbChange(value: string) {
     query = "";
-    collapsed = new Set();
+    expanded = new Set();
     onselectdatabase(value);
   }
 </script>
@@ -172,7 +167,6 @@
   class="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
   aria-label="Database objects"
 >
-  <!-- Database picker + actions (replaces connection header) -->
   <div class="shrink-0 space-y-2 border-b border-line px-2 py-2">
     <div class="flex items-center gap-1.5">
       <div class="min-w-0 flex-1">
@@ -221,7 +215,12 @@
           variant="ghost"
           onclick={openCreate}
         >
-          <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <svg
+            class="size-3.5"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
             <path
               d="M8 3.25v9.5M3.25 8h9.5"
               stroke="currentColor"
@@ -234,40 +233,12 @@
     </div>
 
     {#if creating}
-      <form
-        class="rounded-md border border-line bg-elevated p-2"
+      <CreateDatabaseForm
+        bind:value={newDbName}
+        error={createError}
+        oncancel={cancelCreate}
         onsubmit={submitCreate}
-      >
-        <label class="mb-1 block text-caption font-medium text-fg-secondary" for="new-db-name">
-          New database
-        </label>
-        <Input
-          id="new-db-name"
-          bind:value={newDbName}
-          placeholder="my_database"
-          inputSize="sm"
-          autocomplete="off"
-          class="font-mono"
-        />
-        {#if createError}
-          <p class="mt-1 text-caption text-danger">{createError}</p>
-        {/if}
-        <div class="mt-2 flex justify-end gap-1.5">
-          <button
-            type="button"
-            class="h-control-sm rounded-md border border-line bg-transparent px-2 text-label text-fg-secondary hover:bg-hover"
-            onclick={cancelCreate}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            class="h-control-sm rounded-md border border-transparent bg-accent px-2 text-label font-medium text-fg-inverse hover:bg-accent-hover"
-          >
-            Create
-          </button>
-        </div>
-      </form>
+      />
     {/if}
 
     <Input
@@ -289,11 +260,45 @@
         title="Show full ER / model diagram for this database"
         onclick={() => onopenmodel?.()}
       >
-        <svg class="size-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <rect x="1.5" y="2" width="5" height="4.5" rx="0.8" stroke="currentColor" stroke-width="1.2" />
-          <rect x="9.5" y="2" width="5" height="4.5" rx="0.8" stroke="currentColor" stroke-width="1.2" />
-          <rect x="5.5" y="9.5" width="5" height="4.5" rx="0.8" stroke="currentColor" stroke-width="1.2" />
-          <path d="M4 6.5v1.5M12 6.5v1.5M8 9.5V8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+        <svg
+          class="size-3.5 shrink-0"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <rect
+            x="1.5"
+            y="2"
+            width="5"
+            height="4.5"
+            rx="0.8"
+            stroke="currentColor"
+            stroke-width="1.2"
+          />
+          <rect
+            x="9.5"
+            y="2"
+            width="5"
+            height="4.5"
+            rx="0.8"
+            stroke="currentColor"
+            stroke-width="1.2"
+          />
+          <rect
+            x="5.5"
+            y="9.5"
+            width="5"
+            height="4.5"
+            rx="0.8"
+            stroke="currentColor"
+            stroke-width="1.2"
+          />
+          <path
+            d="M4 6.5v1.5M12 6.5v1.5M8 9.5V8"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+          />
         </svg>
         {#if modelLoading}
           Building diagram…
@@ -304,174 +309,21 @@
     {/if}
   </div>
 
-  <div
-    class="flex-1 overflow-auto px-1.5 py-2"
-    role="tree"
-    aria-label="{presentation.objectLabel} in {selectedDatabase}"
-  >
-    {#if !currentDb}
-      <p class="m-2 text-caption leading-relaxed text-fg-muted">
-        No database selected.
-      </p>
-    {:else if totalCount === 0}
-      <p class="m-2 text-caption leading-relaxed text-fg-muted">
-        No {presentation.objectLabel} match
-        {#if query.trim()}
-          for “{query.trim()}”
-        {:else}
-          in <span class="font-mono text-fg-secondary">{currentDb.name}</span>
-        {/if}.
-      </p>
-    {:else if isTree}
-      {#each groups as group (group.key)}
-        {@const expanded = isExpanded(group.key)}
-        <div
-          class="mb-0.5"
-          role="group"
-          aria-label="{presentation.groupLabel} {group.key}"
-        >
-          <button
-            type="button"
-            class={cn(
-              "flex w-full items-center gap-1.5 rounded-md border-none px-1.5 py-1.5 text-left transition-colors",
-              "bg-transparent text-fg hover:bg-hover",
-            )}
-            aria-expanded={expanded}
-            onclick={() => toggleGroup(group.key)}
-          >
-            <CatalogIcon
-              name="chevron"
-              class={cn(
-                "transition-transform duration-150",
-                expanded ? "rotate-90" : "rotate-0",
-              )}
-            />
-            <span
-              class="grid size-5 shrink-0 place-items-center rounded-sm border border-line bg-elevated"
-            >
-              <CatalogIcon name="schema" />
-            </span>
-            <span class="min-w-0 flex-1 truncate text-label font-semibold text-fg">
-              {group.key}
-            </span>
-            <span
-              class="shrink-0 rounded-sm bg-input px-1.5 py-0.5 font-mono text-micro text-fg-muted tabular-nums"
-            >
-              {group.items.length}
-            </span>
-          </button>
-
-          {#if expanded}
-            <ul
-              class="m-0 ml-3.5 list-none border-l border-line py-0.5 pl-2"
-              role="group"
-            >
-              {#each group.items as t (t.id)}
-                {@const active = activeTableId === t.id}
-                <li role="treeitem" aria-selected={active}>
-                  <button
-                    type="button"
-                    class={cn(
-                      "flex w-full items-center gap-2 rounded-md border-none px-2 py-1.5 text-left transition-colors",
-                      active
-                        ? "bg-accent-muted text-accent"
-                        : "bg-transparent text-fg hover:bg-hover",
-                    )}
-                    onclick={() => onopen(t)}
-                  >
-                    <CatalogIcon name={t.kind} {active} />
-                    <span class="min-w-0 flex-1 truncate text-label font-medium">
-                      {t.name}
-                    </span>
-                    {#if t.kind === "view"}
-                      <span
-                        class={cn(
-                          "shrink-0 rounded-sm px-1 py-px text-micro font-medium tracking-wide uppercase",
-                          active
-                            ? "bg-accent/20 text-accent"
-                            : "bg-input text-fg-muted",
-                        )}
-                      >
-                        view
-                      </span>
-                    {/if}
-                    <span
-                      class={cn(
-                        "shrink-0 font-mono text-caption tabular-nums",
-                        active ? "text-accent/80" : "text-fg-muted",
-                      )}
-                      title="{t.rowCount.toLocaleString()} rows"
-                    >
-                      {formatCount(t.rowCount)}
-                    </span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      {/each}
-    {:else}
-      <div
-        class="mb-1 px-2 py-1 text-caption font-semibold tracking-wide text-fg-muted uppercase"
-      >
-        {presentation.objectLabel}
-        <span class="ml-1 font-mono font-normal normal-case tabular-nums">
-          {flatItems.length}
-        </span>
-      </div>
-      <ul class="m-0 list-none p-0" role="group">
-        {#each flatItems as t (t.id)}
-          {@const active = activeTableId === t.id}
-          <li role="treeitem" aria-selected={active}>
-            <button
-              type="button"
-              class={cn(
-                "flex w-full items-center gap-2 rounded-md border-none px-2 py-1.5 text-left transition-colors",
-                active
-                  ? "bg-accent-muted text-accent"
-                  : "bg-transparent text-fg hover:bg-hover",
-              )}
-              onclick={() => onopen(t)}
-            >
-              <span
-                class={cn(
-                  "grid size-6 shrink-0 place-items-center rounded-md border",
-                  active
-                    ? "border-accent/35 bg-accent/15"
-                    : "border-line bg-elevated",
-                )}
-              >
-                <CatalogIcon name={t.kind} {active} />
-              </span>
-              <span class="min-w-0 flex-1 truncate text-label font-medium">
-                {t.name}
-              </span>
-              {#if t.kind === "view"}
-                <span
-                  class={cn(
-                    "shrink-0 rounded-sm px-1 py-px text-micro font-medium tracking-wide uppercase",
-                    active ? "bg-accent/20 text-accent" : "bg-input text-fg-muted",
-                  )}
-                >
-                  view
-                </span>
-              {/if}
-              <span
-                class={cn(
-                  "shrink-0 font-mono text-caption tabular-nums",
-                  active ? "text-accent/80" : "text-fg-muted",
-                )}
-                title="{t.rowCount.toLocaleString()} rows"
-              >
-                {formatCount(t.rowCount)}
-              </span>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </div>
+  <ObjectTree
+    objectLabel={presentation.objectLabel}
+    groupLabel={presentation.groupLabel}
+    {isTree}
+    {selectedDatabase}
+    {currentDb}
+    {totalCount}
+    {query}
+    {activeTableId}
+    {groups}
+    {flatItems}
+    {isExpanded}
+    onToggleGroup={toggleGroup}
+    {onopen}
+  />
 
   <footer
     class="flex h-statusbar shrink-0 items-center border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"

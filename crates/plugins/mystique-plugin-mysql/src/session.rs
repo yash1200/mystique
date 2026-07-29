@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn,
-    QueryMode, QueryResult, ValidatedQuery,
+    split_sql_statements, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
+    PoolStatus, QueryColumn, QueryMode, QueryResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -40,16 +40,29 @@ fn value_json(v: Value) -> JsonValue {
         Value::UInt(u) => json!(u),
         Value::Float(f) => json!(f),
         Value::Double(d) => json!(d),
+        // DATE / DATETIME / TIMESTAMP all arrive as Value::Date
         Value::Date(year, month, day, hour, minute, second, micros) => {
+            // MySQL zero-date / invalid components
+            if year == 0 || month == 0 || day == 0 {
+                return JsonValue::Null;
+            }
+            // Pure DATE (no time component)
             if hour == 0 && minute == 0 && second == 0 && micros == 0 {
-                JsonValue::String(format!("{year:04}-{month:02}-{day:02}"))
-            } else if micros == 0 {
+                // Could still be midnight DATETIME — still valid ISO form.
+                // Prefer full datetime when any time field is non-zero; for
+                // pure DATE columns this matches YYYY-MM-DD which is correct.
+                return JsonValue::String(format!("{year:04}-{month:02}-{day:02}"));
+            }
+            if micros == 0 {
                 JsonValue::String(format!(
                     "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
                 ))
             } else {
+                // Trim trailing zeros in fractional seconds for readability
+                let frac = format!("{micros:06}");
+                let frac = frac.trim_end_matches('0');
                 JsonValue::String(format!(
-                    "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{micros:06}"
+                    "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{frac}"
                 ))
             }
         }
@@ -60,8 +73,10 @@ fn value_json(v: Value) -> JsonValue {
                     "{sign}{days} {hours:02}:{minutes:02}:{seconds:02}"
                 ))
             } else {
+                let frac = format!("{micros:06}");
+                let frac = frac.trim_end_matches('0');
                 JsonValue::String(format!(
-                    "{sign}{days} {hours:02}:{minutes:02}:{seconds:02}.{micros:06}"
+                    "{sign}{days} {hours:02}:{minutes:02}:{seconds:02}.{frac}"
                 ))
             }
         }
@@ -122,6 +137,7 @@ impl ConnectorSession for MysqlSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
 
+        // Multi-statement batches: run each in order; return only the last result.
         let start = Instant::now();
         let mut conn = self
             .pool
@@ -129,99 +145,135 @@ impl ConnectorSession for MysqlSession {
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
 
-        let sql = query.text.trim().trim_end_matches(';').trim().to_string();
         let max_rows = query.max_rows as usize;
         let mode = query.mode;
 
-        // Best-effort statement timeout (ms). Not all servers honor this session var.
         let timeout = query.timeout_ms.max(1);
         let _ = conn
             .query_drop(format!("SET SESSION max_execution_time = {timeout}"))
             .await;
 
-        let lower = sql.to_ascii_lowercase();
-        let is_select_like = lower.starts_with("select")
-            || lower.starts_with("with")
-            || lower.starts_with("show")
-            || lower.starts_with("describe")
-            || lower.starts_with("desc")
-            || lower.starts_with("explain")
-            || lower.starts_with("values");
-
-        let result_set = conn
-            .query_iter(sql.as_str())
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let columns: Vec<QueryColumn> = result_set
-            .columns_ref()
-            .iter()
-            .map(|c| QueryColumn {
-                name: c.name_str().into_owned(),
-                data_type: Some(format!("{:?}", c.column_type())),
-            })
-            .collect();
-
-        let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
-        let mut truncated = false;
-
-        let mut result_set = result_set;
-        while let Some(row) = result_set
-            .next()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            if out_rows.len() >= max_rows {
-                truncated = true;
-                break;
-            }
-            let mut cells = Vec::with_capacity(columns.len());
-            for i in 0..columns.len() {
-                let v: Value = row.as_ref(i).cloned().unwrap_or(Value::NULL);
-                cells.push(value_json(v));
-            }
-            out_rows.push(cells);
+        let stmts = split_sql_statements(&query.text);
+        if stmts.is_empty() {
+            return Err(ConnectorError::Query("Query is empty.".into()));
         }
 
-        // Drain remaining rows so the connection returns cleanly.
-        while result_set
-            .next()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-            .is_some()
-        {
-            truncated = true;
-        }
+        let batch_n = stmts.len();
+        let mut last: Option<QueryResult> = None;
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-        let message = if !is_select_like {
-            Some(format!(
-                "Statement executed ({}). Tabular rows only for SELECT-like queries.",
-                match mode {
-                    QueryMode::Read => "read",
-                    QueryMode::Write => "write",
+        for (i, sql) in stmts.iter().enumerate() {
+            let lower = sql.to_ascii_lowercase();
+            let is_select_like = lower.starts_with("select")
+                || lower.starts_with("with")
+                || lower.starts_with("show")
+                || lower.starts_with("describe")
+                || lower.starts_with("desc")
+                || lower.starts_with("explain")
+                || lower.starts_with("values");
+
+            let result = if is_select_like {
+                let result_set = conn
+                    .query_iter(sql.as_str())
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+                let columns: Vec<QueryColumn> = result_set
+                    .columns_ref()
+                    .iter()
+                    .map(|c| QueryColumn {
+                        name: c.name_str().into_owned(),
+                        data_type: Some(format!("{:?}", c.column_type())),
+                    })
+                    .collect();
+
+                let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
+                let mut truncated = false;
+                let mut result_set = result_set;
+                while let Some(row) = result_set
+                    .next()
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?
+                {
+                    if out_rows.len() >= max_rows {
+                        truncated = true;
+                        break;
+                    }
+                    let mut cells = Vec::with_capacity(columns.len());
+                    for j in 0..columns.len() {
+                        let v: Value = row.as_ref(j).cloned().unwrap_or(Value::NULL);
+                        cells.push(value_json(v));
+                    }
+                    out_rows.push(cells);
                 }
-            ))
-        } else if truncated {
-            Some(format!("Result truncated to {max_rows} rows."))
-        } else {
-            None
-        };
+                while result_set
+                    .next()
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?
+                    .is_some()
+                {
+                    truncated = true;
+                }
 
-        Ok(QueryResult {
-            engine: "mysql".into(),
-            mode,
-            columns: if out_rows.is_empty() && !is_select_like {
-                Vec::new()
+                let mut message = if truncated {
+                    Some(format!("Result truncated to {max_rows} rows."))
+                } else {
+                    None
+                };
+                if batch_n > 1 && i + 1 == batch_n {
+                    let note = format!("Last of {batch_n} statements.");
+                    message = Some(match message {
+                        Some(m) => format!("{m} {note}"),
+                        None => note,
+                    });
+                }
+
+                QueryResult {
+                    engine: "mysql".into(),
+                    mode,
+                    columns,
+                    row_count: out_rows.len() as u64,
+                    rows: out_rows,
+                    truncated,
+                    duration_ms: 0,
+                    message,
+                }
             } else {
-                columns
-            },
-            row_count: out_rows.len() as u64,
-            rows: out_rows,
-            truncated,
-            duration_ms,
-            message,
-        })
+                conn.query_drop(sql.as_str())
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+                let mut message = Some(format!(
+                    "Statement executed ({}). Tabular rows only for SELECT-like queries.",
+                    match mode {
+                        QueryMode::Read => "read",
+                        QueryMode::Write => "write",
+                    }
+                ));
+                if batch_n > 1 && i + 1 == batch_n {
+                    message = Some(format!(
+                        "{}; last of {batch_n} statements.",
+                        message.unwrap_or_default().trim_end_matches('.')
+                    ));
+                }
+
+                QueryResult {
+                    engine: "mysql".into(),
+                    mode,
+                    columns: Vec::new(),
+                    row_count: 0,
+                    rows: Vec::new(),
+                    truncated: false,
+                    duration_ms: 0,
+                    message,
+                }
+            };
+
+            last = Some(result);
+        }
+
+        let mut out = last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))?;
+        out.duration_ms = start.elapsed().as_millis() as u64;
+        Ok(out)
     }
 }
 

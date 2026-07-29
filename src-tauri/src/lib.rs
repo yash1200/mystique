@@ -4,7 +4,7 @@
 //! - Window / plugin lifecycle
 //! - Open local DB path via Tauri path API
 //! - IPC adapters → [`mystique_core::AppServices`]
-//! - App menu accelerators (⌘W close tab, ⌘T new query) so they don't close the window
+//! - Full native app menu (Edit clipboard, View zoom, Window, workspace tab shortcuts)
 //!
 //! Business logic lives in `mystique-core`, not here.
 
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use mystique_core::{AppDatabase, AppServices};
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     Emitter, Manager,
 };
 
@@ -23,12 +23,240 @@ pub struct AppState {
     pub services: Arc<AppServices>,
 }
 
+fn about_metadata(app: &tauri::AppHandle) -> AboutMetadata<'_> {
+    let pkg = app.package_info();
+    let config = app.config();
+    AboutMetadata {
+        name: Some(pkg.name.clone()),
+        version: Some(pkg.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        authors: config.bundle.publisher.clone().map(|p| vec![p]),
+        comments: Some("Multi-engine database studio".into()),
+        ..Default::default()
+    }
+}
+
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let about = about_metadata(app);
+
+    // —— File (workspace + window) ————————————————————————————————
+    // Do NOT use PredefinedMenuItem::close_window here: its accelerator is ⌘W
+    // and would steal Close Tab. Close Window uses ⇧⌘W instead.
+    let new_query = MenuItem::with_id(
+        app,
+        "workspace_new_query",
+        "New Query",
+        true,
+        Some("CmdOrCtrl+T"),
+    )?;
+    let close_tab = MenuItem::with_id(
+        app,
+        "workspace_close_tab",
+        "Close Tab",
+        true,
+        Some("CmdOrCtrl+W"),
+    )?;
+    let close_window = MenuItem::with_id(
+        app,
+        "window_close",
+        "Close Window",
+        true,
+        Some("Shift+CmdOrCtrl+W"),
+    )?;
+
+    #[cfg(target_os = "macos")]
+    let file_menu = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[&new_query, &close_tab, &PredefinedMenuItem::separator(app)?, &close_window],
+    )?;
+
+    #[cfg(not(target_os = "macos"))]
+    let file_menu = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[
+            &new_query,
+            &close_tab,
+            &PredefinedMenuItem::separator(app)?,
+            &close_window,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+
+    // —— Edit (required for native clipboard / undo on macOS) ——————
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+
+    // —— View (UI zoom + fullscreen) ———————————————————————————————
+    // Use "=" not "Plus" — muda parses `CmdOrCtrl+=` / `CmdOrCtrl++` for zoom-in.
+    let zoom_in = MenuItem::with_id(
+        app,
+        "view_zoom_in",
+        "Zoom In",
+        true,
+        Some("CmdOrCtrl+="),
+    )?;
+    let zoom_out = MenuItem::with_id(
+        app,
+        "view_zoom_out",
+        "Zoom Out",
+        true,
+        Some("CmdOrCtrl+-"),
+    )?;
+    let zoom_reset = MenuItem::with_id(
+        app,
+        "view_zoom_reset",
+        "Actual Size",
+        true,
+        Some("CmdOrCtrl+0"),
+    )?;
+
+    #[cfg(target_os = "macos")]
+    let view_menu = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[
+            &zoom_in,
+            &zoom_out,
+            &zoom_reset,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )?;
+
+    #[cfg(not(target_os = "macos"))]
+    let view_menu = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[&zoom_in, &zoom_out, &zoom_reset],
+    )?;
+
+    // —— Window ————————————————————————————————————————————————————
+    #[cfg(target_os = "macos")]
+    let window_menu = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::bring_all_to_front(app, None)?,
+        ],
+    )?;
+
+    #[cfg(not(target_os = "macos"))]
+    let window_menu = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+        ],
+    )?;
+
+    // —— Help (About lives in the app menu on macOS) ———————————————
+    #[cfg(not(target_os = "macos"))]
+    let help_menu = Submenu::with_items(
+        app,
+        "Help",
+        true,
+        &[&PredefinedMenuItem::about(app, None, Some(about))?],
+    )?;
+
+    // macOS: app-named first menu (About / Services / Hide / Quit).
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = Submenu::with_items(
+            app,
+            "MystiqueDB",
+            true,
+            &[
+                &PredefinedMenuItem::about(app, None, Some(about))?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::services(app, None)?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::hide(app, None)?,
+                &PredefinedMenuItem::hide_others(app, None)?,
+                &PredefinedMenuItem::show_all(app, None)?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, None)?,
+            ],
+        )?;
+        return Menu::with_items(
+            app,
+            &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu],
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Menu::with_items(
+            app,
+            &[&file_menu, &edit_menu, &view_menu, &window_menu, &help_menu],
+        )
+    }
+}
+
+fn emit_to_webviews(app: &tauri::AppHandle, event: &str) {
+    for (_label, window) in app.webview_windows() {
+        let _ = window.emit(event, ());
+    }
+    let _ = app.emit(event, ());
+}
+
+fn close_focused_window(app: &tauri::AppHandle) {
+    if let Some(win) = app
+        .webview_windows()
+        .into_iter()
+        .find_map(|(_label, w)| w.is_focused().ok().filter(|&f| f).map(|_| w))
+    {
+        let _ = win.close();
+        return;
+    }
+    // Fallback: close the first window.
+    if let Some((_label, win)) = app.webview_windows().into_iter().next() {
+        let _ = win.close();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .menu(|app| build_menu(app))
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
+                "workspace_new_query" => emit_to_webviews(app, "workspace-new-query"),
+                "view_zoom_in" => emit_to_webviews(app, "ui-zoom-in"),
+                "view_zoom_out" => emit_to_webviews(app, "ui-zoom-out"),
+                "view_zoom_reset" => emit_to_webviews(app, "ui-zoom-reset"),
+                "window_close" => close_focused_window(app),
+                _ => {}
+            }
+        })
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -41,48 +269,7 @@ pub fn run() {
             let services = Arc::new(AppServices::new(db));
 
             app.manage(AppState { services });
-
-            // Custom File menu: Cmd/Ctrl+W closes a workspace tab (not the window).
-            // Cmd/Ctrl+T opens a new query tab. Events are handled in the webview.
-            let new_query = MenuItem::with_id(
-                app,
-                "workspace_new_query",
-                "New Query",
-                true,
-                Some("CmdOrCtrl+T"),
-            )?;
-            let close_tab = MenuItem::with_id(
-                app,
-                "workspace_close_tab",
-                "Close Tab",
-                true,
-                Some("CmdOrCtrl+W"),
-            )?;
-            let file_menu = Submenu::with_items(
-                app,
-                "File",
-                true,
-                &[
-                    &new_query,
-                    &close_tab,
-                    &PredefinedMenuItem::separator(app)?,
-                    // Explicitly omit CloseWindow with Cmd+W — use Quit only.
-                    &PredefinedMenuItem::quit(app, None)?,
-                ],
-            )?;
-            let menu = Menu::with_items(app, &[&file_menu])?;
-            app.set_menu(menu)?;
-
             Ok(())
-        })
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "workspace_close_tab" => {
-                let _ = app.emit("workspace://close-tab", ());
-            }
-            "workspace_new_query" => {
-                let _ = app.emit("workspace://new-query", ());
-            }
-            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             // engines / connection pools
