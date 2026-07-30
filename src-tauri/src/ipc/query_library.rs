@@ -1,40 +1,7 @@
-use mystique_core::{QueryGroup, SaveQueryGroupInput, SaveQueryInput, SavedQuery};
+use mystique_core::{SaveQueryInput, SavedQuery};
 use tauri::State;
 
 use crate::AppState;
-
-#[tauri::command]
-pub fn list_query_groups(
-    state: State<'_, AppState>,
-    connection_id: String,
-) -> Result<Vec<QueryGroup>, String> {
-    state
-        .services
-        .query_library()
-        .list_groups(&connection_id)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn save_query_group(
-    state: State<'_, AppState>,
-    input: SaveQueryGroupInput,
-) -> Result<QueryGroup, String> {
-    state
-        .services
-        .query_library()
-        .save_group(input)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn delete_query_group(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state
-        .services
-        .query_library()
-        .delete_group(&id)
-        .map_err(|e| e.to_string())
-}
 
 #[tauri::command]
 pub fn list_saved_queries(

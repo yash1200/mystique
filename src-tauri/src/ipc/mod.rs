@@ -4,3 +4,4 @@ pub mod history;
 pub mod profiles;
 pub mod query_library;
 pub mod settings;
+pub mod workspace_tabs;

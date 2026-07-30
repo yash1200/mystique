@@ -1,9 +1,16 @@
 /**
- * Ephemeral connected-session state for the workspace shell.
- * Survives SPA navigations within the app process (not durable across restarts).
+ * Connected-session state for the workspace shell.
+ * Open tabs + query drafts persist to the app SQLite DB (via Tauri IPC).
  */
 import type { ConnectionProfile } from "$lib/types/connection";
 import type { SelectedRow, WorkspaceTab } from "$lib/types/workspace";
+import { isTauri } from "$lib/api/tauri";
+import {
+  listWorkspaceTabs,
+  recordToWorkspaceTab,
+  replaceWorkspaceTabs,
+  workspaceTabToSaveInput,
+} from "$lib/api/workspaceTabs";
 
 export type ConnectedSession = {
   profile: ConnectionProfile;
@@ -21,8 +28,14 @@ class WorkspaceSessionStore {
 
   /** Draft SQL/MQL text per query tab id. */
   queryDrafts = $state<Record<string, string>>({});
+  /** Baseline body used to compute dirty (saved body or last restore). */
+  queryBaselines = $state<Record<string, string>>({});
   /** Allow-writes flag per query tab id. */
   queryWriteMode = $state<Record<string, boolean>>({});
+
+  /** Debounced persist handles per connection. */
+  private persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private restoring = new Set<string>();
 
   get activeSession(): ConnectedSession | null {
     return (
@@ -32,7 +45,6 @@ class WorkspaceSessionStore {
   }
 
   queryTabId(connectionId: string): string {
-    // Prefer existing query tab id; used by history re-open helpers.
     const existing = this.openTabs.find(
       (t) => t.connectionId === connectionId && t.kind === "query",
     );
@@ -43,7 +55,7 @@ class WorkspaceSessionStore {
     return this.openTabs.find((t) => t.id === this.activeTabId) ?? null;
   }
 
-  /** Register / refresh a live session and focus it (no tabs opened by default). */
+  /** Register / refresh a live session and focus it. Restores tabs from SQLite. */
   connect(profile: ConnectionProfile, engineSessionId?: string | null) {
     const now = new Date().toISOString();
     const existing = this.sessions.findIndex((s) => s.profile.id === profile.id);
@@ -61,6 +73,95 @@ class WorkspaceSessionStore {
       this.sessions = [...this.sessions, next];
     }
     this.setActiveConnection(profile.id);
+    void this.restoreTabsForConnection(profile.id);
+  }
+
+  /**
+   * Load persisted tabs for a connection (on connect / app reopen).
+   * Skips if tabs for this connection already exist in memory.
+   */
+  async restoreTabsForConnection(connectionId: string) {
+    if (!isTauri()) return;
+    if (this.restoring.has(connectionId)) return;
+    const hasMemory = this.openTabs.some((t) => t.connectionId === connectionId);
+    if (hasMemory) return;
+
+    this.restoring.add(connectionId);
+    try {
+      const records = await listWorkspaceTabs(connectionId);
+      if (records.length === 0) return;
+
+      const tabs = records.map(recordToWorkspaceTab);
+      const drafts: Record<string, string> = { ...this.queryDrafts };
+      const baselines: Record<string, string> = { ...this.queryBaselines };
+      const writes: Record<string, boolean> = { ...this.queryWriteMode };
+
+      for (const r of records) {
+        if (r.kind === "query") {
+          const body = r.body ?? "";
+          drafts[r.id] = body;
+          baselines[r.id] = body;
+          writes[r.id] = !!r.writeEnabled;
+        }
+      }
+
+      this.openTabs = [...this.openTabs, ...tabs];
+      this.queryDrafts = drafts;
+      this.queryBaselines = baselines;
+      this.queryWriteMode = writes;
+
+      const active =
+        records.find((r) => r.isActive)?.id ??
+        records[records.length - 1]?.id ??
+        null;
+      if (active && this.activeConnectionId === connectionId) {
+        this.activeTabId = active;
+      }
+    } catch (e) {
+      console.warn("[mystique] restore workspace tabs:", e);
+    } finally {
+      this.restoring.delete(connectionId);
+    }
+  }
+
+  /** Persist open tabs for one connection (debounced). */
+  schedulePersist(connectionId: string) {
+    if (!isTauri() || this.restoring.has(connectionId)) return;
+    const prev = this.persistTimers.get(connectionId);
+    if (prev) clearTimeout(prev);
+    this.persistTimers.set(
+      connectionId,
+      setTimeout(() => {
+        this.persistTimers.delete(connectionId);
+        void this.persistNow(connectionId);
+      }, 350),
+    );
+  }
+
+  async persistNow(connectionId: string) {
+    if (!isTauri() || this.restoring.has(connectionId)) return;
+    const tabs = this.openTabs.filter((t) => t.connectionId === connectionId);
+    const activeTabId =
+      this.activeTabId &&
+      tabs.some((t) => t.id === this.activeTabId)
+        ? this.activeTabId
+        : tabs[0]?.id ?? null;
+    try {
+      await replaceWorkspaceTabs({
+        connectionId,
+        activeTabId,
+        tabs: tabs.map((tab, i) =>
+          workspaceTabToSaveInput(tab, {
+            sortOrder: i,
+            isActive: tab.id === activeTabId,
+            body: this.queryDrafts[tab.id] ?? "",
+            writeEnabled: this.queryWriteMode[tab.id] ?? false,
+          }),
+        ),
+      });
+    } catch (e) {
+      console.warn("[mystique] persist workspace tabs:", e);
+    }
   }
 
   /**
@@ -75,6 +176,7 @@ class WorkspaceSessionStore {
       this.activeTabId = existing.id;
       this.activeConnectionId = connectionId;
       this.selectedRow = null;
+      this.schedulePersist(connectionId);
       return;
     }
     this.openNewQuery(connectionId);
@@ -86,16 +188,77 @@ class WorkspaceSessionStore {
       (t) => t.connectionId === connectionId && t.kind === "query",
     ).length;
     const id = `${connectionId}::query::${crypto.randomUUID()}`;
-    const title = count === 0 ? "Query" : `Query ${count + 1}`;
+    const title = count === 0 ? "Untitled query" : `Untitled query ${count + 1}`;
     this.openTabs = [
       ...this.openTabs,
-      { id, connectionId, kind: "query", title },
+      {
+        id,
+        connectionId,
+        kind: "query",
+        title,
+        savedQueryId: null,
+        dirty: false,
+      },
     ];
     this.queryDrafts = { ...this.queryDrafts, [id]: "" };
+    this.queryBaselines = { ...this.queryBaselines, [id]: "" };
     this.queryWriteMode = { ...this.queryWriteMode, [id]: false };
     this.activeTabId = id;
     this.activeConnectionId = connectionId;
     this.selectedRow = null;
+    this.schedulePersist(connectionId);
+  }
+
+  /** Open a saved query directly in the editor (or focus + refresh if already open). */
+  openSavedQuery(
+    connectionId: string,
+    saved: { id: string; name: string; body: string },
+  ) {
+    const existing = this.openTabs.find(
+      (t) =>
+        t.connectionId === connectionId &&
+        t.kind === "query" &&
+        t.savedQueryId === saved.id,
+    );
+    if (existing) {
+      // If the tab is clean, reload library body; keep dirty edits intact.
+      if (!existing.dirty) {
+        this.queryDrafts = { ...this.queryDrafts, [existing.id]: saved.body };
+        this.queryBaselines = {
+          ...this.queryBaselines,
+          [existing.id]: saved.body,
+        };
+        this.openTabs = this.openTabs.map((t) =>
+          t.id === existing.id
+            ? { ...t, title: saved.name, dirty: false }
+            : t,
+        );
+      }
+      this.activeTabId = existing.id;
+      this.activeConnectionId = connectionId;
+      this.selectedRow = null;
+      this.schedulePersist(connectionId);
+      return;
+    }
+    const id = `${connectionId}::query::saved::${saved.id}`;
+    this.openTabs = [
+      ...this.openTabs,
+      {
+        id,
+        connectionId,
+        kind: "query",
+        title: saved.name,
+        savedQueryId: saved.id,
+        dirty: false,
+      },
+    ];
+    this.queryDrafts = { ...this.queryDrafts, [id]: saved.body };
+    this.queryBaselines = { ...this.queryBaselines, [id]: saved.body };
+    this.queryWriteMode = { ...this.queryWriteMode, [id]: false };
+    this.activeTabId = id;
+    this.activeConnectionId = connectionId;
+    this.selectedRow = null;
+    this.schedulePersist(connectionId);
   }
 
   /** Close the active workspace tab (⌘/Ctrl+W). */
@@ -110,7 +273,6 @@ class WorkspaceSessionStore {
     if (this.selectedRow && this.selectedRow.connectionId !== id) {
       this.selectedRow = null;
     }
-    // Prefer an existing tab for this connection; otherwise show empty workspace.
     const tab =
       this.openTabs.find(
         (t) => t.connectionId === id && t.id === this.activeTabId,
@@ -119,18 +281,24 @@ class WorkspaceSessionStore {
   }
 
   disconnect(id: string) {
+    // Persist final tab state before dropping memory.
+    void this.persistNow(id);
+
     this.sessions = this.sessions.filter((s) => s.profile.id !== id);
     const removedTabIds = this.openTabs
       .filter((t) => t.connectionId === id)
       .map((t) => t.id);
     this.openTabs = this.openTabs.filter((t) => t.connectionId !== id);
     const drafts = { ...this.queryDrafts };
+    const baselines = { ...this.queryBaselines };
     const writes = { ...this.queryWriteMode };
     for (const tid of removedTabIds) {
       delete drafts[tid];
+      delete baselines[tid];
       delete writes[tid];
     }
     this.queryDrafts = drafts;
+    this.queryBaselines = baselines;
     this.queryWriteMode = writes;
 
     if (this.activeConnectionId === id) {
@@ -154,12 +322,20 @@ class WorkspaceSessionStore {
     if (!this.openTabs.some((t) => t.id === id)) {
       this.openTabs = [
         ...this.openTabs,
-        { id, connectionId, kind: "table", tableId, title },
+        {
+          id,
+          connectionId,
+          kind: "table",
+          tableId,
+          title,
+          dirty: false,
+        },
       ];
     }
     this.activeTabId = id;
     this.activeConnectionId = connectionId;
     this.selectedRow = null;
+    this.schedulePersist(connectionId);
   }
 
   /** Open / focus live ER · Model diagram tab for a connection (+ optional database). */
@@ -175,10 +351,10 @@ class WorkspaceSessionStore {
           kind: "model",
           modelDatabase: database?.trim() || "",
           title,
+          dirty: false,
         },
       ];
     } else {
-      // Refresh title if provided
       this.openTabs = this.openTabs.map((t) =>
         t.id === id ? { ...t, title } : t,
       );
@@ -186,8 +362,8 @@ class WorkspaceSessionStore {
     this.activeTabId = id;
     this.activeConnectionId = connectionId;
     this.selectedRow = null;
+    this.schedulePersist(connectionId);
   }
-
 
   closeTab(tabId: string) {
     const tab = this.openTabs.find((t) => t.id === tabId);
@@ -199,16 +375,20 @@ class WorkspaceSessionStore {
 
     if (tab.kind === "query") {
       const drafts = { ...this.queryDrafts };
+      const baselines = { ...this.queryBaselines };
       const writes = { ...this.queryWriteMode };
       delete drafts[tabId];
+      delete baselines[tabId];
       delete writes[tabId];
       this.queryDrafts = drafts;
+      this.queryBaselines = baselines;
       this.queryWriteMode = writes;
     }
 
-    // No auto-reopen — empty workspace is valid until the user opens a tab.
     if (wasActive) {
-      const sameConn = this.openTabs.filter((t) => t.connectionId === connectionId);
+      const sameConn = this.openTabs.filter(
+        (t) => t.connectionId === connectionId,
+      );
       const next =
         sameConn[Math.max(0, idx - 1)] ??
         sameConn[0] ??
@@ -216,7 +396,6 @@ class WorkspaceSessionStore {
         this.openTabs[0];
       this.activeTabId = next?.id ?? null;
       if (next) this.activeConnectionId = next.connectionId;
-      // Stay on this connection with no tab selected when all its tabs closed.
       else if (this.sessions.some((s) => s.profile.id === connectionId)) {
         this.activeConnectionId = connectionId;
       }
@@ -232,6 +411,7 @@ class WorkspaceSessionStore {
         this.selectedRow = null;
       }
     }
+    this.schedulePersist(connectionId);
   }
 
   setActiveTab(tabId: string) {
@@ -247,14 +427,101 @@ class WorkspaceSessionStore {
     ) {
       this.selectedRow = null;
     }
+    this.schedulePersist(tab.connectionId);
   }
 
   setQueryDraft(tabId: string, text: string) {
     this.queryDrafts = { ...this.queryDrafts, [tabId]: text };
+    const baseline = this.queryBaselines[tabId] ?? "";
+    const dirty = text !== baseline;
+    const tab = this.openTabs.find((t) => t.id === tabId);
+    if (tab && !!tab.dirty !== dirty) {
+      this.openTabs = this.openTabs.map((t) =>
+        t.id === tabId ? { ...t, dirty } : t,
+      );
+    }
+    if (tab) this.schedulePersist(tab.connectionId);
   }
 
   setQueryWriteMode(tabId: string, enabled: boolean) {
     this.queryWriteMode = { ...this.queryWriteMode, [tabId]: enabled };
+    const tab = this.openTabs.find((t) => t.id === tabId);
+    if (tab) this.schedulePersist(tab.connectionId);
+  }
+
+  /** After successful save: link savedQueryId, update title, clear dirty. */
+  markQuerySaved(
+    tabId: string,
+    saved: { id: string; name: string; body: string },
+  ) {
+    this.queryBaselines = { ...this.queryBaselines, [tabId]: saved.body };
+    this.queryDrafts = { ...this.queryDrafts, [tabId]: saved.body };
+    this.openTabs = this.openTabs.map((t) =>
+      t.id === tabId
+        ? {
+            ...t,
+            savedQueryId: saved.id,
+            title: saved.name,
+            dirty: false,
+          }
+        : t,
+    );
+    const tab = this.openTabs.find((t) => t.id === tabId);
+    if (tab) this.schedulePersist(tab.connectionId);
+  }
+
+  /** Rename open tabs linked to a saved query (library rename). */
+  renameSavedQueryTabs(savedQueryId: string, name: string) {
+    const title = name.trim();
+    if (!title) return;
+    let touchedConn: string | null = null;
+    this.openTabs = this.openTabs.map((t) => {
+      if (t.kind === "query" && t.savedQueryId === savedQueryId) {
+        touchedConn = t.connectionId;
+        // Keep dirty if draft diverged; only rename chrome.
+        return { ...t, title };
+      }
+      return t;
+    });
+    if (touchedConn) this.schedulePersist(touchedConn);
+  }
+
+  /** Close open tabs linked to a deleted saved query. */
+  closeTabsForSavedQuery(savedQueryId: string) {
+    const ids = this.openTabs
+      .filter((t) => t.kind === "query" && t.savedQueryId === savedQueryId)
+      .map((t) => t.id);
+    for (const id of ids) this.closeTab(id);
+  }
+
+  /** Discard query draft back to last saved baseline and clear dirty. */
+  discardQueryDraft(tabId: string) {
+    const baseline = this.queryBaselines[tabId] ?? "";
+    this.queryDrafts = { ...this.queryDrafts, [tabId]: baseline };
+    this.openTabs = this.openTabs.map((t) =>
+      t.id === tabId ? { ...t, dirty: false } : t,
+    );
+    const tab = this.openTabs.find((t) => t.id === tabId);
+    if (tab) this.schedulePersist(tab.connectionId);
+  }
+
+  setTabDirty(tabId: string, dirty: boolean) {
+    const tab = this.openTabs.find((t) => t.id === tabId);
+    if (!tab || !!tab.dirty === dirty) return;
+    this.openTabs = this.openTabs.map((t) =>
+      t.id === tabId ? { ...t, dirty } : t,
+    );
+    this.schedulePersist(tab.connectionId);
+  }
+
+  renameTab(tabId: string, title: string) {
+    const name = title.trim();
+    if (!name) return;
+    this.openTabs = this.openTabs.map((t) =>
+      t.id === tabId ? { ...t, title: name } : t,
+    );
+    const tab = this.openTabs.find((t) => t.id === tabId);
+    if (tab) this.schedulePersist(tab.connectionId);
   }
 
   selectRow(connectionId: string, tableId: string, rowIndex: number) {

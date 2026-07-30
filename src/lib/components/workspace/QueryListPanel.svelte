@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { Input } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
   import {
@@ -9,6 +10,7 @@
   } from "$lib/data/mock-queries";
 
   type Mode = "saved-queries" | "history";
+  type SavedMenuAction = "open" | "duplicate" | "rename" | "delete";
 
   interface Props {
     mode: Mode;
@@ -16,19 +18,33 @@
     history: QueryHistoryEntry[];
     selectedId: string | null;
     onselect: (id: string) => void;
+    /** Context menu actions for saved queries (open / duplicate / rename / delete). */
+    onsavedaction?: (action: SavedMenuAction, id: string) => void;
   }
 
-  let { mode, savedQueries, history, selectedId, onselect }: Props = $props();
+  let {
+    mode,
+    savedQueries,
+    history,
+    selectedId,
+    onselect,
+    onsavedaction,
+  }: Props = $props();
 
   let query = $state("");
+  let menuOpen = $state(false);
+  let menuQueryId = $state<string | null>(null);
+  let menuX = $state(0);
+  let menuY = $state(0);
+  let menuRoot = $state<HTMLDivElement | null>(null);
 
   const title = $derived(
     mode === "saved-queries" ? "Saved queries" : "Query history",
   );
   const subtitle = $derived(
     mode === "saved-queries"
-      ? "Named queries for this workspace"
-      : "Recently executed statements",
+      ? "Click to open · right-click for more"
+      : "Click to open in the editor",
   );
 
   const filteredSaved = $derived.by(() => {
@@ -36,9 +52,7 @@
     if (!q) return savedQueries;
     return savedQueries.filter(
       (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.sql.toLowerCase().includes(q) ||
-        (s.folder ?? "").toLowerCase().includes(q),
+        s.name.toLowerCase().includes(q) || s.sql.toLowerCase().includes(q),
     );
   });
 
@@ -53,20 +67,66 @@
     );
   });
 
-  const savedGroups = $derived.by(() => {
-    const map = new Map<string, SavedQuery[]>();
-    for (const s of filteredSaved) {
-      const key = s.folder?.trim() || "Unfiled";
-      const list = map.get(key) ?? [];
-      list.push(s);
-      map.set(key, list);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  });
-
   const count = $derived(
     mode === "saved-queries" ? filteredSaved.length : filteredHistory.length,
   );
+
+  const menuQuery = $derived(
+    menuQueryId
+      ? (savedQueries.find((s) => s.id === menuQueryId) ?? null)
+      : null,
+  );
+
+  function openMenu(e: MouseEvent, id: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    menuQueryId = id;
+    // Keep menu on-screen
+    const pad = 8;
+    const mw = 160;
+    const mh = 160;
+    menuX = Math.min(e.clientX, window.innerWidth - mw - pad);
+    menuY = Math.min(e.clientY, window.innerHeight - mh - pad);
+    menuOpen = true;
+  }
+
+  function closeMenu() {
+    menuOpen = false;
+    menuQueryId = null;
+  }
+
+  function pick(action: SavedMenuAction) {
+    const id = menuQueryId;
+    closeMenu();
+    if (!id) return;
+    if (action === "open") {
+      onselect(id);
+      return;
+    }
+    onsavedaction?.(action, id);
+  }
+
+  onMount(() => {
+    const onDoc = (e: PointerEvent) => {
+      if (!menuOpen || !menuRoot) return;
+      if (e.target instanceof Node && menuRoot.contains(e.target)) return;
+      closeMenu();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeMenu();
+    };
+    const onScroll = () => {
+      if (menuOpen) closeMenu();
+    };
+    document.addEventListener("pointerdown", onDoc, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDoc, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  });
 </script>
 
 <aside
@@ -95,75 +155,40 @@
         {#if query.trim()}
           No matches for “{query.trim()}”.
         {:else if mode === "saved-queries"}
-          No saved queries yet.
+          No saved queries yet. Save a query from the editor.
         {:else}
           No query history yet.
         {/if}
       </p>
     {:else if mode === "saved-queries"}
-      {#each savedGroups as [folder, items] (folder)}
-        <div class="mb-2">
-          <div
-            class="px-2 py-1 text-caption font-semibold tracking-wide text-fg-muted uppercase"
-          >
-            {folder}
-          </div>
-          <ul class="m-0 list-none p-0">
-            {#each items as item (item.id)}
-              {@const active = selectedId === item.id}
-              <li>
-                <button
-                  type="button"
-                  class={cn(
-                    "flex w-full flex-col gap-0.5 rounded-md border-none px-2 py-1.5 text-left transition-colors",
-                    active
-                      ? "bg-accent-muted text-accent"
-                      : "bg-transparent text-fg hover:bg-hover",
-                  )}
-                  onclick={() => onselect(item.id)}
-                >
-                  <span class="flex items-center gap-1.5">
-                    <svg
-                      class={cn(
-                        "size-3.5 shrink-0",
-                        active ? "text-accent" : "text-fg-muted",
-                      )}
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M4 2.75h5.2L12 5.6v7.65a.75.75 0 0 1-.75.75h-7.5a.75.75 0 0 1-.75-.75V3.5A.75.75 0 0 1 4 2.75z"
-                        stroke="currentColor"
-                        stroke-width="1.25"
-                      />
-                      <path
-                        d="M9 2.9v2.85h2.85"
-                        stroke="currentColor"
-                        stroke-width="1.25"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                    <span
-                      class="min-w-0 flex-1 truncate text-label font-medium"
-                    >
-                      {item.name}
-                    </span>
-                  </span>
-                  <span
-                    class={cn(
-                      "truncate pl-5 font-mono text-caption",
-                      active ? "text-accent/80" : "text-fg-muted",
-                    )}
-                  >
-                    {previewSql(item.sql, 40)}
-                  </span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        </div>
-      {/each}
+      <ul class="m-0 list-none p-0">
+        {#each filteredSaved as item (item.id)}
+          {@const active = selectedId === item.id}
+          <li>
+            <button
+              type="button"
+              class={cn(
+                "flex w-full flex-col gap-0.5 rounded-md border-none px-2 py-1.5 text-left transition-colors",
+                active
+                  ? "bg-accent-muted text-accent"
+                  : "bg-transparent text-fg hover:bg-hover",
+              )}
+              onclick={() => onselect(item.id)}
+              oncontextmenu={(e) => openMenu(e, item.id)}
+            >
+              <span class="truncate text-label font-medium">{item.name}</span>
+              <span
+                class={cn(
+                  "text-caption",
+                  active ? "text-accent/70" : "text-fg-muted",
+                )}
+              >
+                {formatRelativeTime(item.updatedAt)}
+              </span>
+            </button>
+          </li>
+        {/each}
+      </ul>
     {:else}
       <ul class="m-0 list-none p-0">
         {#each filteredHistory as item (item.id)}
@@ -172,45 +197,39 @@
             <button
               type="button"
               class={cn(
-                "mb-0.5 flex w-full flex-col gap-0.5 rounded-md border-none px-2 py-1.5 text-left transition-colors",
+                "flex w-full flex-col gap-0.5 rounded-md border-none px-2 py-1.5 text-left transition-colors",
                 active
                   ? "bg-accent-muted text-accent"
                   : "bg-transparent text-fg hover:bg-hover",
               )}
               onclick={() => onselect(item.id)}
             >
-              <span class="flex items-center gap-1.5">
-                <span
-                  class={cn(
-                    "size-1.5 shrink-0 rounded-full",
-                    item.status === "success" ? "bg-success" : "bg-danger",
-                  )}
-                  title={item.status}
-                  aria-hidden="true"
-                ></span>
-                <span
-                  class={cn(
-                    "min-w-0 flex-1 truncate font-mono text-label",
-                    active ? "text-accent" : "text-fg",
-                  )}
-                >
-                  {previewSql(item.sql, 36)}
-                </span>
+              <span
+                class={cn(
+                  "line-clamp-2 font-mono text-label",
+                  active ? "text-accent" : "text-fg",
+                )}
+              >
+                {previewSql(item.sql)}
               </span>
               <span
                 class={cn(
-                  "flex items-center gap-1.5 pl-3.5 text-caption",
-                  active ? "text-accent/80" : "text-fg-muted",
+                  "flex flex-wrap items-center gap-1.5 text-caption",
+                  active ? "text-accent/70" : "text-fg-muted",
                 )}
               >
+                <span
+                  class={item.status === "success"
+                    ? "text-success"
+                    : "text-danger"}
+                >
+                  {item.status === "success" ? "ok" : "err"}
+                </span>
+                <span>·</span>
                 <span>{formatRelativeTime(item.ranAt)}</span>
-                <span aria-hidden="true">·</span>
-                <span class="font-mono tabular-nums">{item.durationMs}ms</span>
-                {#if item.status === "success" && item.rowCount != null}
-                  <span aria-hidden="true">·</span>
-                  <span class="font-mono tabular-nums"
-                    >{item.rowCount} rows</span
-                  >
+                {#if item.durationMs != null}
+                  <span>·</span>
+                  <span>{item.durationMs}ms</span>
                 {/if}
               </span>
             </button>
@@ -223,12 +242,50 @@
   <footer
     class="flex h-statusbar shrink-0 items-center justify-between gap-2 border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
   >
-    <span>
-      {count}
-      {mode === "saved-queries" ? "saved" : "runs"}
-    </span>
-    {#if mode === "history" && history.length > 0 && count === history.length}
-      <span class="truncate text-fg-muted">newest first</span>
-    {/if}
+    <span class="tabular-nums">{count}</span>
   </footer>
 </aside>
+
+{#if menuOpen && menuQuery}
+  <div
+    bind:this={menuRoot}
+    class="fixed z-50 min-w-40 rounded-md border border-line bg-elevated py-1 shadow-md"
+    style="left: {menuX}px; top: {menuY}px"
+    role="menu"
+    aria-label="Saved query actions"
+  >
+    <button
+      type="button"
+      role="menuitem"
+      class="flex w-full border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
+      onclick={() => pick("open")}
+    >
+      Open
+    </button>
+    <button
+      type="button"
+      role="menuitem"
+      class="flex w-full border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
+      onclick={() => pick("duplicate")}
+    >
+      Duplicate
+    </button>
+    <button
+      type="button"
+      role="menuitem"
+      class="flex w-full border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
+      onclick={() => pick("rename")}
+    >
+      Rename
+    </button>
+    <div class="my-1 border-t border-line"></div>
+    <button
+      type="button"
+      role="menuitem"
+      class="flex w-full border-none bg-transparent px-2.5 py-1.5 text-left text-label text-danger hover:bg-danger/10"
+      onclick={() => pick("delete")}
+    >
+      Delete
+    </button>
+  </div>
+{/if}

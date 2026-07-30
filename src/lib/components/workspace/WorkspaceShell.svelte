@@ -5,15 +5,20 @@
   import { mockCatalogForEngine } from "$lib/data/mock-workspace";
   import {
     historyItemToEntry,
-    MOCK_SAVED_QUERIES,
     type QueryHistoryEntry,
+    type SavedQuery,
   } from "$lib/data/mock-queries";
   import {
-    appendQueryHistory,
     listQueryHistory,
     listRecentQueryHistory,
     type QueryHistoryItem,
   } from "$lib/api/history";
+  import {
+    deleteSavedQuery,
+    listSavedQueries,
+    saveQuery,
+    toListSavedQuery,
+  } from "$lib/api/queries";
   import {
     isMockCatalog,
     loadLiveCatalog,
@@ -30,13 +35,14 @@
     isSessionMissingError,
     modelCacheKey,
   } from "./shell/sessionUtils";
-  import { previewBodyForTable } from "./shell/tablePreviewSql";
   import { mountWorkspaceShortcuts } from "./shell/workspaceShortcuts";
   import type { ErDiagramState } from "$lib/types/er";
   import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
   import SessionsRail, { type SideNavMode } from "./SessionsRail.svelte";
   import WorkspaceSidePane from "./shell/WorkspaceSidePane.svelte";
   import WorkspaceMainPane from "./shell/WorkspaceMainPane.svelte";
+  import UnsavedCloseModal from "./UnsavedCloseModal.svelte";
+  import SaveQueryModal from "./SaveQueryModal.svelte";
 
   const sessions = $derived(workspaceSession.sessions);
   const activeId = $derived(workspaceSession.activeConnectionId);
@@ -66,6 +72,9 @@
   let historyError = $state<string | null>(null);
   /** Monotonic token so overlapping history fetches don't clobber newer data. */
   let historyFetchGen = 0;
+  /** Saved queries for the active connection (from app SQLite). */
+  let savedQueries = $state<SavedQuery[]>([]);
+  let querySaving = $state(false);
 
   /** Live ER / model diagrams keyed by connectionId::database */
   let liveModels = $state<
@@ -291,13 +300,285 @@
     };
   });
 
-  const selectedSaved = $derived(
-    MOCK_SAVED_QUERIES.find((q) => q.id === selectedQueryId) ?? null,
-  );
-  const selectedHistory = $derived(
-    queryHistory.find((h) => h.id === selectedHistoryId) ?? null,
+  async function refreshSavedQueries(connectionId: string | null) {
+    if (!connectionId || !isTauri()) {
+      savedQueries = [];
+      return;
+    }
+    try {
+      const rows = await listSavedQueries(connectionId);
+      savedQueries = rows.map(toListSavedQuery);
+    } catch (e) {
+      console.warn("[mystique] list saved queries:", e);
+      savedQueries = [];
+    }
+  }
+
+  /** Tab id waiting on the unsaved-close modal. */
+  let pendingCloseTabId = $state<string | null>(null);
+  let closePromptBusy = $state(false);
+
+  const pendingCloseTab = $derived(
+    pendingCloseTabId
+      ? (workspaceSession.openTabs.find((t) => t.id === pendingCloseTabId) ??
+        null)
+      : null,
   );
 
+  function requestCloseTab(tabId: string) {
+    const tab = workspaceSession.openTabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    if (tab.dirty) {
+      // Focus the tab so Save/Discard apply to the visible content.
+      workspaceSession.setActiveTab(tabId);
+      pendingCloseTabId = tabId;
+      return;
+    }
+    workspaceSession.closeTab(tabId);
+  }
+
+  function cancelCloseTab() {
+    if (closePromptBusy) return;
+    pendingCloseTabId = null;
+  }
+
+  /** In-app save-name modal (window.prompt is broken in Tauri webviews). */
+  let saveNameModalOpen = $state(false);
+  let saveNameTabId = $state<string | null>(null);
+  let saveNameInitial = $state("Untitled query");
+  let saveNameError = $state<string | null>(null);
+  /** Resolves the pending saveQueryTab() promise after modal confirm/cancel. */
+  let saveNameResolver: ((ok: boolean) => void) | null = null;
+  /** When true, close the tab after a successful save from the name modal. */
+  let saveThenClose = $state(false);
+
+  function needsNamePrompt(title: string): boolean {
+    const name = title?.trim() || "";
+    if (!name) return true;
+    if (/^untitled query/i.test(name)) return true;
+    if (name === "Query") return true;
+    return false;
+  }
+
+  /**
+   * Persist query body to SQLite for the tab. Returns true on success.
+   * Uses an in-app modal for naming (not window.prompt).
+   */
+  async function persistQueryTab(
+    tabId: string,
+    name: string,
+  ): Promise<boolean> {
+    const tab = workspaceSession.openTabs.find((t) => t.id === tabId);
+    const session = workspaceSession.sessions.find(
+      (s) => s.profile.id === tab?.connectionId,
+    );
+    if (!tab || tab.kind !== "query" || !session) {
+      throw new Error("No query tab / connection to save.");
+    }
+    if (!isTauri()) {
+      throw new Error("Saving requires the desktop app (Tauri).");
+    }
+    const body = workspaceSession.queryDrafts[tab.id] ?? "";
+    if (!body.trim()) {
+      throw new Error("Query is empty — nothing to save.");
+    }
+    const engine = String(session.profile.engine);
+    const language = /mongo/i.test(engine) ? "mql" : "sql";
+    const saved = await saveQuery({
+      id: tab.savedQueryId ?? null,
+      connectionId: tab.connectionId,
+      name: name.trim(),
+      body,
+      language,
+    });
+    workspaceSession.markQuerySaved(tab.id, {
+      id: saved.id,
+      name: saved.name,
+      body: saved.body,
+    });
+    await refreshSavedQueries(tab.connectionId);
+    selectedQueryId = saved.id;
+    return true;
+  }
+
+  function closeSaveNameModal(ok: boolean) {
+    saveNameModalOpen = false;
+    saveNameError = null;
+    const resolve = saveNameResolver;
+    saveNameResolver = null;
+    saveNameTabId = null;
+    resolve?.(ok);
+  }
+
+  async function onSaveNameConfirm(name: string) {
+    const tabId = saveNameTabId;
+    if (!tabId) {
+      closeSaveNameModal(false);
+      return;
+    }
+    querySaving = true;
+    saveNameError = null;
+    try {
+      await persistQueryTab(tabId, name);
+      const shouldClose = saveThenClose;
+      saveThenClose = false;
+      closeSaveNameModal(true);
+      if (shouldClose) {
+        workspaceSession.closeTab(tabId);
+        pendingCloseTabId = null;
+      }
+    } catch (e) {
+      saveNameError = e instanceof Error ? e.message : String(e);
+      console.warn("[mystique] save query:", e);
+    } finally {
+      querySaving = false;
+    }
+  }
+
+  /**
+   * Save a query tab (by id). Returns true if saved (or nothing to save).
+   * Returns false if the user cancelled the name modal or save failed.
+   */
+  async function saveQueryTab(
+    tabId: string,
+    opts?: { thenClose?: boolean },
+  ): Promise<boolean> {
+    const tab = workspaceSession.openTabs.find((t) => t.id === tabId);
+    const session = workspaceSession.sessions.find(
+      (s) => s.profile.id === tab?.connectionId,
+    );
+    if (!tab || tab.kind !== "query" || !session) return false;
+    if (!isTauri()) {
+      alert("Saving requires the desktop app (run with Tauri).");
+      return false;
+    }
+    const body = workspaceSession.queryDrafts[tab.id] ?? "";
+    if (!body.trim()) {
+      // Empty body: treat as clean so close can proceed.
+      workspaceSession.discardQueryDraft(tab.id);
+      return true;
+    }
+
+    if (needsNamePrompt(tab.title)) {
+      saveNameTabId = tabId;
+      saveNameInitial =
+        tab.title && !/^untitled query/i.test(tab.title) && tab.title !== "Query"
+          ? tab.title
+          : "Untitled query";
+      saveNameError = null;
+      saveThenClose = !!opts?.thenClose;
+      saveNameModalOpen = true;
+      return await new Promise<boolean>((resolve) => {
+        saveNameResolver = resolve;
+      });
+    }
+
+    querySaving = true;
+    try {
+      await persistQueryTab(tabId, tab.title.trim());
+      return true;
+    } catch (e) {
+      console.warn("[mystique] save query:", e);
+      alert(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      querySaving = false;
+    }
+  }
+
+  async function saveActiveQuery() {
+    const tab = workspaceSession.activeTab;
+    if (!tab || tab.kind !== "query") return;
+    await saveQueryTab(tab.id);
+  }
+
+  async function confirmSaveAndClose() {
+    const tab = pendingCloseTab;
+    if (!tab) return;
+    closePromptBusy = true;
+    try {
+      if (tab.kind === "query") {
+        // If naming modal is needed, it will close the tab after save.
+        const ok = await saveQueryTab(tab.id, { thenClose: true });
+        if (!ok) return;
+        // Named query path already saved; close here if still open.
+        if (workspaceSession.openTabs.some((t) => t.id === tab.id)) {
+          pendingCloseTabId = null;
+          workspaceSession.closeTab(tab.id);
+        } else {
+          pendingCloseTabId = null;
+        }
+      } else {
+        // Table / model: keep in-memory edits, clear dirty, then close.
+        workspaceSession.setTabDirty(tab.id, false);
+        const id = tab.id;
+        pendingCloseTabId = null;
+        workspaceSession.closeTab(id);
+      }
+    } finally {
+      closePromptBusy = false;
+    }
+  }
+
+  async function confirmDiscardAndClose() {
+    const tab = pendingCloseTab;
+    if (!tab) return;
+    closePromptBusy = true;
+    try {
+      if (tab.kind === "query") {
+        workspaceSession.discardQueryDraft(tab.id);
+      } else if (tab.kind === "table" && tab.tableId) {
+        // Reload table data from the engine to drop local edits.
+        const session = workspaceSession.sessions.find(
+          (s) => s.profile.id === tab.connectionId,
+        );
+        const cat = catalogs[tab.connectionId];
+        let table: TableMeta | null = null;
+        if (cat) {
+          for (const d of cat) {
+            const t = d.tables.find((x) => x.id === tab.tableId);
+            if (t) {
+              table = t;
+              break;
+            }
+          }
+        }
+        if (table && session) {
+          try {
+            if (isTauri() && session.engineSessionId) {
+              const preview = await loadTablePreview(
+                session.engineSessionId,
+                String(session.profile.engine),
+                table,
+                100,
+              );
+              const list = catalogs[tab.connectionId] ?? [];
+              catalogs = {
+                ...catalogs,
+                [tab.connectionId]: list.map((db) => ({
+                  ...db,
+                  tables: db.tables.map((t) =>
+                    t.id === preview.id ? preview : t,
+                  ),
+                })),
+              };
+            }
+          } catch (e) {
+            console.warn("[mystique] discard table reload:", e);
+          }
+        }
+        workspaceSession.setTabDirty(tab.id, false);
+        baselineEpoch += 1;
+      } else {
+        workspaceSession.setTabDirty(tab.id, false);
+      }
+      const id = tab.id;
+      pendingCloseTabId = null;
+      workspaceSession.closeTab(id);
+    } finally {
+      closePromptBusy = false;
+    }
+  }
   function historyNameMap(): Map<string, string> {
     return new Map(
       sessions.map((s) => [s.profile.id, s.profile.name] as const),
@@ -328,9 +609,8 @@
       ...queryHistory.filter((h) => h.id !== entry.id),
     ].slice(0, 150);
     historyError = null;
-    if (sideMode === "history") {
-      selectedHistoryId = entry.id;
-    }
+    // Highlight the new run in the list; user opens it explicitly if desired.
+    selectedHistoryId = entry.id;
   }
 
   async function refreshHistory(opts?: { preferSelectLatest?: boolean }) {
@@ -356,18 +636,14 @@
       if (gen !== historyFetchGen) return;
       queryHistory = items.map((it) => entryFromItem(it));
       historyError = null;
-      if (opts?.preferSelectLatest && queryHistory[0]) {
-        selectedHistoryId = queryHistory[0].id;
-      } else if (
+      // Keep list highlight only — do not auto-open runs in the editor.
+      if (
         selectedHistoryId &&
         !queryHistory.some((h) => h.id === selectedHistoryId)
       ) {
-        selectedHistoryId = queryHistory[0]?.id ?? null;
-      } else if (
-        !selectedHistoryId &&
-        sideMode === "history" &&
-        queryHistory[0]
-      ) {
+        selectedHistoryId = null;
+      }
+      if (opts?.preferSelectLatest && queryHistory[0]) {
         selectedHistoryId = queryHistory[0].id;
       }
     } catch (e) {
@@ -389,12 +665,20 @@
     }
   });
 
+  /** Open SQL in a new query tab (history / external). */
   function openSqlInEditor(sql: string) {
     if (!activeId) return;
-    sideMode = "explorer";
-    workspaceSession.openQuery(activeId);
-    const tabId = workspaceSession.queryTabId(activeId);
-    workspaceSession.setQueryDraft(tabId, sql);
+    workspaceSession.openNewQuery(activeId);
+    const tabId = workspaceSession.activeTabId;
+    if (tabId) workspaceSession.setQueryDraft(tabId, sql);
+  }
+
+  function onSelectHistory(id: string) {
+    selectedHistoryId = id;
+    const h = queryHistory.find((x) => x.id === id);
+    if (!h || !activeId) return;
+    // Open the run directly in the query editor (no preview pane).
+    openSqlInEditor(h.sql);
   }
 
   async function openTable(table: TableMeta) {
@@ -428,27 +712,8 @@
       }));
       catalogs = { ...catalogs, [activeId]: next };
       rowSyncTick += 1;
-
-      // Log table preview as history so Explore clicks show up next to Query runs.
-      if (isTauri()) {
-        const e = engine.toLowerCase();
-        const body = previewBodyForTable(engine, table);
-        try {
-          const item = await appendQueryHistory({
-            connectionId: activeId,
-            engine,
-            body,
-            language: e === "mongodb" || e === "mongo" ? "mql" : "sql",
-            success: true,
-            rowCount: preview.rows?.length ?? preview.rowCount ?? null,
-            durationMs: null,
-            errorMessage: null,
-          });
-          prependHistoryItem(item);
-        } catch (histErr) {
-          console.warn("[mystique] table preview history:", histErr);
-        }
-      }
+      // Do not log table previews / catalog fetches to query history —
+      // history is only for statements the user runs from the Query editor.
     } catch (e) {
       catalogError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -595,14 +860,164 @@
     sideMode = mode;
     if (mode === "saved-queries") {
       selectedHistoryId = null;
-      if (!selectedQueryId && MOCK_SAVED_QUERIES[0]) {
-        selectedQueryId = MOCK_SAVED_QUERIES[0].id;
-      }
+      void refreshSavedQueries(activeId);
+      // Keep editor visible; do not auto-open the first query.
     } else if (mode === "history") {
       selectedQueryId = null;
       void refreshHistory({ preferSelectLatest: true });
     }
   }
+
+  function onSelectSavedQuery(id: string) {
+    selectedQueryId = id;
+    const q = savedQueries.find((s) => s.id === id);
+    if (!q || !activeId) return;
+    // Open directly in the query editor (no preview pane).
+    workspaceSession.openSavedQuery(activeId, {
+      id: q.id,
+      name: q.name,
+      body: q.sql,
+    });
+  }
+
+  /** Rename library query (context menu). */
+  let renameModalOpen = $state(false);
+  let renameQueryId = $state<string | null>(null);
+  let renameInitial = $state("");
+  let renameError = $state<string | null>(null);
+  let renameBusy = $state(false);
+
+  /** Delete confirmation (context menu). */
+  let deleteModalOpen = $state(false);
+  let deleteQueryId = $state<string | null>(null);
+  let deleteQueryName = $state("");
+  let deleteBusy = $state(false);
+
+  async function onSavedQueryAction(
+    action: "duplicate" | "rename" | "delete",
+    id: string,
+  ) {
+    const q = savedQueries.find((s) => s.id === id);
+    if (!q || !activeId) return;
+
+    if (action === "duplicate") {
+      try {
+        const base = q.name.trim() || "Query";
+        const name = base.toLowerCase().endsWith(" copy")
+          ? `${base} 2`
+          : `${base} copy`;
+        const saved = await saveQuery({
+          connectionId: q.connectionId || activeId,
+          name,
+          body: q.sql,
+          language: /mongo/i.test(String(activeSession?.profile.engine))
+            ? "mql"
+            : "sql",
+        });
+        await refreshSavedQueries(activeId);
+        selectedQueryId = saved.id;
+        workspaceSession.openSavedQuery(activeId, {
+          id: saved.id,
+          name: saved.name,
+          body: saved.body,
+        });
+      } catch (e) {
+        alert(e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
+
+    if (action === "rename") {
+      renameQueryId = id;
+      renameInitial = q.name;
+      renameError = null;
+      renameModalOpen = true;
+      return;
+    }
+
+    if (action === "delete") {
+      deleteQueryId = id;
+      deleteQueryName = q.name;
+      deleteModalOpen = true;
+    }
+  }
+
+  async function confirmRenameSavedQuery(name: string) {
+    const id = renameQueryId;
+    const q = id ? savedQueries.find((s) => s.id === id) : null;
+    if (!id || !q || !activeId) {
+      renameModalOpen = false;
+      return;
+    }
+    renameBusy = true;
+    renameError = null;
+    try {
+      const saved = await saveQuery({
+        id,
+        connectionId: q.connectionId || activeId,
+        name,
+        body: q.sql,
+        language: /mongo/i.test(String(activeSession?.profile.engine))
+          ? "mql"
+          : "sql",
+      });
+      workspaceSession.renameSavedQueryTabs(id, saved.name);
+      await refreshSavedQueries(activeId);
+      selectedQueryId = saved.id;
+      renameModalOpen = false;
+      renameQueryId = null;
+    } catch (e) {
+      renameError = e instanceof Error ? e.message : String(e);
+    } finally {
+      renameBusy = false;
+    }
+  }
+
+  async function confirmDeleteSavedQuery() {
+    const id = deleteQueryId;
+    if (!id || !activeId) {
+      deleteModalOpen = false;
+      return;
+    }
+    deleteBusy = true;
+    try {
+      await deleteSavedQuery(id);
+      workspaceSession.closeTabsForSavedQuery(id);
+      if (selectedQueryId === id) selectedQueryId = null;
+      await refreshSavedQueries(activeId);
+      deleteModalOpen = false;
+      deleteQueryId = null;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      deleteBusy = false;
+    }
+  }
+
+  // Refresh library when active connection changes.
+  $effect(() => {
+    const id = activeId;
+    void refreshSavedQueries(id);
+  });
+
+  /** Table tab ids we already tried to hydrate after restore (avoid reload loops). */
+  let hydratedTableTabs = $state<Record<string, boolean>>({});
+
+  // After reconnect: hydrate table data for restored table tabs once.
+  $effect(() => {
+    const tab = activeTab;
+    const table = gridTable;
+    const session = activeSession;
+    if (!tab || tab.kind !== "table" || !table || !session || !isTauri()) return;
+    if (hydratedTableTabs[tab.id]) return;
+    if (table.columns.length > 0) {
+      hydratedTableTabs = { ...hydratedTableTabs, [tab.id]: true };
+      return;
+    }
+    if (tableLoading) return;
+    hydratedTableTabs = { ...hydratedTableTabs, [tab.id]: true };
+    void openTable(table);
+  });
 
   function onSelectConnection(id: string) {
     sideMode = "explorer";
@@ -637,13 +1052,22 @@
   }
 
   function shortcutCloseTab() {
-    workspaceSession.closeActiveTab();
+    const id = workspaceSession.activeTabId;
+    if (!id) return;
+    requestCloseTab(id);
+  }
+
+  function shortcutSaveQuery() {
+    const tab = workspaceSession.activeTab;
+    if (!tab || tab.kind !== "query") return;
+    void saveActiveQuery();
   }
 
   onMount(() =>
     mountWorkspaceShortcuts({
       onNewQuery: shortcutNewQuery,
       onCloseTab: shortcutCloseTab,
+      onSaveQuery: shortcutSaveQuery,
       isTauri: isTauri(),
     }),
   );
@@ -654,7 +1078,7 @@
     {sessions}
     {activeId}
     mode={sideMode}
-    historyCount={queryHistory.length}
+
     onselect={onSelectConnection}
     ondisconnect={(id) => {
       workspaceSession.disconnect(id);
@@ -686,15 +1110,17 @@
     {refreshing}
     {modelLoading}
     {queryHistory}
+    {savedQueries}
     {selectedQueryId}
     {selectedHistoryId}
-    onselectquery={(id) => (selectedQueryId = id)}
-    onselecthistory={(id) => (selectedHistoryId = id)}
+    onselectquery={onSelectSavedQuery}
+    onselecthistory={onSelectHistory}
     onselectdatabase={selectDatabase}
     onrefresh={refreshDatabases}
     oncreatedatabase={createDatabase}
     onopen={openTable}
     onopenmodel={() => void openModelDiagram(false)}
+    onsavedaction={(action, id) => void onSavedQueryAction(action, id)}
   />
 
   <WorkspaceMainPane
@@ -705,11 +1131,6 @@
     {activeTabId}
     {activeTab}
     {currentDatabaseName}
-    {selectedSaved}
-    {selectedHistory}
-    {queryHistory}
-    {historyLoading}
-    {historyError}
     {catalogError}
     {modelError}
     {modelLoading}
@@ -720,11 +1141,112 @@
     {rowSyncTick}
     {baselineEpoch}
     {inspectorData}
-    onopeneditor={openSqlInEditor}
     onhistory={(item) => prependHistoryItem(item)}
     onbaselinechange={onGridBaselineChange}
     onselectrow={onSelectGridRow}
     onopenmodelretry={() => void openModelDiagram(true)}
     oninspectorchange={onInspectorFieldChange}
+    onsavequery={() => void saveActiveQuery()}
+    querysaving={querySaving}
+    onclosetab={requestCloseTab}
   />
+
+  <UnsavedCloseModal
+    open={!!pendingCloseTab && !saveNameModalOpen}
+    tabTitle={pendingCloseTab?.title ?? "Tab"}
+    tabKind={pendingCloseTab?.kind ?? "query"}
+    busy={closePromptBusy || querySaving}
+    onsave={() => void confirmSaveAndClose()}
+    ondiscard={() => void confirmDiscardAndClose()}
+    oncancel={cancelCloseTab}
+  />
+
+  <SaveQueryModal
+    open={saveNameModalOpen}
+    initialName={saveNameInitial}
+    busy={querySaving}
+    error={saveNameError}
+    onconfirm={(name) => void onSaveNameConfirm(name)}
+    oncancel={() => {
+      if (querySaving) return;
+      saveThenClose = false;
+      closeSaveNameModal(false);
+    }}
+  />
+
+  <SaveQueryModal
+    open={renameModalOpen}
+    initialName={renameInitial}
+    busy={renameBusy}
+    error={renameError}
+    title="Rename query"
+    description="Update the name for this saved query."
+    confirmLabel="Rename"
+    onconfirm={(name) => void confirmRenameSavedQuery(name)}
+    oncancel={() => {
+      if (renameBusy) return;
+      renameModalOpen = false;
+      renameQueryId = null;
+      renameError = null;
+    }}
+  />
+
+  {#if deleteModalOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+      role="presentation"
+      onclick={(e) => {
+        if (e.target === e.currentTarget && !deleteBusy) {
+          deleteModalOpen = false;
+          deleteQueryId = null;
+        }
+      }}
+      onkeydown={(e) => {
+        if (e.key === "Escape" && !deleteBusy) {
+          deleteModalOpen = false;
+          deleteQueryId = null;
+        }
+      }}
+    >
+      <div
+        class="w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-query-title"
+      >
+        <h2
+          id="delete-query-title"
+          class="m-0 text-body font-semibold text-fg"
+        >
+          Delete query
+        </h2>
+        <p class="mt-2 mb-0 text-label leading-relaxed text-fg-secondary">
+          Delete “{deleteQueryName}”? This cannot be undone. Open tabs linked to
+          this query will be closed.
+        </p>
+        <div class="mt-4 flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            class="inline-flex h-control-sm items-center rounded-md border border-line bg-transparent px-2.5 text-label text-fg hover:bg-hover"
+            disabled={deleteBusy}
+            onclick={() => {
+              deleteModalOpen = false;
+              deleteQueryId = null;
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="inline-flex h-control-sm items-center rounded-md border border-danger/40 bg-danger/15 px-2.5 text-label font-medium text-danger hover:bg-danger/25"
+            disabled={deleteBusy}
+            onclick={() => void confirmDeleteSavedQuery()}
+          >
+            {deleteBusy ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

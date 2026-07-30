@@ -65,6 +65,16 @@ export type WorkspaceTab = {
    */
   modelDatabase?: string;
   title: string;
+  /**
+   * Linked `saved_queries.id` when this query tab is persisted in the library.
+   * Null/undefined = never saved (or table/model tab).
+   */
+  savedQueryId?: string | null;
+  /**
+   * Unsaved state: query draft differs from saved body, or table grid has edits.
+   * Shown as a dirty indicator on the tab chrome.
+   */
+  dirty?: boolean;
 };
 
 /** @deprecated Use WorkspaceTab */

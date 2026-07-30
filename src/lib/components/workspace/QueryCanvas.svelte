@@ -40,9 +40,12 @@
     database?: string | null;
     text?: string;
     writeEnabled?: boolean;
+    dirty?: boolean;
+    saving?: boolean;
     ontextchange?: (text: string) => void;
     onwritechange?: (enabled: boolean) => void;
     onhistory?: (item?: QueryHistoryItem | null) => void;
+    onsave?: () => void;
   }
 
   let {
@@ -54,9 +57,12 @@
     database = null,
     text = "",
     writeEnabled = false,
+    dirty = false,
+    saving = false,
     ontextchange,
     onwritechange,
     onhistory,
+    onsave,
   }: Props = $props();
 
   let runState = $state<RunState>({ status: "idle" });
@@ -406,9 +412,12 @@
         {writeEnabled}
         canRun={!!localText.trim()}
         running={runState.status === "running"}
+        {dirty}
+        {saving}
         onchange={emitText}
         onwritechange={onToggleWrite}
         onrun={() => void runQuery()}
+        onsave={onsave}
       />
     </div>
 

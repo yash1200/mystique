@@ -3,7 +3,6 @@
 export type SavedQuery = {
   id: string;
   name: string;
-  folder?: string;
   engine?: string;
   sql: string;
   updatedAt: string;
@@ -24,23 +23,8 @@ export type QueryHistoryEntry = {
   language?: string;
 };
 
-/** Temporary FE-only saved queries until library UI is wired to BE. */
-export const MOCK_SAVED_QUERIES: SavedQuery[] = [
-  {
-    id: "sq-1",
-    name: "Active users",
-    folder: "Reporting",
-    sql: "SELECT id, email, display_name\nFROM users\nWHERE is_active = true\nORDER BY created_at DESC\nLIMIT 100;",
-    updatedAt: "2026-07-20T14:22:00Z",
-  },
-  {
-    id: "sq-2",
-    name: "Orders last 7 days",
-    folder: "Reporting",
-    sql: "SELECT date_trunc('day', placed_at) AS day, count(*), sum(total_cents)\nFROM orders\nWHERE placed_at >= now() - interval '7 days'\nGROUP BY 1\nORDER BY 1;",
-    updatedAt: "2026-07-18T09:10:00Z",
-  },
-];
+/** Empty when not in Tauri; live list comes from the app SQLite library. */
+export const MOCK_SAVED_QUERIES: SavedQuery[] = [];
 
 export function historyItemToEntry(
   item: {

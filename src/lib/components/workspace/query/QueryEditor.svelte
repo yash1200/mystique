@@ -30,10 +30,16 @@
     writeEnabled: boolean;
     canRun: boolean;
     running: boolean;
+    /** True when draft differs from last saved baseline. */
+    dirty?: boolean;
+    /** True while a save is in flight. */
+    saving?: boolean;
     /** Fired when document text changes. */
     onchange?: (text: string) => void;
     onwritechange: (checked: boolean) => void;
     onrun: () => void;
+    /** Save query for this connection (name prompt handled by parent). */
+    onsave?: () => void;
   }
 
   let {
@@ -49,9 +55,12 @@
     writeEnabled,
     canRun,
     running,
+    dirty = false,
+    saving = false,
     onchange,
     onwritechange,
     onrun,
+    onsave,
   }: Props = $props();
 
   let hostEl = $state<HTMLDivElement | null>(null);
@@ -65,6 +74,7 @@
   const callbacks = {
     onrun: () => {},
     onformat: () => {},
+    onsave: undefined as Props["onsave"],
     onchange: undefined as Props["onchange"],
     engine: "sql",
   };
@@ -73,6 +83,7 @@
     callbacks.onchange = onchange;
     callbacks.engine = engine;
     callbacks.onformat = formatEditor;
+    callbacks.onsave = onsave;
   });
 
   let formatMsg = $state<string | null>(null);
@@ -132,7 +143,7 @@
       mystiqueEditorTheme,
       mystiqueHighlight,
       langCompartment.of(languageExtension(lang)),
-      placeholderCompartment.of(cmPlaceholder(ph)),
+      placeholderCompartment.of(ph ? cmPlaceholder(ph) : []),
       EditorView.lineWrapping,
       // basicSetup already includes history + default keymap; only add extras.
       keymap.of([
@@ -141,6 +152,16 @@
           run: () => {
             callbacks.onrun();
             return true;
+          },
+        },
+        {
+          key: "Mod-s",
+          run: () => {
+            if (callbacks.onsave) {
+              callbacks.onsave();
+              return true;
+            }
+            return false;
           },
         },
         {
@@ -212,7 +233,8 @@
     v.dispatch({
       effects: [
         langCompartment.reconfigure(languageExtension(lang)),
-        placeholderCompartment.reconfigure(cmPlaceholder(ph)),
+        // CodeMirror treats empty string as no placeholder when extension is still present.
+        placeholderCompartment.reconfigure(ph ? cmPlaceholder(ph) : []),
       ],
     });
   });
@@ -284,6 +306,17 @@
       >
         Format
       </Button>
+      {#if onsave}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!localText.trim() || saving || running}
+          onclick={onsave}
+          title="Save query for this connection (⌘/Ctrl+S)"
+        >
+          {saving ? "Saving…" : dirty ? "Save●" : "Save"}
+        </Button>
+      {/if}
       <Button
         variant="primary"
         size="sm"

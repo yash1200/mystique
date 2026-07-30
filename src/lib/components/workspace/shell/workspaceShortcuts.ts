@@ -2,11 +2,13 @@
  * Workspace tab shortcuts:
  * - ⌘/Ctrl+W → close active tab
  * - ⌘/Ctrl+T → new query tab
+ * - ⌘/Ctrl+S → save active query tab
  * Keydown (capture) + optional Tauri menu events (deduped).
  */
 export function mountWorkspaceShortcuts(opts: {
   onNewQuery: () => void;
   onCloseTab: () => void;
+  onSaveQuery?: () => void;
   isTauri: boolean;
 }): () => void {
   let lastAt = 0;
@@ -18,7 +20,7 @@ export function mountWorkspaceShortcuts(opts: {
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
     const code = e.code;
     if (code === "KeyW") {
       e.preventDefault();
@@ -30,6 +32,12 @@ export function mountWorkspaceShortcuts(opts: {
       e.preventDefault();
       e.stopImmediatePropagation();
       runOnce(opts.onNewQuery);
+      return;
+    }
+    if (code === "KeyS" && opts.onSaveQuery) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      runOnce(opts.onSaveQuery);
     }
   };
 
@@ -48,6 +56,12 @@ export function mountWorkspaceShortcuts(opts: {
           ["workspace://close-tab", opts.onCloseTab],
           ["workspace://new-query", opts.onNewQuery],
         ];
+        if (opts.onSaveQuery) {
+          pairs.push(
+            ["workspace-save-query", opts.onSaveQuery],
+            ["workspace://save-query", opts.onSaveQuery],
+          );
+        }
         for (const [name, fn] of pairs) {
           if (cancelled) return;
           unsubs.push(await listen(name, () => runOnce(fn)));

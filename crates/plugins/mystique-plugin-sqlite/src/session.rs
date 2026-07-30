@@ -186,9 +186,8 @@ impl ConnectorSession for SqliteSession {
                         "Statement executed. Tabular rows only for SELECT-like queries.".into(),
                     );
                     if batch_n > 1 && i + 1 == batch_n {
-                        message = Some(format!(
-                            "Statement executed; last of {batch_n} statements."
-                        ));
+                        message =
+                            Some(format!("Statement executed; last of {batch_n} statements."));
                     }
 
                     QueryResult {
@@ -253,20 +252,22 @@ impl ConnectorSession for SqliteSession {
                 .map_err(|e| ConnectorError::Query(e.to_string()))?
             {
                 // cid, name, type, notnull, dflt_value, pk
-                let name: String = row.get(1).map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let name: String = row
+                    .get(1)
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
                 let ty: String = row
                     .get::<_, Option<String>>(2)
                     .map_err(|e| ConnectorError::Query(e.to_string()))?
                     .unwrap_or_else(|| "ANY".into());
-                let notnull: i64 = row.get(3).map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let pk: i64 = row.get(5).map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let notnull: i64 = row
+                    .get(3)
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let pk: i64 = row
+                    .get(5)
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
                 out.push(ColumnInfo {
                     name,
-                    data_type: if ty.is_empty() {
-                        "ANY".into()
-                    } else {
-                        ty
-                    },
+                    data_type: if ty.is_empty() { "ANY".into() } else { ty },
                     nullable: notnull == 0,
                     pk: pk != 0,
                     enum_values: None,
@@ -317,15 +318,19 @@ impl ConnectorSession for SqliteSession {
                     .next()
                     .map_err(|e| ConnectorError::Query(e.to_string()))?
                 {
-                    let name: String =
-                        row.get(1).map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let name: String = row
+                        .get(1)
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
                     let ty: String = row
                         .get::<_, Option<String>>(2)
                         .map_err(|e| ConnectorError::Query(e.to_string()))?
                         .unwrap_or_else(|| "ANY".into());
-                    let notnull: i64 =
-                        row.get(3).map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    let pk: i64 = row.get(5).map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let notnull: i64 = row
+                        .get(3)
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let pk: i64 = row
+                        .get(5)
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
                     out.push(CatalogColumnRow {
                         database: None,
                         schema: Some("main".into()),

@@ -22,9 +22,10 @@
 >
   {#each tabs as tab (tab.id)}
     {@const active = activeTabId === tab.id}
+    {@const dirty = !!tab.dirty}
     <div
       class={cn(
-        "group flex max-w-52 shrink-0 items-stretch border-r border-line",
+        "group/tab flex max-w-56 shrink-0 items-stretch border-r border-line",
         active
           ? "bg-app-wash text-fg"
           : "bg-transparent text-fg-secondary hover:bg-hover hover:text-fg",
@@ -36,6 +37,7 @@
         role="tab"
         aria-selected={active}
         class="min-w-0 flex-1 truncate border-none bg-transparent px-2.5 text-left text-label font-medium leading-none"
+        title={dirty ? `${tab.title} (unsaved changes)` : tab.title}
         onclick={() => onactivate(tab.id)}
       >
         {#if tab.kind === "query"}
@@ -50,17 +52,32 @@
       <button
         type="button"
         class={cn(
-          "mr-0.5 flex size-5 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-caption text-fg-muted",
+          "group/close mr-0.5 flex size-5 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-caption",
           "hover:bg-hover hover:text-fg",
-          !active && "opacity-0 group-hover:opacity-100",
+          // Clean inactive tabs: show close only when the tab row is hovered
+          !dirty && !active && "opacity-0 group-hover/tab:opacity-100",
+          dirty ? "text-warning" : "text-fg-muted",
         )}
-        aria-label="Close {tab.title}"
+        aria-label={dirty ? `Unsaved — close ${tab.title}` : `Close ${tab.title}`}
+        title={dirty ? "Unsaved changes — click to close" : "Close"}
         onclick={(e) => {
           e.stopPropagation();
           onclose(tab.id);
         }}
       >
-        ×
+        <!-- Dirty: yellow dot; hover this control to reveal × -->
+        {#if dirty}
+          <span
+            class="text-[0.65rem] leading-none group-hover/close:hidden"
+            aria-hidden="true">●</span
+          >
+          <span
+            class="hidden leading-none group-hover/close:inline"
+            aria-hidden="true">×</span
+          >
+        {:else}
+          <span class="leading-none" aria-hidden="true">×</span>
+        {/if}
       </button>
     </div>
   {/each}

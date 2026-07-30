@@ -6,6 +6,7 @@ use crate::error::AppResult;
 const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../../../migrations/001_init.sql")),
     (2, include_str!("../../../migrations/002_er_diagrams.sql")),
+    (3, include_str!("../../../migrations/003_workspace_tabs.sql")),
 ];
 
 /// Apply pending schema migrations in order.

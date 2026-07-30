@@ -49,6 +49,13 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+T"),
     )?;
+    let save_query = MenuItem::with_id(
+        app,
+        "workspace_save_query",
+        "Save Query",
+        true,
+        Some("CmdOrCtrl+S"),
+    )?;
     let close_tab = MenuItem::with_id(
         app,
         "workspace_close_tab",
@@ -69,7 +76,13 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         "File",
         true,
-        &[&new_query, &close_tab, &PredefinedMenuItem::separator(app)?, &close_window],
+        &[
+            &new_query,
+            &save_query,
+            &close_tab,
+            &PredefinedMenuItem::separator(app)?,
+            &close_window,
+        ],
     )?;
 
     #[cfg(not(target_os = "macos"))]
@@ -79,6 +92,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[
             &new_query,
+            &save_query,
             &close_tab,
             &PredefinedMenuItem::separator(app)?,
             &close_window,
@@ -250,6 +264,7 @@ pub fn run() {
             match event.id().as_ref() {
                 "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
                 "workspace_new_query" => emit_to_webviews(app, "workspace-new-query"),
+                "workspace_save_query" => emit_to_webviews(app, "workspace-save-query"),
                 "view_zoom_in" => emit_to_webviews(app, "ui-zoom-in"),
                 "view_zoom_out" => emit_to_webviews(app, "ui-zoom-out"),
                 "view_zoom_reset" => emit_to_webviews(app, "ui-zoom-reset"),
@@ -290,13 +305,14 @@ pub fn run() {
             ipc::profiles::save_profile,
             ipc::profiles::delete_profile,
             ipc::profiles::touch_profile_connected,
-            // query library
-            ipc::query_library::list_query_groups,
-            ipc::query_library::save_query_group,
-            ipc::query_library::delete_query_group,
+            // query library (per-connection, no groups)
             ipc::query_library::list_saved_queries,
             ipc::query_library::save_query,
             ipc::query_library::delete_saved_query,
+            // workspace tabs (restored on reconnect)
+            ipc::workspace_tabs::list_workspace_tabs,
+            ipc::workspace_tabs::replace_workspace_tabs,
+            ipc::workspace_tabs::delete_workspace_tab,
             // history
             ipc::history::append_query_history,
             ipc::history::list_query_history,

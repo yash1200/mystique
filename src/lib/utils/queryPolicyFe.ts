@@ -201,10 +201,7 @@ export function queryLanguageForEngine(engine: string): "sql" | "mql" {
   return "sql";
 }
 
-export function queryPlaceholder(engine: string): string {
-  const lang = queryLanguageForEngine(engine);
-  if (lang === "mql") {
-    return 'db.users.find()\n// or shell-style:\n// db.users.find({ _id: ObjectId("64f123456789abcdef123456") })\n// or JSON:\n// { "status": "active" }';
-  }
-  return "SELECT *\nFROM your_table\nLIMIT 100;";
+/** Empty — new query tabs should not show sample SQL/MQL hints. */
+export function queryPlaceholder(_engine: string): string {
+  return "";
 }

@@ -29,6 +29,8 @@
     onselectrow: (index: number) => void;
     rowSyncTick?: number;
     onbaselinechange?: () => void;
+    /** Notify parent when unsaved edit count changes (for tab dirty indicator). */
+    ondirtychange?: (dirty: boolean) => void;
   }
 
   let {
@@ -37,6 +39,7 @@
     onselectrow,
     rowSyncTick = 0,
     onbaselinechange,
+    ondirtychange,
   }: Props = $props();
 
   let seed = $state<Record<string, unknown>[]>([]);
@@ -85,6 +88,10 @@
 
   /** Unsaved cell edits + newly added rows (even if still empty). */
   const dirtyCount = $derived(dirtyKeys.size + newRowIndices.size);
+
+  $effect(() => {
+    ondirtychange?.(dirtyCount > 0);
+  });
 
   function makeRule(): FilterRule {
     return newRule(table.columns[0]?.name ?? "");

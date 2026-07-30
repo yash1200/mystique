@@ -150,10 +150,7 @@
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     {#if runState.status === "idle"}
-      <p class="p-3 text-body text-fg-muted">
-        Write a query and press <strong class="font-medium text-fg-secondary">Run</strong>.
-        Runs are saved to History.
-      </p>
+      <!-- Empty results area until a query is run -->
     {:else if runState.status === "running"}
       <p class="p-3 text-body text-fg-muted">Running…</p>
     {:else if runState.status === "ok" && runState.result}

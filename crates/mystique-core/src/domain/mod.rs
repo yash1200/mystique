@@ -9,10 +9,12 @@ mod history;
 mod query_library;
 mod settings;
 mod time;
+mod workspace_tabs;
 
 pub use connection::*;
 pub use er_diagram::*;
 pub use history::*;
 pub use query_library::*;
 pub use settings::*;
+pub use workspace_tabs::*;
 pub(crate) use time::now_iso;

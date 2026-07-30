@@ -7,12 +7,14 @@ mod history;
 mod profiles;
 mod query_library;
 mod settings;
+mod workspace_tabs;
 
 pub use diagrams::DiagramService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;
 pub use settings::SettingsService;
+pub use workspace_tabs::WorkspaceTabsService;
 
 use std::sync::Arc;
 
@@ -48,6 +50,10 @@ impl AppServices {
 
     pub fn query_library(&self) -> QueryLibraryService<'_> {
         QueryLibraryService { db: &self.db }
+    }
+
+    pub fn workspace_tabs(&self) -> WorkspaceTabsService<'_> {
+        WorkspaceTabsService { db: &self.db }
     }
 
     pub fn history(&self) -> HistoryService<'_> {

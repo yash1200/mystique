@@ -35,10 +35,6 @@
       <div class="truncate text-label font-semibold text-fg">{title}</div>
       <div class="truncate text-caption text-fg-muted">
         {#if kind === "saved" && saved}
-          {#if saved.folder}
-            {saved.folder}
-            <span aria-hidden="true"> · </span>
-          {/if}
           Updated {formatRelativeTime(saved.updatedAt)}
         {:else if history}
           {formatRelativeTime(history.ranAt)}

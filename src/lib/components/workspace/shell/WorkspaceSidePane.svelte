@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { ConnectedSession } from "$lib/stores/workspace-session.svelte";
   import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
-  import {
-    MOCK_SAVED_QUERIES,
-    type QueryHistoryEntry,
+  import type {
+    QueryHistoryEntry,
+    SavedQuery,
   } from "$lib/data/mock-queries";
   import type { SideNavMode } from "../SessionsRail.svelte";
   import ObjectExplorer from "../ObjectExplorer.svelte";
@@ -18,6 +18,7 @@
     refreshing: boolean;
     modelLoading: boolean;
     queryHistory: QueryHistoryEntry[];
+    savedQueries: SavedQuery[];
     selectedQueryId: string | null;
     selectedHistoryId: string | null;
     onselectquery: (id: string) => void;
@@ -27,6 +28,10 @@
     oncreatedatabase: (name: string) => void;
     onopen: (table: TableMeta) => void;
     onopenmodel: () => void;
+    onsavedaction?: (
+      action: "duplicate" | "rename" | "delete",
+      id: string,
+    ) => void;
   }
 
   let {
@@ -38,6 +43,7 @@
     refreshing,
     modelLoading,
     queryHistory,
+    savedQueries,
     selectedQueryId,
     selectedHistoryId,
     onselectquery,
@@ -47,21 +53,26 @@
     oncreatedatabase,
     onopen,
     onopenmodel,
+    onsavedaction,
   }: Props = $props();
 </script>
 
 {#if sideMode === "saved-queries"}
   <QueryListPanel
     mode="saved-queries"
-    savedQueries={MOCK_SAVED_QUERIES}
+    {savedQueries}
     history={queryHistory}
     selectedId={selectedQueryId}
     onselect={onselectquery}
+    onsavedaction={(action, id) => {
+      if (action === "open") onselectquery(id);
+      else onsavedaction?.(action, id);
+    }}
   />
 {:else if sideMode === "history"}
   <QueryListPanel
     mode="history"
-    savedQueries={MOCK_SAVED_QUERIES}
+    {savedQueries}
     history={queryHistory}
     selectedId={selectedHistoryId}
     onselect={onselecthistory}
