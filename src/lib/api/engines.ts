@@ -146,3 +146,49 @@ export async function executeEngineQuery(
   requireTauri();
   return invoke("execute_engine_query", { request });
 }
+
+/** Plugin-owned column metadata (developer-facing types, enums, pk). */
+export interface ColumnInfo {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  pk?: boolean;
+  enumValues?: string[] | null;
+}
+
+export interface DescribeTableRequest {
+  sessionId: string;
+  table: string;
+  schema?: string | null;
+  database?: string | null;
+}
+
+export interface CatalogColumnRow {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  column: string;
+  dataType: string;
+  nullable: boolean;
+  pk?: boolean;
+}
+
+export interface ListCatalogColumnsRequest {
+  sessionId: string;
+  database?: string | null;
+  schema?: string | null;
+}
+
+export async function describeEngineTable(
+  request: DescribeTableRequest,
+): Promise<ColumnInfo[]> {
+  requireTauri();
+  return invoke("describe_engine_table", { request });
+}
+
+export async function listEngineCatalogColumns(
+  request: ListCatalogColumnsRequest,
+): Promise<CatalogColumnRow[]> {
+  requireTauri();
+  return invoke("list_engine_catalog_columns", { request });
+}

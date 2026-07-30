@@ -2315,10 +2315,10 @@
         : "none"};
         background-size: {ER_GRID}px {ER_GRID}px;
         cursor: {readOnly
-          ? "var(--cursor-arrow)"
+          ? "default"
           : arrowTool
-            ? "var(--cursor-crosshair)"
-            : "var(--cursor-arrow)"};
+            ? "crosshair"
+            : "default"};
       "
       bind:this={canvasEl}
       role="application"
@@ -2389,7 +2389,7 @@
               fill="none"
               stroke="transparent"
               stroke-width="14"
-              style="pointer-events: stroke; cursor: var(--cursor-pointer);"
+              style="pointer-events: stroke; cursor: pointer;"
               onclick={(e) => selectEdge(edge.id, e)}
             />
             <path
@@ -2413,7 +2413,7 @@
                   tabindex="-1"
                   aria-label="Add edge waypoint"
                   data-er-edge-handle
-                  style="pointer-events: all; cursor: var(--cursor-move);"
+                  style="pointer-events: all; cursor: move;"
                   onpointerdown={(e) => onMidHandleDown(edge.id, mid.insertAt, e)}
                   onpointerup={onWaypointUp}
                   onpointercancel={onWaypointUp}
@@ -2437,7 +2437,7 @@
                   tabindex="-1"
                   aria-label="Drag edge waypoint (double-click to remove)"
                   data-er-edge-handle
-                  style="pointer-events: all; cursor: var(--cursor-grab);"
+                  style="pointer-events: all; cursor: grab;"
                   onpointerdown={(e) => onWaypointDown(edge.id, wi, e)}
                   onpointerup={onWaypointUp}
                   onpointercancel={onWaypointUp}

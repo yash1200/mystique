@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use mystique_connector_api::{
-    ConnectionConfig, ConnectorError, ConnectorResult, ConnectorSession, EngineDescriptor,
-    ExecuteQueryRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo, TestResult,
-    ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
+    CatalogColumnRow, ColumnInfo, ConnectionConfig, ConnectorError, ConnectorResult,
+    ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
+    ListCatalogColumnsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo,
+    TestResult, ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -241,6 +242,43 @@ impl ConnectionManager {
         session.execute_query(&validated).await
     }
 
+    /// Column metadata with plugin-owned type labels (e.g. `timestamptz`).
+    pub async fn describe_table(
+        &self,
+        req: DescribeTableRequest,
+    ) -> ConnectorResult<Vec<ColumnInfo>> {
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        session
+            .describe_table(
+                req.database.as_deref(),
+                req.schema.as_deref(),
+                &req.table,
+            )
+            .await
+    }
+
+    /// Bulk column listing for ER / catalog (plugin-normalized types).
+    pub async fn list_catalog_columns(
+        &self,
+        req: ListCatalogColumnsRequest,
+    ) -> ConnectorResult<Vec<CatalogColumnRow>> {
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        session
+            .list_catalog_columns(req.database.as_deref(), req.schema.as_deref())
+            .await
+    }
 }
 
 

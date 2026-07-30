@@ -100,3 +100,29 @@ pub async fn execute_engine_query(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn describe_engine_table(
+    state: State<'_, AppState>,
+    request: mystique_core::DescribeTableRequest,
+) -> Result<Vec<mystique_core::ColumnInfo>, String> {
+    state
+        .services
+        .connections()
+        .describe_table(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_engine_catalog_columns(
+    state: State<'_, AppState>,
+    request: mystique_core::ListCatalogColumnsRequest,
+) -> Result<Vec<mystique_core::CatalogColumnRow>, String> {
+    state
+        .services
+        .connections()
+        .list_catalog_columns(request)
+        .await
+        .map_err(|e| e.to_string())
+}

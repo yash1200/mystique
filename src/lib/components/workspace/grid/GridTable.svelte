@@ -114,7 +114,7 @@
               data-row={i}
               data-col={col.name}
               class={cn(
-                "relative max-w-64 cursor-cell border-l border-transparent p-0 font-mono text-label",
+                "relative max-w-64 border-l border-transparent p-0 font-mono text-label",
                 dirty &&
                   !isEditing &&
                   "bg-warning/15 ring-1 ring-inset ring-warning/40",

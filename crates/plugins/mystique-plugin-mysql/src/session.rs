@@ -2,13 +2,51 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
+use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    split_sql_statements, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
-    PoolStatus, QueryColumn, QueryMode, QueryResult, ValidatedQuery,
+    split_sql_statements, CatalogColumnRow, ColumnInfo, ConnectorError, ConnectorResult,
+    ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn, QueryMode, QueryResult,
+    ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
+
+/// SQL-ish type name for query result headers (not Debug enum tags).
+fn mysql_type_label(t: ColumnType) -> &'static str {
+    use ColumnType::*;
+    match t {
+        MYSQL_TYPE_DECIMAL | MYSQL_TYPE_NEWDECIMAL => "decimal",
+        MYSQL_TYPE_TINY => "tinyint",
+        MYSQL_TYPE_SHORT => "smallint",
+        MYSQL_TYPE_LONG => "int",
+        MYSQL_TYPE_FLOAT => "float",
+        MYSQL_TYPE_DOUBLE => "double",
+        MYSQL_TYPE_NULL => "null",
+        MYSQL_TYPE_TIMESTAMP | MYSQL_TYPE_TIMESTAMP2 => "timestamp",
+        MYSQL_TYPE_LONGLONG => "bigint",
+        MYSQL_TYPE_INT24 => "mediumint",
+        MYSQL_TYPE_DATE | MYSQL_TYPE_NEWDATE => "date",
+        MYSQL_TYPE_TIME | MYSQL_TYPE_TIME2 => "time",
+        MYSQL_TYPE_DATETIME | MYSQL_TYPE_DATETIME2 => "datetime",
+        MYSQL_TYPE_YEAR => "year",
+        MYSQL_TYPE_VARCHAR => "varchar",
+        MYSQL_TYPE_BIT => "bit",
+        MYSQL_TYPE_JSON => "json",
+        MYSQL_TYPE_ENUM => "enum",
+        MYSQL_TYPE_SET => "set",
+        MYSQL_TYPE_TINY_BLOB => "tinyblob",
+        MYSQL_TYPE_MEDIUM_BLOB => "mediumblob",
+        MYSQL_TYPE_LONG_BLOB => "longblob",
+        MYSQL_TYPE_BLOB => "blob",
+        MYSQL_TYPE_VAR_STRING => "varchar",
+        MYSQL_TYPE_STRING => "char",
+        MYSQL_TYPE_GEOMETRY => "geometry",
+        MYSQL_TYPE_VECTOR => "vector",
+        MYSQL_TYPE_TYPED_ARRAY => "array",
+        MYSQL_TYPE_UNKNOWN => "unknown",
+    }
+}
 
 pub struct MysqlSession {
     pool: Pool,
@@ -182,7 +220,7 @@ impl ConnectorSession for MysqlSession {
                     .iter()
                     .map(|c| QueryColumn {
                         name: c.name_str().into_owned(),
-                        data_type: Some(format!("{:?}", c.column_type())),
+                        data_type: Some(mysql_type_label(c.column_type()).to_string()),
                     })
                     .collect();
 
@@ -274,6 +312,146 @@ impl ConnectorSession for MysqlSession {
         let mut out = last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))?;
         out.duration_ms = start.elapsed().as_millis() as u64;
         Ok(out)
+    }
+
+    async fn describe_table(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+    ) -> ConnectorResult<Vec<ColumnInfo>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let db = database
+            .or(schema)
+            .ok_or_else(|| {
+                ConnectorError::InvalidConfig(
+                    "MySQL describe_table requires database/schema".into(),
+                )
+            })?
+            .replace('\'', "''");
+        let tbl = table.replace('\'', "''");
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+
+        // column_type is already DDL-style (varchar(255), datetime, timestamp, …)
+        let sql = format!(
+            "SELECT column_name, column_type, is_nullable, column_key \
+             FROM information_schema.columns \
+             WHERE table_schema = '{db}' AND table_name = '{tbl}' \
+             ORDER BY ordinal_position"
+        );
+        let rows: Vec<(String, String, String, String)> = conn
+            .query(sql)
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for (name, column_type, is_nullable, column_key) in rows {
+            let enum_values = parse_mysql_enum_values(&column_type);
+            out.push(ColumnInfo {
+                name,
+                data_type: column_type,
+                nullable: is_nullable.to_ascii_uppercase() != "NO",
+                pk: column_key.to_ascii_uppercase() == "PRI",
+                enum_values,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn list_catalog_columns(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogColumnRow>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+
+        let sql = if let Some(db) = database.or(schema) {
+            let db = db.replace('\'', "''");
+            format!(
+                "SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
+                 FROM information_schema.columns \
+                 WHERE table_schema = '{db}' \
+                 ORDER BY table_schema, table_name, ordinal_position"
+            )
+        } else {
+            "SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
+             FROM information_schema.columns \
+             WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+             ORDER BY table_schema, table_name, ordinal_position"
+                .to_string()
+        };
+
+        let rows: Vec<(String, String, String, String, String, String)> = conn
+            .query(sql)
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(table_schema, table_name, column_name, column_type, is_nullable, column_key)| {
+                    CatalogColumnRow {
+                        database: Some(table_schema.clone()),
+                        schema: Some(table_schema),
+                        table: table_name,
+                        column: column_name,
+                        data_type: column_type,
+                        nullable: is_nullable.to_ascii_uppercase() != "NO",
+                        pk: column_key.to_ascii_uppercase() == "PRI",
+                    }
+                },
+            )
+            .collect())
+    }
+}
+
+fn parse_mysql_enum_values(column_type: &str) -> Option<Vec<String>> {
+    let lower = column_type.to_ascii_lowercase();
+    if !(lower.starts_with("enum(") || lower.starts_with("set(")) {
+        return None;
+    }
+    let mut values = Vec::new();
+    let bytes = column_type.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            i += 1;
+            let mut s = String::new();
+            while i < bytes.len() {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    s.push(bytes[i + 1] as char);
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == b'\'' {
+                    i += 1;
+                    break;
+                }
+                s.push(bytes[i] as char);
+                i += 1;
+            }
+            values.push(s);
+        } else {
+            i += 1;
+        }
+    }
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
     }
 }
 

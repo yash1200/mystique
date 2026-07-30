@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn,
-    QueryMode, QueryResult, ValidatedQuery,
+    CatalogColumnRow, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, PoolStatus, QueryColumn, QueryMode, QueryResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -226,9 +226,12 @@ impl ConnectorSession for MongoSession {
 
         let columns: Vec<QueryColumn> = key_set
             .iter()
-            .map(|k| QueryColumn {
-                name: k.clone(),
-                data_type: Some("bson".into()),
+            .map(|k| {
+                let sample = docs.iter().find_map(|d| d.get(k)).cloned();
+                QueryColumn {
+                    name: k.clone(),
+                    data_type: Some(bson_type_label(sample.as_ref())),
+                }
             })
             .collect();
 
@@ -253,6 +256,140 @@ impl ConnectorSession for MongoSession {
             duration_ms: start.elapsed().as_millis() as u64,
             message: Some(format!("find on {db_name}.{coll_name}")),
         })
+    }
+
+    async fn describe_table(
+        &self,
+        database: Option<&str>,
+        _schema: Option<&str>,
+        table: &str,
+    ) -> ConnectorResult<Vec<ColumnInfo>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let db_name = database
+            .map(str::to_string)
+            .or_else(|| self.default_db.clone())
+            .ok_or_else(|| {
+                ConnectorError::InvalidConfig("Mongo describe_table requires database".into())
+            })?;
+        let coll = self
+            .client
+            .database(&db_name)
+            .collection::<Document>(table);
+
+        let mut cursor = coll
+            .find(doc! {})
+            .limit(50)
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        let mut keys: Vec<String> = Vec::new();
+        let mut samples: std::collections::HashMap<String, Bson> =
+            std::collections::HashMap::new();
+        while cursor
+            .advance()
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?
+        {
+            let d = cursor
+                .deserialize_current()
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            for (k, v) in d {
+                if !keys.iter().any(|x| x == &k) {
+                    keys.push(k.clone());
+                }
+                samples.entry(k).or_insert(v);
+            }
+        }
+        if let Some(i) = keys.iter().position(|k| k == "_id") {
+            let id = keys.remove(i);
+            keys.insert(0, id);
+        }
+
+        Ok(keys
+            .into_iter()
+            .map(|name| {
+                let pk = name == "_id";
+                let sample = samples.get(&name);
+                ColumnInfo {
+                    name,
+                    data_type: bson_type_label(sample),
+                    nullable: !pk,
+                    pk,
+                    enum_values: None,
+                }
+            })
+            .collect())
+    }
+
+    async fn list_catalog_columns(
+        &self,
+        database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogColumnRow>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let db_name = database
+            .map(str::to_string)
+            .or_else(|| self.default_db.clone())
+            .ok_or_else(|| {
+                ConnectorError::InvalidConfig(
+                    "Mongo list_catalog_columns requires database".into(),
+                )
+            })?;
+        let names = self
+            .client
+            .database(&db_name)
+            .list_collection_names()
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        let mut out = Vec::new();
+        for name in names {
+            let cols = self
+                .describe_table(Some(&db_name), None, &name)
+                .await
+                .unwrap_or_default();
+            for c in cols {
+                out.push(CatalogColumnRow {
+                    database: Some(db_name.clone()),
+                    schema: None,
+                    table: name.clone(),
+                    column: c.name,
+                    data_type: c.data_type,
+                    nullable: c.nullable,
+                    pk: c.pk,
+                });
+            }
+        }
+        Ok(out)
+    }
+}
+
+fn bson_type_label(sample: Option<&Bson>) -> String {
+    match sample {
+        None | Some(Bson::Null) => "mixed".into(),
+        Some(Bson::Double(_)) => "double".into(),
+        Some(Bson::String(_)) => "string".into(),
+        Some(Bson::Array(_)) => "array".into(),
+        Some(Bson::Document(_)) => "object".into(),
+        Some(Bson::Boolean(_)) => "bool".into(),
+        Some(Bson::Int32(_)) => "int32".into(),
+        Some(Bson::Int64(_)) => "int64".into(),
+        Some(Bson::ObjectId(_)) => "ObjectId".into(),
+        Some(Bson::DateTime(_)) => "date".into(),
+        Some(Bson::Binary(_)) => "binData".into(),
+        Some(Bson::RegularExpression(_)) => "regex".into(),
+        Some(Bson::JavaScriptCode(_)) | Some(Bson::JavaScriptCodeWithScope(_)) => "javascript".into(),
+        Some(Bson::Timestamp(_)) => "timestamp".into(),
+        Some(Bson::Decimal128(_)) => "decimal".into(),
+        Some(Bson::Symbol(_)) => "symbol".into(),
+        Some(Bson::Undefined) => "undefined".into(),
+        Some(Bson::MaxKey) => "maxKey".into(),
+        Some(Bson::MinKey) => "minKey".into(),
+        Some(Bson::DbPointer(_)) => "dbPointer".into(),
     }
 }
 

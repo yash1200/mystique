@@ -13,6 +13,7 @@
 //! [`PoolStatus`] / session ids.
 
 mod capabilities;
+mod catalog;
 mod config;
 mod connector;
 mod error;
@@ -23,6 +24,7 @@ mod query;
 mod types;
 
 pub use capabilities::*;
+pub use catalog::*;
 pub use config::*;
 pub use connector::*;
 pub use error::*;

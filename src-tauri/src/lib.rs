@@ -282,6 +282,8 @@ pub fn run() {
             ipc::engines::list_engine_sessions,
             ipc::engines::get_engine_session,
             ipc::engines::execute_engine_query,
+            ipc::engines::describe_engine_table,
+            ipc::engines::list_engine_catalog_columns,
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 use crate::capabilities::EngineCapabilities;
+use crate::catalog::{CatalogColumnRow, ColumnInfo};
 use crate::config::ConnectionConfig;
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
@@ -61,6 +62,32 @@ pub trait ConnectorSession: Send + Sync {
     async fn execute_query(&self, _query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "execute_query not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Column metadata for one table/collection with developer-facing types.
+    /// Plugins own type labels (`timestamptz`, `varchar(255)`, …) — not the FE.
+    async fn describe_table(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _table: &str,
+    ) -> ConnectorResult<Vec<ColumnInfo>> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "describe_table not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Bulk column listing for ER / catalog (plugin-normalized types).
+    async fn list_catalog_columns(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogColumnRow>> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "list_catalog_columns not implemented for engine `{}`",
             self.engine_id()
         )))
     }

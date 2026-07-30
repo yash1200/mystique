@@ -3,7 +3,12 @@
  * Common path for all engines: relational FK graph when available;
  * document engines get a collection map (honest, no fake FKs).
  */
-import { executeEngineQuery, type QueryResult } from "./engines";
+import {
+  executeEngineQuery,
+  listEngineCatalogColumns,
+  type CatalogColumnRow,
+  type QueryResult,
+} from "./engines";
 import type {
   DataFamily,
   ErColumn,
@@ -116,16 +121,11 @@ async function loadMysqlEr(
     schema = cellStr(r.rows[0]?.[0]) || "mystique";
   }
 
-  const colsResult = await executeEngineQuery({
+  const catalogCols = await listEngineCatalogColumns({
     sessionId,
-    text: `
-      SELECT table_name, column_name, column_type, is_nullable, column_key
-      FROM information_schema.columns
-      WHERE table_schema = '${schema.replace(/'/g, "''")}'
-      ORDER BY table_name, ordinal_position
-    `,
-    maxRows: 5000,
+    database: schema,
   });
+  const diagram = buildFromCatalogColumns("sql", catalogCols, schema);
 
   const fkResult = await executeEngineQuery({
     sessionId,
@@ -138,20 +138,6 @@ async function loadMysqlEr(
     `,
     maxRows: 2000,
   });
-
-  const diagram = buildFromColumnRows(
-    "sql",
-    colsResult,
-    {
-      table: "table_name",
-      column: "column_name",
-      type: "column_type",
-      nullable: "is_nullable",
-      key: "column_key",
-      schema: null,
-    },
-    schema,
-  );
   addFkEdges(diagram, fkResult, {
     fromTable: "table_name",
     fromColumn: "column_name",
@@ -172,27 +158,9 @@ async function loadPostgresEr(
   sessionId: string,
   _database: string | null,
 ): Promise<LiveErLoadResult> {
-  const colsResult = await executeEngineQuery({
-    sessionId,
-    text: `
-      SELECT table_schema, table_name, column_name, data_type, is_nullable,
-             CASE WHEN EXISTS (
-               SELECT 1
-               FROM information_schema.table_constraints tc
-               JOIN information_schema.key_column_usage k
-                 ON k.constraint_name = tc.constraint_name
-                AND k.table_schema = tc.table_schema
-               WHERE tc.constraint_type = 'PRIMARY KEY'
-                 AND tc.table_schema = c.table_schema
-                 AND tc.table_name = c.table_name
-                 AND k.column_name = c.column_name
-             ) THEN 'PRI' ELSE '' END AS column_key
-      FROM information_schema.columns c
-      WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-      ORDER BY table_schema, table_name, ordinal_position
-    `,
-    maxRows: 5000,
-  });
+  // Types come from the plugin (timestamptz, varchar(n), …) — not FE mapping.
+  const catalogCols = await listEngineCatalogColumns({ sessionId });
+  const diagram = buildFromCatalogColumns("sql", catalogCols, null);
 
   const fkResult = await executeEngineQuery({
     sessionId,
@@ -216,20 +184,6 @@ async function loadPostgresEr(
     `,
     maxRows: 2000,
   });
-
-  const diagram = buildFromColumnRows(
-    "sql",
-    colsResult,
-    {
-      table: "table_name",
-      column: "column_name",
-      type: "data_type",
-      nullable: "is_nullable",
-      key: "column_key",
-      schema: "table_schema",
-    },
-    null,
-  );
   addFkEdges(diagram, fkResult, {
     fromTable: "from_table",
     fromColumn: "from_column",
@@ -252,22 +206,39 @@ async function loadPostgresEr(
 }
 
 async function loadSqliteEr(sessionId: string): Promise<LiveErLoadResult> {
-  // table-valued pragma (SQLite 3.16+)
-  let colsResult: QueryResult;
   try {
-    colsResult = await executeEngineQuery({
-      sessionId,
-      text: `
-        SELECT m.name AS table_name, p.name AS column_name, p.type AS data_type,
-               CASE WHEN p."notnull" = 0 THEN 'YES' ELSE 'NO' END AS is_nullable,
-               CASE WHEN p.pk > 0 THEN 'PRI' ELSE '' END AS column_key
-        FROM sqlite_master m
-        JOIN pragma_table_info(m.name) p
-        WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
-        ORDER BY m.name, p.cid
-      `,
-      maxRows: 5000,
-    });
+    const catalogCols = await listEngineCatalogColumns({ sessionId });
+    const diagram = buildFromCatalogColumns("sql", catalogCols, "main");
+
+    try {
+      const fkResult = await executeEngineQuery({
+        sessionId,
+        text: `
+          SELECT m.name AS from_table, f."from" AS from_column,
+                 f."table" AS to_table, f."to" AS to_column
+          FROM sqlite_master m
+          JOIN pragma_foreign_key_list(m.name) f
+          WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+        `,
+        maxRows: 2000,
+      });
+      addFkEdges(diagram, fkResult, {
+        fromTable: "from_table",
+        fromColumn: "from_column",
+        toTable: "to_table",
+        toColumn: "to_column",
+        fromSchema: null,
+        toSchema: null,
+      }, null);
+    } catch {
+      /* no FK pragma support */
+    }
+
+    return {
+      diagram: { ...diagram, nodes: layoutNodes(diagram.nodes) },
+      title: "ER · main",
+      summary: `${diagram.nodes.length} tables · ${diagram.edges.length} relationships`,
+    };
   } catch {
     // Fallback: table list only
     const tables = await executeEngineQuery({
@@ -294,50 +265,6 @@ async function loadSqliteEr(sessionId: string): Promise<LiveErLoadResult> {
       summary: `${nodes.length} tables`,
     };
   }
-
-  const diagram = buildFromColumnRows(
-    "sql",
-    colsResult,
-    {
-      table: "table_name",
-      column: "column_name",
-      type: "data_type",
-      nullable: "is_nullable",
-      key: "column_key",
-      schema: null,
-    },
-    null,
-  );
-
-  try {
-    const fkResult = await executeEngineQuery({
-      sessionId,
-      text: `
-        SELECT m.name AS from_table, f."from" AS from_column,
-               f."table" AS to_table, f."to" AS to_column
-        FROM sqlite_master m
-        JOIN pragma_foreign_key_list(m.name) f
-        WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
-      `,
-      maxRows: 2000,
-    });
-    addFkEdges(diagram, fkResult, {
-      fromTable: "from_table",
-      fromColumn: "from_column",
-      toTable: "to_table",
-      toColumn: "to_column",
-      fromSchema: null,
-      toSchema: null,
-    }, null);
-  } catch {
-    /* no FK pragma support */
-  }
-
-  return {
-    diagram: { ...diagram, nodes: layoutNodes(diagram.nodes) },
-    title: "ER · main",
-    summary: `${diagram.nodes.length} tables · ${diagram.edges.length} relationships`,
-  };
 }
 
 async function loadMongoEr(
@@ -357,6 +284,21 @@ async function loadMongoEr(
       names.find((n) => !["admin", "local", "config"].includes(n)) ??
       names[0] ??
       "test";
+  }
+
+  try {
+    const catalogCols = await listEngineCatalogColumns({
+      sessionId,
+      database: dbName,
+    });
+    const diagram = buildFromCatalogColumns("nosql", catalogCols, dbName);
+    return {
+      diagram: { ...diagram, nodes: layoutNodes(diagram.nodes) },
+      title: `Model · ${dbName}`,
+      summary: `${diagram.nodes.length} collections (inferred fields · no declared FKs)`,
+    };
+  } catch {
+    /* fall through to legacy sample path */
   }
 
   const collResult = await executeEngineQuery({
@@ -415,61 +357,42 @@ async function loadMongoEr(
   };
 }
 
-type ColMap = {
-  table: string;
-  column: string;
-  type: string;
-  nullable: string;
-  key: string;
-  schema: string | null;
-};
-
-function buildFromColumnRows(
+/** Build ER nodes from plugin catalog columns (types already normalized). */
+function buildFromCatalogColumns(
   family: DataFamily,
-  result: QueryResult,
-  map: ColMap,
+  rows: CatalogColumnRow[],
   defaultSchema: string | null,
 ): ErDiagramState {
-  const tIdx = colIndex(result, map.table);
-  const cIdx = colIndex(result, map.column);
-  const tyIdx = colIndex(result, map.type);
-  const nIdx = colIndex(result, map.nullable);
-  const kIdx = colIndex(result, map.key);
-  const sIdx = map.schema ? colIndex(result, map.schema) : -1;
-
   type Acc = { schema: string; name: string; columns: ErColumn[] };
   const tables = new Map<string, Acc>();
 
-  for (const row of result.rows) {
-    const table = cellStr(row[tIdx]);
-    const column = cellStr(row[cIdx]);
+  for (const row of rows) {
+    const table = row.table;
+    const column = row.column;
     if (!table || !column) continue;
-    const schema =
-      sIdx >= 0 ? cellStr(row[sIdx]) : defaultSchema ?? "";
+    const schema = row.schema?.trim() || defaultSchema || "";
     const key = `${schema}::${table}`;
     let acc = tables.get(key);
     if (!acc) {
       acc = { schema, name: table, columns: [] };
       tables.set(key, acc);
     }
-    const rawType = tyIdx >= 0 ? cellStr(row[tyIdx]) : "unknown";
-    const nullableRaw = nIdx >= 0 ? cellStr(row[nIdx]).toUpperCase() : "YES";
-    const keyRaw = kIdx >= 0 ? cellStr(row[kIdx]).toUpperCase() : "";
     acc.columns.push({
       id: colId(schema, table, column),
       name: column,
-      dataType: rawType || "unknown",
-      pk: keyRaw.includes("PRI") || keyRaw === "1",
-      nullable: nullableRaw === "YES" || nullableRaw === "1",
+      dataType: row.dataType || "unknown",
+      pk: !!row.pk,
+      nullable: row.nullable,
     });
   }
 
   const nodes: ErNode[] = [...tables.values()].map((t) => ({
     id: nodeId(t.schema, t.name),
     kind: family === "nosql" ? "collection" : "table",
-    name: t.schema && t.schema !== "public" && t.schema !== "main"
-      ? `${t.schema}.${t.name}`
-      : t.name,
+    name:
+      t.schema && t.schema !== "public" && t.schema !== "main"
+        ? `${t.schema}.${t.name}`
+        : t.name,
     columns: t.columns,
     x: 0,
     y: 0,
