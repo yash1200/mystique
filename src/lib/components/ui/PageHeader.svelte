@@ -12,7 +12,7 @@
 
 <header class="mb-5 flex flex-wrap items-start justify-between gap-4">
   <div>
-    <h1 class="m-0 text-display font-semibold tracking-tight text-fg">
+    <h1 class="m-0 text-pretty text-display font-semibold tracking-tight text-fg">
       {title}
     </h1>
     {#if description}

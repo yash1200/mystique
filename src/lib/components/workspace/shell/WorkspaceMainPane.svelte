@@ -5,6 +5,7 @@
 	import { EmptyState } from '$lib/components/ui'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
+	import { colorHex } from '$lib/types/connection'
 	import type { ErDiagramState } from '$lib/types/er'
 	import type { TableMeta, WorkspaceTab } from '$lib/types/workspace'
 	import DataGrid from '../DataGrid.svelte'
@@ -90,6 +91,10 @@
 		<TableTabs
 			tabs={connectionTabs}
 			{activeTabId}
+			connectionColor={activeSession
+				? colorHex(activeSession.profile.colorId)
+				: null}
+			production={activeSession?.profile.environment === 'production'}
 			onactivate={(id) => workspaceSession.setActiveTab(id)}
 			onclose={(id) =>
 				onclosetab ? onclosetab(id) : workspaceSession.closeTab(id)}
@@ -188,7 +193,12 @@
 					{/key}
 				{:else}
 					<div class="flex flex-1 items-center justify-center p-8">
-						<EmptyState title="Table" description="Loading table metadata…" />
+						<EmptyState
+							title={catalogError ? 'Could not load table' : 'Open a table'}
+							description={catalogError
+								? `${catalogError} Use Retry in the banner above, or pick another table.`
+								: 'Double-click a table in the explorer to load rows from the database.'}
+						/>
 					</div>
 				{/if}
 			</div>

@@ -3,8 +3,9 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
-    compile_insert, compile_update, quote_ident, split_sql_statements, ApplyTableEditsInput,
-    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
+    compile_delete, compile_insert, compile_update, quote_ident, split_sql_statements,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
+    CatalogRelationship,
     ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
     FetchTablePreviewInput, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle, TablePreviewResult,
     ValidatedQuery,
@@ -367,6 +368,10 @@ impl ConnectorSession for SqliteSession {
             statements.push(compile_insert(SqlIdentStyle::Postgres, edits, i)?);
         }
         let insert_n = statements.len() - update_n;
+        for d in &edits.deletes {
+            statements.push(compile_delete(SqlIdentStyle::Postgres, edits, d)?);
+        }
+        let delete_n = statements.len() - update_n - insert_n;
         let pool = self.pool.clone();
         tokio::task::spawn_blocking(move || -> ConnectorResult<ApplyTableEditsResult> {
             let conn = pool
@@ -379,6 +384,7 @@ impl ConnectorSession for SqliteSession {
             Ok(ApplyTableEditsResult {
                 updated: update_n as u32,
                 inserted: insert_n as u32,
+                deleted: delete_n as u32,
             })
         })
         .await

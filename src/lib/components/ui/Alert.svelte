@@ -12,7 +12,7 @@
   let { tone = "info", children }: Props = $props();
 
   const tones: Record<Tone, string> = {
-    info: "border-accent/35 bg-accent-muted text-fg",
+    info: "border-info/35 bg-info/12 text-fg",
     success: "border-success/35 bg-success/15 text-success",
     warning: "border-warning/35 bg-warning/15 text-warning",
     danger: "border-danger/35 bg-danger/15 text-danger",

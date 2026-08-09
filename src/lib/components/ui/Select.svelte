@@ -226,7 +226,7 @@
     {id}
     class={cn(
       "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-line bg-input px-2.5 text-left text-fg",
-      "focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted",
+      "focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted",
       "disabled:cursor-not-allowed disabled:opacity-55",
       open && "border-focus ring-2 ring-accent-muted",
       inputSize === "sm" ? "h-control-sm text-label" : "h-control text-body",

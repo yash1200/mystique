@@ -34,6 +34,13 @@ pub struct TableRowInsert {
     pub values: BTreeMap<String, JsonValue>,
 }
 
+/// Delete one existing row. `original` locates the row (PKs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableRowDelete {
+    pub original: BTreeMap<String, JsonValue>,
+}
+
 /// IPC request (includes session + read-only flag).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +58,8 @@ pub struct ApplyTableEditsRequest {
     #[serde(default)]
     pub inserts: Vec<TableRowInsert>,
     #[serde(default)]
+    pub deletes: Vec<TableRowDelete>,
+    #[serde(default)]
     pub profile_read_only: bool,
 }
 
@@ -63,6 +72,7 @@ pub struct ApplyTableEditsInput {
     pub columns: Vec<TableEditColumn>,
     pub updates: Vec<TableRowUpdate>,
     pub inserts: Vec<TableRowInsert>,
+    pub deletes: Vec<TableRowDelete>,
 }
 
 impl From<ApplyTableEditsRequest> for ApplyTableEditsInput {
@@ -74,6 +84,7 @@ impl From<ApplyTableEditsRequest> for ApplyTableEditsInput {
             columns: req.columns,
             updates: req.updates,
             inserts: req.inserts,
+            deletes: req.deletes,
         }
     }
 }
@@ -83,6 +94,8 @@ impl From<ApplyTableEditsRequest> for ApplyTableEditsInput {
 pub struct ApplyTableEditsResult {
     pub updated: u32,
     pub inserted: u32,
+    #[serde(default)]
+    pub deleted: u32,
 }
 
 impl ApplyTableEditsResult {
@@ -90,6 +103,7 @@ impl ApplyTableEditsResult {
         Self {
             updated: 0,
             inserted: 0,
+            deleted: 0,
         }
     }
 }

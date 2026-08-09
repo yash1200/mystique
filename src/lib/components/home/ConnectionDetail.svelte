@@ -223,21 +223,6 @@
         </div>
       </Card>
 
-      <Card title="Capabilities (preview)" class="md:col-span-2">
-        <p class="mb-3 text-label text-fg-muted">
-          Driven by the engine plugin after connect — shown here for UI preview
-          only.
-        </p>
-        <ul class="m-0 flex list-none flex-wrap gap-2 p-0">
-          {#each ["Explorer · schemas & tables", "Data · paginated preview", "Query · SQL (read-only policy ready)", "Model · ER from PK / FK", "Export · CSV / TSV"] as cap}
-            <li
-              class="rounded-full border border-line bg-input px-2.5 py-1.5 text-label text-fg-secondary"
-            >
-              {cap}
-            </li>
-          {/each}
-        </ul>
-      </Card>
     </div>
   </div>
 </ContentPanel>

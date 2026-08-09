@@ -57,7 +57,8 @@ Components          ← semantic classes only
 | Primitives | `src/lib/components/ui/*` | Encode variants with language classes |
 | Features | `src/lib/components/{home,…}/*` | Compose primitives + layout |
 
-Theme switch = change `data-theme`. **No component rewrites.**
+Theme switch = change `data-theme`. **No component rewrites.**  
+Density switch = change `data-density`. Appearance prefs live in `src/lib/utils/appPrefs.ts` and apply at boot (`applyStoredAppearance`).
 
 ---
 
@@ -69,7 +70,7 @@ Theme switch = change `data-theme`. **No component rewrites.**
 | ----------- | ---- | ----------- |
 | `bg-app` | Deepest app canvas | Window background |
 | `bg-panel` | Sidebars, cards | Connection rail, card body |
-| `bg-elevated` | Tabs, menus, toasts | Top bar, toast, hero |
+| `bg-elevated` | Cards, tabs, menus, toasts | Must sit above `bg-panel` (light: warm paper white) |
 | `bg-input` | Fields, chips | Input, select, badge neutral |
 | `bg-hover` | Hover wash | List row hover |
 | `bg-active` | Active chrome | (reserved) |
@@ -90,7 +91,7 @@ Theme switch = change `data-theme`. **No component rewrites.**
 | `text-success` | Connected, success |
 | `text-warning` | PROD, caution |
 | `text-danger` | Errors, delete |
-| `text-info` | Informational status |
+| `text-info` | Informational status (cerulean — **not** jade accent) |
 
 ### 3.3 Borders & focus
 
@@ -109,7 +110,7 @@ Theme switch = change `data-theme`. **No component rewrites.**
 | `success` | Connected, ok |
 | `warning` | Production, slow, caution |
 | `danger` | Error, destructive |
-| `info` | Neutral running / info |
+| `info` | Neutral running / info (`--status-info`, cyan — **not** accent) |
 
 Patterns:
 
@@ -129,7 +130,26 @@ Opacity steps **allowed:** `/10` `/12` `/15` `/25` `/35` `/40` `/45` `/50` only 
 
 **Never** use connection hues for primary buttons or general chrome.
 
-### 3.6 Color checklist
+### 3.6 Syntax highlighting (`syntax.*`)
+
+CodeMirror and any code chrome must use these tokens (light + dark in `tokens.css`):
+
+| Token | Role |
+| ----- | ---- |
+| `--syntax-keyword` | SQL/MQL keywords |
+| `--syntax-string` | Strings |
+| `--syntax-number` | Numbers |
+| `--syntax-comment` | Comments |
+| `--syntax-operator` | Operators / punctuation |
+| `--syntax-name` | Identifiers |
+| `--syntax-property` | Properties / fields |
+| `--syntax-type` | Types / bool / null |
+| `--syntax-func` | Functions |
+| `--syntax-invalid` | Errors |
+
+Do not reuse `--accent` or connection hues for syntax. Reconfigure the editor theme when `data-theme` changes (`createMystiqueEditorTheme`).
+
+### 3.7 Color checklist
 
 - [ ] No hex in `.svelte` files (except data models for connection palette in `types/`)
 - [ ] No `text-black` / `text-white` / `bg-gray-*` for product chrome
@@ -143,8 +163,8 @@ Opacity steps **allowed:** `/10` `/12` `/15` `/25` `/35` `/40` `/45` `/50` only 
 
 | Class | Use |
 | ----- | --- |
-| `font-sans` | UI chrome (default) |
-| `font-mono` | Hosts, ports, SQL, JSON, code-like meta, engine badges |
+| `font-sans` | **Instrument Sans** — UI chrome (default) |
+| `font-mono` | **IBM Plex Mono** — hosts, ports, SQL, JSON, grid cells, badges |
 
 ### 4.2 Size scale (closed set)
 
@@ -159,7 +179,7 @@ Opacity steps **allowed:** `/10` `/12` `/15` `/25` `/35` `/40` `/45` `/50` only 
 | `text-display` | 22px | 1.25 | Page / connection titles |
 
 **Default:** `body` uses `text-body`. Do not use Tailwind’s default `text-xs`…`text-xl` for product UI.  
-**Density:** `data-density="compact"` is default (`UI_UX_GUIDELINES`); `comfortable` only loosens row height / sidebar width.
+**Density:** `data-density="compact"` is default; `comfortable` loosens `--row-height`, `--sidebar-width`, and `--grid-row-height` (28px → 32px grid rows). Toggle lives in **Settings** (`AppSettings` / `AppSettingsPopover`).
 
 ### 4.3 Weight scale (closed set)
 
@@ -229,10 +249,10 @@ Layout widths:
 
 | Class | Value | Use |
 | ----- | ----- | --- |
-| `rounded-sm` | 4px | Badges, micro chips |
-| `rounded-md` | 6px | Buttons, inputs, list rows |
-| `rounded-lg` | 8px | Icon buttons, toasts |
-| `rounded-xl` | 12px | Cards, heroes |
+| `rounded-sm` | 3px | Badges, kbd, micro chips |
+| `rounded-md` | 5px | Buttons, inputs, list rows |
+| `rounded-lg` | 8px | Icon buttons, toasts, brand mark |
+| `rounded-xl` | 10px | Cards, heroes |
 | `rounded-full` | pill | Pills, status dots |
 
 Do not invent `rounded-[5px]`.
@@ -260,6 +280,8 @@ Closed set for interactive controls:
 | `h-control-lg` | 40px | Rare emphasis |
 | `h-topbar` | 44px | App top bar |
 | `min-h-row` | `var(--row-height)` | Connection list rows |
+| `min-h-grid-row` | `var(--grid-row-height)` | Data grid cells (28 / 32px) |
+| `h-statusbar` / `min-h-statusbar` | 34px min | Status footers (may wrap) |
 
 Square controls (icon buttons) use matching edge length:
 
@@ -298,7 +320,14 @@ No continuous animation in chrome.
 | Status | `StatusDot` + `Pill` | PROD = `tone="warning"` |
 | Engine mark | `EngineBadge` | Uses `text-micro` mono |
 | Toast | `Toast` | `tone` only |
-| Empty | `EmptyState` | `text-title` + `text-body` |
+| Empty | `EmptyState` | `text-title` + `text-body` + next action; parent centers it |
+| Status footer | `StatusBar` | Three zones: left meta · center pager · right actions; may wrap (`min-h-statusbar`) |
+| Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
+| Settings | `AppSettings` | Theme, density, UI scale, remember last connection |
+| Settings trigger | `AppSettingsPopover` | Gear + panel (home sidebar + workspace rail) |
+| Brand | `BrandMark` | Jade lens mark — home + workspace home button |
+| Shortcut | `Kbd` | Keyboard chips (`⌘T`) |
+| Alert | `Alert` | `info` uses `--status-info`, not accent |
 
 **Variants customize look; `class` only for layout** (`w-full`, `col-span-full`, `mt-3`).
 
@@ -311,7 +340,7 @@ No continuous animation in chrome.
 | `z-0` / auto | Normal flow |
 | `z-10` | Sticky headers (later) |
 | `z-40` | Popovers / menus |
-| `z-50` | Toasts |
+| `z-50` | Toasts / modal dialogs |
 
 Do not use `z-[9999]`.
 
@@ -330,15 +359,17 @@ Do not use `z-[9999]`.
 
 ---
 
-## 13. Content background wash (optional)
+## 13. Atmosphere
 
-Use the utility (not raw gradient strings in features):
+**Grain:** `body::after` uses `--grain-opacity` (dark 0.045 / light 0.055). Do not add extra noise in features.
+
+**Wash:** use the utility (not raw gradient strings):
 
 ```html
 <div class="bg-app-wash flex-1 overflow-auto">…</div>
 ```
 
-Defined once in `app.css`.
+Washes use `--connection-color` when scoped, otherwise `--accent`. Defined once in `app.css`.
 
 ---
 
@@ -388,7 +419,8 @@ Border:   border-line | border-line-strong | border-focus
 Control:  h-control-sm | h-control | h-control-lg
 Radius:   rounded-sm | rounded-md | rounded-lg | rounded-xl | rounded-full
 Shadow:   shadow-sm | shadow-md
-Font:     font-sans | font-mono
+Font:     font-sans (Instrument Sans) | font-mono (IBM Plex Mono)
+Accent:   jade #2fbf96 / #0e7a60 — never connection hue
 ```
 
 ---

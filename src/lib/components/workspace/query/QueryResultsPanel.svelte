@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Button, Select } from "$lib/components/ui";
+  import { Button, Pager, StatusBar } from "$lib/components/ui";
   import type { QueryResult } from "$lib/api/engines";
   import { cn } from "$lib/utils/cn";
   import type { RunState } from "./types";
@@ -22,8 +22,6 @@
     resultPageEnd: number;
     resultSafePage: number;
     resultTotalPages: number;
-    pageSize: number;
-    pageSizeOptions: { value: string; label: string }[];
     canExport: boolean;
     exporting: ResultExportAction | null;
     exportMsg: string | null;
@@ -31,7 +29,6 @@
     onexport: (action: ResultExportAction) => void;
     onprev: () => void;
     onnext: () => void;
-    onSetPageSize: (v: string) => void;
     onrefresh: () => void;
   }
 
@@ -44,8 +41,6 @@
     resultPageEnd,
     resultSafePage,
     resultTotalPages,
-    pageSize,
-    pageSizeOptions,
     canExport,
     exporting,
     exportMsg,
@@ -53,7 +48,6 @@
     onexport,
     onprev,
     onnext,
-    onSetPageSize,
     onrefresh,
   }: Props = $props();
 
@@ -180,14 +174,8 @@
     {/if}
   </div>
 
-  <!-- Match table GridStatusBar: left rows · center pages · right actions -->
-  <footer
-    class="relative z-20 flex h-statusbar min-h-statusbar shrink-0 items-center gap-2 border-t border-line bg-elevated px-2.5"
-  >
-    <!-- Left: row / status info -->
-    <div
-      class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-caption text-fg-muted"
-    >
+  <StatusBar class="relative z-20" ariaLabel="Query results status">
+    {#snippet left()}
       {#if hasRows}
         <span class="truncate font-mono tabular-nums">
           {resultPageStart + 1}–{resultPageEnd} of {resultTotal.toLocaleString()}
@@ -209,53 +197,18 @@
           >· {exportMsg}</span
         >
       {/if}
-    </div>
-
-    <!-- Center: pagination -->
-    <div
-      class="flex shrink-0 items-center gap-1.5"
-      role="group"
-      aria-label="Pagination"
-    >
-      <div class="w-28 shrink-0">
-        <Select
-          id="query-result-page-size"
-          value={String(pageSize)}
-          options={pageSizeOptions}
-          inputSize="sm"
-          onchange={onSetPageSize}
-          disabled={!hasRows}
-        />
-      </div>
-      <div class="flex items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!hasRows || resultSafePage <= 0}
-          onclick={onprev}
-          aria-label="Previous page"
-        >
-          ‹
-        </Button>
-        <span
-          class="min-w-12 text-center font-mono text-caption text-fg-secondary tabular-nums"
-        >
-          {hasRows ? `${resultSafePage + 1}/${resultTotalPages}` : "—"}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!hasRows || resultSafePage >= resultTotalPages - 1}
-          onclick={onnext}
-          aria-label="Next page"
-        >
-          ›
-        </Button>
-      </div>
-    </div>
-
-    <!-- Right: download + refresh -->
-    <div class="flex min-w-0 flex-1 items-center justify-end gap-1">
+    {/snippet}
+    {#snippet center()}
+      <Pager
+        page={resultSafePage}
+        totalPages={resultTotalPages}
+        active={hasRows}
+        disabled={!hasRows}
+        onprev={onprev}
+        onnext={onnext}
+      />
+    {/snippet}
+    {#snippet right()}
       <div class="relative" bind:this={menuRoot}>
         <Button
           variant="ghost"
@@ -328,7 +281,6 @@
           </div>
         {/if}
       </div>
-
       <Button
         variant="ghost"
         size="sm"
@@ -338,6 +290,6 @@
       >
         {refreshing ? "Refreshing…" : "Refresh"}
       </Button>
-    </div>
-  </footer>
+    {/snippet}
+  </StatusBar>
 </div>

@@ -5,6 +5,8 @@
   interface Props {
     tabs: WorkspaceTab[];
     activeTabId: string | null;
+    connectionColor?: string | null;
+    production?: boolean;
     /** Only tabs for the active connection (parent filters). */
     onactivate: (id: string) => void;
     onclose: (id: string) => void;
@@ -12,13 +14,32 @@
     onopenquery?: () => void;
   }
 
-  let { tabs, activeTabId, onactivate, onclose, onopenquery }: Props = $props();
+  let {
+    tabs,
+    activeTabId,
+    connectionColor = null,
+    production = false,
+    onactivate,
+    onclose,
+    onopenquery,
+  }: Props = $props();
 </script>
 
 <div
-  class="flex h-control-sm shrink-0 items-stretch overflow-x-auto border-b border-line bg-panel"
+  class={cn(
+    "scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto overscroll-x-contain border-b border-line bg-panel",
+    production && "bg-warning/[0.06]",
+  )}
+  style={connectionColor ? `--connection-color: ${connectionColor}` : undefined}
   role="tablist"
   aria-label="Workspace tabs"
+  onwheel={(e) => {
+    const el = e.currentTarget;
+    if (el.scrollWidth <= el.clientWidth) return;
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    el.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }}
 >
   {#each tabs as tab (tab.id)}
     {@const active = activeTabId === tab.id}
@@ -26,12 +47,20 @@
     <div
       class={cn(
         "group/tab flex max-w-56 shrink-0 items-stretch border-r border-line",
+        "relative",
         active
           ? "bg-app-wash text-fg"
           : "bg-transparent text-fg-secondary hover:bg-hover hover:text-fg",
       )}
       role="presentation"
     >
+      {#if connectionColor}
+        <span
+          class="absolute inset-x-0 top-0 h-0.5 bg-conn"
+          class:opacity-40={!active}
+          aria-hidden="true"
+        ></span>
+      {/if}
       <button
         type="button"
         role="tab"
@@ -52,7 +81,7 @@
       <button
         type="button"
         class={cn(
-          "group/close mr-0.5 flex size-5 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-caption",
+          "group/close mr-1 flex size-6 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-body-lg font-medium",
           "hover:bg-hover hover:text-fg",
           // Clean inactive tabs: show close only when the tab row is hovered
           !dirty && !active && "opacity-0 group-hover/tab:opacity-100",
@@ -68,7 +97,7 @@
         <!-- Dirty: yellow dot; hover this control to reveal × -->
         {#if dirty}
           <span
-            class="text-[0.65rem] leading-none group-hover/close:hidden"
+            class="text-label leading-none group-hover/close:hidden"
             aria-hidden="true">●</span
           >
           <span

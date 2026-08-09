@@ -108,22 +108,22 @@ export const CONNECTION_COLORS: {
   name: string;
   hex: string;
 }[] = [
-  { id: "rose", name: "Rose", hex: "#e86a7a" },
-  { id: "orange", name: "Orange", hex: "#e8956a" },
-  { id: "amber", name: "Amber", hex: "#e6b84d" },
-  { id: "lime", name: "Lime", hex: "#a8d46a" },
-  { id: "green", name: "Green", hex: "#5ecf8e" },
-  { id: "teal", name: "Teal", hex: "#4ecdc4" },
-  { id: "cyan", name: "Cyan", hex: "#4eb8e8" },
-  { id: "blue", name: "Blue", hex: "#5b8def" },
-  { id: "indigo", name: "Indigo", hex: "#7b7ef0" },
+  { id: "rose", name: "Rose", hex: "#e56b78" },
+  { id: "orange", name: "Orange", hex: "#e8945c" },
+  { id: "amber", name: "Amber", hex: "#e0b04a" },
+  { id: "lime", name: "Lime", hex: "#9dce5c" },
+  { id: "green", name: "Green", hex: "#4ecb88" },
+  { id: "teal", name: "Teal", hex: "#3ec9c0" },
+  { id: "cyan", name: "Cyan", hex: "#45b4e0" },
+  { id: "blue", name: "Blue", hex: "#5a8ee8" },
+  { id: "indigo", name: "Indigo", hex: "#7a7aef" },
   { id: "violet", name: "Violet", hex: "#9b6de8" },
-  { id: "magenta", name: "Magenta", hex: "#d46ad8" },
-  { id: "slate", name: "Slate", hex: "#8b95a8" },
+  { id: "magenta", name: "Magenta", hex: "#d46ad0" },
+  { id: "slate", name: "Slate", hex: "#9a9388" },
 ];
 
 export function colorHex(id: string): string {
-  return CONNECTION_COLORS.find((c) => c.id === id)?.hex ?? "#8b95a8";
+  return CONNECTION_COLORS.find((c) => c.id === id)?.hex ?? "#9a9388";
 }
 
 export function asColorId(id: string): ConnectionColorId {

@@ -4,9 +4,14 @@
   import { isTauri } from "$lib/api/tauri";
   import {
     applyUiScale,
+    applyPreferredUiScale,
     writeScalePreference,
-    UI_SCALE_STORAGE_KEY,
   } from "$lib/utils/uiScale";
+  import {
+    applyStoredAppearance,
+    readThemePref,
+    applyThemePref,
+  } from "$lib/utils/appPrefs";
 
   let { children } = $props();
 
@@ -23,22 +28,15 @@
   }
 
   onMount(() => {
-    // Reset accidental 2× prefs from the 53bdc11 experiment so default is 1×.
-    try {
-      const raw = localStorage.getItem(UI_SCALE_STORAGE_KEY);
-      if (raw != null && raw !== "auto") {
-        const n = Number(raw);
-        if (Number.isFinite(n) && n >= 2) {
-          localStorage.setItem(UI_SCALE_STORAGE_KEY, "auto");
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    writeScalePreference(1);
-    applyUiScale(1);
+    applyStoredAppearance();
+    applyPreferredUiScale();
 
-    // Keyboard zoom (browser + when webview receives the keys).
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onScheme = () => {
+      if (readThemePref() === "system") applyThemePref("system");
+    };
+    mq.addEventListener("change", onScheme);
+
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       if (e.key === "=" || e.key === "+") {
@@ -54,7 +52,6 @@
     };
     window.addEventListener("keydown", onKey);
 
-    // Native View menu (macOS steals ⌘=/⌘-/⌘0 from the webview → emit events).
     const unsubs: Array<() => void> = [];
     let cancelled = false;
     if (isTauri()) {
@@ -72,6 +69,7 @@
 
     return () => {
       cancelled = true;
+      mq.removeEventListener("change", onScheme);
       window.removeEventListener("keydown", onKey);
       for (const u of unsubs) u();
     };

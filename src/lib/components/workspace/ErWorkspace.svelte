@@ -2448,8 +2448,8 @@
 						>
 							<path
 								d="M1,1 L13,7 L1,13 L4,7 Z"
-								fill="#5b8def"
-								stroke="#5b8def"
+								fill="var(--accent)"
+								stroke="var(--accent)"
 								stroke-width="0.5"
 							/>
 						</marker>
@@ -2465,8 +2465,8 @@
 						>
 							<path
 								d="M1,1 L15,8 L1,15 L4.5,8 Z"
-								fill="#5b8def"
-								stroke="#8eb6ff"
+								fill="var(--accent)"
+								stroke="var(--accent-hover)"
 								stroke-width="1"
 							/>
 						</marker>
@@ -2485,8 +2485,8 @@
 								cx="5"
 								cy="5"
 								r="3.5"
-								fill="#5b8def"
-								stroke="#8eb6ff"
+								fill="var(--accent)"
+								stroke="var(--accent-hover)"
 								stroke-width="1"
 							/>
 						</marker>
@@ -2506,7 +2506,7 @@
 						<path
 							d={edgePolyline(edge)}
 							fill="none"
-							stroke="#5b8def"
+							stroke="var(--accent)"
 							stroke-width={selected ? 3 : 2.25}
 							stroke-linecap="round"
 							stroke-linejoin="round"
@@ -2574,7 +2574,7 @@
 						<path
 							d={previewPolyline()}
 							fill="none"
-							stroke="#5b8def"
+							stroke="var(--accent)"
 							stroke-width="2.25"
 							stroke-linecap="round"
 							stroke-linejoin="round"
@@ -2589,7 +2589,7 @@
 								cx={wp.x}
 								cy={wp.y}
 								r="4"
-								fill="#5b8def"
+								fill="var(--accent)"
 								style="pointer-events: none;"
 							/>
 							<text

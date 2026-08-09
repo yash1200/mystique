@@ -335,6 +335,34 @@ export function buildJson(
   return pretty ? `${JSON.stringify(data, null, 2)}\n` : `${JSON.stringify(data)}\n`;
 }
 
+/** Tab-separated values (no header) — paste-friendly single/multi row copy. */
+export function buildTsv(
+  columns: TableExportColumn[],
+  rows: unknown[][],
+): string {
+  return rows
+    .map((row) => columns.map((_, i) => cellToString(row[i])).join("\t"))
+    .join("\n");
+}
+
+/** GitHub-flavored markdown table. */
+export function buildMarkdown(
+  columns: TableExportColumn[],
+  rows: unknown[][],
+): string {
+  const esc = (s: string) =>
+    s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  const header = `| ${columns.map((c) => esc(c.name)).join(" | ")} |`;
+  const sep = `| ${columns.map(() => "---").join(" | ")} |`;
+  const body = rows
+    .map(
+      (row) =>
+        `| ${columns.map((_, i) => esc(cellToString(row[i]))).join(" | ")} |`,
+    )
+    .join("\n");
+  return `${header}\n${sep}\n${body}\n`;
+}
+
 export async function exportRowsAsJson(
   columns: TableExportColumn[],
   rows: unknown[][],

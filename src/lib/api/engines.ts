@@ -209,6 +209,10 @@ export interface TableRowInsert {
   values: Record<string, unknown>;
 }
 
+export interface TableRowDelete {
+  original: Record<string, unknown>;
+}
+
 export interface ApplyTableEditsRequest {
   sessionId: string;
   table: string;
@@ -217,12 +221,14 @@ export interface ApplyTableEditsRequest {
   columns: TableEditColumn[];
   updates: TableRowUpdate[];
   inserts: TableRowInsert[];
+  deletes?: TableRowDelete[];
   profileReadOnly?: boolean;
 }
 
 export interface ApplyTableEditsResult {
   updated: number;
   inserted: number;
+  deleted?: number;
 }
 
 export async function applyEngineTableEdits(

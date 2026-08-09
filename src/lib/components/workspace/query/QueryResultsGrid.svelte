@@ -4,12 +4,14 @@
    * Large directional overscan keeps rows ahead of the scroll so spacers
    * rarely flash empty while the user is moving through big result sets.
    */
+  import { onMount } from "svelte";
   import type { QueryResult } from "$lib/api/engines";
   import { cn } from "$lib/utils/cn";
+  import { gridRowHeightPx, watchHtmlAttr } from "$lib/utils/appPrefs";
   import { cellDisplay } from "./cellDisplay";
 
-  /** Fixed row height — keep in sync with row cell classes below. */
-  const ROW_H = 28;
+  /** Virtualization row height — follows `data-density` / `--grid-row-height`. */
+  let ROW_H = $state(gridRowHeightPx());
   const HEADER_H = 32;
   /** Minimum rows buffered on each side of the viewport. */
   const OVERSCAN_MIN = 200;
@@ -104,6 +106,10 @@
     ro.observe(el);
     return () => ro.disconnect();
   });
+
+  onMount(() => watchHtmlAttr("data-density", () => {
+    ROW_H = gridRowHeightPx();
+  }));
 
   // Reset window when page / dataset changes
   $effect(() => {

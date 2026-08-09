@@ -33,7 +33,9 @@
     // Selected keeps connection tint; hover must not wipe it with bg-hover
     selected
       ? "conn-tint hover:conn-tint"
-      : "bg-transparent hover:bg-hover",
+      : connection.environment === "production"
+        ? "bg-warning/10 hover:bg-warning/15"
+        : "bg-transparent hover:bg-hover",
   )}
   style="--connection-color: {hex}"
   {onclick}

@@ -300,7 +300,7 @@ impl ConnectionManager {
             })?;
             Arc::clone(&live.session)
         };
-        if req.updates.is_empty() && req.inserts.is_empty() {
+        if req.updates.is_empty() && req.inserts.is_empty() && req.deletes.is_empty() {
             return Ok(ApplyTableEditsResult::empty());
         }
         let input = ApplyTableEditsInput::from(req);

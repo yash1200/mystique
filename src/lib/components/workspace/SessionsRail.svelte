@@ -1,7 +1,11 @@
 <script lang="ts">
   import type { ConnectedSession } from "$lib/stores/workspace-session.svelte";
   import { colorHex, engineLabel } from "$lib/types/connection";
-  import { EngineBadge } from "$lib/components/ui";
+  import {
+    AppSettingsPopover,
+    BrandMark,
+    EngineBadge,
+  } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
 
   export type SideNavMode = "explorer" | "saved-queries" | "history";
@@ -42,12 +46,12 @@
   >
     <button
       type="button"
-      class="grid size-8 place-items-center rounded-md border-none bg-linear-to-br from-accent to-conn-indigo text-caption font-bold text-fg-inverse transition-opacity hover:opacity-90"
+      class="rounded-lg border-none bg-transparent p-0"
       onclick={onhome}
       title="Back to home"
       aria-label="Back to home"
     >
-      M
+      <BrandMark size="sm" />
     </button>
   </header>
 
@@ -70,7 +74,8 @@
         {#each sessions as s (s.profile.id)}
           {@const active = mode === "explorer" && activeId === s.profile.id}
           {@const hex = colorHex(s.profile.colorId)}
-          {@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}`}
+          {@const prod = s.profile.environment === "production"}
+          {@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}${prod ? " · PROD" : ""}`}
           <div
             class="group relative"
             role="option"
@@ -84,7 +89,9 @@
                 "focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1",
                 active
                   ? "border-(--connection-color) bg-accent-muted ring-2 ring-(--connection-color)/30"
-                  : "border-line bg-elevated hover:border-line-strong hover:bg-hover",
+                  : prod
+                    ? "border-warning/50 bg-warning/10 hover:bg-warning/15"
+                    : "border-line bg-elevated hover:border-line-strong hover:bg-hover",
               )}
               title={label}
               aria-label={label}
@@ -189,9 +196,10 @@
   </div>
 
   <footer
-    class="flex h-statusbar w-full shrink-0 items-center justify-center border-t border-line bg-elevated"
+    class="flex min-h-statusbar w-full shrink-0 flex-col items-center justify-center gap-1 border-t border-line bg-elevated py-1.5"
     title="{sessions.length} session{sessions.length === 1 ? '' : 's'}"
   >
+    <AppSettingsPopover placement="right-end" buttonSize="sm" />
     <span class="font-mono text-caption tabular-nums text-fg-muted">
       {sessions.length}
     </span>

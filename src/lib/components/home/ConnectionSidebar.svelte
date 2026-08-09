@@ -1,9 +1,12 @@
 <script lang="ts">
   import type { ConnectionProfile } from "$lib/types/connection";
-  import { IconButton, Input, ThemeToggle } from "$lib/components/ui";
+  import {
+    AppSettingsPopover,
+    BrandMark,
+    IconButton,
+    Input,
+  } from "$lib/components/ui";
   import ConnectionListItem from "./ConnectionListItem.svelte";
-
-  type ThemePref = "light" | "dark" | "system";
 
   interface Props {
     connections: ConnectionProfile[];
@@ -11,8 +14,6 @@
     creating: boolean;
     onselect: (id: string) => void;
     onnew: () => void;
-    themePreference?: ThemePref;
-    onthemechange?: (pref: ThemePref) => void;
   }
 
   let {
@@ -21,30 +22,9 @@
     creating,
     onselect,
     onnew,
-    themePreference = "dark",
-    onthemechange,
   }: Props = $props();
 
   let query = $state("");
-  let settingsOpen = $state(false);
-  let settingsWrap: HTMLDivElement | undefined = $state();
-
-  function toggleSettings() {
-    settingsOpen = !settingsOpen;
-  }
-
-  function onWindowPointerDown(e: PointerEvent) {
-    if (!settingsOpen) return;
-    const t = e.target;
-    if (t instanceof Node && settingsWrap?.contains(t)) return;
-    settingsOpen = false;
-  }
-
-  function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && settingsOpen) {
-      settingsOpen = false;
-    }
-  }
 
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -71,15 +51,12 @@
 >
   <header class="px-4 pt-4 pb-3">
     <div class="flex items-center gap-3">
-      <span
-        class="grid size-8 place-items-center rounded-lg bg-linear-to-br from-accent to-conn-indigo text-label font-bold text-fg-inverse"
-        aria-hidden="true"
-      >
-        M
-      </span>
+      <BrandMark />
       <div>
         <div class="text-body-lg font-semibold tracking-tight text-fg">
-          MystiqueDB
+          Mystique<span class="font-mono text-label font-medium text-fg-muted"
+            >DB</span
+          >
         </div>
         <div class="text-caption text-fg-muted">Connections</div>
       </div>
@@ -139,49 +116,6 @@
     <span class="text-caption text-fg-muted">
       {connections.length} saved
     </span>
-    <div bind:this={settingsWrap} class="relative">
-      <IconButton
-        label="Settings"
-        variant="ghost"
-        size="sm"
-        active={settingsOpen}
-        onclick={toggleSettings}
-        aria-expanded={settingsOpen}
-        aria-haspopup="dialog"
-      >
-        <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M6.6 1.85h2.8l.3 1.45c.42.16.81.38 1.16.66l1.48-.38 1.4 2.42-1.18.9c.07.3.11.62.11 1.1 0 .37-.04.69-.11 1.01l1.18.9-1.4 2.42-1.48-.38a4.6 4.6 0 0 1-1.16.66l-.3 1.45H6.6l-.3-1.45a4.6 4.6 0 0 1-1.16-.66l-1.48.38-1.4-2.42 1.18-.9A4.4 4.4 0 0 1 3.33 8c0-.37.04-.69.11-1.01l-1.18-.9 1.4-2.42 1.48.38c.35-.28.74-.5 1.16-.66l.3-1.45Z"
-            stroke="currentColor"
-            stroke-width="1.2"
-            stroke-linejoin="round"
-          />
-          <circle
-            cx="8"
-            cy="8"
-            r="1.65"
-            stroke="currentColor"
-            stroke-width="1.2"
-          />
-        </svg>
-      </IconButton>
-      {#if settingsOpen}
-        <div
-          class="absolute right-0 bottom-full z-20 mb-2 w-56 rounded-lg border border-line bg-elevated p-3 shadow-md"
-          role="dialog"
-          aria-label="App settings"
-        >
-          <p class="m-0 mb-2 text-label font-semibold tracking-wider text-fg-muted uppercase">
-            Theme
-          </p>
-          <ThemeToggle preference={themePreference} onchange={onthemechange} />
-        </div>
-      {/if}
-    </div>
+    <AppSettingsPopover placement="top-end" buttonSize="sm" />
   </footer>
 </aside>
-
-<svelte:window
-  onpointerdown={onWindowPointerDown}
-  onkeydown={onWindowKeydown}
-/>

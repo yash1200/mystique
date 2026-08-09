@@ -21,7 +21,7 @@
 
 <section
   class={cn(
-    "min-w-0 rounded-xl border border-line bg-panel",
+    "min-w-0 rounded-xl border border-line bg-elevated shadow-sm",
     padded && "px-5 py-4",
     className,
   )}

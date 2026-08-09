@@ -27,7 +27,6 @@
   import {
     QUERY_FETCH_MAX_ROWS,
     RESULT_PAGE_SIZE_DEFAULT,
-    RESULT_PAGE_SIZE_OPTIONS,
     type RunState,
   } from "./query/types";
 
@@ -68,7 +67,7 @@
   let runState = $state<RunState>({ status: "idle" });
   let collection = $state("");
   let resultPage = $state(0);
-  let resultPageSize = $state(RESULT_PAGE_SIZE_DEFAULT);
+  const resultPageSize = RESULT_PAGE_SIZE_DEFAULT;
   let exporting = $state<ResultExportAction | null>(null);
   let exportMsg = $state<string | null>(null);
 
@@ -156,11 +155,6 @@
 
   function goResultNext() {
     resultPage = Math.min(resultTotalPages - 1, resultSafePage + 1);
-  }
-
-  function setResultPageSize(value: string) {
-    resultPageSize = Number(value) || RESULT_PAGE_SIZE_DEFAULT;
-    resultPage = 0;
   }
 
   async function exportResults(action: ResultExportAction) {
@@ -462,8 +456,6 @@
         {resultPageEnd}
         {resultSafePage}
         {resultTotalPages}
-        pageSize={resultPageSize}
-        pageSizeOptions={RESULT_PAGE_SIZE_OPTIONS}
         {canExport}
         {exporting}
         {exportMsg}
@@ -471,7 +463,6 @@
         onexport={(f) => void exportResults(f)}
         onprev={goResultPrev}
         onnext={goResultNext}
-        onSetPageSize={setResultPageSize}
         onrefresh={() => void runQuery()}
       />
     </div>

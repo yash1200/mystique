@@ -28,8 +28,11 @@
   import { openEngineSession } from "$lib/api/engines";
   import { loadLiveErDiagram } from "$lib/api/liveEr";
   import { isTauri } from "$lib/api/tauri";
-  import { pluginConfigForSession } from "$lib/types/connection";
-  import type { ConnectionProfile } from "$lib/types/connection";
+  import {
+    colorHex,
+    pluginConfigForSession,
+    type ConnectionProfile,
+  } from "$lib/types/connection";
   import {
     preferredDbForProfile,
     isSessionMissingError,
@@ -1084,7 +1087,13 @@
   );
 </script>
 
-<div class="flex h-screen w-screen overflow-hidden bg-app">
+<div
+  class="flex h-screen w-screen overflow-hidden bg-app"
+  style={activeSession
+    ? `--connection-color: ${colorHex(activeSession.profile.colorId)}`
+    : undefined}
+  data-env={activeSession?.profile.environment ?? undefined}
+>
   <SessionsRail
     {sessions}
     {activeId}

@@ -24,10 +24,39 @@ function cellEmpty(v: unknown): boolean {
 	return v === null || v === undefined || v === ''
 }
 
+function unwrapCell(v: unknown): unknown {
+	if (v == null) return null
+	if (typeof v === 'string') {
+		const t = v.trim()
+		if (
+			(t.startsWith('{') && t.endsWith('}')) ||
+			(t.startsWith('"') && t.endsWith('"'))
+		) {
+			try {
+				const parsed = JSON.parse(t) as unknown
+				if (parsed && typeof parsed === 'object') {
+					const o = parsed as Record<string, unknown>
+					if (typeof o.$oid === 'string') return o.$oid
+					if (typeof o.$uuid === 'string') return o.$uuid
+				}
+				return parsed
+			} catch {
+				/* keep string */
+			}
+		}
+	}
+	if (v && typeof v === 'object') {
+		const o = v as Record<string, unknown>
+		if (typeof o.$oid === 'string') return o.$oid
+		if (typeof o.$uuid === 'string') return o.$uuid
+	}
+	return v
+}
+
 function asJsonMap(row: Record<string, unknown>): Record<string, unknown> {
 	const out: Record<string, unknown> = {}
 	for (const [k, v] of Object.entries(row)) {
-		out[k] = v === undefined ? null : v
+		out[k] = v === undefined ? null : unwrapCell(v)
 	}
 	return out
 }
@@ -39,6 +68,7 @@ export async function persistTableEdits(input: {
 	rows: Record<string, unknown>[]
 	originals: Record<string, unknown>[]
 	newRowIndices: Set<number>
+	deletedIndices: Set<number>
 	dirtyKeys: Set<string>
 	profileReadOnly: boolean
 }): Promise<PersistResult> {
@@ -63,8 +93,10 @@ export async function persistTableEdits(input: {
 		values: Record<string, unknown>
 	}[] = []
 	const inserts: { values: Record<string, unknown> }[] = []
+	const deletes: { original: Record<string, unknown> }[] = []
 
 	for (const index of input.newRowIndices) {
+		if (input.deletedIndices.has(index)) continue
 		const next = input.rows[index]
 		if (!next) continue
 		const values: Record<string, unknown> = {}
@@ -76,8 +108,15 @@ export async function persistTableEdits(input: {
 		inserts.push({ values })
 	}
 
-	for (const [index, changed] of dirtyByRow) {
+	for (const index of input.deletedIndices) {
 		if (input.newRowIndices.has(index)) continue
+		const original = input.originals[index]
+		if (!original) continue
+		deletes.push({ original: asJsonMap(original) })
+	}
+
+	for (const [index, changed] of dirtyByRow) {
+		if (input.newRowIndices.has(index) || input.deletedIndices.has(index)) continue
 		const next = input.rows[index]
 		const original = input.originals[index]
 		if (!next || !original || changed.length === 0) continue
@@ -88,8 +127,8 @@ export async function persistTableEdits(input: {
 		updates.push({ original: asJsonMap(original), values })
 	}
 
-	if (updates.length === 0 && inserts.length === 0) {
-		return { updated: 0, inserted: 0 }
+	if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
+		return { updated: 0, inserted: 0, deleted: 0 }
 	}
 
 	try {
@@ -106,6 +145,7 @@ export async function persistTableEdits(input: {
 			})),
 			updates,
 			inserts,
+			deletes,
 			profileReadOnly: input.profileReadOnly,
 		})
 	} catch (err) {

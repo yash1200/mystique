@@ -12,6 +12,8 @@
     inputSize = "md",
     class: className = "",
     type = "text",
+    spellcheck = false,
+    autocomplete = "off",
     ...rest
   }: Props = $props();
 </script>
@@ -19,7 +21,7 @@
 <input
   class={cn(
     "w-full cursor-text rounded-md border border-line bg-input px-2.5 text-fg placeholder:text-fg-muted",
-    "focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted",
+    "focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted",
     "disabled:opacity-55",
     inputSize === "sm" ? "h-control-sm text-label" : "h-control text-body",
     type === "number" &&
@@ -27,6 +29,8 @@
     className,
   )}
   {type}
+  {spellcheck}
+  {autocomplete}
   bind:value
   {...rest}
 />

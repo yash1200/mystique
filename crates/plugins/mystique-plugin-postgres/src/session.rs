@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use mystique_connector_api::{
-    compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
+    compile_delete, compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, FetchTablePreviewInput, PoolStatus, QueryColumn, QueryMode, QueryResult,
@@ -638,6 +638,7 @@ impl ConnectorSession for PostgresSession {
 
         let mut updated = 0u32;
         let mut inserted = 0u32;
+        let mut deleted = 0u32;
         for u in &edits.updates {
             let sql = compile_update(SqlIdentStyle::Postgres, edits, u)?;
             client
@@ -654,7 +655,19 @@ impl ConnectorSession for PostgresSession {
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
             inserted += 1;
         }
-        Ok(ApplyTableEditsResult { updated, inserted })
+        for d in &edits.deletes {
+            let sql = compile_delete(SqlIdentStyle::Postgres, edits, d)?;
+            client
+                .batch_execute(&sql)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            deleted += 1;
+        }
+        Ok(ApplyTableEditsResult {
+            updated,
+            inserted,
+            deleted,
+        })
     }
 
     async fn fetch_table_preview(

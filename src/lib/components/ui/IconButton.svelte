@@ -37,12 +37,16 @@
 <button
   {type}
   class={cn(
-    "inline-grid shrink-0 place-items-center rounded-md border p-0 leading-none transition-colors",
+    "inline-grid shrink-0 place-items-center rounded-md border p-0 leading-none transition-[color,background-color,border-color] duration-150",
     sizes[size],
     variant === "ghost" && "border-line bg-transparent text-fg",
     variant === "default" && "border-line bg-elevated text-fg",
-    variant === "accent" && "border-line bg-elevated text-fg",
-    !active && "hover:border-line-strong hover:bg-hover",
+    variant === "accent" &&
+      !active &&
+      "border-transparent bg-accent text-fg-inverse hover:bg-accent-hover",
+    variant !== "accent" &&
+      !active &&
+      "hover:border-line-strong hover:bg-hover",
     active && "border-accent bg-accent-muted text-accent",
     className,
   )}

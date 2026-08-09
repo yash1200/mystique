@@ -78,7 +78,7 @@
 
 	const selectedEngine = $derived(ENGINE_OPTIONS.find((e) => e.id === engine))
 	const colorHexVal = $derived(
-		CONNECTION_COLORS.find((c) => c.id === colorId)?.hex ?? '#4ecdc4',
+		CONNECTION_COLORS.find((c) => c.id === colorId)?.hex ?? '#3ec9c0',
 	)
 
 	const engineOptions = $derived(
@@ -204,6 +204,11 @@
 				{/if}
 			{/snippet}
 		</PageHeader>
+	{:else}
+		<PageHeader
+			title="New connection"
+			description="Saved locally on this machine. Test before you connect."
+		/>
 	{/if}
 
 	<form class="m-0" onsubmit={submit}>

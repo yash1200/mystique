@@ -6,7 +6,7 @@ use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
+    compile_delete, compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, FetchTablePreviewInput, PoolStatus, QueryColumn, QueryMode, QueryResult,
@@ -432,6 +432,7 @@ impl ConnectorSession for MysqlSession {
 
         let mut updated = 0u32;
         let mut inserted = 0u32;
+        let mut deleted = 0u32;
         for u in &edits.updates {
             let sql = compile_update(SqlIdentStyle::Mysql, edits, u)?;
             conn.query_drop(sql.as_str())
@@ -446,7 +447,18 @@ impl ConnectorSession for MysqlSession {
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
             inserted += 1;
         }
-        Ok(ApplyTableEditsResult { updated, inserted })
+        for d in &edits.deletes {
+            let sql = compile_delete(SqlIdentStyle::Mysql, edits, d)?;
+            conn.query_drop(sql.as_str())
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            deleted += 1;
+        }
+        Ok(ApplyTableEditsResult {
+            updated,
+            inserted,
+            deleted,
+        })
     }
 
     async fn fetch_table_preview(

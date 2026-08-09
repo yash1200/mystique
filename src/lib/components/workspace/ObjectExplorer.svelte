@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { DatabaseMeta, TableMeta } from "$lib/types/workspace";
   import { catalogPresentation } from "$lib/types/workspace";
-  import { IconButton, Input, Select } from "$lib/components/ui";
+  import { IconButton, Input, Select, StatusBar } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
   import CreateDatabaseForm from "./explorer/CreateDatabaseForm.svelte";
   import ObjectTree from "./explorer/ObjectTree.svelte";
@@ -325,22 +325,22 @@
     {onopen}
   />
 
-  <footer
-    class="flex h-statusbar shrink-0 items-center border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
-  >
-    <div class="min-w-0 truncate">
-      {#if currentDb}
-        <span class="font-mono text-fg-secondary">{currentDb.name}</span>
-        <span aria-hidden="true"> · </span>
-      {/if}
-      {totalCount}
-      {presentation.objectLabel}
-      {#if isTree && groups.length > 0}
-        · {groups.length}
-        {groups.length === 1
-          ? presentation.groupLabel.toLowerCase()
-          : `${presentation.groupLabel.toLowerCase()}s`}
-      {/if}
-    </div>
-  </footer>
+  <StatusBar ariaLabel="Catalog status">
+    {#snippet left()}
+      <span class="min-w-0 truncate">
+        {#if currentDb}
+          <span class="font-mono text-fg-secondary">{currentDb.name}</span>
+          <span aria-hidden="true"> · </span>
+        {/if}
+        {totalCount}
+        {presentation.objectLabel}
+        {#if isTree && groups.length > 0}
+          · {groups.length}
+          {groups.length === 1
+            ? presentation.groupLabel.toLowerCase()
+            : `${presentation.groupLabel.toLowerCase()}s`}
+        {/if}
+      </span>
+    {/snippet}
+  </StatusBar>
 </aside>

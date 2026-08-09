@@ -46,7 +46,7 @@
 <button
   {type}
   class={cn(
-    "inline-flex items-center justify-center gap-1.5 rounded-md border font-medium leading-none whitespace-nowrap transition-colors",
+    "inline-flex items-center justify-center gap-1.5 rounded-md border font-medium leading-none whitespace-nowrap transition-[color,background-color,border-color] duration-150",
     variants[variant],
     sizes[size],
     fullWidth && "w-full",

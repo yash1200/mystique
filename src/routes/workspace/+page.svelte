@@ -9,25 +9,10 @@
   import { isTauri } from "$lib/api/tauri";
   import { draftFromProfile, pluginConfigForSession } from "$lib/types/connection";
   import type { ConnectionProfile } from "$lib/types/connection";
-
-  type ThemePref = "light" | "dark" | "system";
+  import { writeLastConnectionId } from "$lib/utils/appPrefs";
 
   let ready = $state(false);
   let bootError = $state<string | null>(null);
-
-  function resolveTheme(pref: ThemePref): "light" | "dark" {
-    if (pref === "system") {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    }
-    return pref;
-  }
-
-  function applyTheme(pref: ThemePref) {
-    document.documentElement.dataset.theme = resolveTheme(pref);
-    document.documentElement.dataset.density = "compact";
-  }
 
   /**
    * Ensure the connection from ?c= is in the session store.
@@ -48,6 +33,7 @@
     );
     if (existing) {
       workspaceSession.setActiveConnection(connectionId);
+      writeLastConnectionId(connectionId);
       // Ensure live engine session if missing (e.g. soft reload).
       if (isTauri() && !existing.engineSessionId) {
         try {
@@ -106,6 +92,7 @@
           return;
         }
       }
+      writeLastConnectionId(connectionId);
       workspaceSession.connect(
         { ...profile, status: "connected" },
         engineSessionId,
@@ -116,15 +103,6 @@
   }
 
   onMount(() => {
-    let stored: ThemePref = "dark";
-    try {
-      const raw = localStorage.getItem("mystique-theme");
-      if (raw === "light" || raw === "dark" || raw === "system") stored = raw;
-    } catch {
-      /* ignore */
-    }
-    applyTheme(stored);
-
     (async () => {
       await ensureSessionFromQuery();
       if (workspaceSession.sessions.length === 0 && !bootError) {

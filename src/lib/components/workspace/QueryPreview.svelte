@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button } from "$lib/components/ui";
+  import { Button, StatusBar } from "$lib/components/ui";
   import {
     formatRelativeTime,
     type QueryHistoryEntry,
@@ -87,13 +87,13 @@
     {/if}
   </div>
 
-  <footer
-    class="flex h-statusbar shrink-0 items-center border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
-  >
-    {#if kind === "history"}
-      Saved from live query runs · Open in editor to re-run
-    {:else}
-      Saved query preview
-    {/if}
-  </footer>
+  <StatusBar ariaLabel="Query preview status">
+    {#snippet left()}
+      {#if kind === "history"}
+        Saved from live query runs · Open in editor to re-run
+      {:else}
+        Saved query preview
+      {/if}
+    {/snippet}
+  </StatusBar>
 </div>

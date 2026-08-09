@@ -14,15 +14,13 @@ src/lib/
     │   ├── index.ts           # Barrel export
     │   ├── README.md
     │   ├── Button.svelte
-    │   ├── Input.svelte
-    │   ├── Select.svelte
+    │   ├── StatusBar.svelte
+    │   ├── Pager.svelte
+    │   ├── AppSettings.svelte
+    │   ├── AppSettingsPopover.svelte
     │   └── …
-    └── home/                  # Home / connections feature
-        ├── ConnectionSidebar.svelte
-        ├── ConnectionDetail.svelte
-        ├── NewConnectionPanel.svelte  # Create/edit form (engine dropdown)
-        ├── connection-forms/          # Per-engine field groups
-        └── …
+    ├── home/                  # Home / connections feature
+    └── workspace/             # Connected studio (grid, query, ER, explorer)
 ```
 
 | Layer | May know about | Must not |

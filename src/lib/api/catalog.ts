@@ -126,6 +126,32 @@ export async function loadTablePreview(
   return previewToTableMeta(table, preview);
 }
 
+/** Keep PKs / ObjectIds usable for updates & deletes (not stringified blobs). */
+function unwrapPreviewCell(v: unknown): unknown {
+  if (v == null) return null;
+  if (typeof v !== "object") return v;
+  const o = v as Record<string, unknown>;
+  if (typeof o.$oid === "string") return o.$oid;
+  if (typeof o.$uuid === "string") return o.$uuid;
+  if (typeof o.$numberLong === "string") {
+    const n = Number(o.$numberLong);
+    return Number.isSafeInteger(n) ? n : o.$numberLong;
+  }
+  if (typeof o.$numberInt === "string") return Number(o.$numberInt);
+  if ("$date" in o) {
+    const d = o.$date;
+    if (typeof d === "string") return d;
+    if (d && typeof d === "object" && "$numberLong" in (d as object)) {
+      return new Date(Number((d as { $numberLong: string }).$numberLong)).toISOString();
+    }
+  }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return v;
+  }
+}
+
 function previewToTableMeta(
   base: TableMeta,
   preview: TablePreviewResult,
@@ -146,15 +172,7 @@ function previewToTableMeta(
     const obj: Record<string, unknown> = {};
     columns.forEach((c, i) => {
       const v = cells[i];
-      if (v != null && typeof v === "object") {
-        try {
-          obj[c.name] = JSON.stringify(v);
-        } catch {
-          obj[c.name] = v;
-        }
-      } else {
-        obj[c.name] = v ?? null;
-      }
+      obj[c.name] = unwrapPreviewCell(v);
     });
     return obj;
   });

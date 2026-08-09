@@ -393,6 +393,7 @@ impl ConnectorSession for MongoSession {
 
         let mut updated = 0u32;
         let mut inserted = 0u32;
+        let mut deleted = 0u32;
 
         for u in &edits.updates {
             let id = u
@@ -449,7 +450,31 @@ impl ConnectorSession for MongoSession {
             inserted += 1;
         }
 
-        Ok(ApplyTableEditsResult { updated, inserted })
+        for d in &edits.deletes {
+            let id = d
+                .original
+                .get("_id")
+                .or_else(|| d.original.get("id"))
+                .ok_or_else(|| {
+                    ConnectorError::Query("Cannot delete document: missing _id.".into())
+                })?;
+            if matches!(id, JsonValue::Null) || id.as_str() == Some("") {
+                return Err(ConnectorError::Query(
+                    "Cannot delete document: missing _id.".into(),
+                ));
+            }
+            let filter = json_to_document(&json!({ "_id": mongo_id_json(id) }))?;
+            coll.delete_one(filter)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            deleted += 1;
+        }
+
+        Ok(ApplyTableEditsResult {
+            updated,
+            inserted,
+            deleted,
+        })
     }
 
     async fn fetch_table_preview(

@@ -65,6 +65,16 @@
   --color-warning: var(--status-warning);
   --color-danger: var(--status-danger);
   --color-info: var(--status-info);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-comment: var(--syntax-comment);
+  --color-syntax-operator: var(--syntax-operator);
+  --color-syntax-name: var(--syntax-name);
+  --color-syntax-property: var(--syntax-property);
+  --color-syntax-type: var(--syntax-type);
+  --color-syntax-func: var(--syntax-func);
+  --color-syntax-invalid: var(--syntax-invalid);
 
   /* —— Connection palette —— */
   --color-conn-rose: var(--conn-rose);
@@ -107,6 +117,7 @@
   html {
     /* Design-language base (16px). uiScale.ts may adjust if user zooms. */
     font-size: 16px;
+    -webkit-tap-highlight-color: color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   html,
@@ -118,6 +129,19 @@
     @apply bg-app font-sans text-body text-fg antialiased;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01" on, "cv11" on;
+    touch-action: manipulation;
+  }
+
+  body::after {
+    content: "";
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   button,
@@ -140,10 +164,24 @@
     @apply text-accent;
   }
 
+  kbd {
+    @apply rounded-sm border border-line bg-input px-1 py-px font-mono text-micro font-medium text-fg-secondary;
+  }
+
   /* Use OS/system cursors only — no custom PNG cursor overrides. */
 
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-focus;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -207,12 +245,28 @@
   Keep statusbars at default control height per dense workspace chrome.
 */
 @utility h-statusbar {
-  height: 2.125rem; /* 34px — h-control */
+  min-height: 2.125rem; /* 34px — h-control; may wrap when dirty */
+}
+
+@utility min-h-statusbar {
   min-height: 2.125rem;
+}
+
+@utility min-h-grid-row {
+  min-height: var(--grid-row-height, 1.75rem);
 }
 
 @utility min-h-row {
   min-height: var(--row-height);
+}
+
+/* Keep overflow scroll, hide the track so it cannot steal clicks. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @utility w-stripe {
@@ -248,9 +302,13 @@
 @utility bg-app-wash {
   background:
     radial-gradient(
-      1200px 600px at 80% -10%,
-      color-mix(in srgb, var(--accent) 8%, transparent),
-      transparent 55%
+      900px 520px at 88% -12%,
+      color-mix(
+        in srgb,
+        var(--connection-color, var(--accent)) 11%,
+        transparent
+      ),
+      transparent 58%
     ),
     var(--bg-app);
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ColumnDef } from "$lib/types/workspace";
-  import { IconButton } from "$lib/components/ui";
+  import { IconButton, StatusBar } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
 
   import {
@@ -220,11 +220,11 @@
     </div>
     <IconButton
       label="Close row inspector"
-      size="sm"
+      size="md"
       variant="ghost"
       onclick={onclose}
     >
-      ×
+      <span class="text-title leading-none font-medium" aria-hidden="true">×</span>
     </IconButton>
   </header>
 
@@ -341,17 +341,17 @@
     </div>
   </div>
 
-  <footer
-    class="flex h-statusbar shrink-0 items-center border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
-  >
-    {#if dirtyCount > 0}
-      <span class="text-warning"
-        >{dirtyCount} field{dirtyCount === 1 ? "" : "s"} changed</span
-      >
-      <span class="mx-1.5 text-fg-muted">·</span>
-      <span>Save from the grid bar</span>
-    {:else}
-      <span>No local field changes</span>
-    {/if}
-  </footer>
+  <StatusBar ariaLabel="Row inspector status">
+    {#snippet left()}
+      {#if dirtyCount > 0}
+        <span class="text-warning"
+          >{dirtyCount} field{dirtyCount === 1 ? "" : "s"} changed</span
+        >
+        <span>·</span>
+        <span>Save from the grid bar</span>
+      {:else}
+        <span>No local field changes</span>
+      {/if}
+    {/snippet}
+  </StatusBar>
 </aside>

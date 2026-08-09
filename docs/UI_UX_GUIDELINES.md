@@ -3,7 +3,7 @@
 > **Status:** Canonical product UX (follow before implementing UI)  
 > **Code design language (Tailwind tokens):** [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md)  
 > **Companion:** [`ARCHITECTURE_AND_FEATURES.md`](./ARCHITECTURE_AND_FEATURES.md)  
-> **Date:** 2026-07-25
+> **Date:** 2026-08-09
 
 These rules define how MystiqueDB looks and behaves. Every screen, component, and interaction should pass this checklist. When in doubt: **clarity under density, calm chrome, loud data.**
 
@@ -15,11 +15,11 @@ These rules define how MystiqueDB looks and behaves. Every screen, component, an
 
 | Attribute | Direction |
 | --------- | --------- |
-| Tone | Professional tool, not a marketing site. Calm, precise, slightly distinctive. |
-| Metaphor | **Mystique** — the shell adapts to the engine (relational vs document) without changing the chrome language. |
-| Density | Information-dense by default (DB clients need this), with optional Comfortable density. |
-| Motion | Subtle and functional. No decorative parallax or gimmicks. |
-| Differentiation | Connection **color identity**, dual-paradigm views, and a refined dual theme—not purple gradients or generic dashboard kits. |
+| Tone | Laboratory notebook: warm ink, precise, a little analog. Not a marketing site. |
+| Metaphor | **Mystique** — a lens on data. Chrome is the instrument; the engine is the specimen. |
+| Density | Information-dense by default, with optional Comfortable density. |
+| Motion | Subtle and functional. Grain is static. No decorative parallax. |
+| Differentiation | Warm dual theme, jade **signal** accent, connection **color identity**, dual-paradigm views. Not Inter, not purple gradients. |
 
 ### 1.2 Core principles
 
@@ -36,6 +36,7 @@ These rules define how MystiqueDB looks and behaves. Every screen, component, an
 - Generic “AI SaaS” look: Inter-everywhere, purple-on-white gradients, glassmorphism for its own sake.
 - Rainbow UI unrelated to connection colors (reserve hue for identity and status).
 - Modal dialogs for routine browsing (prefer panels, tabs, inline).
+- Fake “capabilities preview” chips that are not live plugin data.
 - Hidden critical status (connection dead, query running, uncommitted edits).
 - Different layout systems per engine that retrain the user from scratch.
 
@@ -90,43 +91,43 @@ tokens
 
 ### 2.4 Recommended primitive palettes
 
-Use a **cool neutral** base (blue-gray, not pure gray) so data colors and connection hues read cleanly.
+Use a **warm ink / warm paper** base (olive-black and cream, not blue-gray) so jade signal and connection hues stay distinct.
 
 #### Dark (default reference)
 
-| Role | Suggested value | Notes |
-| ---- | --------------- | ----- |
-| `bg.app` | `#0f1219` | Near-black with blue undertone |
-| `bg.panel` | `#161b26` | Sidebar |
-| `bg.elevated` | `#1c2333` | Tabs, menus |
-| `bg.input` | `#121722` | Inputs / editor bg |
-| `border.subtle` | `#2a3347` | |
-| `text.primary` | `#e8ecf4` | |
-| `text.secondary` | `#9aa6bd` | |
-| `text.muted` | `#6b7690` | |
-| `accent` | `#5b8def` | App chrome accent (distinct from connection hues) |
-| `status.danger` | `#f07178` | |
-| `status.success` | `#7fd99a` | |
-| `status.warning` | `#e6c07b` | |
-| `status.info` | `#5b8def` | |
+| Role | Value | Notes |
+| ---- | ----- | ----- |
+| `bg.app` | `#131210` | Warm near-black |
+| `bg.panel` | `#1b1a17` | Sidebar |
+| `bg.elevated` | `#24221e` | Cards, menus |
+| `bg.input` | `#151410` | Inputs / editor |
+| `border.subtle` | `#34312b` | |
+| `text.primary` | `#f0ebe3` | Ivory |
+| `text.secondary` | `#b4ab9d` | |
+| `text.muted` | `#7d766a` | |
+| `accent` | `#2fbf96` | Jade signal (not connection teal) |
+| `status.danger` | `#e35d5d` | |
+| `status.success` | `#5ecf8a` | |
+| `status.warning` | `#e0b04a` | |
+| `status.info` | `#4aa8d8` | Cerulean — distinct from jade |
 
 #### Light
 
-| Role | Suggested value | Notes |
-| ---- | --------------- | ----- |
-| `bg.app` | `#f4f6fa` | Soft cool gray |
-| `bg.panel` | `#ffffff` | Sidebar |
-| `bg.elevated` | `#ffffff` | Elevate with shadow/border |
-| `bg.input` | `#eef1f7` | |
-| `border.subtle` | `#d8dee9` | |
-| `text.primary` | `#1a2030` | |
-| `text.secondary` | `#5a657c` | |
-| `text.muted` | `#8b95a8` | |
-| `accent` | `#3b6fd9` | Slightly deeper for AA on white |
-| `status.danger` | `#d14` / `#c23b4a` | Ensure AA |
-| `status.success` | `#2f9e5f` | |
-| `status.warning` | `#b8860b` | |
-| `status.info` | `#3b6fd9` | |
+| Role | Value | Notes |
+| ---- | ----- | ----- |
+| `bg.app` | `#efeae1` | Warm paper canvas |
+| `bg.panel` | `#f7f3eb` | Sidebar |
+| `bg.elevated` | `#fffdf8` | Cards, menus |
+| `bg.input` | `#ebe6dc` | |
+| `border.subtle` | `#d8d0c2` | |
+| `text.primary` | `#1c1914` | Ink |
+| `text.secondary` | `#534c42` | |
+| `text.muted` | `#6f685c` | AA-safe on paper |
+| `accent` | `#0e7a60` | Deeper jade for AA on cream |
+| `status.danger` | `#c4333a` | |
+| `status.success` | `#1e8a4c` | |
+| `status.warning` | `#9a7208` | |
+| `status.info` | `#176a96` | |
 
 Exact hex may be refined in implementation; **token names and contrast rules are binding**.
 
@@ -151,10 +152,13 @@ Avoid heavy skeuomorphism. Prefer **1px borders** and restrained shadows.
 
 ### 2.7 Theme toggle UX
 
-- Location: Settings + optional titlebar / status-bar control.
+- Location: **Settings** (`AppSettingsPopover`) — home sidebar footer **and** workspace sessions-rail footer. Not a home titlebar.
+- Settings also expose **density** (compact / comfortable), **UI scale**, and “Remember last connection on Home”.
+- Persistence: `src/lib/utils/appPrefs.ts` (localStorage). Applied at boot in `+layout.svelte` via `applyStoredAppearance()`.
 - Icons: sun / moon / monitor (system).
-- Switching themes must **not** remount the whole workspace (preserve tabs, scroll, selection).
+- Switching themes must **not** remount the whole workspace (preserve tabs, scroll, selection). CodeMirror reconfigures via `data-theme` observer.
 - Connection colors remain the same hue in both themes; only **alpha / surface mix** changes (see §3).
+- `accent` (primary CTA) and `status.info` (running / info) are **different hues**.
 
 ---
 
@@ -189,7 +193,7 @@ Provide a curated set of **12 distinct hues** that remain distinguishable in bot
 | `green` | Green | 145° | `#5ecf8e` | |
 | `teal` | Teal | 175° | `#4ecdc4` | |
 | `cyan` | Cyan | 195° | `#4eb8e8` | |
-| `blue` | Blue | 215° | `#5b8def` | May clash with app accent—still ok as connection |
+| `blue` | Blue | 215° | `#5a8ee8` | Distinct from jade app accent |
 | `indigo` | Indigo | 245° | `#7b7ef0` | |
 | `violet` | Violet | 270° | `#9b6de8` | |
 | `magenta` | Magenta | 300° | `#d46ad8` | |
@@ -205,7 +209,9 @@ Never flood the entire UI with the connection hue. Use **accents**:
 | ------- | --------- |
 | Connection tab (inactive) | 3–4px left stripe or 8px circle in connection color |
 | Connection tab (active) | Stripe + soft background tint `color-mix(in srgb, var(--conn) 12%, var(--bg-elevated))` |
-| Workspace tab | Thinner top border or left micro-stripe in parent connection color |
+| Workspace tab | 2px top micro-stripe in parent connection color (`bg-conn`); stronger when active |
+| Sessions rail | Color stripe + engine badge; **PROD** uses warning wash |
+| Workspace shell | `--connection-color` scoped on the workspace root; `data-env="production"` when applicable |
 | Sidebar tree root | Small color chip beside connection name |
 | Query running indicator | Spinner uses connection color |
 | Window / title subtitle | Optional: colored bullet before connection name |
@@ -215,7 +221,7 @@ Never flood the entire UI with the connection hue. Use **accents**:
 ```css
 :root {
   /* set per active connection context on a subtree */
-  --connection-color: #5b8def;
+  --connection-color: #3ec9c0;
   --connection-tint: color-mix(in srgb, var(--connection-color) 14%, transparent);
   --connection-tint-strong: color-mix(in srgb, var(--connection-color) 22%, transparent);
 }
@@ -274,8 +280,8 @@ Desktop tool → prioritize **legibility and OS harmony**, with a slightly disti
 
 | Role | Font | Fallback |
 | ---- | ---- | -------- |
-| UI (labels, tabs, tree) | **IBM Plex Sans** or **Source Sans 3** | `ui-sans-serif, system-ui, sans-serif` |
-| Code / SQL / JSON / grid cells | **IBM Plex Mono** or **JetBrains Mono** | `ui-monospace, SFMono-Regular, Menlo, monospace` |
+| UI (labels, tabs, tree) | **Instrument Sans** | `ui-sans-serif, system-ui, sans-serif` |
+| Code / SQL / JSON / grid cells | **IBM Plex Mono** | `ui-monospace, SFMono-Regular, Menlo, monospace` |
 | Numerics in grids | Same mono; consider `font-variant-numeric: tabular-nums` | |
 
 Bundle woff2 subsets or use system mono if package size is critical; prefer one family family-pair (Plex Sans + Plex Mono) for cohesion.
@@ -331,7 +337,7 @@ Line-height: UI ~1.35–1.45; code ~1.5.
 | Object tree | 220–280px default | Resizable; independent scroll |
 | Connection tab bar | ~36px | Horizontal scroll if overflow; no wrap |
 | Workspace tab bar | ~32px | Same |
-| Status bar | 24–28px | Connection chip, row count, timing, theme snip |
+| Status bar | 34px min (`min-h-statusbar`) | Row range · pager · actions (`StatusBar`) |
 | Main pane | flex | Split editor/results vertically (resizable) |
 
 Minimum window: **1024×640**. Ideal: **1440×900+**.
@@ -361,20 +367,24 @@ Minimum window: **1024×640**. Ideal: **1440×900+**.
 
 ### 5.4 Empty states
 
-- No connections: short value prop + **New connection** + import.
-- Connection selected, no tab: “Open a table or start a query” with keyboard hints.
+Use the `EmptyState` primitive (title + optional description + actions). Parent centers it.
+
+- Loading home: “Loading connections…”
+- No connections: sidebar copy + **+** to create. Center shows **New connection** form.
+- Connection selected, no tab: connection identity card + `EmptyState` (“No tab open”) with `⌘/Ctrl+T`.
+- Catalog/table errors: show the error and what to try next (retry / pick another table).
 - Empty query results: calm message, not error styling.
 
 ---
 
 ## 6. Density
 
-| Mode | Row height (grid) | Tree row | Padding scale |
-| ---- | ----------------- | -------- | ------------- |
-| **Compact** (default) | 24px | 22px | 1 |
-| **Comfortable** | 30px | 28px | 1.15 |
+| Mode | Grid row (`--grid-row-height`) | List row (`--row-height`) | Sidebar |
+| ---- | ------------------------------ | ------------------------- | ------- |
+| **Compact** (default) | 28px (`1.75rem`) | 40px (`2.5rem`) | 17.5rem |
+| **Comfortable** | 32px (`2rem`) | 46px (`2.875rem`) | 19rem |
 
-User setting; apply via `data-density="compact" | "comfortable"` on root.
+User setting in **Settings**; apply via `data-density="compact" | "comfortable"` on `<html>`. Query result virtualization reads the same height via `gridRowHeightPx()`.
 
 ---
 
@@ -404,10 +414,12 @@ User setting; apply via `data-density="compact" | "comfortable"` on root.
 
 - Sticky header; zebra optional (very subtle, theme-aware).
 - Selection: row bg `bg.selected`; cell edit mode clear outline.
-- Nulls: muted italic `NULL` or `∅` — never empty-looking hole without meaning.
-- JSON cells: truncated one-line + expand affordance.
-- Horizontal + vertical virtualization for large sets.
-- Column resize; remember widths per table key when possible.
+- Nulls: muted italic `NULL` — never an empty-looking hole.
+- **Page size is fixed at 100** for table data and query results. No page-size dropdown.
+- Footer uses `StatusBar` + `Pager`: left = row range, center = pager, right = actions.
+- Table pager fetches the next page from the engine plugin (`OFFSET`); query results page client-side after fetch (max 50k).
+- Dirty cells: warning wash + save/reset in the footer.
+- Focused cell: accent inset ring; editing: input fills the cell.
 
 ### 7.4 Object tree
 
@@ -419,7 +431,7 @@ User setting; apply via `data-density="compact" | "comfortable"` on root.
 
 ### 7.5 Editors (SQL / JSON / Mongo)
 
-- Full-area code editor (CodeMirror 6); theme maps to light/dark tokens.
+- Full-area code editor (CodeMirror 6); highlight colors from `--syntax-*` tokens only.
 - Gutter line numbers; active line subtle highlight.
 - Run: primary toolbar button + `⌘Enter` / `Ctrl+Enter`.
 - Running: disable double-submit; show stop (cancel).
@@ -582,21 +594,24 @@ Single source: `src/lib/styles/tokens.css` (or `.scss`) defining:
 </div>
 ```
 
-### 12.4 Theme store (conceptual)
+### 12.4 Appearance prefs
 
 ```ts
-type ThemePreference = 'light' | 'dark' | 'system';
+// src/lib/utils/appPrefs.ts
+type ThemePref = "light" | "dark" | "system";
+type DensityPref = "compact" | "comfortable";
 
-// resolvedTheme is always 'light' | 'dark'
-// subscribe to matchMedia when preference === 'system'
+applyStoredAppearance(); // +layout onMount
+// resolved theme is always light | dark on <html data-theme>
+// matchMedia when preference === "system"
 ```
 
 ### 12.5 Component rules
 
-- No raw hex in `.svelte` files except stories/tests.
+- No raw hex in `.svelte` files except connection palette data.
 - Prefer CSS variables for hover/active.
-- Shared primitives under `src/lib/components/ui/` (Button, Input, Tabs, Badge, ColorSwatch…).
-- App shell under `src/lib/components/layout/`.
+- Shared primitives under `src/lib/components/ui/` (`Button`, `Input`, `StatusBar`, `Pager`, `AppSettingsPopover`, …).
+- Feature chrome under `src/lib/components/home/` and `src/lib/components/workspace/`.
 
 ### 12.6 Checklist before merging UI
 
@@ -615,27 +630,32 @@ type ThemePreference = 'light' | 'dark' | 'system';
 
 | Decision | Choice |
 | -------- | ------ |
-| Default theme | Dark (or System) |
-| Themes | Light / Dark / System |
-| App accent | Cool blue (`#5b8def` dark / `#3b6fd9` light) |
-| Connection identity | 12 presets + custom; stripe/dot/tint |
-| Radius | 6–8px |
-| UI font | IBM Plex Sans (or Source Sans 3) |
-| Mono font | IBM Plex Mono (or JetBrains Mono) |
+| Default theme | Dark (user may pick Light / System) |
+| Themes | Warm ink (dark) / warm paper (light) / System |
+| App accent | Jade (`#2fbf96` dark / `#0e7a60` light) |
+| Info status | Cerulean (`#4aa8d8` / `#176a96`) — never jade |
+| Connection identity | 12 presets; stripe/dot/tint; `--connection-color` on workspace |
+| Radius | 3 / 5 / 8 / 10px |
+| UI font | Instrument Sans |
+| Mono font | IBM Plex Mono |
+| Atmosphere | Subtle grain overlay (`--grain-opacity`); connection-tinted wash |
 | Default density | Compact |
-| Grid row | 24px compact |
-| Icon style | 16px stroke |
-| Primary metaphor | Adaptive content, stable chrome |
+| Grid row | 28px compact / 32px comfortable |
+| Settings | `AppSettingsPopover` on home + workspace |
+| Icon style | 16px stroke; brand = jade lens |
+| Primary metaphor | Laboratory instrument, adaptive content |
 
 ---
 
-## 14. Open decisions (resolve during implementation)
+## 14. Settled decisions
 
-1. Exact final font files vs system stacks (bundle size tradeoff).  
-2. Whether title bar is custom (Tauri decorations) or native.  
-3. Whether connection color tints the **entire** active connection tab bar background or only the active tab. **Recommendation:** active tab + thin bar only.  
-4. Command palette timing (Phase 1 vs 2).  
-5. Optional high-contrast theme beyond light/dark (defer).
+1. **Fonts:** Instrument Sans (UI) + IBM Plex Mono (data) via Google Fonts.  
+2. **Title bar:** native Tauri decorations.  
+3. **Connection color:** stripe / swatch / soft tint only — never flood the tab bar.  
+4. **Command palette:** deferred (Phase 2).  
+5. **High-contrast theme:** deferred; light/dark + density cover the current need.  
+6. **Page size:** fixed 100; no dropdown.  
+7. **Appearance store:** `appPrefs.ts` (localStorage), not a Svelte store.
 
 ---
 

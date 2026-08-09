@@ -10,11 +10,12 @@
   import { sql } from "@codemirror/lang-sql";
   import { javascript } from "@codemirror/lang-javascript";
   import { indentWithTab } from "@codemirror/commands";
-  import { Button, Checkbox } from "$lib/components/ui";
+  import { Button, Checkbox, Input, Kbd } from "$lib/components/ui";
   import type { QueryMode } from "$lib/utils/queryPolicyFe";
   import { formatQuery } from "$lib/utils/formatQuery";
   import { cn } from "$lib/utils/cn";
-  import { mystiqueEditorTheme, mystiqueHighlight } from "./cmTheme";
+  import { createMystiqueEditorTheme, mystiqueHighlight } from "./cmTheme";
+  import { watchHtmlAttr } from "$lib/utils/appPrefs";
 
   interface Props {
     connectionId: string;
@@ -67,6 +68,12 @@
   let view: EditorView | null = null;
   let langCompartment = new Compartment();
   let placeholderCompartment = new Compartment();
+  let themeCompartment = new Compartment();
+
+  function themeIsDark(): boolean {
+    if (typeof document === "undefined") return true;
+    return document.documentElement.dataset.theme !== "light";
+  }
   /** Skip echo when we push parent → editor. */
   let applyingExternal = false;
 
@@ -140,7 +147,7 @@
   function buildExtensions(lang: string, ph: string): Extension[] {
     return [
       basicSetup,
-      mystiqueEditorTheme,
+      themeCompartment.of(createMystiqueEditorTheme(themeIsDark())),
       mystiqueHighlight,
       langCompartment.of(languageExtension(lang)),
       placeholderCompartment.of(ph ? cmPlaceholder(ph) : []),
@@ -203,7 +210,18 @@
       parent: hostEl,
     });
 
+    const unwatchTheme = watchHtmlAttr("data-theme", () => {
+      const v = view;
+      if (!v) return;
+      v.dispatch({
+        effects: themeCompartment.reconfigure(
+          createMystiqueEditorTheme(themeIsDark()),
+        ),
+      });
+    });
+
     return () => {
+      unwatchTheme();
       view?.destroy();
       view = null;
     };
@@ -245,7 +263,7 @@
   <div
     id="query-cm-{connectionId}"
     bind:this={hostEl}
-    class="query-cm-host min-h-0 min-w-0 flex-1 overflow-hidden bg-panel"
+    class="query-cm-host min-h-0 min-w-0 flex-1 overflow-hidden bg-input"
     role="textbox"
     aria-multiline="true"
     aria-label="Query editor"
@@ -254,7 +272,9 @@
   <div
     class="flex h-control-sm shrink-0 items-center gap-2 border-t border-line bg-elevated px-2.5"
   >
-    <span class="shrink-0 text-caption text-fg-muted">⌘/Ctrl+Enter run</span>
+    <span class="shrink-0 text-caption text-fg-muted">
+      <Kbd>⌘↵</Kbd> run
+    </span>
     <span
       class="min-w-0 flex-1 truncate font-mono text-caption tabular-nums text-fg-muted"
     >
@@ -266,9 +286,10 @@
     </span>
     <div class="flex shrink-0 items-center gap-1.5">
       {#if language === "mql"}
-        <input
-          class="h-control-sm w-32 rounded-md border border-line bg-input px-2 font-mono text-caption text-fg"
-          placeholder="collection"
+        <Input
+          class="w-32 font-mono"
+          inputSize="sm"
+          placeholder="collection…"
           bind:value={collection}
           title="MongoDB collection name"
         />

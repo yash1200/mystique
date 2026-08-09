@@ -10,8 +10,8 @@
   let { title, description, actions }: Props = $props();
 </script>
 
-<div class="mx-auto max-w-panel-sm px-6 py-[12vh] text-center">
-  <h1 class="m-0 mb-2 text-title font-semibold text-fg">{title}</h1>
+<div class="mx-auto max-w-panel-sm text-center">
+  <h1 class="m-0 mb-2 text-pretty text-title font-semibold text-fg">{title}</h1>
   {#if description}
     <p class="mb-4 text-body leading-relaxed text-fg-secondary">{description}</p>
   {/if}

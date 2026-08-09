@@ -11,7 +11,9 @@
     Button,
     Card,
     DefinitionList,
+    EmptyState,
     EngineBadge,
+    Kbd,
     Pill,
     StatusDot,
   } from "$lib/components/ui";
@@ -132,19 +134,20 @@
       </p>
     </Card>
 
-    <div
-      class="mt-4 rounded-xl border border-line bg-panel px-5 py-4 text-center"
-    >
-      <p class="m-0 mb-1 text-body font-medium text-fg">No tab open</p>
-      <p class="m-0 mb-4 text-body text-fg-secondary">
-        Open a query editor or pick a table from the explorer. Shortcut:
-        <span class="font-mono text-fg">⌘/Ctrl+T</span>
-      </p>
-      <div class="flex flex-wrap justify-center gap-2">
-        <Button variant="primary" size="sm" onclick={() => onnewquery?.()}>
-          New query
-        </Button>
-      </div>
+    <div class="mt-4 rounded-xl border border-line bg-panel px-5 py-6">
+      <EmptyState
+        title="No tab open"
+        description="Double-click a table in the explorer, or open a query."
+      >
+        {#snippet actions()}
+          <Button variant="primary" size="sm" onclick={() => onnewquery?.()}>
+            New query
+          </Button>
+          <span class="self-center text-caption text-fg-muted">
+            <Kbd>⌘T</Kbd>
+          </span>
+        {/snippet}
+      </EmptyState>
     </div>
   </div>
 </div>

@@ -6,6 +6,7 @@
   import NewConnectionPanel from "$lib/components/home/NewConnectionPanel.svelte";
   import {
     Button,
+    EmptyState,
     Toast,
   } from "$lib/components/ui";
   import {
@@ -27,8 +28,12 @@
     pluginConfigForSession,
     saveInputFromDraft,
   } from "$lib/types/connection";
+  import {
+    readLastConnectionId,
+    readRememberLastConnection,
+    writeLastConnectionId,
+  } from "$lib/utils/appPrefs";
 
-  type ThemePref = "light" | "dark" | "system";
   type ToastState = {
     kind: "info" | "success" | "warning" | "danger";
     message: string;
@@ -48,38 +53,12 @@
   /** Last live connectivity result from BE (shown on the form). */
   let testResult = $state<{ ok: boolean; message: string } | null>(null);
   let loadError = $state<string | null>(null);
-  let themePref = $state<ThemePref>("dark");
   let toast = $state<ToastState>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   const selected = $derived(
     connections.find((c) => c.id === selectedId) ?? null,
   );
-
-  function resolveTheme(pref: ThemePref): "light" | "dark" {
-    if (pref === "system") {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    }
-    return pref;
-  }
-
-  function applyTheme(pref: ThemePref) {
-    const resolved = resolveTheme(pref);
-    document.documentElement.dataset.theme = resolved;
-    document.documentElement.dataset.density = "compact";
-  }
-
-  function setThemePref(pref: ThemePref) {
-    themePref = pref;
-    try {
-      localStorage.setItem("mystique-theme", pref);
-    } catch {
-      /* ignore */
-    }
-    applyTheme(pref);
-  }
 
   function showToast(kind: NonNullable<ToastState>["kind"], message: string) {
     toast = { kind, message };
@@ -122,6 +101,7 @@
     editing = false;
     testResult = null;
     selectedId = id;
+    writeLastConnectionId(id);
   }
 
   function startCreate() {
@@ -416,30 +396,22 @@
   }
 
   onMount(() => {
-    let stored: ThemePref = "dark";
-    try {
-      const raw = localStorage.getItem("mystique-theme");
-      if (raw === "light" || raw === "dark" || raw === "system") stored = raw;
-    } catch {
-      /* ignore */
-    }
-    themePref = stored;
-    applyTheme(stored);
-
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onScheme = () => {
-      if (themePref === "system") applyTheme("system");
-    };
-    mq.addEventListener("change", onScheme);
-
     (async () => {
       loading = true;
       loadError = null;
       try {
         await refreshList();
-        enterCreateMode();
+        const lastId = readLastConnectionId();
+        if (
+          readRememberLastConnection() &&
+          lastId &&
+          connections.some((c) => c.id === lastId)
+        ) {
+          selectConnection(lastId);
+        } else {
+          enterCreateMode();
+        }
         if (!isTauri()) {
-          // Soft notice only — FE localStorage still works.
           loadError = null;
         }
       } catch (err) {
@@ -449,8 +421,6 @@
         loading = false;
       }
     })();
-
-    return () => mq.removeEventListener("change", onScheme);
   });
 </script>
 
@@ -461,12 +431,18 @@
     creating={creating || editing}
     onselect={selectConnection}
     onnew={startCreate}
-    themePreference={themePref}
-    onthemechange={setThemePref}
   />
 
   <main class="h-full min-w-0 flex-1 overflow-auto bg-app-wash">
-    {#if editing && selected}
+    {#if loading}
+      <div class="flex h-full items-center justify-center p-8">
+        <EmptyState title="Loading connections…" />
+      </div>
+    {:else if loadError}
+      <div class="flex h-full items-center justify-center p-8">
+        <EmptyState title="Could not load connections" description={loadError} />
+      </div>
+    {:else if editing && selected}
       <NewConnectionPanel
         initial={selected}
         {saving}

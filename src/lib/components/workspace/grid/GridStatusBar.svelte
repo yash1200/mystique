@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button } from "$lib/components/ui";
+  import { Button, Pager, StatusBar } from "$lib/components/ui";
 
   interface Props {
     filteredCount: number;
@@ -46,14 +46,8 @@
   const hasChanges = $derived(dirtyCount > 0);
 </script>
 
-<!-- Match explorer / sessions rail: h-statusbar (34px), single row -->
-<footer
-  class="flex h-statusbar min-h-statusbar shrink-0 items-center gap-2 overflow-hidden border-t border-line bg-elevated px-2.5"
->
-  <!-- Left: row counts -->
-  <div
-    class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-caption text-fg-muted"
-  >
+<StatusBar ariaLabel="Table status">
+  {#snippet left()}
     {#if filteredCount === 0}
       <span class="truncate font-mono tabular-nums">0 rows</span>
     {:else}
@@ -76,43 +70,17 @@
     {#if statusMsg}
       <span class="shrink-0 truncate text-success">{statusMsg}</span>
     {/if}
-  </div>
-
-  <!-- Center: pagination -->
-  <div
-    class="flex shrink-0 items-center gap-1.5"
-    role="group"
-    aria-label="Pagination"
-  >
-    <div class="flex items-center gap-0.5">
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={safePage <= 0 || refreshing || saving}
-        onclick={onPrev}
-        aria-label="Previous page"
-      >
-        ‹
-      </Button>
-      <span
-        class="min-w-12 text-center font-mono text-caption text-fg-secondary tabular-nums"
-      >
-        {safePage + 1}/{totalPages}
-      </span>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={safePage >= totalPages - 1 || refreshing || saving}
-        onclick={onNext}
-        aria-label="Next page"
-      >
-        ›
-      </Button>
-    </div>
-  </div>
-
-  <!-- Right: actions -->
-  <div class="flex min-w-0 flex-1 items-center justify-end gap-1">
+  {/snippet}
+  {#snippet center()}
+    <Pager
+      page={safePage}
+      {totalPages}
+      disabled={refreshing || saving}
+      onprev={onPrev}
+      onnext={onNext}
+    />
+  {/snippet}
+  {#snippet right()}
     <Button
       variant="ghost"
       size="sm"
@@ -122,7 +90,6 @@
     >
       {refreshing ? "Refreshing…" : "Refresh"}
     </Button>
-
     <Button
       variant="ghost"
       size="sm"
@@ -132,7 +99,6 @@
     >
       Add row
     </Button>
-
     {#if hasChanges}
       <Button
         variant="ghost"
@@ -143,7 +109,6 @@
       >
         Reset
       </Button>
-
       <Button
         variant="primary"
         size="sm"
@@ -154,5 +119,5 @@
         {saving ? "Saving…" : "Save"}
       </Button>
     {/if}
-  </div>
-</footer>
+  {/snippet}
+</StatusBar>

@@ -22,11 +22,16 @@
     filtersActive: boolean;
     hasActiveFilters: boolean;
     isDirty: (row: number, col: string) => boolean;
+    /** Unsaved inserted / cloned rows (not yet written). */
+    isNewRow?: (row: number) => boolean;
+    /** Rows marked for delete — still visible until Save. */
+    isDeletedRow?: (row: number) => boolean;
     onSelectCell: (row: number, col: string) => void;
     onSelectRow: (row: number) => void;
     onStartEdit: (row: number, col: string, e?: MouseEvent) => void;
     onInputKeydown: (e: KeyboardEvent) => void;
     onCommitEdit: () => void;
+    onRowMenu?: (row: number, e: MouseEvent) => void;
   }
 
   let {
@@ -41,26 +46,29 @@
     filtersActive,
     hasActiveFilters,
     isDirty,
+    isNewRow = () => false,
+    isDeletedRow = () => false,
     onSelectCell,
     onSelectRow,
     onStartEdit,
     onInputKeydown,
     onCommitEdit,
+    onRowMenu,
   }: Props = $props();
 </script>
 
 <div class="min-h-0 flex-1 overflow-auto" data-grid-scroll>
-  <table class="w-full min-w-max border-collapse text-left">
+  <table class="w-full border-collapse text-left">
     <thead class="sticky top-0 z-10">
       <tr class="bg-elevated">
         <th
-          class="w-10 border-b border-line px-2 py-1.5 text-caption font-semibold text-fg-muted"
+          class="w-10 min-w-10 select-none border-b border-line px-2 py-1.5 text-caption font-semibold text-fg-muted"
         >
           #
         </th>
         {#each table.columns as col (col.name)}
           <th
-            class="border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary"
+            class="max-w-64 min-w-32 border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary"
             title={col.type}
           >
             <span class="text-fg">{col.name}</span>
@@ -75,6 +83,9 @@
             >
           </th>
         {/each}
+        <!-- Absorbs leftover width so data columns keep a stable size. -->
+        <th class="w-full min-w-0 border-b border-line p-0" aria-hidden="true"
+        ></th>
       </tr>
     </thead>
     <tbody>
@@ -83,22 +94,59 @@
         {@const row = entry.row}
         {@const rowSelected = selectedRowIndex === i}
         {@const stripe = i % 2 === 1}
+        {@const isNew = isNewRow(i)}
+        {@const isDeleted = isDeletedRow(i)}
         <tr
           class={cn(
             "border-b border-line/70 transition-colors",
-            rowSelected && !selectedCell && "bg-selected",
-            !rowSelected && stripe && "bg-panel",
-            !rowSelected && !stripe && "bg-transparent",
+            isDeleted && "bg-danger/15",
+            isDeleted && rowSelected && !selectedCell && "bg-danger/25",
+            !isDeleted && isNew && "bg-info/12",
+            !isDeleted && isNew && rowSelected && !selectedCell && "bg-info/22",
+            !isDeleted &&
+              !isNew &&
+              rowSelected &&
+              !selectedCell &&
+              "bg-selected",
+            !isDeleted && !isNew && !rowSelected && stripe && "bg-panel",
+            !isDeleted &&
+              !isNew &&
+              !rowSelected &&
+              !stripe &&
+              "bg-transparent",
           )}
           aria-selected={rowSelected}
         >
           <td
-            class="cursor-pointer px-2 py-1 font-mono text-caption text-fg-muted tabular-nums hover:bg-hover"
+            class={cn(
+              "cursor-pointer select-none px-2 py-1 font-mono text-caption tabular-nums hover:bg-hover",
+              isDeleted
+                ? "font-medium text-danger"
+                : isNew
+                  ? "font-medium text-info"
+                  : "text-fg-muted",
+            )}
+            title={isDeleted
+              ? "Marked for delete — save to apply"
+              : isNew
+                ? "Unsaved new row"
+                : undefined}
             onclick={(e) => {
               e.stopPropagation();
               onSelectRow(i);
             }}
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSelectRow(i);
+              onRowMenu?.(i, e);
+            }}
           >
+            {#if isDeleted}
+              <span class="sr-only">Marked for delete </span>
+            {:else if isNew}
+              <span class="sr-only">Unsaved new row </span>
+            {/if}
             {i + 1}
           </td>
           {#each table.columns as col (col.name)}
@@ -114,15 +162,18 @@
               data-row={i}
               data-col={col.name}
               class={cn(
-                "relative max-w-64 border-l border-transparent p-0 font-mono text-label",
+                "relative max-w-64 min-w-32 border-l border-transparent p-0 font-mono text-label",
+                isDeleted && "text-danger/80",
                 dirty &&
+                  !isDeleted &&
                   !isEditing &&
                   "bg-warning/15 ring-1 ring-inset ring-warning/40",
                 isEditing && "bg-input ring-2 ring-inset ring-accent",
                 isFocused &&
                   !isEditing &&
+                  !isDeleted &&
                   "bg-selected ring-2 ring-inset ring-accent",
-                !isFocused && !isEditing && !dirty && "hover:bg-hover",
+                !isFocused && !isEditing && !dirty && !isDeleted && "hover:bg-hover",
               )}
               title={isEditing
                 ? undefined
@@ -137,10 +188,11 @@
             >
               <div
                 class={cn(
-                  "flex min-h-7 items-center gap-1 px-2.5 py-1",
+                  "flex min-h-grid-row items-center gap-1 px-2.5 py-1",
                   isEditing && "invisible",
+                  isDeleted && "line-through opacity-80",
                   !isEditing && isNull && "italic text-fg-muted",
-                  !isEditing && !isNull && "text-fg",
+                  !isEditing && !isNull && !isDeleted && "text-fg",
                 )}
                 aria-hidden={isEditing}
               >
@@ -191,6 +243,7 @@
               {/if}
             </td>
           {/each}
+          <td class="min-w-0 w-full p-0" aria-hidden="true"></td>
         </tr>
       {/each}
     </tbody>

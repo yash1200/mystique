@@ -262,3 +262,47 @@ pub fn compile_insert(
         values.join(", ")
     ))
 }
+
+pub fn compile_delete(
+    style: SqlIdentStyle,
+    input: &ApplyTableEditsInput,
+    delete: &crate::edits::TableRowDelete,
+) -> ConnectorResult<String> {
+    let pks = pk_columns(&input.columns);
+    if pks.is_empty() {
+        return Err(ConnectorError::Query(format!(
+            "Cannot delete from “{}”: no primary key. Add a PK to delete rows safely.",
+            input.table
+        )));
+    }
+    let target = qualify_table(
+        style,
+        input.database.as_deref(),
+        input.schema.as_deref(),
+        &input.table,
+    );
+    let mut where_sql = Vec::new();
+    for pk in pks {
+        let v = delete.original.get(&pk.name).ok_or_else(|| {
+            ConnectorError::Query(format!(
+                "Cannot delete row: primary key “{}” missing from original row.",
+                pk.name
+            ))
+        })?;
+        if is_empty_value(v) {
+            return Err(ConnectorError::Query(format!(
+                "Cannot delete row: primary key “{}” is empty on the original row.",
+                pk.name
+            )));
+        }
+        where_sql.push(format!(
+            "{} = {}",
+            quote_ident(style, &pk.name),
+            sql_literal(style, v, &pk.data_type)
+        ));
+    }
+    Ok(format!(
+        "DELETE FROM {target} WHERE {}",
+        where_sql.join(" AND ")
+    ))
+}

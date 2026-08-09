@@ -1,11 +1,20 @@
 <script lang="ts">
 	import { persistTableEdits } from '$lib/api/tablePersist'
+	import { ContextMenu, type ContextMenuItem } from '$lib/components/ui'
 	import type { TableMeta } from '$lib/types/workspace'
 	import {
 		selectDraftToValue,
 		usesSelectEditor,
 		valueToSelectDraft,
 	} from '$lib/utils/columnEditor'
+	import {
+		buildCsv,
+		buildJson,
+		buildMarkdown,
+		buildTsv,
+		copyTextToClipboard,
+		objectsToRows,
+	} from '$lib/utils/exportTable'
 	import { onMount } from 'svelte'
 	import GridFilterBar from './grid/GridFilterBar.svelte'
 	import GridStatusBar from './grid/GridStatusBar.svelte'
@@ -57,9 +66,14 @@
 	let dirtyKeys = $state<Set<string>>(new Set())
 	/** Absolute indices of rows added locally (not yet saved). */
 	let newRowIndices = $state<Set<number>>(new Set())
+	/** Absolute indices of persisted rows marked for delete (not yet saved). */
+	let deletedIndices = $state<Set<number>>(new Set())
+	let rowMenu = $state<{ row: number; x: number; y: number } | null>(null)
 	let editing = $state<CellRef | null>(null)
 	/** Focused cell for keyboard nav / copy-paste (absolute row index). */
 	let selectedCell = $state<CellRef | null>(null)
+	/** Local row highlight — inspector only opens via Show details. */
+	let highlightRow = $state<number | null>(null)
 	let draft = $state('')
 	let inputEl = $state<HTMLInputElement | HTMLSelectElement | null>(null)
 	let gridShellEl = $state<HTMLDivElement | null>(null)
@@ -88,8 +102,18 @@
 			: `${table.database}.${table.name}`,
 	)
 
-	/** Unsaved cell edits + newly added rows (even if still empty). */
-	const dirtyCount = $derived(dirtyKeys.size + newRowIndices.size)
+	/** Unsaved cell edits + newly added rows + pending deletes. */
+	const dirtyCount = $derived.by(() => {
+		let inserts = 0
+		for (const i of newRowIndices) {
+			if (!deletedIndices.has(i)) inserts += 1
+		}
+		let deletes = 0
+		for (const i of deletedIndices) {
+			if (!newRowIndices.has(i)) deletes += 1
+		}
+		return dirtyKeys.size + inserts + deletes
+	})
 
 	$effect(() => {
 		ondirtychange?.(dirtyCount > 0)
@@ -115,12 +139,11 @@
 
 	const filteredEntries = $derived.by(() => {
 		const rules = activeRules()
-		if (rules.length === 0) {
-			return rows.map((row, index) => ({ row, index }))
-		}
-		return rows
-			.map((row, index) => ({ row, index }))
-			.filter(({ row }) => rules.every((rule) => matchRule(row, rule)))
+		const visible = rows.map((row, index) => ({ row, index }))
+		if (rules.length === 0) return visible
+		return visible.filter(({ row }) =>
+			rules.every((rule) => matchRule(row, rule)),
+		)
 	})
 
 	const filteredCount = $derived(filteredEntries.length)
@@ -211,12 +234,14 @@
 		// First preview often arrives after mount with an empty baseline.
 		// If the user has no local edits, take incoming rows as the new baseline
 		// so non-null cells are not marked dirty.
-		const hasLocalEdits = dirtyKeys.size > 0 || newRowIndices.size > 0
+		const hasLocalEdits =
+			dirtyKeys.size > 0 || newRowIndices.size > 0 || deletedIndices.size > 0
 		if (resetBaseline || !hasLocalEdits || originals.length === 0) {
 			seed = cloned.map((r) => ({ ...r }))
 			originals = cloned.map((r) => ({ ...r }))
 			dirtyKeys = new Set()
 			newRowIndices = new Set()
+			deletedIndices = new Set()
 		} else {
 			recomputeDirty(cloned, originals)
 		}
@@ -248,7 +273,7 @@
 		const firstCol = table.columns[0]?.name
 		if (firstCol) {
 			selectedCell = { row: idx, col: firstCol }
-			onselectrow(idx)
+			highlightRow = idx
 			requestAnimationFrame(() => {
 				scrollCellIntoView(idx, firstCol)
 				focusGridShell()
@@ -258,6 +283,178 @@
 		setTimeout(() => {
 			if (statusMsg === 'Row added') statusMsg = null
 		}, 1500)
+	}
+
+	function flashStatus(msg: string, ms = 1600) {
+		statusMsg = msg
+		setTimeout(() => {
+			if (statusMsg === msg) statusMsg = null
+		}, ms)
+	}
+
+	function rowExportPayload(index: number) {
+		const row = rows[index]
+		const columns = table.columns.map((c) => ({ name: c.name }))
+		const objects = row ? [row] : []
+		const cells = objectsToRows(columns, objects)
+		return { columns, cells, row }
+	}
+
+	async function copyRowAs(
+		index: number,
+		kind: 'copy' | 'csv' | 'markdown' | 'json',
+	) {
+		const { columns, cells, row } = rowExportPayload(index)
+		if (!row) return
+		let text = ''
+		let okMsg = 'Copied'
+		switch (kind) {
+			case 'copy':
+				text = buildTsv(columns, cells)
+				okMsg = 'Row copied'
+				break
+			case 'csv':
+				text = buildCsv(columns, cells)
+				okMsg = 'Copied as CSV'
+				break
+			case 'markdown':
+				text = buildMarkdown(columns, cells)
+				okMsg = 'Copied as Markdown'
+				break
+			case 'json':
+				text = buildJson(columns, cells, true)
+				okMsg = 'Copied as JSON'
+				break
+		}
+		const res = await copyTextToClipboard(text)
+		flashStatus(res.ok ? okMsg : res.cancelled ? 'Copy cancelled' : res.error)
+	}
+
+	function cloneRow(index: number) {
+		if (profileReadOnly) {
+			flashStatus('Connection is read-only')
+			return
+		}
+		if (editing) commitEdit()
+		const src = rows[index]
+		if (!src) return
+		const row: Record<string, unknown> = { ...src }
+		for (const col of table.columns) {
+			if (
+				col.pk ||
+				col.name === 'id' ||
+				col.name === '_id' ||
+				col.name === 'rowid'
+			) {
+				row[col.name] = null
+			}
+		}
+		const idx = rows.length
+		rows = [...rows, { ...row }]
+		table.rows.push({ ...row })
+		originals = [...originals, { ...row }]
+		seed = [...seed, { ...row }]
+		newRowIndices = new Set([...newRowIndices, idx])
+		const firstCol = table.columns[0]?.name
+		if (firstCol) {
+			selectedCell = { row: idx, col: firstCol }
+			highlightRow = idx
+			requestAnimationFrame(() => {
+				scrollCellIntoView(idx, firstCol)
+				focusGridShell()
+			})
+		}
+		flashStatus('Row cloned — save to insert')
+	}
+
+	function deleteRow(index: number) {
+		if (profileReadOnly) {
+			flashStatus('Connection is read-only')
+			return
+		}
+		if (editing) commitEdit()
+		if (!rows[index]) return
+		if (deletedIndices.has(index)) return
+
+		const wasNew = newRowIndices.has(index)
+		if (!wasNew) {
+			const hasPk = table.columns.some(
+				(c) =>
+					c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
+			)
+			if (!hasPk) {
+				flashStatus('Cannot delete: table has no primary key')
+				return
+			}
+		}
+
+		deletedIndices = new Set([...deletedIndices, index])
+		if (editing?.row === index) {
+			editing = null
+			draft = ''
+		}
+		if (selectedCell?.row === index) selectedCell = null
+		flashStatus('Marked for delete — save to apply')
+	}
+
+	function undeleteRow(index: number) {
+		if (!deletedIndices.has(index)) return
+		deletedIndices = new Set([...deletedIndices].filter((i) => i !== index))
+		flashStatus('Delete undone')
+	}
+
+	const rowMenuItems = $derived.by((): ContextMenuItem[] => {
+		const ro = profileReadOnly
+		const pending = rowMenu != null && deletedIndices.has(rowMenu.row)
+		return [
+			{ id: 'copy', label: 'Copy' },
+			{ id: 'csv', label: 'Copy as CSV' },
+			{ id: 'markdown', label: 'Copy as Markdown' },
+			{ id: 'json', label: 'Copy as JSON' },
+			{
+				id: 'clone',
+				label: 'Clone row',
+				disabled: ro || pending,
+				separatorBefore: true,
+			},
+			pending
+				? { id: 'undelete', label: 'Undo delete', disabled: ro }
+				: {
+						id: 'delete',
+						label: 'Delete row',
+						danger: true,
+						disabled: ro,
+					},
+			{
+				id: 'details',
+				label: 'Show details',
+				separatorBefore: true,
+			},
+		]
+	})
+
+	function openRowMenu(row: number, e: MouseEvent) {
+		rowMenu = { row, x: e.clientX, y: e.clientY }
+	}
+
+	function onRowMenuPick(id: string) {
+		const row = rowMenu?.row
+		rowMenu = null
+		if (row == null) return
+		if (id === 'copy' || id === 'csv' || id === 'markdown' || id === 'json') {
+			void copyRowAs(row, id)
+			return
+		}
+		if (id === 'clone') {
+			cloneRow(row)
+			return
+		}
+		if (id === 'delete') deleteRow(row)
+		if (id === 'undelete') undeleteRow(row)
+		if (id === 'details') {
+			highlightRow = row
+			onselectrow(row)
+		}
 	}
 
 	$effect(() => {
@@ -317,7 +514,7 @@
 			commitEdit()
 		}
 		selectedCell = { row, col }
-		onselectrow(row)
+		highlightRow = row
 		focusGridShell()
 		scrollCellIntoView(row, col)
 	}
@@ -325,7 +522,7 @@
 	function selectRowOnly(row: number) {
 		if (editing) commitEdit()
 		selectedCell = null
-		onselectrow(row)
+		highlightRow = row
 		focusGridShell()
 	}
 
@@ -369,7 +566,7 @@
 		const nextCol = cols[colIdx]!
 		ensureRowVisible(nextAbs)
 		selectedCell = { row: nextAbs, col: nextCol }
-		onselectrow(nextAbs)
+		highlightRow = nextAbs
 		// Wait a frame for page change DOM
 		requestAnimationFrame(() => scrollCellIntoView(nextAbs, nextCol))
 	}
@@ -382,7 +579,11 @@
 		seedDraft?: string,
 	) {
 		e?.stopPropagation()
-		onselectrow(row)
+		if (deletedIndices.has(row)) {
+			flashStatus('Row is marked for delete — undo delete to edit')
+			return
+		}
+		highlightRow = row
 		selectedCell = { row, col }
 		if (editing?.row === row && editing.col === col && seedDraft === undefined)
 			return
@@ -499,6 +700,7 @@
 			const entry = filteredEntries[filterIdx + r]
 			if (!entry) break
 			const absRow = entry.index
+			if (deletedIndices.has(absRow)) continue
 			for (let c = 0; c < cells.length; c++) {
 				const colName = cols[startColIdx + c]
 				if (!colName) break
@@ -678,6 +880,7 @@
 				)
 				dirtyKeys = new Set()
 				newRowIndices = new Set()
+				deletedIndices = new Set()
 			}
 			page = 0
 			statusMsg = 'Refreshed'
@@ -699,6 +902,9 @@
 		saving = true
 		statusMsg = null
 		try {
+			const pendingDbDeletes = [...deletedIndices].filter(
+				(i) => !newRowIndices.has(i),
+			).length
 			const result = await persistTableEdits({
 				sessionId: sessionId ?? '',
 				engine,
@@ -706,24 +912,36 @@
 				rows,
 				originals,
 				newRowIndices,
+				deletedIndices,
 				dirtyKeys,
 				profileReadOnly,
 			})
+			if (pendingDbDeletes > 0 && (result.deleted ?? 0) < pendingDbDeletes) {
+				throw new Error(
+					'Delete did not apply. Restart MystiqueDB (`npm run tauri dev`) so the engine can run DELETE.',
+				)
+			}
 			if (onreload) {
 				await onreload({ offset: page * PAGE_SIZE })
 				loadFromTable(true)
 				appliedSyncTick = rowSyncTick
 			} else {
-				const snap = rows.map((r) => ({ ...r }))
+				const snap = rows
+					.map((r, i) => ({ r, i }))
+					.filter(({ i }) => !deletedIndices.has(i))
+					.map(({ r }) => ({ ...r }))
 				originals = snap.map((r) => ({ ...r }))
 				seed = snap.map((r) => ({ ...r }))
+				rows = snap.map((r) => ({ ...r }))
 				table.rows.splice(0, table.rows.length, ...snap.map((r) => ({ ...r })))
 				dirtyKeys = new Set()
 				newRowIndices = new Set()
+				deletedIndices = new Set()
 			}
 			const bits = []
 			if (result.updated) bits.push(`${result.updated} updated`)
 			if (result.inserted) bits.push(`${result.inserted} inserted`)
+			if (result.deleted) bits.push(`${result.deleted} deleted`)
 			statusMsg = bits.length > 0 ? `Saved (${bits.join(', ')})` : 'Saved'
 			onbaselinechange?.()
 			setTimeout(() => {
@@ -779,6 +997,7 @@
 			seed = keep.map(({ i }) => ({ ...(seed[i] ?? {}) }))
 			newRowIndices = new Set()
 		}
+		deletedIndices = new Set()
 
 		const restored = originals.map((r) => ({ ...r }))
 		rows = restored.map((r) => ({ ...r }))
@@ -822,7 +1041,7 @@
 		<GridTable
 			{table}
 			{pageEntries}
-			{selectedRowIndex}
+			selectedRowIndex={highlightRow ?? selectedRowIndex}
 			{selectedCell}
 			{originals}
 			{editing}
@@ -831,13 +1050,27 @@
 			{filtersActive}
 			{hasActiveFilters}
 			{isDirty}
+			isNewRow={(row) => newRowIndices.has(row)}
+			isDeletedRow={(row) => deletedIndices.has(row)}
 			onSelectCell={selectCell}
 			onSelectRow={selectRowOnly}
 			onStartEdit={startEdit}
 			{onInputKeydown}
 			onCommitEdit={commitEdit}
+			onRowMenu={openRowMenu}
 		/>
 	</div>
+
+	{#if rowMenu}
+		<ContextMenu
+			x={rowMenu.x}
+			y={rowMenu.y}
+			items={rowMenuItems}
+			ariaLabel="Row actions"
+			onpick={onRowMenuPick}
+			onclose={() => (rowMenu = null)}
+		/>
+	{/if}
 
 	<GridStatusBar
 		{filteredCount}

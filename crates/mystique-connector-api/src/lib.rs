@@ -36,6 +36,6 @@ pub use policy::*;
 pub use pool::*;
 pub use query::*;
 pub use sql_table_edits::{
-    compile_insert, compile_update, qualify_table, quote_ident, SqlIdentStyle,
+    compile_delete, compile_insert, compile_update, qualify_table, quote_ident, SqlIdentStyle,
 };
 pub use types::*;

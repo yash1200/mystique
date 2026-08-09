@@ -13,10 +13,23 @@ Implementations of [`docs/DESIGN_LANGUAGE.md`](../../../../docs/DESIGN_LANGUAGE.
 
 `text-micro` · `text-caption` · `text-label` · `text-body` · `text-body-lg` · `text-title` · `text-display`
 
+## Shared chrome
+
+| Primitive | Use |
+| --------- | --- |
+| `StatusBar` | Footer with left / center / right snippets |
+| `Pager` | ‹ n/m › inside a status bar |
+| `AppSettings` | Theme, density, scale, remember-last |
+| `AppSettingsPopover` | Gear trigger + settings panel |
+| `EmptyState` | Centered title + description + actions |
+| `BrandMark` | Jade lens logo |
+| `Kbd` | Shortcut chip |
+| `ContextMenu` | Right-click / action menu |
+
 ## Import
 
 ```ts
-import { Button, Field, Input, Select } from "$lib/components/ui";
+import { Button, Field, Input, Select, StatusBar, Pager } from "$lib/components/ui";
 import type { SelectOption } from "$lib/components/ui";
 import { cn } from "$lib/utils/cn";
 ```

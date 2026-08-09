@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Input } from "$lib/components/ui";
+  import { Input, StatusBar } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
   import {
     formatRelativeTime,
@@ -239,11 +239,11 @@
     {/if}
   </div>
 
-  <footer
-    class="flex h-statusbar shrink-0 items-center justify-between gap-2 border-t border-line bg-elevated px-2.5 text-caption text-fg-muted"
-  >
-    <span class="tabular-nums">{count}</span>
-  </footer>
+  <StatusBar ariaLabel="Query list status">
+    {#snippet left()}
+      <span class="tabular-nums">{count}</span>
+    {/snippet}
+  </StatusBar>
 </aside>
 
 {#if menuOpen && menuQuery}

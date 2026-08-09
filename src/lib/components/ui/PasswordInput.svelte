@@ -25,7 +25,7 @@
   <input
     class={cn(
       "w-full rounded-md border border-line bg-input pl-2.5 pr-16 text-fg placeholder:text-fg-muted",
-      "focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted",
+      "focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted",
       "disabled:opacity-55",
       inputSize === "sm" ? "h-control-sm text-label" : "h-control text-body",
     )}
