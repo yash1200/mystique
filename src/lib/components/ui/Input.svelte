@@ -22,6 +22,8 @@
     "focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted",
     "disabled:opacity-55",
     inputSize === "sm" ? "h-control-sm text-label" : "h-control text-body",
+    type === "number" &&
+      "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
     className,
   )}
   {type}

@@ -18,7 +18,7 @@
 </script>
 
 <div
-  class="inline-flex gap-0.5 rounded-md border border-line bg-input p-0.5"
+  class="flex w-full gap-0.5 rounded-md border border-line bg-input p-0.5"
   role="group"
   aria-label="Theme"
 >
@@ -26,7 +26,7 @@
     <button
       type="button"
       class={cn(
-        "inline-flex items-center gap-1 rounded-sm border-none px-2 py-1 text-caption font-medium transition-colors",
+        "inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-sm border-none px-1.5 py-1 text-caption font-medium transition-colors",
         preference === opt.id
           ? "bg-elevated text-fg shadow-sm"
           : "bg-transparent text-fg-muted hover:bg-hover hover:text-fg-secondary",
@@ -36,7 +36,7 @@
       onclick={() => onchange?.(opt.id)}
     >
       <span aria-hidden="true">{opt.icon}</span>
-      <span class="hidden min-[1100px]:inline">{opt.label}</span>
+      <span>{opt.label}</span>
     </button>
   {/each}
 </div>

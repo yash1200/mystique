@@ -4,10 +4,8 @@
   import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
   import ConnectionDetail from "$lib/components/home/ConnectionDetail.svelte";
   import NewConnectionPanel from "$lib/components/home/NewConnectionPanel.svelte";
-  import HomeIntro from "$lib/components/home/HomeIntro.svelte";
   import {
     Button,
-    ThemeToggle,
     Toast,
   } from "$lib/components/ui";
   import {
@@ -38,12 +36,12 @@
 
   let connections = $state<ConnectionProfile[]>([]);
   let selectedId = $state<string | null>(null);
-  /** Create form (no selection). */
-  let creating = $state(false);
+  /** Create form is the home landing (no selection). */
+  let creating = $state(true);
   /** Edit form for the currently selected profile. */
   let editing = $state(false);
-  /** Landing intro: actions + previous connections (default home). */
-  let showHome = $state(true);
+  /** Remount the create form to reset fields (Home / New / Cancel). */
+  let createFormKey = $state(0);
   let loading = $state(true);
   let saving = $state(false);
   let testing = $state(false);
@@ -91,22 +89,13 @@
     }, 3600);
   }
 
-  /** Default landing: intro actions + connection list. */
-  function enterHomeMode() {
-    selectedId = null;
-    creating = false;
-    editing = false;
-    showHome = true;
-    testResult = null;
-  }
-
-  /** Open the new-connection form. */
+  /** Landing: create-connection form. Connections live in the sidebar. */
   function enterCreateMode() {
     selectedId = null;
     creating = true;
     editing = false;
-    showHome = false;
     testResult = null;
+    createFormKey += 1;
   }
 
   async function refreshList(preferSelectId?: string | null) {
@@ -121,11 +110,9 @@
       selectedId = preferSelectId;
       creating = false;
       editing = false;
-      showHome = false;
     } else if (!selectedId || !connections.some((c) => c.id === selectedId)) {
-      // No valid selection → landing intro (not the create form).
       if (!creating && !editing) {
-        enterHomeMode();
+        enterCreateMode();
       }
     }
   }
@@ -133,7 +120,6 @@
   function selectConnection(id: string) {
     creating = false;
     editing = false;
-    showHome = false;
     testResult = null;
     selectedId = id;
   }
@@ -142,27 +128,11 @@
     enterCreateMode();
   }
 
-  function startCreateEr() {
-    // Full-window FE ER designer (SQL / NoSQL / Redis families).
-    goto("/er");
-  }
-
   function startEdit() {
     if (!selected) return;
     editing = true;
     creating = false;
-    showHome = false;
     testResult = null;
-  }
-
-  async function connectFromHome(id: string) {
-    selectConnection(id);
-    // Wait a tick so `selected` derives, then reuse connectSelected
-    await Promise.resolve();
-    const conn = connections.find((c) => c.id === id);
-    if (!conn) return;
-    selectedId = id;
-    await connectSelected();
   }
 
   /**
@@ -236,12 +206,11 @@
     if (editing && selectedId) {
       editing = false;
       creating = false;
-      showHome = false;
       testResult = null;
       return;
     }
-    // Cancel create → back to home intro.
-    enterHomeMode();
+    // Cancel create → reset the form.
+    enterCreateMode();
   }
 
   async function saveConnection(draft: ConnectionFormDraft) {
@@ -468,8 +437,7 @@
       loadError = null;
       try {
         await refreshList();
-        // Always open on the intro screen (actions + previous connections).
-        enterHomeMode();
+        enterCreateMode();
         if (!isTauri()) {
           // Soft notice only — FE localStorage still works.
           loadError = null;
@@ -493,101 +461,46 @@
     creating={creating || editing}
     onselect={selectConnection}
     onnew={startCreate}
+    themePreference={themePref}
+    onthemechange={setThemePref}
   />
 
-  <main class="flex h-full min-w-0 flex-1 flex-col">
-    <div
-      class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-5"
-    >
-      <div class="flex min-w-0 flex-1 items-center gap-2 text-body text-fg">
-        {#if !showHome || creating || editing || selected}
-          <Button
-            variant="ghost"
-            size="sm"
-            onclick={() => {
-              if (creating || editing) cancelForm();
-              else enterHomeMode();
-            }}
-          >
-            ← Back
-          </Button>
-          <span class="text-fg-muted" aria-hidden="true">|</span>
-        {/if}
-        <button
-          type="button"
-          class="border-none bg-transparent p-0 text-body font-medium text-fg-muted hover:text-accent"
-          onclick={enterHomeMode}
-        >
-          Home
-        </button>
-        <span class="text-fg-muted">/</span>
-        {#if showHome && !creating && !editing && !selected}
-          <span class="text-body font-semibold text-fg">Start</span>
-        {:else if creating}
-          <span class="text-body font-semibold text-fg">New connection</span>
-        {:else if editing && selected}
-          <span class="text-body font-semibold text-fg">Edit · {selected.name}</span>
-        {:else if selected}
-          <span class="text-body font-semibold text-fg">{selected.name}</span>
-        {:else}
-          <span class="text-body font-semibold text-fg">Start</span>
-        {/if}
-        {#if loading}
-          <span class="text-body text-fg-muted">· Loading…</span>
-        {/if}
-        {#if !isTauri()}
-          <span class="text-body text-fg-muted">· FE preview</span>
-        {/if}
-      </div>
-      <ThemeToggle preference={themePref} onchange={setThemePref} />
-    </div>
-
-    <div class="flex-1 overflow-auto bg-app-wash">
-      {#if creating}
+  <main class="h-full min-w-0 flex-1 overflow-auto bg-app-wash">
+    {#if editing && selected}
+      <NewConnectionPanel
+        initial={selected}
+        {saving}
+        {testing}
+        {testResult}
+        oncancel={cancelForm}
+        onsave={saveConnection}
+        ontest={handleTestConnection}
+      />
+    {:else if selected}
+      <ConnectionDetail
+        connection={selected}
+        {testing}
+        onconnect={connectSelected}
+        ontest={async () => {
+          await handleTestConnection(draftFromProfile(selected));
+        }}
+        onduplicate={duplicateSelected}
+        ondelete={requestDeleteSelected}
+        onedit={startEdit}
+        onbacktonew={enterCreateMode}
+      />
+    {:else}
+      {#key createFormKey}
         <NewConnectionPanel
           initial={null}
           {saving}
           {testing}
           {testResult}
-          oncancel={cancelForm}
           onsave={saveConnection}
           ontest={handleTestConnection}
         />
-      {:else if editing && selected}
-        <NewConnectionPanel
-          initial={selected}
-          {saving}
-          {testing}
-          {testResult}
-          oncancel={cancelForm}
-          onsave={saveConnection}
-          ontest={handleTestConnection}
-        />
-      {:else if selected}
-        <ConnectionDetail
-          connection={selected}
-          {testing}
-          onconnect={connectSelected}
-          ontest={async () => {
-            await handleTestConnection(draftFromProfile(selected));
-          }}
-          onduplicate={duplicateSelected}
-          ondelete={requestDeleteSelected}
-          onedit={startEdit}
-          onbacktonew={enterHomeMode}
-        />
-      {:else}
-        <HomeIntro
-          {connections}
-          {loading}
-          connectingId={testing ? selectedId : null}
-          oncreateConnection={startCreate}
-          oncreateEr={startCreateEr}
-          onopen={selectConnection}
-          onconnect={connectFromHome}
-        />
-      {/if}
-    </div>
+      {/key}
+    {/if}
   </main>
 
   {#if pendingDelete}

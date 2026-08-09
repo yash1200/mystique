@@ -207,7 +207,7 @@ export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
     port: engine === "mongodb" ? 27017 : port || 5432,
     // Postgres: Docker images use db/user `postgres`.
     // MySQL docker seed: admin/123, database mystique (see docs/DEV_MYSQL.md).
-    // MongoDB: default URI includes /mystique (seed DB); database is also parsed from URI.
+    // MongoDB: URI is empty; placeholder shows the expected shape.
     database:
       engine === "mongodb" || isMysql
         ? "mystique"
@@ -215,10 +215,7 @@ export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
           ? ""
           : "postgres",
     path: "",
-    uri:
-      engine === "mongodb"
-        ? "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin"
-        : "",
+    uri: "",
     username:
       engine === "mongodb" || engine === "sqlite"
         ? ""
@@ -227,7 +224,7 @@ export function emptyDraft(engine: EngineId = "postgres"): ConnectionFormDraft {
           : "postgres",
     password: isMysql ? "123" : "",
     ssl: false,
-    readOnly: true,
+    readOnly: false,
     environment: "local",
     notes: "",
   };

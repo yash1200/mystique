@@ -124,16 +124,11 @@ impl DatabaseConnector for MongoConnector {
                 field_type: FormFieldType::Uri,
                 required: true,
                 secret: true,
-                default: Some(serde_json::json!(
-                    "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin"
-                )),
+                default: None,
                 placeholder: Some(
                     "mongodb://user:pass@127.0.0.1:27017/mydb?authSource=admin".into(),
                 ),
-                hint: Some(
-                    "Include the database path (e.g. /mystique) so the explorer and finds target the right DB. Credentials and TLS options belong in the URI."
-                        .into(),
-                ),
+                hint: None,
             }],
         }
     }

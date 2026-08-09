@@ -228,7 +228,7 @@ impl DatabaseConnector for PostgresConnector {
                     secret: false,
                     default: Some(serde_json::json!("postgres")),
                     placeholder: None,
-                    hint: Some("Homebrew/local often uses your OS username, not `postgres`.".into()),
+                    hint: None,
                 },
                 FormField {
                     name: "username".into(),
@@ -238,7 +238,7 @@ impl DatabaseConnector for PostgresConnector {
                     secret: false,
                     default: Some(serde_json::json!("postgres")),
                     placeholder: None,
-                    hint: Some("Docker images use `postgres`; Homebrew uses your macOS user.".into()),
+                    hint: None,
                 },
                 FormField {
                     name: "password".into(),

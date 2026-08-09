@@ -84,7 +84,7 @@ impl DatabaseConnector for SqliteConnector {
                 secret: false,
                 default: None,
                 placeholder: Some("/path/to/database.sqlite".into()),
-                hint: Some("Absolute or relative path to the .db / .sqlite file".into()),
+                hint: None,
             }],
         }
     }

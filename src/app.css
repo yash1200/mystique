@@ -128,8 +128,12 @@
     color: inherit;
   }
 
-  button {
-    @apply disabled:cursor-not-allowed disabled:opacity-55;
+  button,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"] {
+    @apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-55;
   }
 
   a {

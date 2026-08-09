@@ -138,7 +138,7 @@ impl DatabaseConnector for MysqlConnector {
                     secret: false,
                     default: Some(serde_json::json!("mystique")),
                     placeholder: None,
-                    hint: Some("Default schema opened after connect.".into()),
+                    hint: None,
                 },
                 FormField {
                     name: "username".into(),
@@ -148,7 +148,7 @@ impl DatabaseConnector for MysqlConnector {
                     secret: false,
                     default: Some(serde_json::json!("admin")),
                     placeholder: None,
-                    hint: Some("Docker seed: admin / 123".into()),
+                    hint: None,
                 },
                 FormField {
                     name: "password".into(),
