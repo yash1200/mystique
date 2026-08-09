@@ -5,9 +5,11 @@ use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use mystique_connector_api::{
-    split_sql_statements, CatalogColumnRow, ColumnInfo, ConnectorError, ConnectorResult,
-    ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    ValidatedQuery,
+    compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
+    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, FetchTablePreviewInput, PoolStatus, QueryColumn, QueryMode, QueryResult,
+    SqlIdentStyle, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -620,4 +622,237 @@ impl ConnectorSession for PostgresSession {
         }
         Ok(out)
     }
+
+    async fn apply_table_edits(
+        &self,
+        edits: &ApplyTableEditsInput,
+    ) -> ConnectorResult<ApplyTableEditsResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let client = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+
+        let mut updated = 0u32;
+        let mut inserted = 0u32;
+        for u in &edits.updates {
+            let sql = compile_update(SqlIdentStyle::Postgres, edits, u)?;
+            client
+                .batch_execute(&sql)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            updated += 1;
+        }
+        for i in &edits.inserts {
+            let sql = compile_insert(SqlIdentStyle::Postgres, edits, i)?;
+            client
+                .batch_execute(&sql)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            inserted += 1;
+        }
+        Ok(ApplyTableEditsResult { updated, inserted })
+    }
+
+    async fn fetch_table_preview(
+        &self,
+        input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<TablePreviewResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let start = Instant::now();
+        let columns = self
+            .describe_table(
+                input.database.as_deref(),
+                input.schema.as_deref(),
+                &input.table,
+            )
+            .await?;
+        let target = qualify_table(
+            SqlIdentStyle::Postgres,
+            input.database.as_deref(),
+            input.schema.as_deref(),
+            &input.table,
+        );
+        let order = preview_order_sql(SqlIdentStyle::Postgres, &columns);
+        let limit = input.max_rows as i64;
+        let select_list = preview_select_list(SqlIdentStyle::Postgres, &columns);
+        let offset = input.offset;
+        let sql = format!(
+            "SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}"
+        );
+
+        let client = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let total_rows: i64 = client
+            .query_one(&format!("SELECT COUNT(*) FROM {target}"), &[])
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?
+            .get(0);
+        let rows = client
+            .query(sql.as_str(), &[])
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        let truncated = (input.offset as i64) + (rows.len() as i64) < total_rows;
+        let take = rows.len().min(input.max_rows as usize);
+        let mut out_rows = Vec::with_capacity(take);
+        for row in rows.iter().take(take) {
+            let mut cells = Vec::with_capacity(row.len());
+            for j in 0..row.len() {
+                cells.push(cell_json(row, j));
+            }
+            out_rows.push(cells);
+        }
+        let row_count = out_rows.len() as u64;
+        Ok(TablePreviewResult {
+            engine: "postgres".into(),
+            columns,
+            rows: out_rows,
+            row_count,
+            total_rows: total_rows.max(0) as u64,
+            truncated,
+            duration_ms: start.elapsed().as_millis() as u64,
+        })
+    }
+
+    async fn list_catalog(
+        &self,
+        _preferred_database: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogDatabase>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let client = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let db_row = client
+            .query_one("SELECT current_database()", &[])
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let db_name: String = db_row.get(0);
+        let rows = client
+            .query(
+                r#"
+                SELECT table_schema, table_name, table_type
+                FROM information_schema.tables
+                WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY table_schema, table_name
+                "#,
+                &[],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let mut objects = Vec::new();
+        for row in rows {
+            let schema: String = row.get(0);
+            let name: String = row.get(1);
+            let raw_type: String = row.get(2);
+            let kind = if raw_type.to_ascii_lowercase().contains("view") {
+                "view"
+            } else {
+                "table"
+            };
+            objects.push(CatalogObject {
+                name,
+                schema: Some(schema),
+                database: Some(db_name.clone()),
+                kind: kind.into(),
+                row_count: 0,
+            });
+        }
+        Ok(vec![CatalogDatabase {
+            name: db_name,
+            meta: Some("live".into()),
+            system: false,
+            objects,
+        }])
+    }
+
+    async fn list_relationships(
+        &self,
+        _database: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogRelationship>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let client = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let rows = client
+            .query(
+                r#"
+                SELECT
+                  kcu.table_schema AS from_schema,
+                  kcu.table_name AS from_table,
+                  kcu.column_name AS from_column,
+                  ccu.table_schema AS to_schema,
+                  ccu.table_name AS to_table,
+                  ccu.column_name AS to_column,
+                  tc.constraint_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                ORDER BY kcu.table_schema, kcu.table_name
+                "#,
+                &[],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(CatalogRelationship {
+                from_schema: row.get::<_, Option<String>>(0),
+                from_table: row.get(1),
+                from_column: row.get(2),
+                to_schema: row.get::<_, Option<String>>(3),
+                to_table: row.get(4),
+                to_column: row.get(5),
+                name: row.get::<_, Option<String>>(6),
+            });
+        }
+        Ok(out)
+    }
+}
+
+fn preview_select_list(style: SqlIdentStyle, columns: &[ColumnInfo]) -> String {
+    if columns.is_empty() {
+        return "*".into();
+    }
+    columns
+        .iter()
+        .map(|c| quote_ident(style, &c.name))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn preview_order_sql(style: SqlIdentStyle, columns: &[ColumnInfo]) -> String {
+    let pks: Vec<String> = columns
+        .iter()
+        .filter(|c| c.pk)
+        .map(|c| quote_ident(style, &c.name))
+        .collect();
+    if !pks.is_empty() {
+        return format!(" ORDER BY {}", pks.join(", "));
+    }
+    if let Some(first) = columns.first() {
+        return format!(" ORDER BY {}", quote_ident(style, &first.name));
+    }
+    String::new()
 }

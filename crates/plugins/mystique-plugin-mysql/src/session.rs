@@ -6,9 +6,11 @@ use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    split_sql_statements, CatalogColumnRow, ColumnInfo, ConnectorError, ConnectorResult,
-    ConnectorSession, EngineCapabilities, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    ValidatedQuery,
+    compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
+    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, FetchTablePreviewInput, PoolStatus, QueryColumn, QueryMode, QueryResult,
+    SqlIdentStyle, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -107,9 +109,7 @@ fn value_json(v: Value) -> JsonValue {
         Value::Time(is_neg, days, hours, minutes, seconds, micros) => {
             let sign = if is_neg { "-" } else { "" };
             if micros == 0 {
-                JsonValue::String(format!(
-                    "{sign}{days} {hours:02}:{minutes:02}:{seconds:02}"
-                ))
+                JsonValue::String(format!("{sign}{days} {hours:02}:{minutes:02}:{seconds:02}"))
             } else {
                 let frac = format!("{micros:06}");
                 let frac = frac.trim_end_matches('0');
@@ -416,6 +416,293 @@ impl ConnectorSession for MysqlSession {
             )
             .collect())
     }
+
+    async fn apply_table_edits(
+        &self,
+        edits: &ApplyTableEditsInput,
+    ) -> ConnectorResult<ApplyTableEditsResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+
+        let mut updated = 0u32;
+        let mut inserted = 0u32;
+        for u in &edits.updates {
+            let sql = compile_update(SqlIdentStyle::Mysql, edits, u)?;
+            conn.query_drop(sql.as_str())
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            updated += 1;
+        }
+        for i in &edits.inserts {
+            let sql = compile_insert(SqlIdentStyle::Mysql, edits, i)?;
+            conn.query_drop(sql.as_str())
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            inserted += 1;
+        }
+        Ok(ApplyTableEditsResult { updated, inserted })
+    }
+
+    async fn fetch_table_preview(
+        &self,
+        input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<TablePreviewResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let start = Instant::now();
+        let columns = self
+            .describe_table(
+                input.database.as_deref(),
+                input.schema.as_deref(),
+                &input.table,
+            )
+            .await?;
+        let target = qualify_table(
+            SqlIdentStyle::Mysql,
+            input.database.as_deref(),
+            input.schema.as_deref(),
+            &input.table,
+        );
+        let order = {
+            let pks: Vec<String> = columns
+                .iter()
+                .filter(|c| c.pk)
+                .map(|c| quote_ident(SqlIdentStyle::Mysql, &c.name))
+                .collect();
+            if !pks.is_empty() {
+                format!(" ORDER BY {}", pks.join(", "))
+            } else if let Some(first) = columns.first() {
+                format!(
+                    " ORDER BY {}",
+                    quote_ident(SqlIdentStyle::Mysql, &first.name)
+                )
+            } else {
+                String::new()
+            }
+        };
+        let limit = input.max_rows;
+        let select_list = if columns.is_empty() {
+            "*".into()
+        } else {
+            columns
+                .iter()
+                .map(|c| quote_ident(SqlIdentStyle::Mysql, &c.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let offset = input.offset;
+        let sql = format!(
+            "SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}"
+        );
+
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let total_rows: u64 = conn
+            .query_first(&format!("SELECT COUNT(*) FROM {target}"))
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?
+            .unwrap_or(0);
+        let result_set = conn
+            .query_iter(sql.as_str())
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        let col_count = result_set.columns_ref().len();
+        let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
+        let mut result_set = result_set;
+        while let Some(row) = result_set
+            .next()
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?
+        {
+            if out_rows.len() >= input.max_rows as usize {
+                break;
+            }
+            let mut cells = Vec::with_capacity(col_count);
+            for j in 0..col_count {
+                let v: Value = row.as_ref(j).cloned().unwrap_or(Value::NULL);
+                cells.push(value_json(v));
+            }
+            out_rows.push(cells);
+        }
+
+        let row_count = out_rows.len() as u64;
+        let truncated = input.offset as u64 + row_count < total_rows;
+        Ok(TablePreviewResult {
+            engine: "mysql".into(),
+            columns,
+            rows: out_rows,
+            row_count,
+            total_rows,
+            truncated,
+            duration_ms: start.elapsed().as_millis() as u64,
+        })
+    }
+
+    async fn list_catalog(
+        &self,
+        preferred_database: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogDatabase>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let sql = "SELECT table_schema, table_name, table_type, COALESCE(table_rows, 0) AS table_rows \
+             FROM information_schema.tables \
+             WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+             ORDER BY table_schema, table_name";
+        let rows: Vec<(String, String, String, i64)> = conn
+            .query(sql)
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+
+        let mut by_db: std::collections::BTreeMap<String, Vec<CatalogObject>> =
+            std::collections::BTreeMap::new();
+        for (schema, name, raw_type, approx) in rows {
+            let kind = if raw_type.to_ascii_lowercase().contains("view") {
+                "view"
+            } else {
+                "table"
+            };
+            by_db.entry(schema.clone()).or_default().push(CatalogObject {
+                name,
+                schema: Some(schema.clone()),
+                database: Some(schema),
+                kind: kind.into(),
+                row_count: approx.max(0) as u64,
+            });
+        }
+        if let Some(pref) = preferred_database.map(str::trim).filter(|s| !s.is_empty()) {
+            by_db.entry(pref.to_string()).or_default();
+        }
+        let pref = preferred_database.map(str::trim).unwrap_or("");
+        let mut names: Vec<String> = by_db.keys().cloned().collect();
+        names.sort_by(|a, b| {
+            if !pref.is_empty() && a == pref {
+                return std::cmp::Ordering::Less;
+            }
+            if !pref.is_empty() && b == pref {
+                return std::cmp::Ordering::Greater;
+            }
+            if a == "mystique" {
+                return std::cmp::Ordering::Less;
+            }
+            if b == "mystique" {
+                return std::cmp::Ordering::Greater;
+            }
+            a.cmp(b)
+        });
+        Ok(names
+            .into_iter()
+            .map(|name| {
+                let objects = by_db.remove(&name).unwrap_or_default();
+                let meta = if objects.is_empty() {
+                    Some("empty".into())
+                } else {
+                    Some(format!("{} tables", objects.len()))
+                };
+                CatalogDatabase {
+                    name,
+                    meta,
+                    system: false,
+                    objects,
+                }
+            })
+            .collect())
+    }
+
+    async fn list_relationships(
+        &self,
+        database: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogRelationship>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let sql = if let Some(db) = database.map(str::trim).filter(|s| !s.is_empty()) {
+            let db = db.replace('\'', "''");
+            format!(
+                "SELECT table_name, column_name, referenced_table_name, referenced_column_name, constraint_name \
+                 FROM information_schema.key_column_usage \
+                 WHERE table_schema = '{db}' AND referenced_table_name IS NOT NULL \
+                 ORDER BY table_name, ordinal_position"
+            )
+        } else {
+            "SELECT table_schema, table_name, column_name, referenced_table_schema, referenced_table_name, referenced_column_name, constraint_name \
+             FROM information_schema.key_column_usage \
+             WHERE referenced_table_name IS NOT NULL \
+               AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+             ORDER BY table_schema, table_name"
+                .into()
+        };
+        if database.map(str::trim).filter(|s| !s.is_empty()).is_some() {
+            let rows: Vec<(String, String, String, String, String)> = conn
+                .query(sql)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let schema = database.unwrap().trim().to_string();
+            return Ok(rows
+                .into_iter()
+                .map(|(from_table, from_column, to_table, to_column, name)| {
+                    CatalogRelationship {
+                        from_schema: Some(schema.clone()),
+                        from_table,
+                        from_column,
+                        to_schema: Some(schema.clone()),
+                        to_table,
+                        to_column,
+                        name: Some(name),
+                    }
+                })
+                .collect());
+        }
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+        )> = conn
+            .query(sql)
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(from_schema, from_table, from_column, to_schema, to_table, to_column, name)| {
+                    CatalogRelationship {
+                        from_schema: Some(from_schema),
+                        from_table,
+                        from_column,
+                        to_schema,
+                        to_table,
+                        to_column,
+                        name: Some(name),
+                    }
+                },
+            )
+            .collect())
+    }
 }
 
 fn parse_mysql_enum_values(column_type: &str) -> Option<Vec<String>> {
@@ -496,7 +783,11 @@ mod live_tests {
             })
             .await
             .expect("list tables");
-        assert!(tables.row_count >= 5, "expected seed tables, got {}", tables.row_count);
+        assert!(
+            tables.row_count >= 5,
+            "expected seed tables, got {}",
+            tables.row_count
+        );
         let names: Vec<String> = tables
             .rows
             .iter()
@@ -518,7 +809,10 @@ mod live_tests {
             .expect("preview");
         assert_eq!(preview.row_count, 10);
         assert!(!preview.columns.is_empty());
-        assert!(preview.columns.iter().any(|c| c.name == "email" || c.name == "id"));
+        assert!(preview
+            .columns
+            .iter()
+            .any(|c| c.name == "email" || c.name == "id"));
 
         session.close().await.expect("close");
     }
@@ -550,10 +844,7 @@ mod er_meta_tests {
                 idle_timeout_secs: 30,
             },
         };
-        let session = MysqlConnector
-            .connect(&config)
-            .await
-            .expect("connect");
+        let session = MysqlConnector.connect(&config).await.expect("connect");
 
         let cols = session
             .execute_query(&ValidatedQuery {

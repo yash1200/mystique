@@ -52,7 +52,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let save_query = MenuItem::with_id(
         app,
         "workspace_save_query",
-        "Save Query",
+        "Save",
         true,
         Some("CmdOrCtrl+S"),
     )?;
@@ -299,6 +299,10 @@ pub fn run() {
             ipc::engines::execute_engine_query,
             ipc::engines::describe_engine_table,
             ipc::engines::list_engine_catalog_columns,
+            ipc::engines::apply_engine_table_edits,
+            ipc::engines::fetch_engine_table_preview,
+            ipc::engines::list_engine_catalog,
+            ipc::engines::list_engine_relationships,
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

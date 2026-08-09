@@ -192,3 +192,117 @@ export async function listEngineCatalogColumns(
   requireTauri();
   return invoke("list_engine_catalog_columns", { request });
 }
+
+export interface TableEditColumn {
+  name: string;
+  dataType?: string;
+  nullable?: boolean;
+  pk?: boolean;
+}
+
+export interface TableRowUpdate {
+  original: Record<string, unknown>;
+  values: Record<string, unknown>;
+}
+
+export interface TableRowInsert {
+  values: Record<string, unknown>;
+}
+
+export interface ApplyTableEditsRequest {
+  sessionId: string;
+  table: string;
+  schema?: string | null;
+  database?: string | null;
+  columns: TableEditColumn[];
+  updates: TableRowUpdate[];
+  inserts: TableRowInsert[];
+  profileReadOnly?: boolean;
+}
+
+export interface ApplyTableEditsResult {
+  updated: number;
+  inserted: number;
+}
+
+export async function applyEngineTableEdits(
+  request: ApplyTableEditsRequest,
+): Promise<ApplyTableEditsResult> {
+  requireTauri();
+  return invoke("apply_engine_table_edits", { request });
+}
+
+export interface FetchTablePreviewRequest {
+  sessionId: string;
+  table: string;
+  schema?: string | null;
+  database?: string | null;
+  maxRows?: number;
+  offset?: number;
+}
+
+export interface TablePreviewResult {
+  engine: string;
+  columns: ColumnInfo[];
+  rows: unknown[][];
+  rowCount: number;
+  totalRows?: number;
+  truncated: boolean;
+  durationMs: number;
+}
+
+export async function fetchEngineTablePreview(
+  request: FetchTablePreviewRequest,
+): Promise<TablePreviewResult> {
+  requireTauri();
+  return invoke("fetch_engine_table_preview", { request });
+}
+
+export interface CatalogObject {
+  name: string;
+  schema?: string | null;
+  database?: string | null;
+  kind: string;
+  rowCount?: number;
+}
+
+export interface CatalogDatabase {
+  name: string;
+  meta?: string | null;
+  system?: boolean;
+  objects: CatalogObject[];
+}
+
+export interface ListCatalogRequest {
+  sessionId: string;
+  preferredDatabase?: string | null;
+}
+
+export async function listEngineCatalog(
+  request: ListCatalogRequest,
+): Promise<CatalogDatabase[]> {
+  requireTauri();
+  return invoke("list_engine_catalog", { request });
+}
+
+export interface CatalogRelationship {
+  fromSchema?: string | null;
+  fromTable: string;
+  fromColumn: string;
+  toSchema?: string | null;
+  toTable: string;
+  toColumn: string;
+  name?: string | null;
+}
+
+export interface ListRelationshipsRequest {
+  sessionId: string;
+  database?: string | null;
+}
+
+export async function listEngineRelationships(
+  request: ListRelationshipsRequest,
+): Promise<CatalogRelationship[]> {
+  requireTauri();
+  return invoke("list_engine_relationships", { request });
+}

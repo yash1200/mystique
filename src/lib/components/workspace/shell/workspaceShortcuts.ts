@@ -2,7 +2,7 @@
  * Workspace tab shortcuts:
  * - ⌘/Ctrl+W → close active tab
  * - ⌘/Ctrl+T → new query tab
- * - ⌘/Ctrl+S → save active query tab
+ * - ⌘/Ctrl+S → save active query or table tab
  * Keydown (capture) + optional Tauri menu events (deduped).
  */
 export function mountWorkspaceShortcuts(opts: {

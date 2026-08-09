@@ -2827,6 +2827,7 @@ dependencies = [
  "chrono",
  "mongodb",
  "mystique-connector-api",
+ "serde",
  "serde_json",
  "tokio",
 ]

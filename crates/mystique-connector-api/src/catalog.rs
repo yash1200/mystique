@@ -60,3 +60,115 @@ pub struct ListCatalogColumnsRequest {
     #[serde(default)]
     pub schema: Option<String>,
 }
+
+/// IPC: fetch a page of table/collection rows (plugin-owned SQL / find + order).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchTablePreviewRequest {
+    pub session_id: String,
+    pub table: String,
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub max_rows: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+/// Plugin input (session already resolved).
+#[derive(Debug, Clone)]
+pub struct FetchTablePreviewInput {
+    pub table: String,
+    pub schema: Option<String>,
+    pub database: Option<String>,
+    pub max_rows: u32,
+    pub offset: u32,
+}
+
+impl FetchTablePreviewRequest {
+    pub fn into_input(self, default_max: u32, hard_max: u32) -> FetchTablePreviewInput {
+        FetchTablePreviewInput {
+            table: self.table,
+            schema: self.schema,
+            database: self.database,
+            max_rows: self.max_rows.unwrap_or(default_max).clamp(1, hard_max),
+            offset: self.offset.unwrap_or(0),
+        }
+    }
+}
+
+/// Stable preview payload: columns + rows in plugin-defined order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewResult {
+    pub engine: String,
+    pub columns: Vec<ColumnInfo>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub row_count: u64,
+    /// Full table size (for pager). Falls back to `row_count` when unknown.
+    #[serde(default)]
+    pub total_rows: u64,
+    pub truncated: bool,
+    pub duration_ms: u64,
+}
+
+/// One table / view / collection in the explorer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogObject {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    /// `table` | `view` | `collection`
+    pub kind: String,
+    #[serde(default)]
+    pub row_count: u64,
+}
+
+/// One database / catalog in the explorer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogDatabase {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<String>,
+    #[serde(default)]
+    pub system: bool,
+    pub objects: Vec<CatalogObject>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCatalogRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub preferred_database: Option<String>,
+}
+
+/// Declared relationship (FK or equivalent) for live ER.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogRelationship {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_schema: Option<String>,
+    pub from_table: String,
+    pub from_column: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_schema: Option<String>,
+    pub to_table: String,
+    pub to_column: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListRelationshipsRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub database: Option<String>,
+}

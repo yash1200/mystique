@@ -1,8 +1,12 @@
 use async_trait::async_trait;
 
 use crate::capabilities::EngineCapabilities;
-use crate::catalog::{CatalogColumnRow, ColumnInfo};
+use crate::catalog::{
+    CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo, FetchTablePreviewInput,
+    TablePreviewResult,
+};
 use crate::config::ConnectionConfig;
+use crate::edits::{ApplyTableEditsInput, ApplyTableEditsResult};
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
 use crate::pool::{PoolStatus, TestResult};
@@ -90,5 +94,46 @@ pub trait ConnectorSession: Send + Sync {
             "list_catalog_columns not implemented for engine `{}`",
             self.engine_id()
         )))
+    }
+
+    /// Persist grid edits (updates + inserts). Plugins own quoting, types, and execution.
+    async fn apply_table_edits(
+        &self,
+        _edits: &ApplyTableEditsInput,
+    ) -> ConnectorResult<ApplyTableEditsResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "apply_table_edits not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Fetch a page of rows in a stable, engine-native order (PK / `_id` / `rowid`).
+    async fn fetch_table_preview(
+        &self,
+        _input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<TablePreviewResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "fetch_table_preview not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Explorer tree: databases + tables/collections (plugin-owned listing SQL / APIs).
+    async fn list_catalog(
+        &self,
+        _preferred_database: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogDatabase>> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "list_catalog not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Declared relationships for live ER. Default: none (document / KV engines).
+    async fn list_relationships(
+        &self,
+        _database: Option<&str>,
+    ) -> ConnectorResult<Vec<CatalogRelationship>> {
+        Ok(Vec::new())
     }
 }

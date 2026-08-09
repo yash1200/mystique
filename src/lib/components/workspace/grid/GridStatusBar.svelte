@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Select } from "$lib/components/ui";
+  import { Button } from "$lib/components/ui";
 
   interface Props {
     filteredCount: number;
@@ -10,13 +10,10 @@
     tableRowCount: number;
     dirtyCount: number;
     statusMsg: string | null;
-    pageSize: number;
-    pageSizeOptions: { value: string; label: string }[];
     safePage: number;
     totalPages: number;
     refreshing: boolean;
     saving: boolean;
-    onSetPageSize: (v: string) => void;
     onPrev: () => void;
     onNext: () => void;
     onRefresh: () => void;
@@ -34,13 +31,10 @@
     tableRowCount,
     dirtyCount,
     statusMsg,
-    pageSize,
-    pageSizeOptions,
     safePage,
     totalPages,
     refreshing,
     saving,
-    onSetPageSize,
     onPrev,
     onNext,
     onRefresh,
@@ -64,9 +58,12 @@
       <span class="truncate font-mono tabular-nums">0 rows</span>
     {:else}
       <span class="truncate font-mono tabular-nums">
-        {pageStart + 1}–{pageEnd} of {filteredCount}{#if filtersActive && hasActiveFilters}
-          {" "}filtered{/if}
-        · ~{tableRowCount.toLocaleString()} total
+        {pageStart + 1}–{pageEnd} of
+        {#if filtersActive && hasActiveFilters}
+          {filteredCount} filtered · {tableRowCount.toLocaleString()} total
+        {:else}
+          {tableRowCount.toLocaleString()}
+        {/if}
       </span>
     {/if}
     {#if hasChanges}
@@ -87,20 +84,11 @@
     role="group"
     aria-label="Pagination"
   >
-    <div class="w-24 shrink-0">
-      <Select
-        id="grid-page-size"
-        value={String(pageSize)}
-        options={pageSizeOptions}
-        inputSize="sm"
-        onchange={onSetPageSize}
-      />
-    </div>
     <div class="flex items-center gap-0.5">
       <Button
         variant="ghost"
         size="sm"
-        disabled={safePage <= 0}
+        disabled={safePage <= 0 || refreshing || saving}
         onclick={onPrev}
         aria-label="Previous page"
       >
@@ -114,7 +102,7 @@
       <Button
         variant="ghost"
         size="sm"
-        disabled={safePage >= totalPages - 1}
+        disabled={safePage >= totalPages - 1 || refreshing || saving}
         onclick={onNext}
         aria-label="Next page"
       >

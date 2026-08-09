@@ -126,3 +126,55 @@ pub async fn list_engine_catalog_columns(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn apply_engine_table_edits(
+    state: State<'_, AppState>,
+    request: mystique_core::ApplyTableEditsRequest,
+) -> Result<mystique_core::ApplyTableEditsResult, String> {
+    state
+        .services
+        .connections()
+        .apply_table_edits(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_engine_table_preview(
+    state: State<'_, AppState>,
+    request: mystique_core::FetchTablePreviewRequest,
+) -> Result<mystique_core::TablePreviewResult, String> {
+    state
+        .services
+        .connections()
+        .fetch_table_preview(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_engine_catalog(
+    state: State<'_, AppState>,
+    request: mystique_core::ListCatalogRequest,
+) -> Result<Vec<mystique_core::CatalogDatabase>, String> {
+    state
+        .services
+        .connections()
+        .list_catalog(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_engine_relationships(
+    state: State<'_, AppState>,
+    request: mystique_core::ListRelationshipsRequest,
+) -> Result<Vec<mystique_core::CatalogRelationship>, String> {
+    state
+        .services
+        .connections()
+        .list_relationships(request)
+        .await
+        .map_err(|e| e.to_string())
+}

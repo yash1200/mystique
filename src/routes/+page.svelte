@@ -487,7 +487,6 @@
         onduplicate={duplicateSelected}
         ondelete={requestDeleteSelected}
         onedit={startEdit}
-        onbacktonew={enterCreateMode}
       />
     {:else}
       {#key createFormKey}

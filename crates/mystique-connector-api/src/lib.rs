@@ -16,20 +16,26 @@ mod capabilities;
 mod catalog;
 mod config;
 mod connector;
+mod edits;
 mod error;
 mod form;
 mod policy;
 mod pool;
 mod query;
+mod sql_table_edits;
 mod types;
 
 pub use capabilities::*;
 pub use catalog::*;
 pub use config::*;
 pub use connector::*;
+pub use edits::*;
 pub use error::*;
 pub use form::*;
 pub use policy::*;
 pub use pool::*;
 pub use query::*;
+pub use sql_table_edits::{
+    compile_insert, compile_update, qualify_table, quote_ident, SqlIdentStyle,
+};
 pub use types::*;

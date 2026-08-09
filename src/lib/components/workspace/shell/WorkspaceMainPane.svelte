@@ -51,6 +51,7 @@
 		querysaving?: boolean
 		/** Close request (may prompt if dirty). */
 		onclosetab?: (id: string) => void
+		onreloadtable?: (opts?: { offset?: number }) => Promise<void>
 	}
 
 	let {
@@ -79,6 +80,7 @@
 		onsavequery,
 		querysaving = false,
 		onclosetab,
+		onreloadtable,
 	}: Props = $props()
 </script>
 
@@ -169,24 +171,21 @@
 					</div>
 				{/if}
 				{#if gridTable}
-					{#key `${gridTable.id}:${gridTable.rows.length}:${tableLoading}`}
+					{#key gridTable.id}
 						<DataGrid
 							table={gridTable}
 							selectedRowIndex={rowSelectionIndex}
 							{rowSyncTick}
 							{onbaselinechange}
 							{onselectrow}
+							engine={String(activeSession.profile.engine)}
+							sessionId={activeSession.engineSessionId}
+							profileReadOnly={!!activeSession.profile.readOnly}
+							onreload={onreloadtable}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
 						/>
 					{/key}
-					{#if tableLoading}
-						<div
-							class="pointer-events-none absolute bottom-4 right-4 z-10 rounded-md border border-line bg-panel px-3 py-1.5 text-caption text-fg-muted shadow"
-						>
-							Loading live rows…
-						</div>
-					{/if}
 				{:else}
 					<div class="flex flex-1 items-center justify-center p-8">
 						<EmptyState title="Table" description="Loading table metadata…" />

@@ -243,6 +243,11 @@ fn json_value_to_document(v: &JsonValue) -> ConnectorResult<Document> {
     }
 }
 
+/// Convert a JSON object (including `$oid` / `$date`) into a BSON document.
+pub fn json_to_document(v: &JsonValue) -> ConnectorResult<Document> {
+    json_value_to_document(v)
+}
+
 fn json_value_to_bson(v: &JsonValue) -> ConnectorResult<Bson> {
     match v {
         JsonValue::Null => Ok(Bson::Null),

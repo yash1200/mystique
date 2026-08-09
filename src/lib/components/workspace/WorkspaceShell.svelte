@@ -681,7 +681,7 @@
     openSqlInEditor(h.sql);
   }
 
-  async function openTable(table: TableMeta) {
+  async function openTable(table: TableMeta, offset = 0) {
     if (!activeId || !activeSession) return;
     sideMode = "explorer";
     workspaceSession.openTable(activeId, table.id, table.name);
@@ -699,11 +699,11 @@
       const engine = String(activeSession.profile.engine);
       let preview;
       try {
-        preview = await loadTablePreview(engineSessionId, engine, table, 100);
+        preview = await loadTablePreview(engineSessionId, engine, table, 100, offset);
       } catch (e) {
         if (!isSessionMissingError(e)) throw e;
         engineSessionId = await reopenEngineSession(activeSession.profile);
-        preview = await loadTablePreview(engineSessionId, engine, table, 100);
+        preview = await loadTablePreview(engineSessionId, engine, table, 100, offset);
       }
       const list = catalogs[activeId] ?? [];
       const next = list.map((db) => ({
@@ -1057,17 +1057,28 @@
     requestCloseTab(id);
   }
 
-  function shortcutSaveQuery() {
+  function shortcutSave() {
     const tab = workspaceSession.activeTab;
-    if (!tab || tab.kind !== "query") return;
-    void saveActiveQuery();
+    if (!tab) return;
+    if (tab.kind === "query") {
+      void saveActiveQuery();
+      return;
+    }
+    if (tab.kind === "table") {
+      window.dispatchEvent(new Event("mystique:save-table"));
+    }
+  }
+
+  async function reloadGridTable(opts?: { offset?: number }) {
+    if (!gridTable) return;
+    await openTable(gridTable, opts?.offset ?? 0);
   }
 
   onMount(() =>
     mountWorkspaceShortcuts({
       onNewQuery: shortcutNewQuery,
       onCloseTab: shortcutCloseTab,
-      onSaveQuery: shortcutSaveQuery,
+      onSaveQuery: shortcutSave,
       isTauri: isTauri(),
     }),
   );
@@ -1149,6 +1160,7 @@
     onsavequery={() => void saveActiveQuery()}
     querysaving={querySaving}
     onclosetab={requestCloseTab}
+    onreloadtable={reloadGridTable}
   />
 
   <UnsavedCloseModal

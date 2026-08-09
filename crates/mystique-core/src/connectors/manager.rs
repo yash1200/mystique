@@ -3,10 +3,13 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use mystique_connector_api::{
-    CatalogColumnRow, ColumnInfo, ConnectionConfig, ConnectorError, ConnectorResult,
-    ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
-    ListCatalogColumnsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo,
-    TestResult, ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
+    ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, CatalogColumnRow,
+    CatalogDatabase, CatalogRelationship, ColumnInfo, ConnectionConfig, ConnectorError,
+    ConnectorResult, ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
+    FetchTablePreviewRequest, ListCatalogColumnsRequest, ListCatalogRequest,
+    ListRelationshipsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo,
+    TablePreviewResult, TestResult, ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS,
+    HARD_MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -278,6 +281,75 @@ impl ConnectionManager {
         session
             .list_catalog_columns(req.database.as_deref(), req.schema.as_deref())
             .await
+    }
+
+    /// Persist grid edits via the engine plugin (dialect + execution).
+    pub async fn apply_table_edits(
+        &self,
+        req: ApplyTableEditsRequest,
+    ) -> ConnectorResult<ApplyTableEditsResult> {
+        if req.profile_read_only {
+            return Err(ConnectorError::Policy(
+                "This connection is read-only. Disable read-only to save edits.".into(),
+            ));
+        }
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        if req.updates.is_empty() && req.inserts.is_empty() {
+            return Ok(ApplyTableEditsResult::empty());
+        }
+        let input = ApplyTableEditsInput::from(req);
+        session.apply_table_edits(&input).await
+    }
+
+    pub async fn fetch_table_preview(
+        &self,
+        req: FetchTablePreviewRequest,
+    ) -> ConnectorResult<TablePreviewResult> {
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        let input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
+        session.fetch_table_preview(&input).await
+    }
+
+    pub async fn list_catalog(
+        &self,
+        req: ListCatalogRequest,
+    ) -> ConnectorResult<Vec<CatalogDatabase>> {
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        session
+            .list_catalog(req.preferred_database.as_deref())
+            .await
+    }
+
+    pub async fn list_relationships(
+        &self,
+        req: ListRelationshipsRequest,
+    ) -> ConnectorResult<Vec<CatalogRelationship>> {
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        session.list_relationships(req.database.as_deref()).await
     }
 }
 

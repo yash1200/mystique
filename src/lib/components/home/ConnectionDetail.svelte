@@ -27,7 +27,6 @@
     ontest?: () => void | Promise<void>;
     onduplicate?: () => void;
     ondelete?: () => void;
-    onbacktonew?: () => void;
   }
 
   let {
@@ -38,7 +37,6 @@
     ontest,
     onduplicate,
     ondelete,
-    onbacktonew,
   }: Props = $props();
 
   const hex = $derived(colorHex(connection.colorId));
@@ -241,19 +239,5 @@
         </ul>
       </Card>
     </div>
-
-    <p class="mt-5 text-caption text-fg-muted">
-      <strong class="font-medium text-fg-secondary">Test connection</strong>
-      checks reachability;
-      <strong class="font-medium text-fg-secondary">Connect</strong>
-      opens a live session when ready.
-      <button
-        type="button"
-        class="border-none bg-transparent p-0 text-caption text-accent hover:underline"
-        onclick={onbacktonew}
-      >
-        Create another connection
-      </button>
-    </p>
   </div>
 </ContentPanel>
