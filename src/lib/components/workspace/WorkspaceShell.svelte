@@ -5,6 +5,7 @@
 		isMockCatalog,
 		loadLiveCatalog,
 		loadTablePreview,
+		mergeCatalogKeepCached,
 		preferDatabase,
 	} from '$lib/api/catalog'
 	import {
@@ -46,6 +47,7 @@
 	import SaveQueryModal from './SaveQueryModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
 	import {
+		engineBindsSessionToDatabase,
 		isSessionMissingError,
 		modelCacheKey,
 		preferredDbForProfile,
@@ -100,8 +102,11 @@
 	/** Open / re-open a pooled engine session for a profile (fixes stale old connections). */
 	async function reopenEngineSession(
 		profile: ConnectionProfile,
+		database?: string | null,
 	): Promise<string> {
 		const pluginConfig = pluginConfigForSession(profile)
+		const db = database?.trim()
+		if (db) pluginConfig.database = db
 		const password = profile.password?.trim() || null
 		const session = await openEngineSession({
 			engine: String(profile.engine),
@@ -112,6 +117,15 @@
 		})
 		workspaceSession.connect(profile, session.sessionId)
 		return session.sessionId
+	}
+
+	function sessionDatabase(
+		connectionId: string,
+		profile: ConnectionProfile,
+	): string | null {
+		const selected = selectedDb[connectionId]?.trim()
+		if (selected) return selected
+		return preferredDbForProfile(profile)
 	}
 
 	async function ensureLiveCatalog(
@@ -141,11 +155,17 @@
 			const live = await loadLiveCatalog(sessionId, engine, {
 				preferredDatabase,
 			})
-			catalogs = { ...catalogs, [connectionId]: live }
+			catalogs = {
+				...catalogs,
+				[connectionId]: mergeCatalogKeepCached(catalogs[connectionId], live),
+			}
 			liveCatalogKey = { ...liveCatalogKey, [connectionId]: sessionId }
 			const names = live.map((d) => d.name)
 			const pick = preferDatabase(names, preferredDatabase)
-			if (pick) {
+			const current = selectedDb[connectionId]
+			if (current && names.includes(current)) {
+				// Keep the database the user switched to.
+			} else if (pick) {
 				selectedDb = { ...selectedDb, [connectionId]: pick }
 			} else if (live[0]) {
 				selectedDb = { ...selectedDb, [connectionId]: live[0].name }
@@ -155,15 +175,27 @@
 			const session = sessions.find((s) => s.profile.id === connectionId)
 			if (session && isSessionMissingError(e)) {
 				try {
-					sessionId = await reopenEngineSession(session.profile)
+					sessionId = await reopenEngineSession(
+						session.profile,
+						sessionDatabase(connectionId, session.profile),
+					)
 					const live = await loadLiveCatalog(sessionId, engine, {
 						preferredDatabase,
 					})
-					catalogs = { ...catalogs, [connectionId]: live }
+					catalogs = {
+						...catalogs,
+						[connectionId]: mergeCatalogKeepCached(
+							catalogs[connectionId],
+							live,
+						),
+					}
 					liveCatalogKey = { ...liveCatalogKey, [connectionId]: sessionId }
 					const names = live.map((d) => d.name)
 					const pick = preferDatabase(names, preferredDatabase)
-					if (pick) {
+					const current = selectedDb[connectionId]
+					if (current && names.includes(current)) {
+						// Keep the database the user switched to.
+					} else if (pick) {
 						selectedDb = { ...selectedDb, [connectionId]: pick }
 					}
 					catalogError = null
@@ -197,7 +229,7 @@
 		const id = session.profile.id
 		const engine = String(session.profile.engine)
 		const engineSessionId = session.engineSessionId ?? null
-		const preferred = preferredDbForProfile(session.profile)
+		const preferred = sessionDatabase(id, session.profile)
 
 		// Catalog only — do not auto-open a Query tab (empty workspace is intentional).
 		if (!isTauri()) {
@@ -227,7 +259,10 @@
 			let sid = engineSessionId
 			if (!sid) {
 				try {
-					sid = await reopenEngineSession(session.profile)
+					sid = await reopenEngineSession(
+						session.profile,
+						sessionDatabase(id, session.profile),
+					)
 				} catch (e) {
 					catalogError = e instanceof Error ? e.message : String(e)
 					return
@@ -703,7 +738,10 @@
 		try {
 			let engineSessionId = activeSession.engineSessionId
 			if (!engineSessionId) {
-				engineSessionId = await reopenEngineSession(activeSession.profile)
+				engineSessionId = await reopenEngineSession(
+					activeSession.profile,
+					sessionDatabase(activeId, activeSession.profile),
+				)
 			}
 			const engine = String(activeSession.profile.engine)
 			let preview
@@ -717,7 +755,10 @@
 				)
 			} catch (e) {
 				if (!isSessionMissingError(e)) throw e
-				engineSessionId = await reopenEngineSession(activeSession.profile)
+				engineSessionId = await reopenEngineSession(
+					activeSession.profile,
+					sessionDatabase(activeId, activeSession.profile),
+				)
 				preview = await loadTablePreview(
 					engineSessionId,
 					engine,
@@ -742,9 +783,26 @@
 		}
 	}
 
-	function selectDatabase(name: string) {
-		if (!activeId) return
-		selectedDb = { ...selectedDb, [activeId]: name }
+	async function selectDatabase(name: string) {
+		if (!activeId || !activeSession) return
+		const next = name.trim()
+		if (!next || selectedDb[activeId] === next) return
+		const previous = selectedDb[activeId] ?? ''
+		selectedDb = { ...selectedDb, [activeId]: next }
+
+		const engine = String(activeSession.profile.engine)
+		if (!isTauri() || !engineBindsSessionToDatabase(engine)) return
+
+		refreshing = true
+		catalogError = null
+		try {
+			const sid = await reopenEngineSession(activeSession.profile, next)
+			await ensureLiveCatalog(activeId, engine, sid, next, true)
+		} catch (e) {
+			selectedDb = { ...selectedDb, [activeId]: previous }
+			catalogError = e instanceof Error ? e.message : String(e)
+			refreshing = false
+		}
 	}
 
 	/** Open live ER / model diagram for the currently selected database. */
@@ -782,7 +840,10 @@
 		try {
 			let sid = activeSession.engineSessionId
 			if (!sid) {
-				sid = await reopenEngineSession(activeSession.profile)
+				sid = await reopenEngineSession(
+					activeSession.profile,
+					sessionDatabase(activeId, activeSession.profile),
+				)
 			}
 			const loaded = await loadLiveErDiagram(sid, engine, database || null)
 			liveModels = {
@@ -799,7 +860,10 @@
 			// Session missing — reopen once
 			if (isSessionMissingError(e)) {
 				try {
-					const sid = await reopenEngineSession(activeSession.profile)
+					const sid = await reopenEngineSession(
+						activeSession.profile,
+						sessionDatabase(activeId, activeSession.profile),
+					)
 					const loaded = await loadLiveErDiagram(sid, engine, database || null)
 					liveModels = {
 						...liveModels,
@@ -834,7 +898,7 @@
 	async function refreshDatabases() {
 		if (!activeSession || !activeId) return
 		const engine = String(activeSession.profile.engine)
-		const preferred = preferredDbForProfile(activeSession.profile)
+		const preferred = sessionDatabase(activeId, activeSession.profile)
 
 		if (!isTauri()) {
 			refreshing = true
@@ -853,7 +917,10 @@
 		refreshing = true
 		catalogError = null
 		try {
-			const sid = await reopenEngineSession(activeSession.profile)
+			const sid = await reopenEngineSession(
+				activeSession.profile,
+				sessionDatabase(activeId, activeSession.profile),
+			)
 			await ensureLiveCatalog(activeId, engine, sid, preferred, true)
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)

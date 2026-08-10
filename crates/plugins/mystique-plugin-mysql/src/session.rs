@@ -6,11 +6,11 @@ use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    compile_delete, compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
-    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
-    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, FetchTablePreviewInput, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SqlIdentStyle, TablePreviewResult, ValidatedQuery,
+    compile_delete, compile_insert, compile_update, qualify_table, quote_ident,
+    split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
+    CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
+    ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput, PoolStatus,
+    QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -510,9 +510,8 @@ impl ConnectorSession for MysqlSession {
                 .join(", ")
         };
         let offset = input.offset;
-        let sql = format!(
-            "SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}"
-        );
+        let sql =
+            format!("SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}");
 
         let mut conn = self
             .pool
@@ -573,7 +572,8 @@ impl ConnectorSession for MysqlSession {
             .get_conn()
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        let sql = "SELECT table_schema, table_name, table_type, COALESCE(table_rows, 0) AS table_rows \
+        let sql =
+            "SELECT table_schema, table_name, table_type, COALESCE(table_rows, 0) AS table_rows \
              FROM information_schema.tables \
              WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
              ORDER BY table_schema, table_name";
@@ -584,19 +584,35 @@ impl ConnectorSession for MysqlSession {
 
         let mut by_db: std::collections::BTreeMap<String, Vec<CatalogObject>> =
             std::collections::BTreeMap::new();
+        // Include empty databases (no tables yet) so the picker can switch to them.
+        if let Ok(schemas) = conn
+            .query::<String, _>(
+                "SELECT schema_name FROM information_schema.schemata \
+                 WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys') \
+                 ORDER BY schema_name",
+            )
+            .await
+        {
+            for name in schemas {
+                by_db.entry(name).or_default();
+            }
+        }
         for (schema, name, raw_type, approx) in rows {
             let kind = if raw_type.to_ascii_lowercase().contains("view") {
                 "view"
             } else {
                 "table"
             };
-            by_db.entry(schema.clone()).or_default().push(CatalogObject {
-                name,
-                schema: Some(schema.clone()),
-                database: Some(schema),
-                kind: kind.into(),
-                row_count: approx.max(0) as u64,
-            });
+            by_db
+                .entry(schema.clone())
+                .or_default()
+                .push(CatalogObject {
+                    name,
+                    schema: Some(schema.clone()),
+                    database: Some(schema),
+                    kind: kind.into(),
+                    row_count: approx.max(0) as u64,
+                });
         }
         if let Some(pref) = preferred_database.map(str::trim).filter(|s| !s.is_empty()) {
             by_db.entry(pref.to_string()).or_default();
@@ -673,8 +689,8 @@ impl ConnectorSession for MysqlSession {
             let schema = database.unwrap().trim().to_string();
             return Ok(rows
                 .into_iter()
-                .map(|(from_table, from_column, to_table, to_column, name)| {
-                    CatalogRelationship {
+                .map(
+                    |(from_table, from_column, to_table, to_column, name)| CatalogRelationship {
                         from_schema: Some(schema.clone()),
                         from_table,
                         from_column,
@@ -682,8 +698,8 @@ impl ConnectorSession for MysqlSession {
                         to_table,
                         to_column,
                         name: Some(name),
-                    }
-                })
+                    },
+                )
                 .collect());
         }
         let rows: Vec<(

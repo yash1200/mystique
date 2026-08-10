@@ -123,6 +123,8 @@
   html,
   body {
     @apply m-0 h-full overflow-hidden p-0;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   body {
@@ -131,6 +133,21 @@
     text-rendering: optimizeLegibility;
     font-feature-settings: "ss01" on, "cv11" on;
     touch-action: manipulation;
+  }
+
+  /* Chrome is not selectable. Data cells, editors, and fields stay copyable. */
+  input,
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable=""],
+  .cm-editor,
+  .cm-content,
+  .cm-line,
+  [data-grid-cell],
+  [data-result-cell] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   body::after {

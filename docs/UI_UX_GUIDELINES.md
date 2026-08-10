@@ -428,6 +428,7 @@ User setting in **Settings**; apply via `data-density="compact" | "comfortable"`
 - Indent 12–14px per level.
 - Icons for schema / table / view / collection / index.
 - Search filter sticky at top of tree.
+- Database picker lists **every connectable database** on that server (Postgres / MySQL). Switching reconnects the SQL session to the chosen database. SQLite stays a single file (`main`).
 - Right-click context: Open, Open in Column View, Copy name, Refresh…
 - Active object matches open tab when possible (sync highlight).
 
@@ -480,6 +481,8 @@ User setting in **Settings**; apply via `data-density="compact" | "comfortable"`
 | `⌘/Ctrl + 1…9` | Switch workspace tabs |
 | `⌘/Ctrl + Shift + [` / `]` | Prev/next connection tab |
 | `⌘/Ctrl + B` | Toggle sidebar |
+| `Enter` | Edit selected grid cell |
+| `Shift + Enter` | Open selected cell in the value editor (Text / JSON / HTML) |
 | `Escape` | Clear selection / close popover / cancel cell edit |
 | `/` or `⌘/Ctrl + F` | Find in grid / editor (context-aware) |
 

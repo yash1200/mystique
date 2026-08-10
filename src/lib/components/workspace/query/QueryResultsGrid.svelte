@@ -174,6 +174,7 @@
             {@const isNull = cell === null || cell === undefined}
             {@const text = cellDisplay(cell)}
             <td
+              data-result-cell
               class={cn(
                 "max-w-xs truncate border-b border-line/60 px-2.5 align-middle font-mono text-label",
                 isNull ? "italic text-fg-muted" : "text-fg",

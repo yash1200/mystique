@@ -380,6 +380,7 @@ Washes use `--connection-color` when scoped, otherwise `--accent`. Defined once 
 - Hit targets: controls ≥ `h-control-sm` (28px); prefer `h-control` / `size-control`
 - Toolbar row: Input + IconButton share one size step (`md` = 34px)
 - Status: always text/icon + color
+- Selection: app chrome is `user-select: none`. Allow text in inputs, the query editor, and data cells (`[data-grid-cell]`, `[data-result-cell]`).
 
 ---
 

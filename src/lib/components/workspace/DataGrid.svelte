@@ -16,9 +16,8 @@
 		objectsToRows,
 	} from '$lib/utils/exportTable'
 	import { onMount } from 'svelte'
-	import GridFilterBar from './grid/GridFilterBar.svelte'
-	import GridStatusBar from './grid/GridStatusBar.svelte'
-	import GridTable, { type CellRef } from './grid/GridTable.svelte'
+	import CellValueModal from './grid/CellValueModal.svelte'
+	import { valueToEditorText } from './grid/cellView'
 	import {
 		cellText,
 		type FilterMode,
@@ -31,6 +30,9 @@
 		rulesToCode,
 		valuesEqual,
 	} from './grid/filterLogic'
+	import GridFilterBar from './grid/GridFilterBar.svelte'
+	import GridStatusBar from './grid/GridStatusBar.svelte'
+	import GridTable, { type CellRef } from './grid/GridTable.svelte'
 
 	interface Props {
 		table: TableMeta
@@ -77,6 +79,12 @@
 	let draft = $state('')
 	let inputEl = $state<HTMLInputElement | HTMLSelectElement | null>(null)
 	let gridShellEl = $state<HTMLDivElement | null>(null)
+	let cellModal = $state<{
+		row: number
+		col: string
+		type: string
+		text: string
+	} | null>(null)
 
 	const PAGE_SIZE = 100
 	let page = $state(0)
@@ -639,7 +647,56 @@
 		focusGridShell()
 	}
 
+	function openCellModal(row: number, col: string, seed?: string) {
+		if (deletedIndices.has(row)) {
+			flashStatus('Row is marked for delete — undo delete to edit')
+			return
+		}
+		const seedText = seed !== undefined ? seed : undefined
+		if (editing) {
+			editing = null
+			draft = ''
+		}
+		const value = rows[row]?.[col]
+		const def = columnDef(col)
+		cellModal = {
+			row,
+			col,
+			type: def?.type ?? '',
+			text: seedText !== undefined ? seedText : valueToEditorText(value),
+		}
+		selectedCell = { row, col }
+		highlightRow = row
+	}
+
+	function applyCellModal(text: string) {
+		if (!cellModal) return
+		const { row, col } = cellModal
+		applyCellValue(row, col, text)
+		selectedCell = { row, col }
+		highlightRow = row
+		cellModal = null
+		focusGridShell()
+	}
+
+	function closeCellModal() {
+		if (!cellModal) return
+		selectedCell = { row: cellModal.row, col: cellModal.col }
+		cellModal = null
+		focusGridShell()
+	}
+
 	function onInputKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && e.shiftKey) {
+			e.preventDefault()
+			e.stopPropagation()
+			const row = editing?.row
+			const col = editing?.col
+			const current = draft
+			if (row == null || !col) return
+			openCellModal(row, col, current)
+			return
+		}
 		if (e.key === 'Enter') {
 			e.preventDefault()
 			e.stopPropagation()
@@ -716,6 +773,7 @@
 	}
 
 	function onGridKeydown(e: KeyboardEvent) {
+		if (cellModal) return
 		const mod = e.metaKey || e.ctrlKey
 
 		// ⌘/Ctrl+S — save (works even while a cell is being edited)
@@ -752,7 +810,11 @@
 
 		if (e.key === 'Enter' && selectedCell) {
 			e.preventDefault()
-			startEdit(selectedCell.row, selectedCell.col)
+			if (e.shiftKey) {
+				openCellModal(selectedCell.row, selectedCell.col)
+			} else {
+				startEdit(selectedCell.row, selectedCell.col)
+			}
 			return
 		}
 
@@ -1060,6 +1122,17 @@
 			onRowMenu={openRowMenu}
 		/>
 	</div>
+
+	{#if cellModal}
+		<CellValueModal
+			column={cellModal.col}
+			columnType={cellModal.type}
+			rowIndex={cellModal.row}
+			initialText={cellModal.text}
+			onapply={applyCellModal}
+			onclose={closeCellModal}
+		/>
+	{/if}
 
 	{#if rowMenu}
 		<ContextMenu

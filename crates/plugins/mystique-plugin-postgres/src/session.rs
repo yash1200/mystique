@@ -2,14 +2,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use deadpool_postgres::Pool;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use deadpool_postgres::Pool;
 use mystique_connector_api::{
-    compile_delete, compile_insert, compile_update, qualify_table, quote_ident, split_sql_statements,
-    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
-    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, FetchTablePreviewInput, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SqlIdentStyle, TablePreviewResult, ValidatedQuery,
+    compile_delete, compile_insert, compile_update, qualify_table, quote_ident,
+    split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
+    CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
+    ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput, PoolStatus,
+    QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -78,7 +78,11 @@ fn pg_type_label(
     }
     if matches!(udt.as_str(), "varchar" | "bpchar" | "bit" | "varbit") {
         if let Some(n) = char_max {
-            let base = if udt == "bpchar" { "char" } else { udt.as_str() };
+            let base = if udt == "bpchar" {
+                "char"
+            } else {
+                udt.as_str()
+            };
             return format!("{base}({n})");
         }
         if udt == "bpchar" {
@@ -93,7 +97,10 @@ fn pg_type_label(
         };
     }
     // Default fractional precision is 6 — omit unless non-default.
-    if matches!(udt.as_str(), "timestamp" | "timestamptz" | "time" | "timetz") {
+    if matches!(
+        udt.as_str(),
+        "timestamp" | "timestamptz" | "time" | "timetz"
+    ) {
         if let Some(p) = dt_prec {
             if p != 6 {
                 return format!("{udt}({p})");
@@ -110,16 +117,12 @@ fn pg_opt_i32(v: Option<i32>) -> Option<i32> {
 /// Format naive timestamp without trailing empty fractional part.
 fn fmt_naive_dt(dt: NaiveDateTime) -> String {
     let s = dt.format("%Y-%m-%d %H:%M:%S%.6f").to_string();
-    s.trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 fn fmt_naive_time(t: NaiveTime) -> String {
     let s = t.format("%H:%M:%S%.6f").to_string();
-    s.trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 fn cell_json(row: &Row, idx: usize) -> JsonValue {
@@ -609,12 +612,7 @@ impl ConnectorSession for PostgresSession {
                 table: table_name,
                 column: column_name,
                 data_type: pg_type_label(
-                    &udt_name,
-                    &data_type,
-                    char_max,
-                    num_prec,
-                    num_scale,
-                    dt_prec,
+                    &udt_name, &data_type, char_max, num_prec, num_scale, dt_prec,
                 ),
                 nullable: is_nullable.to_ascii_uppercase() != "NO",
                 pk: is_pk,
@@ -695,9 +693,8 @@ impl ConnectorSession for PostgresSession {
         let limit = input.max_rows as i64;
         let select_list = preview_select_list(SqlIdentStyle::Postgres, &columns);
         let offset = input.offset;
-        let sql = format!(
-            "SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}"
-        );
+        let sql =
+            format!("SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}");
 
         let client = self
             .pool
@@ -738,7 +735,7 @@ impl ConnectorSession for PostgresSession {
 
     async fn list_catalog(
         &self,
-        _preferred_database: Option<&str>,
+        preferred_database: Option<&str>,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
@@ -752,8 +749,35 @@ impl ConnectorSession for PostgresSession {
             .query_one("SELECT current_database()", &[])
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let db_name: String = db_row.get(0);
-        let rows = client
+        let current: String = db_row.get(0);
+
+        // Postgres connections are per-database; still list every connectable
+        // database on the server so the explorer picker can switch.
+        let db_rows = client
+            .query(
+                r#"
+                SELECT datname
+                FROM pg_database
+                WHERE datallowconn
+                  AND NOT datistemplate
+                  AND has_database_privilege(datname, 'CONNECT')
+                ORDER BY datname
+                "#,
+                &[],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let mut names: Vec<String> = db_rows.iter().map(|row| row.get(0)).collect();
+        if !names.iter().any(|n| n == &current) {
+            names.push(current.clone());
+        }
+        if let Some(pref) = preferred_database.map(str::trim).filter(|s| !s.is_empty()) {
+            if !names.iter().any(|n| n == pref) {
+                names.push(pref.to_string());
+            }
+        }
+
+        let table_rows = client
             .query(
                 r#"
                 SELECT table_schema, table_name, table_type
@@ -765,8 +789,8 @@ impl ConnectorSession for PostgresSession {
             )
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let mut objects = Vec::new();
-        for row in rows {
+        let mut current_objects = Vec::new();
+        for row in table_rows {
             let schema: String = row.get(0);
             let name: String = row.get(1);
             let raw_type: String = row.get(2);
@@ -775,20 +799,58 @@ impl ConnectorSession for PostgresSession {
             } else {
                 "table"
             };
-            objects.push(CatalogObject {
+            current_objects.push(CatalogObject {
                 name,
                 schema: Some(schema),
-                database: Some(db_name.clone()),
+                database: Some(current.clone()),
                 kind: kind.into(),
                 row_count: 0,
             });
         }
-        Ok(vec![CatalogDatabase {
-            name: db_name,
-            meta: Some("live".into()),
-            system: false,
-            objects,
-        }])
+
+        let pref = preferred_database.map(str::trim).unwrap_or("");
+        names.sort_by(|a, b| {
+            if !pref.is_empty() && a == pref {
+                return std::cmp::Ordering::Less;
+            }
+            if !pref.is_empty() && b == pref {
+                return std::cmp::Ordering::Greater;
+            }
+            if a == &current {
+                return std::cmp::Ordering::Less;
+            }
+            if b == &current {
+                return std::cmp::Ordering::Greater;
+            }
+            a.cmp(b)
+        });
+
+        Ok(names
+            .into_iter()
+            .map(|name| {
+                let is_current = name == current;
+                let objects = if is_current {
+                    current_objects.clone()
+                } else {
+                    Vec::new()
+                };
+                let meta = if is_current {
+                    if objects.is_empty() {
+                        Some("empty".into())
+                    } else {
+                        Some(format!("{} tables", objects.len()))
+                    }
+                } else {
+                    None
+                };
+                CatalogDatabase {
+                    name,
+                    meta,
+                    system: false,
+                    objects,
+                }
+            })
+            .collect())
     }
 
     async fn list_relationships(
