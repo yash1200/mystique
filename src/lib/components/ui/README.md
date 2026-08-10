@@ -22,6 +22,7 @@ Implementations of [`docs/DESIGN_LANGUAGE.md`](../../../../docs/DESIGN_LANGUAGE.
 | `AppSettings` | Theme, density, scale, remember-last |
 | `AppSettingsPopover` | Gear trigger + settings panel |
 | `EmptyState` | Centered title + description + actions |
+| `ContentPanel` | Page column; `center` vertically centers short content |
 | `BrandMark` | Jade lens logo |
 | `Kbd` | Shortcut chip |
 | `ContextMenu` | Right-click / action menu |

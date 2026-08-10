@@ -153,7 +153,7 @@ Avoid heavy skeuomorphism. Prefer **1px borders** and restrained shadows.
 ### 2.7 Theme toggle UX
 
 - Location: **Settings** (`AppSettingsPopover`) — home sidebar footer **and** workspace sessions-rail footer. Not a home titlebar.
-- Settings also expose **density** (compact / comfortable), **UI scale**, and “Remember last connection on Home”.
+- Settings also expose **density** (compact / comfortable) and **UI scale**. Home always opens on **New connection**; pick a saved connection from the sidebar.
 - Persistence: `src/lib/utils/appPrefs.ts` (localStorage). Applied at boot in `+layout.svelte` via `applyStoredAppearance()`.
 - Icons: sun / moon / monitor (system).
 - Switching themes must **not** remount the whole workspace (preserve tabs, scroll, selection). CodeMirror reconfigures via `data-theme` observer.
@@ -210,7 +210,7 @@ Never flood the entire UI with the connection hue. Use **accents**:
 | Connection tab (inactive) | 3–4px left stripe or 8px circle in connection color |
 | Connection tab (active) | Stripe + soft background tint `color-mix(in srgb, var(--conn) 12%, var(--bg-elevated))` |
 | Workspace tab | 2px top micro-stripe in parent connection color (`bg-conn`); stronger when active |
-| Sessions rail | Color stripe + engine badge; **PROD** uses warning wash |
+| Sessions rail | Color-capped monogram tile (name initial); **PROD** warning pip; right-click for refresh / disconnect |
 | Workspace shell | `--connection-color` scoped on the workspace root; `data-env="production"` when applicable |
 | Sidebar tree root | Small color chip beside connection name |
 | Query running indicator | Spinner uses connection color |
@@ -357,7 +357,9 @@ Minimum window: **1024×640**. Ideal: **1440×900+**.
 - Active: elevated bg + stronger color stripe.
 - Middle-click or `⌘W` closes (confirm if running queries / dirty).
 - Drag reorder.
-- `+` opens connection picker / new connection.
+- Sessions rail `+` opens the **Open connection** modal (saved profiles not already in this workspace).
+- Mystique mark is identity only — it does **not** return home. Last remaining disconnect still does.
+- **New connection…** in the modal goes home to create a profile.
 
 **Workspace tabs (secondary):**
 
@@ -370,7 +372,7 @@ Minimum window: **1024×640**. Ideal: **1440×900+**.
 Use the `EmptyState` primitive (title + optional description + actions). Parent centers it.
 
 - Loading home: “Loading connections…”
-- No connections: sidebar copy + **+** to create. Center shows **New connection** form.
+- Home always opens on **New connection**. Sidebar lists saved connections; none are preselected.
 - Connection selected, no tab: connection identity card + `EmptyState` (“No tab open”) with `⌘/Ctrl+T`.
 - Catalog/table errors: show the error and what to try next (retry / pick another table).
 - Empty query results: calm message, not error styling.

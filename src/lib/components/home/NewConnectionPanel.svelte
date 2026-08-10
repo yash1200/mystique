@@ -189,6 +189,7 @@
 
 <ContentPanel
 	size="md"
+	center
 	ariaLabel={isEdit ? 'Edit connection' : 'Create connection'}
 >
 	{#if isEdit}
@@ -198,7 +199,11 @@
 		>
 			{#snippet actions()}
 				{#if oncancel}
-					<Button variant="ghost" onclick={oncancel} disabled={saving || testing}>
+					<Button
+						variant="ghost"
+						onclick={oncancel}
+						disabled={saving || testing}
+					>
 						← Back
 					</Button>
 				{/if}

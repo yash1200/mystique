@@ -323,9 +323,9 @@ No continuous animation in chrome.
 | Empty | `EmptyState` | `text-title` + `text-body` + next action; parent centers it |
 | Status footer | `StatusBar` | Three zones: left meta · center pager · right actions; may wrap (`min-h-statusbar`) |
 | Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
-| Settings | `AppSettings` | Theme, density, UI scale, remember last connection |
+| Settings | `AppSettings` | Theme, density, UI scale |
 | Settings trigger | `AppSettingsPopover` | Gear + panel (home sidebar + workspace rail) |
-| Brand | `BrandMark` | Jade lens mark — home + workspace home button |
+| Brand | `BrandMark` | Jade lens mark — identity only in the workspace rail (not a home button) |
 | Shortcut | `Kbd` | Keyboard chips (`⌘T`) |
 | Alert | `Alert` | `info` uses `--status-info`, not accent |
 
