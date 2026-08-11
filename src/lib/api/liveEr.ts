@@ -15,13 +15,7 @@ import type {
   ErEdge,
   ErNode,
 } from "$lib/types/er";
-import { ER_GRID } from "$lib/types/er";
-
-const TABLE_W = 280;
-const HEADER_H = 40;
-const ROW_H = 28;
-const GAP_X = ER_GRID * 3;
-const GAP_Y = ER_GRID * 3;
+import { layoutErNodes } from "$lib/utils/erLayout";
 
 function nodeId(schema: string, name: string): string {
   const s = schema?.trim();
@@ -31,21 +25,6 @@ function nodeId(schema: string, name: string): string {
 function colId(schema: string, table: string, column: string): string {
   const s = schema?.trim();
   return s ? `c_${s}__${table}__${column}` : `c_${table}__${column}`;
-}
-
-function layoutNodes(nodes: ErNode[]): ErNode[] {
-  if (nodes.length === 0) return nodes;
-  const cols = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
-  return nodes.map((n, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const estH = HEADER_H + Math.max(1, n.columns.length) * ROW_H + 48;
-    return {
-      ...n,
-      x: ER_GRID * 2 + col * (TABLE_W + GAP_X),
-      y: ER_GRID * 2 + row * (Math.max(estH, 160) + GAP_Y),
-    };
-  });
 }
 
 export function familyForEngine(engine: string): DataFamily {
@@ -85,14 +64,25 @@ export async function loadLiveErDiagram(
       : db
         ? `ER · ${db}`
         : "ER diagram";
-  const relLabel =
+  const noun =
     family === "nosql"
-      ? "inferred fields · no declared FKs"
-      : `${diagram.edges.length} relationships`;
+      ? "collections"
+      : family === "redis"
+        ? "key patterns"
+        : "tables";
+  const relLabel =
+    family === "sql"
+      ? `${diagram.edges.length} relationships`
+      : diagram.edges.length > 0
+        ? `${diagram.edges.length} inferred links`
+        : "no declared FKs";
   return {
-    diagram: { ...diagram, nodes: layoutNodes(diagram.nodes) },
+    diagram: {
+      ...diagram,
+      nodes: layoutErNodes(diagram.nodes, diagram.edges),
+    },
     title,
-    summary: `${diagram.nodes.length} ${family === "nosql" ? "collections" : "tables"} · ${relLabel}`,
+    summary: `${diagram.nodes.length} ${noun} · ${relLabel}`,
   };
 }
 

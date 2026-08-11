@@ -3,9 +3,11 @@
    * Query space: Run → BE execute → results table.
    * Composes toolbar / editor / results; native paste via bind:value.
    */
+  import { onMount } from "svelte";
   import { executeEngineQuery } from "$lib/api/engines";
   import { appendQueryHistory, type QueryHistoryItem } from "$lib/api/history";
   import { isTauri } from "$lib/api/tauri";
+  import { isSessionMissingError } from "./shell/sessionUtils";
   import {
     queryLanguageForEngine,
     queryPlaceholder,
@@ -45,6 +47,8 @@
     onwritechange?: (enabled: boolean) => void;
     onhistory?: (item?: QueryHistoryItem | null) => void;
     onsave?: () => void;
+    /** Re-open a dead engine session; returns the new session id. */
+    onreconnect?: () => Promise<string | null>;
   }
 
   let {
@@ -62,6 +66,7 @@
     onwritechange,
     onhistory,
     onsave,
+    onreconnect,
   }: Props = $props();
 
   let runState = $state<RunState>({ status: "idle" });
@@ -256,6 +261,7 @@
   }
 
   async function runQuery() {
+    if (runState.status === "running") return;
     const mode = effectiveMode;
     const start = performance.now();
     resultPage = 0;
@@ -274,7 +280,11 @@
       return;
     }
 
-    if (!engineSessionId) {
+    let sid = engineSessionId
+    if (!sid && onreconnect) {
+      sid = await onreconnect()
+    }
+    if (!sid) {
       const elapsedMs = Math.round(performance.now() - start);
       runState = {
         status: "error",
@@ -293,8 +303,8 @@
     }
 
     try {
-      const result = await executeEngineQuery({
-        sessionId: engineSessionId,
+      const request = {
+        sessionId: sid,
         text: sqlText,
         mode,
         maxRows: QUERY_FETCH_MAX_ROWS,
@@ -303,13 +313,20 @@
         collection: language === "mql" ? collection.trim() || null : null,
         database:
           language === "mql" && database?.trim() ? database.trim() : null,
-      });
+      };
+      let result
+      try {
+        result = await executeEngineQuery(request);
+      } catch (e) {
+        if (!onreconnect || !isSessionMissingError(e)) throw e
+        const next = await onreconnect()
+        if (!next) throw e
+        result = await executeEngineQuery({ ...request, sessionId: next })
+      }
       const elapsedMs = Math.round(performance.now() - start);
-      const note = result.message ? ` · ${result.message}` : "";
-      const trunc = result.truncated ? " · truncated" : "";
       runState = {
         status: "ok",
-        message: `${result.rowCount} row(s) · ${result.durationMs}ms${trunc}${note}`,
+        message: (result.message ?? "").trim(),
         mode,
         elapsedMs,
         result,
@@ -378,6 +395,21 @@
   function onSplitDblClick() {
     editorSharePct = SPLIT_DEFAULT;
   }
+
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key !== "Enter" && e.code !== "NumpadEnter") return;
+      const t = e.target;
+      if (t instanceof HTMLElement && t.closest('[role="dialog"]')) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (!currentQueryText().trim()) return;
+      void runQuery();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
 </script>
 
 <div

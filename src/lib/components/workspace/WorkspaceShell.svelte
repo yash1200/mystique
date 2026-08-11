@@ -12,6 +12,7 @@
 		closeEngineSession,
 		openEngineSession,
 		testEngineConnection,
+		type TablePreviewFilter,
 	} from '$lib/api/engines'
 	import {
 		listQueryHistory,
@@ -126,6 +127,34 @@
 		const selected = selectedDb[connectionId]?.trim()
 		if (selected) return selected
 		return preferredDbForProfile(profile)
+	}
+
+	/** Run against the live pool; reopen once if the session died. */
+	async function withLiveSession<T>(
+		connectionId: string,
+		fn: (sessionId: string) => Promise<T>,
+	): Promise<T> {
+		const session = sessions.find((s) => s.profile.id === connectionId)
+		if (!session) {
+			throw new Error('No connection in this workspace.')
+		}
+		const db = sessionDatabase(connectionId, session.profile)
+		let sid = session.engineSessionId
+		if (!sid) {
+			sid = await reopenEngineSession(session.profile, db)
+		}
+		try {
+			return await fn(sid)
+		} catch (e) {
+			if (!isSessionMissingError(e)) throw e
+			sid = await reopenEngineSession(session.profile, db)
+			return await fn(sid)
+		}
+	}
+
+	async function reconnectActiveSession(): Promise<string | null> {
+		if (!activeId || !activeSession) return null
+		return withLiveSession(activeId, async (sid) => sid)
 	}
 
 	async function ensureLiveCatalog(
@@ -725,7 +754,11 @@
 		openSqlInEditor(h.sql)
 	}
 
-	async function openTable(table: TableMeta, offset = 0) {
+	async function openTable(
+		table: TableMeta,
+		offset = 0,
+		filters: TablePreviewFilter[] = [],
+	) {
 		if (!activeId || !activeSession) return
 		sideMode = 'explorer'
 		workspaceSession.openTable(activeId, table.id, table.name)
@@ -736,37 +769,10 @@
 		tableLoading = true
 		catalogError = null
 		try {
-			let engineSessionId = activeSession.engineSessionId
-			if (!engineSessionId) {
-				engineSessionId = await reopenEngineSession(
-					activeSession.profile,
-					sessionDatabase(activeId, activeSession.profile),
-				)
-			}
 			const engine = String(activeSession.profile.engine)
-			let preview
-			try {
-				preview = await loadTablePreview(
-					engineSessionId,
-					engine,
-					table,
-					100,
-					offset,
-				)
-			} catch (e) {
-				if (!isSessionMissingError(e)) throw e
-				engineSessionId = await reopenEngineSession(
-					activeSession.profile,
-					sessionDatabase(activeId, activeSession.profile),
-				)
-				preview = await loadTablePreview(
-					engineSessionId,
-					engine,
-					table,
-					100,
-					offset,
-				)
-			}
+			const preview = await withLiveSession(activeId, (sid) =>
+				loadTablePreview(sid, engine, table, 100, offset, filters),
+			)
 			const list = catalogs[activeId] ?? []
 			const next = list.map((db) => ({
 				...db,
@@ -1244,9 +1250,16 @@
 		}
 	}
 
-	async function reloadGridTable(opts?: { offset?: number }) {
+	async function reloadGridTable(opts?: {
+		offset?: number
+		filters?: TablePreviewFilter[]
+	}) {
 		if (!gridTable) return
-		await openTable(gridTable, opts?.offset ?? 0)
+		if (activeTabId) {
+			const { [activeTabId]: _done, ...rest } = hydratedTableTabs
+			hydratedTableTabs = rest
+		}
+		await openTable(gridTable, opts?.offset ?? 0, opts?.filters ?? [])
 	}
 
 	onMount(() =>
@@ -1330,6 +1343,7 @@
 		querysaving={querySaving}
 		onclosetab={requestCloseTab}
 		onreloadtable={reloadGridTable}
+		onreconnect={reconnectActiveSession}
 	/>
 
 	{#if pickerOpen}
@@ -1343,12 +1357,6 @@
 				pickerError = null
 			}}
 			onpick={(profile) => void connectAdditional(profile)}
-			onmanage={() => {
-				if (pickerBusy) return
-				pickerOpen = false
-				pickerError = null
-				goto(resolve('/'))
-			}}
 		/>
 	{/if}
 

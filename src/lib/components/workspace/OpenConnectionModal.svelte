@@ -17,17 +17,9 @@
 		error?: string | null
 		onclose: () => void
 		onpick: (profile: ConnectionProfile) => void
-		onmanage: () => void
 	}
 
-	let {
-		openIds,
-		busy = false,
-		error = null,
-		onclose,
-		onpick,
-		onmanage,
-	}: Props = $props()
+	let { openIds, busy = false, error = null, onclose, onpick }: Props = $props()
 
 	let query = $state('')
 	let loading = $state(true)
@@ -185,11 +177,8 @@
 		</div>
 
 		<footer
-			class="flex shrink-0 items-center justify-between gap-2 border-t border-line px-4 py-2.5"
+			class="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-2.5"
 		>
-			<Button variant="ghost" size="sm" onclick={onmanage} disabled={busy}>
-				New connection…
-			</Button>
 			<Button variant="ghost" size="sm" onclick={onclose} disabled={busy}>
 				Cancel
 			</Button>

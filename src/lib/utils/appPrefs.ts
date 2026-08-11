@@ -8,6 +8,7 @@ const THEME_KEY = "mystique-theme";
 const DENSITY_KEY = "mystique-density";
 const LAST_CONN_KEY = "mystique-last-connection-id";
 const REMEMBER_KEY = "mystique-remember-last-connection";
+const INSPECT_ON_CLICK_KEY = "mystique-inspect-on-row-click";
 
 export function readThemePref(): ThemePref {
   try {
@@ -99,6 +100,25 @@ export function readRememberLastConnection(): boolean {
 export function writeRememberLastConnection(on: boolean) {
   try {
     localStorage.setItem(REMEMBER_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Default on: clicking a grid row opens the details panel. */
+export function readInspectOnRowClick(): boolean {
+  try {
+    const raw = localStorage.getItem(INSPECT_ON_CLICK_KEY);
+    if (raw == null) return true;
+    return raw === "1" || raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+export function writeInspectOnRowClick(on: boolean) {
+  try {
+    localStorage.setItem(INSPECT_ON_CLICK_KEY, on ? "1" : "0");
   } catch {
     /* ignore */
   }

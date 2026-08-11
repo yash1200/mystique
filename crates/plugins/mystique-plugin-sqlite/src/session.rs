@@ -8,7 +8,7 @@ use mystique_connector_api::{
     CatalogRelationship,
     ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
     FetchTablePreviewInput, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle, TablePreviewResult,
-    ValidatedQuery,
+    ValidatedQuery, sql_where_clause,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -430,10 +430,11 @@ impl ConnectorSession for SqliteSession {
                 .join(", ")
         };
         let offset = input.offset;
+        let where_sql = sql_where_clause(SqlIdentStyle::Postgres, &input.filters)?;
         let sql = format!(
-            "SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}"
+            "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
         );
-        let count_sql = format!("SELECT COUNT(*) FROM {target}");
+        let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
         let pool = self.pool.clone();
         let max_rows = input.max_rows as usize;
         let (result, total_rows) = tokio::task::spawn_blocking(

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { TablePreviewFilter } from '$lib/api/engines'
 	import type { QueryHistoryItem } from '$lib/api/history'
 	import { familyForEngine } from '$lib/api/liveEr'
 	import ErWorkspace from '../ErWorkspace.svelte'
@@ -52,7 +53,11 @@
 		querysaving?: boolean
 		/** Close request (may prompt if dirty). */
 		onclosetab?: (id: string) => void
-		onreloadtable?: (opts?: { offset?: number }) => Promise<void>
+		onreloadtable?: (opts?: {
+			offset?: number
+			filters?: TablePreviewFilter[]
+		}) => Promise<void>
+		onreconnect?: () => Promise<string | null>
 	}
 
 	let {
@@ -82,6 +87,7 @@
 		querysaving = false,
 		onclosetab,
 		onreloadtable,
+		onreconnect,
 	}: Props = $props()
 </script>
 
@@ -121,6 +127,7 @@
 						workspaceSession.setQueryWriteMode(activeTab.id, v)}
 					{onhistory}
 					onsave={onsavequery}
+					{onreconnect}
 				/>
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'model'}
@@ -173,9 +180,25 @@
 						class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
 					>
 						{catalogError}
+						{#if onreloadtable}
+							<button
+								type="button"
+								class="ml-2 border-none bg-transparent text-accent underline"
+								onclick={() => void onreloadtable()}
+							>
+								Retry
+							</button>
+						{/if}
 					</div>
 				{/if}
-				{#if gridTable}
+				{#if tableLoading && (!gridTable || gridTable.columns.length === 0)}
+					<div class="flex flex-1 items-center justify-center p-8">
+						<EmptyState
+							title="Loading table…"
+							description="Reconnecting if needed, then fetching rows."
+						/>
+					</div>
+				{:else if gridTable}
 					{#key gridTable.id}
 						<DataGrid
 							table={gridTable}
@@ -187,6 +210,7 @@
 							sessionId={activeSession.engineSessionId}
 							profileReadOnly={!!activeSession.profile.readOnly}
 							onreload={onreloadtable}
+							{onreconnect}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
 						/>
@@ -196,22 +220,24 @@
 						<EmptyState
 							title={catalogError ? 'Could not load table' : 'Open a table'}
 							description={catalogError
-								? `${catalogError} Use Retry in the banner above, or pick another table.`
+								? `${catalogError} Use Retry, or pick another table.`
 								: 'Double-click a table in the explorer to load rows from the database.'}
 						/>
 					</div>
 				{/if}
 			</div>
 			{#if inspectorData}
-				<RowInspector
-					tableTitle={inspectorData.tableTitle}
-					columns={inspectorData.columns}
-					row={inspectorData.row}
-					rowIndex={inspectorData.rowIndex}
-					{baselineEpoch}
-					onclose={() => workspaceSession.clearRowSelection()}
-					onchange={oninspectorchange}
-				/>
+				{#key `${inspectorData.tableTitle}:${inspectorData.rowIndex}`}
+					<RowInspector
+						tableTitle={inspectorData.tableTitle}
+						columns={inspectorData.columns}
+						row={inspectorData.row}
+						rowIndex={inspectorData.rowIndex}
+						{baselineEpoch}
+						onclose={() => workspaceSession.clearRowSelection()}
+						onchange={oninspectorchange}
+					/>
+				{/key}
 			{/if}
 		{:else if activeSession}
 			<WorkspaceEmpty

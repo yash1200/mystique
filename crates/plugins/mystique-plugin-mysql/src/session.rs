@@ -11,6 +11,7 @@ use mystique_connector_api::{
     CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
     ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput, PoolStatus,
     QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TablePreviewResult, ValidatedQuery,
+    sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -510,8 +511,10 @@ impl ConnectorSession for MysqlSession {
                 .join(", ")
         };
         let offset = input.offset;
-        let sql =
-            format!("SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}");
+        let where_sql = sql_where_clause(SqlIdentStyle::Mysql, &input.filters)?;
+        let sql = format!(
+            "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
+        );
 
         let mut conn = self
             .pool
@@ -519,7 +522,7 @@ impl ConnectorSession for MysqlSession {
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
         let total_rows: u64 = conn
-            .query_first(&format!("SELECT COUNT(*) FROM {target}"))
+            .query_first(&format!("SELECT COUNT(*) FROM {target}{where_sql}"))
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?
             .unwrap_or(0);

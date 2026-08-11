@@ -448,15 +448,11 @@ export function pluginConfigForSession(
 		}
 		if (uri) cfg.uri = uri
 
-		// Prefer path / explicit field; upgrade empty → mystique only when URI has no path
-		// (session still lists all DBs; this is just the default find target).
-		let db =
-			String(cfg.database ?? '').trim() || databaseFromMongoUri(uri) || ''
-		// Legacy local seed used mystique_dev; app seed is mystique.
-		if (!db || db === 'test' || db === 'app') {
-			const fromPath = databaseFromMongoUri(uri)
-			db = fromPath || 'mystique'
-		}
+		// Connection URI path is the default database. Stored `database` is only
+		// a fallback when the URI has no path.
+		const fromUri = databaseFromMongoUri(uri)
+		const stored = String(cfg.database ?? '').trim()
+		const db = fromUri || stored
 		if (db) cfg.database = db
 		else delete cfg.database
 	}

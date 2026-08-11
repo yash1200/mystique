@@ -61,6 +61,18 @@ pub struct ListCatalogColumnsRequest {
     pub schema: Option<String>,
 }
 
+/// One grid filter clause. Plugins compile this to SQL / MQL — never the FE.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TableFilter {
+    pub column: String,
+    /// `eq` `neq` `gt` `gte` `lt` `lte` `contains` `starts` `ends`
+    /// `is_null` `not_null` `is_empty` `not_empty`
+    pub op: String,
+    #[serde(default)]
+    pub value: String,
+}
+
 /// IPC: fetch a page of table/collection rows (plugin-owned SQL / find + order).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +87,9 @@ pub struct FetchTablePreviewRequest {
     pub max_rows: Option<u32>,
     #[serde(default)]
     pub offset: Option<u32>,
+    /// Plugin-compiled predicates (AND). Empty = unfiltered.
+    #[serde(default)]
+    pub filters: Vec<TableFilter>,
 }
 
 /// Plugin input (session already resolved).
@@ -85,6 +100,7 @@ pub struct FetchTablePreviewInput {
     pub database: Option<String>,
     pub max_rows: u32,
     pub offset: u32,
+    pub filters: Vec<TableFilter>,
 }
 
 impl FetchTablePreviewRequest {
@@ -95,6 +111,7 @@ impl FetchTablePreviewRequest {
             database: self.database,
             max_rows: self.max_rows.unwrap_or(default_max).clamp(1, hard_max),
             offset: self.offset.unwrap_or(0),
+            filters: self.filters,
         }
     }
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Button, Pager, StatusBar } from "$lib/components/ui";
+  import { Badge, Button, Pager, StatusBar } from "$lib/components/ui";
   import type { QueryResult } from "$lib/api/engines";
   import { cn } from "$lib/utils/cn";
   import type { RunState } from "./types";
@@ -80,6 +80,30 @@
   const hasRows = $derived(
     runState.status === "ok" && resultTotal > 0 && resultColumns.length > 0,
   );
+
+  const durationMs = $derived.by(() => {
+    if (
+      runState.status !== "ok" &&
+      runState.status !== "blocked" &&
+      runState.status !== "error"
+    ) {
+      return null;
+    }
+    const engineMs =
+      runState.status === "ok" ? runState.result?.durationMs : undefined;
+    const ms = engineMs ?? runState.elapsedMs;
+    return Number.isFinite(ms) ? ms : null;
+  });
+
+  function formatDuration(ms: number): string {
+    if (ms < 1000) return `${ms} ms`;
+    if (ms < 10_000) return `${(ms / 1000).toFixed(2)} s`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+    const totalSec = Math.round(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}m ${s}s`;
+  }
 
   function updateMenuPosition() {
     const anchor = downloadBtnEl ?? menuRoot;
@@ -187,10 +211,23 @@
             : "—"}
         </span>
       {/if}
-      {#if statusText}
-        <span class={cn("min-w-0 truncate", statusTone)} title={statusText}>
-          · {statusText}
+      {#if durationMs != null}
+        <span title={`Ran in ${durationMs.toLocaleString()} ms`}>
+          <Badge tone="neutral" size="sm">{formatDuration(durationMs)}</Badge>
         </span>
+      {/if}
+      {#if runState.status === "ok" && runState.result?.truncated}
+        <Badge tone="warning" size="sm">truncated</Badge>
+      {/if}
+      {#if statusText && runState.status !== "ok"}
+        <span class={cn("min-w-0 truncate", statusTone)} title={statusText}>
+          {statusText}
+        </span>
+      {:else if runState.status === "ok" && runState.message}
+        <span
+          class="min-w-0 truncate text-fg-muted"
+          title={runState.message}>{runState.message}</span
+        >
       {/if}
       {#if exportMsg}
         <span class="shrink-0 truncate text-success" title={exportMsg}

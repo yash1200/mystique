@@ -12,6 +12,7 @@ import type {
   ErNodeKind,
 } from "$lib/types/er";
 import { ER_GRID, snapToGrid } from "$lib/types/er";
+import { layoutErNodes } from "$lib/utils/erLayout";
 
 function quoteIdent(name: string): string {
   const n = name.trim() || "unnamed";
@@ -461,7 +462,7 @@ export function dbmlToDiagram(
     ok: true,
     diagram: {
       family,
-      nodes,
+      nodes: layoutErNodes(nodes, edges),
       edges,
     },
   };

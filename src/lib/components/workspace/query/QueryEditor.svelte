@@ -5,12 +5,12 @@
    */
   import { onMount } from "svelte";
   import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
-  import { EditorState, Compartment, type Extension } from "@codemirror/state";
+  import { EditorState, Compartment, Prec, type Extension } from "@codemirror/state";
   import { basicSetup } from "codemirror";
   import { sql } from "@codemirror/lang-sql";
   import { javascript } from "@codemirror/lang-javascript";
   import { indentWithTab } from "@codemirror/commands";
-  import { Button, Checkbox, Input, Kbd } from "$lib/components/ui";
+  import { Button, Checkbox, Input } from "$lib/components/ui";
   import type { QueryMode } from "$lib/utils/queryPolicyFe";
   import { formatQuery } from "$lib/utils/formatQuery";
   import { cn } from "$lib/utils/cn";
@@ -94,6 +94,12 @@
   });
 
   let formatMsg = $state<string | null>(null);
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform);
+  const runShortcut = isMac ? "⌘Enter" : "Ctrl+Enter";
+  const formatShortcut = isMac ? "⌘⇧F" : "Ctrl+Shift+F";
+  const saveShortcut = isMac ? "⌘S" : "Ctrl+S";
 
   function applyTextToEditor(next: string) {
     const v = view;
@@ -152,42 +158,51 @@
       langCompartment.of(languageExtension(lang)),
       placeholderCompartment.of(ph ? cmPlaceholder(ph) : []),
       EditorView.lineWrapping,
-      // basicSetup already includes history + default keymap; only add extras.
-      keymap.of([
-        {
-          key: "Mod-Enter",
-          run: () => {
-            callbacks.onrun();
-            return true;
-          },
-        },
-        {
-          key: "Mod-s",
-          run: () => {
-            if (callbacks.onsave) {
-              callbacks.onsave();
+      // Beat basicSetup's defaultKeymap (Mod-Enter = insertBlankLine).
+      Prec.highest(
+        keymap.of([
+          {
+            key: "Mod-Enter",
+            run: () => {
+              callbacks.onrun();
               return true;
-            }
-            return false;
+            },
           },
-        },
-        {
-          key: "Mod-Shift-f",
-          run: () => {
-            callbacks.onformat();
-            return true;
+          {
+            key: "Ctrl-Enter",
+            run: () => {
+              callbacks.onrun();
+              return true;
+            },
           },
-        },
-        {
-          // macOS: ⌥⇧F often used by formatters; also bind Alt-Shift-f
-          key: "Alt-Shift-f",
-          run: () => {
-            callbacks.onformat();
-            return true;
+          {
+            key: "Mod-s",
+            run: () => {
+              if (callbacks.onsave) {
+                callbacks.onsave();
+                return true;
+              }
+              return false;
+            },
           },
-        },
-        indentWithTab,
-      ]),
+          {
+            key: "Mod-Shift-f",
+            run: () => {
+              callbacks.onformat();
+              return true;
+            },
+          },
+          {
+            // macOS: ⌥⇧F often used by formatters; also bind Alt-Shift-f
+            key: "Alt-Shift-f",
+            run: () => {
+              callbacks.onformat();
+              return true;
+            },
+          },
+          indentWithTab,
+        ]),
+      ),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged || applyingExternal) return;
         const next = update.state.doc.toString();
@@ -272,9 +287,6 @@
   <div
     class="flex h-control-sm shrink-0 items-center gap-2 border-t border-line bg-elevated px-2.5"
   >
-    <span class="shrink-0 text-caption text-fg-muted">
-      <Kbd>⌘↵</Kbd> run
-    </span>
     <span
       class="min-w-0 flex-1 truncate font-mono text-caption tabular-nums text-fg-muted"
     >
@@ -323,7 +335,7 @@
         size="sm"
         disabled={!localText.trim() || running}
         onclick={formatEditor}
-        title="Format query (⌘/Ctrl+Shift+F)"
+        title={`Format (${formatShortcut})`}
       >
         Format
       </Button>
@@ -333,7 +345,7 @@
           size="sm"
           disabled={!localText.trim() || saving || running}
           onclick={onsave}
-          title="Save query for this connection (⌘/Ctrl+S)"
+          title={`Save (${saveShortcut})`}
         >
           {saving ? "Saving…" : dirty ? "Save●" : "Save"}
         </Button>
@@ -343,7 +355,7 @@
         size="sm"
         disabled={running || !canRun}
         onclick={onrun}
-        title="Run (⌘/Ctrl+Enter)"
+        title={`Run (${runShortcut})`}
       >
         {running ? "Running…" : "Run"}
       </Button>

@@ -10,6 +10,7 @@ use mystique_connector_api::{
     CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
     ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput, PoolStatus,
     QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TablePreviewResult, ValidatedQuery,
+    sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -693,8 +694,10 @@ impl ConnectorSession for PostgresSession {
         let limit = input.max_rows as i64;
         let select_list = preview_select_list(SqlIdentStyle::Postgres, &columns);
         let offset = input.offset;
-        let sql =
-            format!("SELECT {select_list} FROM {target}{order} LIMIT {limit} OFFSET {offset}");
+        let where_sql = sql_where_clause(SqlIdentStyle::Postgres, &input.filters)?;
+        let sql = format!(
+            "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
+        );
 
         let client = self
             .pool
@@ -702,7 +705,7 @@ impl ConnectorSession for PostgresSession {
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
         let total_rows: i64 = client
-            .query_one(&format!("SELECT COUNT(*) FROM {target}"), &[])
+            .query_one(&format!("SELECT COUNT(*) FROM {target}{where_sql}"), &[])
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?
             .get(0);

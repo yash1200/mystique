@@ -3,8 +3,10 @@
 		applyDensityPref,
 		applyThemePref,
 		readDensityPref,
+		readInspectOnRowClick,
 		readThemePref,
 		writeDensityPref,
+		writeInspectOnRowClick,
 		writeThemePref,
 		type DensityPref,
 		type ThemePref,
@@ -14,6 +16,7 @@
 		currentUiScale,
 		writeScalePreference,
 	} from '$lib/utils/uiScale'
+	import Checkbox from './Checkbox.svelte'
 	import Field from './Field.svelte'
 	import Select from './Select.svelte'
 	import ThemeToggle from './ThemeToggle.svelte'
@@ -21,6 +24,7 @@
 	let theme = $state<ThemePref>(readThemePref())
 	let density = $state<DensityPref>(readDensityPref())
 	let scale = $state(String(currentUiScale()))
+	let inspectOnClick = $state(readInspectOnRowClick())
 
 	const densityOptions = [
 		{ value: 'compact', label: 'Compact' },
@@ -54,6 +58,12 @@
 		writeScalePreference(n)
 		applyUiScale(n)
 	}
+
+	function onInspectOnClick(e: Event) {
+		const on = (e.currentTarget as HTMLInputElement).checked
+		inspectOnClick = on
+		writeInspectOnRowClick(on)
+	}
 </script>
 
 <div class="flex flex-col gap-3">
@@ -75,5 +85,15 @@
 			inputSize="sm"
 			onchange={onScale}
 		/>
+	</Field>
+	<Field label="Row details">
+		<Checkbox
+			checked={inspectOnClick}
+			label="Open on row click"
+			onchange={onInspectOnClick}
+		/>
+		<p class="mt-1 mb-0 text-caption text-fg-muted">
+			Off: open from the row menu (Show details).
+		</p>
 	</Field>
 </div>

@@ -24,7 +24,7 @@
 
 <span
   class={cn(
-    "inline-flex shrink-0 items-center justify-center rounded-sm border font-mono font-semibold tracking-tight",
+    "inline-flex shrink-0 items-center justify-center gap-1 rounded-sm border font-mono font-semibold leading-none tracking-tight",
     size === "sm"
       ? "h-5 min-w-7 px-1 text-micro"
       : "h-7 min-w-9 px-1.5 text-caption",

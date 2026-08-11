@@ -1,6 +1,9 @@
 <script lang="ts">
+	import type { TablePreviewFilter } from '$lib/api/engines'
 	import { persistTableEdits } from '$lib/api/tablePersist'
 	import { ContextMenu, type ContextMenuItem } from '$lib/components/ui'
+	import { readInspectOnRowClick } from '$lib/utils/appPrefs'
+	import { isSessionMissingError } from './shell/sessionUtils'
 	import type { TableMeta } from '$lib/types/workspace'
 	import {
 		selectDraftToValue,
@@ -22,7 +25,6 @@
 		cellText,
 		type FilterMode,
 		type FilterRule,
-		matchRule,
 		newRule,
 		opNeedsValue,
 		parseCodeFilters,
@@ -46,7 +48,12 @@
 		sessionId?: string | null
 		profileReadOnly?: boolean
 		/** Reload live rows from the engine (Refresh, pager, save). */
-		onreload?: (opts?: { offset?: number }) => Promise<void>
+		onreload?: (opts?: {
+			offset?: number
+			filters?: TablePreviewFilter[]
+		}) => Promise<void>
+		/** Re-open a dead engine session; returns the new session id. */
+		onreconnect?: () => Promise<string | null>
 	}
 
 	let {
@@ -60,6 +67,7 @@
 		sessionId = null,
 		profileReadOnly = false,
 		onreload,
+		onreconnect,
 	}: Props = $props()
 
 	let seed = $state<Record<string, unknown>[]>([])
@@ -145,16 +153,18 @@
 
 	const hasActiveFilters = $derived(activeRules().length > 0)
 
-	const filteredEntries = $derived.by(() => {
-		const rules = activeRules()
-		const visible = rows.map((row, index) => ({ row, index }))
-		if (rules.length === 0) return visible
-		return visible.filter(({ row }) =>
-			rules.every((rule) => matchRule(row, rule)),
-		)
-	})
+	function previewFilters(): TablePreviewFilter[] {
+		if (!filtersActive) return []
+		return activeRules().map((r) => ({
+			column: r.column,
+			op: r.op,
+			value: r.value,
+		}))
+	}
 
-	const filteredCount = $derived(filteredEntries.length)
+	/** Current engine page (already filtered server-side). */
+	const pageEntries = $derived(rows.map((row, index) => ({ row, index })))
+	const filteredCount = $derived(rows.length)
 	const serverTotal = $derived(Math.max(table.rowCount, rows.length))
 	const totalPages = $derived(
 		Math.max(1, Math.ceil(serverTotal / PAGE_SIZE) || 1),
@@ -162,8 +172,6 @@
 	const safePage = $derived(Math.min(page, totalPages - 1))
 	const pageStart = $derived(safePage * PAGE_SIZE)
 	const pageEnd = $derived(pageStart + filteredCount)
-	/** Loaded rows already are the current server page. */
-	const pageEntries = $derived(filteredEntries)
 
 	function setFilterMode(mode: FilterMode) {
 		if (mode === filterMode) return
@@ -180,16 +188,45 @@
 		filterMode = mode
 	}
 
+	async function reloadFromEngine(offset: number) {
+		if (!onreload) return
+		refreshing = true
+		statusMsg = null
+		try {
+			await onreload({ offset, filters: previewFilters() })
+			loadFromTable(true)
+			appliedSyncTick = rowSyncTick
+		} catch (err) {
+			statusMsg = err instanceof Error ? err.message : String(err)
+		} finally {
+			refreshing = false
+		}
+	}
+
 	function applyFilters() {
+		if (dirtyCount > 0) {
+			flashStatus('Save or reset changes before filtering.')
+			return
+		}
+		if (filterMode === 'code' && parseCodeFilters(filterCode) == null) {
+			flashStatus('Could not parse filter expression')
+			return
+		}
 		filtersActive = true
 		page = 0
+		void reloadFromEngine(0)
 	}
 
 	function clearFilters() {
+		if (dirtyCount > 0) {
+			flashStatus('Save or reset changes before filtering.')
+			return
+		}
 		filtersActive = false
 		filterRules = [makeRule()]
 		filterCode = ''
 		page = 0
+		void reloadFromEngine(0)
 	}
 
 	function addRule() {
@@ -375,6 +412,60 @@
 		flashStatus('Row cloned — save to insert')
 	}
 
+	function remapAfterRemove(index: number, i: number): number | null {
+		if (i === index) return null
+		return i > index ? i - 1 : i
+	}
+
+	/** Drop an unsaved insert/clone from local state (no server DELETE). */
+	function removeLocalRow(index: number) {
+		rows = rows.filter((_, i) => i !== index)
+		originals = originals.filter((_, i) => i !== index)
+		seed = seed.filter((_, i) => i !== index)
+		table.rows.splice(index, 1)
+
+		const remapSet = (set: Set<number>) => {
+			const next = new Set<number>()
+			for (const i of set) {
+				const mapped = remapAfterRemove(index, i)
+				if (mapped != null) next.add(mapped)
+			}
+			return next
+		}
+		newRowIndices = remapSet(newRowIndices)
+		deletedIndices = remapSet(deletedIndices)
+
+		const nextDirty = new Set<string>()
+		for (const key of dirtyKeys) {
+			const sep = key.indexOf('::')
+			if (sep < 0) continue
+			const i = Number(key.slice(0, sep))
+			const col = key.slice(sep + 2)
+			if (!Number.isFinite(i) || !col) continue
+			const mapped = remapAfterRemove(index, i)
+			if (mapped == null) continue
+			nextDirty.add(cellKey(mapped, col))
+		}
+		dirtyKeys = nextDirty
+
+		if (editing?.row === index) {
+			editing = null
+			draft = ''
+		} else if (editing && editing.row > index) {
+			editing = { row: editing.row - 1, col: editing.col }
+		}
+
+		if (selectedCell?.row === index) selectedCell = null
+		else if (selectedCell && selectedCell.row > index) {
+			selectedCell = { row: selectedCell.row - 1, col: selectedCell.col }
+		}
+
+		if (highlightRow === index) highlightRow = null
+		else if (highlightRow != null && highlightRow > index) {
+			highlightRow = highlightRow - 1
+		}
+	}
+
 	function deleteRow(index: number) {
 		if (profileReadOnly) {
 			flashStatus('Connection is read-only')
@@ -384,16 +475,21 @@
 		if (!rows[index]) return
 		if (deletedIndices.has(index)) return
 
-		const wasNew = newRowIndices.has(index)
-		if (!wasNew) {
-			const hasPk = table.columns.some(
-				(c) =>
-					c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
-			)
-			if (!hasPk) {
-				flashStatus('Cannot delete: table has no primary key')
-				return
-			}
+		// Unsaved insert/clone: remove locally. Staging a DELETE has no PK and
+		// blocks Save (dirtyCount treats new+deleted as a no-op).
+		if (newRowIndices.has(index)) {
+			removeLocalRow(index)
+			flashStatus('Unsaved row removed')
+			return
+		}
+
+		const hasPk = table.columns.some(
+			(c) =>
+				c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
+		)
+		if (!hasPk) {
+			flashStatus('Cannot delete: table has no primary key')
+			return
 		}
 
 		deletedIndices = new Set([...deletedIndices, index])
@@ -516,6 +612,11 @@
 		})
 	}
 
+	function shouldOpenInspector(): boolean {
+		// Pref default on. If the panel is already open, always follow the row.
+		return readInspectOnRowClick() || selectedRowIndex != null
+	}
+
 	function selectCell(row: number, col: string) {
 		if (editing) {
 			if (editing.row === row && editing.col === col) return
@@ -523,6 +624,7 @@
 		}
 		selectedCell = { row, col }
 		highlightRow = row
+		if (shouldOpenInspector()) onselectrow(row)
 		focusGridShell()
 		scrollCellIntoView(row, col)
 	}
@@ -531,6 +633,7 @@
 		if (editing) commitEdit()
 		selectedCell = null
 		highlightRow = row
+		if (shouldOpenInspector()) onselectrow(row)
 		focusGridShell()
 	}
 
@@ -555,22 +658,22 @@
 
 	function moveSelection(dRow: number, dCol: number) {
 		const cols = colNames()
-		if (cols.length === 0 || filteredEntries.length === 0) return
+		if (cols.length === 0 || pageEntries.length === 0) return
 
-		let row = selectedCell?.row ?? filteredEntries[0]!.index
+		let row = selectedCell?.row ?? pageEntries[0]!.index
 		let colIdx = selectedCell ? Math.max(0, cols.indexOf(selectedCell.col)) : 0
 
-		// Map absolute row → position in filtered list
-		let filterIdx = filteredEntries.findIndex((e) => e.index === row)
+		// Map absolute row → position in the current engine page
+		let filterIdx = pageEntries.findIndex((e) => e.index === row)
 		if (filterIdx < 0) filterIdx = 0
 
 		filterIdx = Math.max(
 			0,
-			Math.min(filteredEntries.length - 1, filterIdx + dRow),
+			Math.min(pageEntries.length - 1, filterIdx + dRow),
 		)
 		colIdx = Math.max(0, Math.min(cols.length - 1, colIdx + dCol))
 
-		const nextAbs = filteredEntries[filterIdx]!.index
+		const nextAbs = pageEntries[filterIdx]!.index
 		const nextCol = cols[colIdx]!
 		ensureRowVisible(nextAbs)
 		selectedCell = { row: nextAbs, col: nextCol }
@@ -746,7 +849,7 @@
 		if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
 		if (lines.length === 0) return
 
-		let filterIdx = filteredEntries.findIndex(
+		let filterIdx = pageEntries.findIndex(
 			(e) => e.index === selectedCell!.row,
 		)
 		if (filterIdx < 0) filterIdx = 0
@@ -754,7 +857,7 @@
 		let changed = 0
 		for (let r = 0; r < lines.length; r++) {
 			const cells = lines[r]!.split('\t')
-			const entry = filteredEntries[filterIdx + r]
+			const entry = pageEntries[filterIdx + r]
 			if (!entry) break
 			const absRow = entry.index
 			if (deletedIndices.has(absRow)) continue
@@ -903,7 +1006,7 @@
 		refreshing = true
 		statusMsg = null
 		try {
-			await onreload({ offset: p * PAGE_SIZE })
+			await onreload({ offset: p * PAGE_SIZE, filters: previewFilters() })
 			loadFromTable(true)
 			appliedSyncTick = rowSyncTick
 		} catch (err) {
@@ -928,7 +1031,10 @@
 		statusMsg = null
 		try {
 			if (onreload) {
-				await onreload({ offset: page * PAGE_SIZE })
+				await onreload({
+					offset: page * PAGE_SIZE,
+					filters: previewFilters(),
+				})
 				loadFromTable(true)
 				appliedSyncTick = rowSyncTick
 			} else {
@@ -967,24 +1073,39 @@
 			const pendingDbDeletes = [...deletedIndices].filter(
 				(i) => !newRowIndices.has(i),
 			).length
-			const result = await persistTableEdits({
-				sessionId: sessionId ?? '',
-				engine,
-				table,
-				rows,
-				originals,
-				newRowIndices,
-				deletedIndices,
-				dirtyKeys,
-				profileReadOnly,
-			})
+			const persist = (sid: string) =>
+				persistTableEdits({
+					sessionId: sid,
+					engine,
+					table,
+					rows,
+					originals,
+					newRowIndices,
+					deletedIndices,
+					dirtyKeys,
+					profileReadOnly,
+				})
+			let sid = sessionId
+			if (!sid && onreconnect) sid = await onreconnect()
+			let result
+			try {
+				result = await persist(sid ?? '')
+			} catch (err) {
+				if (!onreconnect || !isSessionMissingError(err)) throw err
+				const next = await onreconnect()
+				if (!next) throw err
+				result = await persist(next)
+			}
 			if (pendingDbDeletes > 0 && (result.deleted ?? 0) < pendingDbDeletes) {
 				throw new Error(
 					'Delete did not apply. Restart MystiqueDB (`npm run tauri dev`) so the engine can run DELETE.',
 				)
 			}
 			if (onreload) {
-				await onreload({ offset: page * PAGE_SIZE })
+				await onreload({
+					offset: page * PAGE_SIZE,
+					filters: previewFilters(),
+				})
 				loadFromTable(true)
 				appliedSyncTick = rowSyncTick
 			} else {

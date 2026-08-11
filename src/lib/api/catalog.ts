@@ -11,6 +11,7 @@ import type {
 import {
 	fetchEngineTablePreview,
 	listEngineCatalog,
+	type TablePreviewFilter,
 	type TablePreviewResult,
 } from './engines'
 
@@ -18,9 +19,6 @@ const MONGO_SYSTEM_DBS = new Set(['admin', 'local', 'config'])
 
 /** Known FE-only mock database names (never come from a real Mongo server seed). */
 const MONGO_MOCK_DB_NAMES = new Set(['app', 'analytics'])
-
-/** Prefer live app seed over legacy local names when both exist. */
-const MONGO_LEGACY_PREFERRED = new Set(['mystique_dev', 'test', 'app'])
 
 function emptyLeaf(
 	database: string,
@@ -42,20 +40,13 @@ function emptyLeaf(
 	}
 }
 
-/** Prefer seeded app DB, then first non-system name. */
+/** Prefer the connection’s database, then first non-system name. */
 export function preferDatabase(
 	names: string[],
 	preferred?: string | null,
 ): string {
 	const pref = preferred?.trim() || ''
-	// Upgrade stale preferred names when the 10k seed DB is present.
-	if (pref && names.includes(pref)) {
-		if (MONGO_LEGACY_PREFERRED.has(pref) && names.includes('mystique')) {
-			return 'mystique'
-		}
-		return pref
-	}
-	if (names.includes('mystique')) return 'mystique'
+	if (pref && names.includes(pref)) return pref
 	const nonSystem = names.filter((n) => !MONGO_SYSTEM_DBS.has(n))
 	return nonSystem[0] ?? names[0] ?? ''
 }
@@ -140,6 +131,7 @@ export async function loadTablePreview(
 	table: TableMeta,
 	maxRows = 100,
 	offset = 0,
+	filters: TablePreviewFilter[] = [],
 ): Promise<TableMeta> {
 	const preview = await fetchEngineTablePreview({
 		sessionId,
@@ -148,6 +140,7 @@ export async function loadTablePreview(
 		database: table.database || null,
 		maxRows,
 		offset,
+		filters,
 	})
 	return previewToTableMeta(table, preview)
 }
@@ -206,8 +199,9 @@ function previewToTableMeta(
 	})
 
 	const pageCount = preview.rowCount
-	const total = preview.totalRows ?? 0
-	const rowCount = Math.max(base.rowCount ?? 0, total, pageCount)
+	const total = preview.totalRows
+	const rowCount =
+		typeof total === 'number' ? total : Math.max(base.rowCount ?? 0, pageCount)
 
 	return {
 		...base,

@@ -238,6 +238,12 @@ export async function applyEngineTableEdits(
   return invoke("apply_engine_table_edits", { request });
 }
 
+export interface TablePreviewFilter {
+  column: string;
+  op: string;
+  value: string;
+}
+
 export interface FetchTablePreviewRequest {
   sessionId: string;
   table: string;
@@ -245,6 +251,7 @@ export interface FetchTablePreviewRequest {
   database?: string | null;
   maxRows?: number;
   offset?: number;
+  filters?: TablePreviewFilter[];
 }
 
 export interface TablePreviewResult {

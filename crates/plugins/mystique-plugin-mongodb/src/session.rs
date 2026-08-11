@@ -13,6 +13,7 @@ use mystique_connector_api::{
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
+use crate::preview_filter::compile_mongo_preview_filter;
 use crate::shell_filter::json_to_document;
 
 pub struct MongoSession {
@@ -502,15 +503,24 @@ impl ConnectorSession for MongoSession {
             .client
             .database(&db_name)
             .collection::<Document>(&input.table);
-        let total_rows = coll
-            .estimated_document_count()
-            .await
-            .unwrap_or(0);
-        let mut cursor = coll
-            .find(doc! {})
-            .sort(doc! { "_id": 1 })
-            .skip(input.offset as u64)
-            .limit(input.max_rows as i64)
+        let filter = compile_mongo_preview_filter(&input.filters)?;
+        let total_rows = if filter.is_empty() {
+            coll.estimated_document_count()
+                .await
+                .unwrap_or(0)
+        } else {
+            coll.count_documents(filter.clone())
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?
+        };
+        let mut find = coll.find(filter).sort(doc! { "_id": 1 });
+        if input.offset > 0 {
+            find = find.skip(input.offset as u64);
+        }
+        if input.max_rows > 0 {
+            find = find.limit(input.max_rows as i64);
+        }
+        let mut cursor = find
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
 
@@ -610,12 +620,6 @@ impl ConnectorSession for MongoSession {
                 return std::cmp::Ordering::Less;
             }
             if !pref.is_empty() && b == pref {
-                return std::cmp::Ordering::Greater;
-            }
-            if a == "mystique" {
-                return std::cmp::Ordering::Less;
-            }
-            if b == "mystique" {
                 return std::cmp::Ordering::Greater;
             }
             a.cmp(b)

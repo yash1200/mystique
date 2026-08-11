@@ -32,10 +32,21 @@
     baselineEpoch = 0,
   }: Props = $props();
 
+  function seedFromRow() {
+    const nextBaseline: Record<string, unknown> = {};
+    const nextDrafts: Record<string, string> = {};
+    for (const col of columns) {
+      nextBaseline[col.name] = row[col.name];
+      nextDrafts[col.name] = formatForEdit(col, row[col.name]);
+    }
+    return { nextBaseline, nextDrafts };
+  }
+
+  const seeded = seedFromRow();
   /** Values at last baseline (selection open or after save/reset). */
-  let baseline = $state<Record<string, unknown>>({});
+  let baseline = $state<Record<string, unknown>>(seeded.nextBaseline);
   /** String drafts shown in inputs. */
-  let drafts = $state<Record<string, string>>({});
+  let drafts = $state<Record<string, string>>(seeded.nextDrafts);
   let focusedCol = $state<string | null>(null);
 
   function formatForEdit(col: ColumnDef, value: unknown): string {
@@ -49,6 +60,13 @@
   function valuesEqual(a: unknown, b: unknown): boolean {
     if (a === b) return true;
     if (a == null && b == null) return true;
+    if (typeof a === "object" && typeof b === "object" && a && b) {
+      try {
+        return JSON.stringify(a) === JSON.stringify(b);
+      } catch {
+        return false;
+      }
+    }
     return String(a) === String(b);
   }
 
@@ -61,7 +79,10 @@
       return selectDraftToValue(raw, col, previous);
     }
     const t = raw.trim();
-    if (t === "" || t.toUpperCase() === "NULL") return null;
+    if (t === "" || t.toUpperCase() === "NULL") {
+      // Keep empty string if that's what the cell already holds.
+      return previous === "" ? "" : null;
+    }
     if (typeof previous === "boolean") {
       const lower = t.toLowerCase();
       if (lower === "true" || lower === "1" || lower === "yes") return true;
@@ -71,19 +92,12 @@
       const n = Number(t);
       if (!Number.isNaN(n)) return n;
     }
+    // Only parse JSON when the cell already holds an object.
     if (
       previous !== null &&
-      previous !== undefined &&
-      typeof previous !== "boolean" &&
-      typeof previous !== "object" &&
-      /^-?\d+(\.\d+)?$/.test(t)
-    ) {
-      const n = Number(t);
-      if (!Number.isNaN(n)) return n;
-    }
-    if (
-      (t.startsWith("{") && t.endsWith("}")) ||
-      (t.startsWith("[") && t.endsWith("]"))
+      typeof previous === "object" &&
+      ((t.startsWith("{") && t.endsWith("}")) ||
+        (t.startsWith("[") && t.endsWith("]")))
     ) {
       try {
         return JSON.parse(t);
@@ -108,12 +122,7 @@
   }
 
   function captureBaselineFromRow() {
-    const nextBaseline: Record<string, unknown> = {};
-    const nextDrafts: Record<string, string> = {};
-    for (const col of columns) {
-      nextBaseline[col.name] = row[col.name];
-      nextDrafts[col.name] = formatForEdit(col, row[col.name]);
-    }
+    const { nextBaseline, nextDrafts } = seedFromRow();
     baseline = nextBaseline;
     drafts = nextDrafts;
     focusedCol = null;
@@ -148,15 +157,20 @@
   function isDirty(colName: string): boolean {
     const col = columns.find((c) => c.name === colName);
     if (!col) return false;
-    const parsed = parseDraft(col, drafts[colName] ?? "", baseline[colName]);
-    return !valuesEqual(parsed, baseline[colName]);
+    return (drafts[colName] ?? "") !== formatForEdit(col, baseline[colName]);
   }
 
   function commitField(colName: string) {
     const col = columns.find((c) => c.name === colName);
     if (!col) return;
     const previous = row[colName];
-    const next = parseDraft(col, drafts[colName] ?? "", previous);
+    const draft = drafts[colName] ?? "";
+    // Blur with no text change must not coerce types (JSON string → object, "" → null).
+    if (draft === formatForEdit(col, previous)) {
+      focusedCol = null;
+      return;
+    }
+    const next = parseDraft(col, draft, previous);
     drafts = { ...drafts, [colName]: formatForEdit(col, next) };
     if (!valuesEqual(next, previous)) {
       onchange?.(colName, next);

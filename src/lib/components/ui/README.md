@@ -19,7 +19,7 @@ Implementations of [`docs/DESIGN_LANGUAGE.md`](../../../../docs/DESIGN_LANGUAGE.
 | --------- | --- |
 | `StatusBar` | Footer with left / center / right snippets |
 | `Pager` | ‹ n/m › inside a status bar |
-| `AppSettings` | Theme, density, scale, remember-last |
+| `AppSettings` | Theme, density, scale, open row details on click |
 | `AppSettingsPopover` | Gear trigger + settings panel |
 | `EmptyState` | Centered title + description + actions |
 | `ContentPanel` | Page column; `center` vertically centers short content |

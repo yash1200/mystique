@@ -1,12 +1,8 @@
 <script lang="ts">
 	/**
-	 * ER canvas — DBeaver-like column links on a grid.
-	 * - Multi-select tables (Ctrl/Cmd+click, Ctrl+A)
-	 * - Copy/paste tables (Ctrl+C / Ctrl+V) without relationships
-	 * - Right-click delete (table or canvas selection)
-	 * - Family-specific column type dropdowns
-	 * - Path reshape on grid + grid toggle
-	 * - Undo / redo (Ctrl+Z / Ctrl+Y)
+	 * ER canvas — column-linked schema map (SQL / document / Redis).
+	 * Live workspace: read-only chrome, rearrange + auto-layout.
+	 * Designer: multi-select, copy/paste, DBML editor, undo/redo.
 	 */
 	import {
 		listDiagrams,
@@ -14,7 +10,15 @@
 		type ErDiagramRecord,
 	} from '$lib/api/diagrams'
 	import { isTauri } from '$lib/api/tauri'
-	import { Badge, Button, Inline, Input, Select } from '$lib/components/ui'
+	import {
+		Badge,
+		Button,
+		IconButton,
+		Inline,
+		Input,
+		Select,
+		StatusBar,
+	} from '$lib/components/ui'
 	import type {
 		DataFamily,
 		ErColumn,
@@ -34,9 +38,9 @@
 	} from '$lib/types/er'
 	import { cn } from '$lib/utils/cn'
 	import { dbmlToDiagram, diagramToDbml, sampleDbml } from '$lib/utils/dbml'
-	import { exportDiagramPdf, exportDiagramPng } from '$lib/utils/exportDiagram'
+	import { erContentBounds, layoutErNodes } from '$lib/utils/erLayout'
 	import { currentUiScale, onUiScaleChange } from '$lib/utils/uiScale'
-	import { onMount } from 'svelte'
+	import { onMount, tick } from 'svelte'
 
 	interface Props {
 		family: DataFamily
@@ -75,6 +79,9 @@
 	const ROW_H = $derived(Math.round(ROW_H_BASE * uiScale))
 	const PASTE_OFFSET = $derived(Math.round(ER_GRID * 2 * uiScale))
 	const MAX_HISTORY = 80
+	const ZOOM_MIN = 0.25
+	const ZOOM_MAX = 2
+	const ZOOM_STOPS = [0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 1.75, 2]
 
 	onMount(() => {
 		uiScale = currentUiScale()
@@ -94,11 +101,16 @@
 	let dirty = $state(false)
 	let showGrid = $state(true)
 	/**
-	 * Right-hand live DBML panel (read-only export).
-	 * Auto-hidden when left DBML editor (source mode) is open.
+	 * Right-hand DBML snapshot panel.
+	 * Generated lazily — never from a $derived on the live diagram,
+	 * or every drag would rebuild a huge string and block paint.
 	 */
-	let showDbml = $state(true)
+	let showDbml = $state(false)
 	let dbmlCopied = $state(false)
+	let dbmlText = $state('')
+	let dbmlBusy = $state(false)
+	let dbmlStale = $state(true)
+	let dbmlGen = 0
 	/**
 	 * Left-hand DBML source editor — user writes text → Apply builds the canvas.
 	 * When true, the right DBML panel is forced closed.
@@ -106,7 +118,10 @@
 	let dbmlSourceMode = $state(false)
 	let dbmlEditorText = $state('')
 	let dbmlParseError = $state<string | null>(null)
-	let exporting = $state(false)
+	let tableQuery = $state('')
+	let tableSearchWrap: HTMLDivElement | null = $state(null)
+	/** Canvas view zoom (independent of app UI scale). */
+	let viewZoom = $state(1)
 
 	/** Undo / redo stacks (diagram snapshots taken before each change). */
 	let undoStack = $state<ErDiagramState[]>([])
@@ -150,9 +165,8 @@
 	let newColPk = $state(false)
 
 	const meta = $derived(FAMILY_META[family])
-	/** Live DB diagram from workspace — view/export only, no design tools. */
+	/** Live DB diagram from workspace — view/rearrange only, no design tools. */
 	const readOnly = $derived(embedded)
-	const isSql = $derived(family === 'sql')
 	const typeOptions = $derived(
 		columnTypesForFamily(family).map((t) => ({ value: t, label: t })),
 	)
@@ -163,10 +177,59 @@
 	const selectionCount = $derived(selectedTableIds.length)
 	const canUndo = $derived(undoStack.length > 0)
 	const canRedo = $derived(redoStack.length > 0)
-	/** Live DBML text generated from the canvas diagram (right panel). */
-	const dbmlText = $derived(diagramToDbml(diagram, diagramName))
-	/** Right panel only when export view is on AND source editor is off. */
+	/** Right panel only when snapshot view is on AND source editor is off. */
 	const showRightDbml = $derived(showDbml && !dbmlSourceMode)
+	const entityWord = $derived(meta.nodeLabel.toLowerCase())
+	const navNodes = $derived.by(() => {
+		if (!diagram) return [] as ErNode[]
+		const q = tableQuery.trim().toLowerCase()
+		const sorted = [...diagram.nodes].sort((a, b) =>
+			a.name.localeCompare(b.name),
+		)
+		if (!q) return sorted
+		return sorted.filter(
+			(n) =>
+				n.name.toLowerCase().includes(q) ||
+				n.columns.some((c) => c.name.toLowerCase().includes(q)),
+		)
+	})
+	const fkColumnIds = $derived.by(() => {
+		const ids = new Set<string>()
+		if (!diagram) return ids
+		for (const e of diagram.edges) {
+			ids.add(e.fromColumnId)
+			ids.add(e.toColumnId)
+		}
+		return ids
+	})
+	/** When a link is selected, only its two tables stay bright. */
+	const focusedLink = $derived.by(() => {
+		if (!diagram || !selectedEdgeId) return null
+		const edge = diagram.edges.find((e) => e.id === selectedEdgeId)
+		if (!edge) return null
+		return {
+			edge,
+			tableIds: new Set([edge.from, edge.to]),
+			colIds: new Set([edge.fromColumnId, edge.toColumnId]),
+		}
+	})
+	const edgesDrawOrder = $derived.by(() => {
+		if (!diagram) return [] as ErEdge[]
+		if (!selectedEdgeId) return diagram.edges
+		const rest = diagram.edges.filter((e) => e.id !== selectedEdgeId)
+		const sel = diagram.edges.find((e) => e.id === selectedEdgeId)
+		return sel ? [...rest, sel] : diagram.edges
+	})
+	const canvasBounds = $derived.by(() =>
+		erContentBounds(diagram?.nodes ?? [], uiScale),
+	)
+	const worldW = $derived(Math.max(1, Math.round(canvasBounds.width * viewZoom)))
+	const worldH = $derived(
+		Math.max(1, Math.round(canvasBounds.height * viewZoom)),
+	)
+	const zoomLabel = $derived(`${Math.round(viewZoom * 100)}%`)
+	const canZoomOut = $derived(viewZoom > ZOOM_MIN + 0.001)
+	const canZoomIn = $derived(viewZoom < ZOOM_MAX - 0.001)
 
 	/**
 	 * Reset canvas when family or live diagram identity changes.
@@ -188,13 +251,17 @@
 
 		if (live && live.nodes) {
 			// JSON clone avoids $state proxy issues on seeded live diagrams
-			diagram = JSON.parse(
+			const cloned = JSON.parse(
 				JSON.stringify({
 					family: live.family || f,
 					nodes: live.nodes,
 					edges: live.edges ?? [],
 				}),
 			) as ErDiagramState
+			diagram = {
+				...cloned,
+				nodes: layoutErNodes(cloned.nodes, cloned.edges, { scale: uiScale }),
+			}
 			diagramName =
 				nameHint ||
 				(embedded
@@ -203,13 +270,13 @@
 			toolMsg =
 				statusNote ||
 				(embedded
-					? 'Live schema from the connected database · rearrange freely · export PNG/PDF/DBML.'
+					? 'Live schema · drag to rearrange · Auto-layout to reset.'
 					: 'Live schema loaded.')
 		} else {
 			diagram = emptyDiagram(f)
 			diagramName = nameHint || `Untitled ${FAMILY_META[f].short} diagram`
 			toolMsg =
-				'DBML editor (left) builds the diagram from text · export panel (right) shows live DBML.'
+				'DBML editor (left) builds the diagram from text · Show DBML for a copyable export.'
 		}
 		diagramId = null
 		selectedTableIds = []
@@ -227,7 +294,13 @@
 		dbmlSourceMode = false
 		dbmlEditorText = ''
 		dbmlParseError = null
-		showDbml = !embedded
+		showDbml = false
+		dbmlText = ''
+		dbmlBusy = false
+		dbmlStale = true
+		dbmlGen += 1
+		tableQuery = ''
+		viewZoom = 1
 		clearHistory()
 		renameHistoryPushed = false
 	})
@@ -264,8 +337,32 @@
 		}
 	}
 
-	function markDirty() {
+	function markDirty(opts?: { structure?: boolean }) {
 		dirty = true
+		if (opts?.structure !== false) invalidateDbml()
+	}
+
+	function invalidateDbml() {
+		dbmlStale = true
+		if (showRightDbml) queueDbml()
+	}
+
+	/** Yield a frame so opening the panel never blocks chrome paint. */
+	function queueDbml() {
+		if (!showDbml || dbmlSourceMode) return
+		if (!dbmlStale && dbmlText) return
+		const token = ++dbmlGen
+		const snap = diagram
+		const name = diagramName
+		dbmlBusy = true
+		requestAnimationFrame(() => {
+			window.setTimeout(() => {
+				if (token !== dbmlGen) return
+				dbmlText = diagramToDbml(snap, name)
+				dbmlStale = false
+				dbmlBusy = false
+			}, 0)
+		})
 	}
 
 	function pruneSelectionToDiagram() {
@@ -339,11 +436,105 @@
 	}): ErPoint | null {
 		if (!canvasEl) return null
 		const rect = canvasEl.getBoundingClientRect()
+		const z = viewZoom || 1
 		return {
-			x: e.clientX - rect.left + canvasEl.scrollLeft,
-			y: e.clientY - rect.top + canvasEl.scrollTop,
+			x: (e.clientX - rect.left + canvasEl.scrollLeft) / z,
+			y: (e.clientY - rect.top + canvasEl.scrollTop) / z,
 		}
 	}
+
+	function clampZoom(z: number): number {
+		return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
+	}
+
+	function nearestZoomStop(current: number, dir: 1 | -1): number {
+		if (dir > 0) {
+			return ZOOM_STOPS.find((s) => s > current + 0.001) ?? ZOOM_MAX
+		}
+		const prev = [...ZOOM_STOPS]
+			.reverse()
+			.find((s) => s < current - 0.001)
+		return prev ?? ZOOM_MIN
+	}
+
+	async function setViewZoom(
+		next: number,
+		origin?: { clientX: number; clientY: number },
+	) {
+		const z = clampZoom(next)
+		if (Math.abs(z - viewZoom) < 0.001) return
+		const el = canvasEl
+		let worldX = 0
+		let worldY = 0
+		let ox = 0
+		let oy = 0
+		if (el) {
+			const rect = el.getBoundingClientRect()
+			if (origin) {
+				ox = origin.clientX - rect.left
+				oy = origin.clientY - rect.top
+			} else {
+				ox = rect.width / 2
+				oy = rect.height / 2
+			}
+			worldX = (ox + el.scrollLeft) / viewZoom
+			worldY = (oy + el.scrollTop) / viewZoom
+		}
+		viewZoom = z
+		await tick()
+		if (!el) return
+		el.scrollLeft = worldX * z - ox
+		el.scrollTop = worldY * z - oy
+	}
+
+	function zoomIn() {
+		const next = nearestZoomStop(viewZoom, 1)
+		void setViewZoom(next)
+		toolMsg = `Zoom ${Math.round(next * 100)}%.`
+	}
+
+	function zoomOut() {
+		const next = nearestZoomStop(viewZoom, -1)
+		void setViewZoom(next)
+		toolMsg = `Zoom ${Math.round(next * 100)}%.`
+	}
+
+	function resetZoom() {
+		void setViewZoom(1)
+		toolMsg = 'Zoom 100%.'
+	}
+
+	async function fitZoom() {
+		if (!canvasEl || !diagram?.nodes.length) {
+			void setViewZoom(1)
+			return
+		}
+		const rect = canvasEl.getBoundingClientRect()
+		const pad = ER_GRID
+		const sx = (rect.width - pad * 2) / canvasBounds.width
+		const sy = (rect.height - pad * 2) / canvasBounds.height
+		const next = clampZoom(Math.min(sx, sy, ZOOM_MAX))
+		viewZoom = next
+		await tick()
+		canvasEl.scrollTo({ left: 0, top: 0 })
+		toolMsg = `Fit · ${Math.round(next * 100)}%.`
+	}
+
+	$effect(() => {
+		const el = canvasEl
+		if (!el) return
+		const onWheel = (e: WheelEvent) => {
+			if (!(e.ctrlKey || e.metaKey)) return
+			e.preventDefault()
+			const next =
+				e.deltaY > 0
+					? nearestZoomStop(viewZoom, -1)
+					: nearestZoomStop(viewZoom, 1)
+			void setViewZoom(next, { clientX: e.clientX, clientY: e.clientY })
+		}
+		el.addEventListener('wheel', onWheel, { passive: false })
+		return () => el.removeEventListener('wheel', onWheel)
+	})
 
 	function setSelection(ids: string[]) {
 		selectedTableIds = [...new Set(ids)]
@@ -547,81 +738,220 @@
 		return { x: prev.x, y: gy }
 	}
 
-	/**
-	 * Stable lane index among edges that share the same table pair direction
-	 * (A→B). Used so parallel column links get separate corridors.
-	 */
-	function edgeLaneIndex(edge: ErEdge): number {
-		if (!diagram) return 0
-		const peers = diagram.edges
-			.filter((e) => e.from === edge.from && e.to === edge.to)
-			.slice()
-			.sort((a, b) => a.id.localeCompare(b.id))
-		const idx = peers.findIndex((e) => e.id === edge.id)
-		return idx < 0 ? 0 : idx
+	type EdgeSpine = {
+		lane: number
+		spineX: number
+		yNudge: number
+	}
+
+	type SpineDraft = {
+		id: string
+		kind: 'mid' | 'outer-left' | 'outer-right' | 'horiz' | 'self'
+		start: ErPoint
+		end: ErPoint
+		channel: string
+		y0: number
+		y1: number
+		left: number
+		right: number
 	}
 
 	/**
-	 * Default path shape is always:
-	 *   exit horizontally → vertical run → enter horizontally
-	 * so the arrow head points left/right (──▶ or ◀──), never up/down.
-	 *
-	 * `lane` offsets the vertical corridor so multiple A→B links stay separate.
+	 * Overlapping arrows in the same alley get different vertical spines.
+	 * The old per-pair lane left every child→parent FK on the same mid-X.
+	 */
+	function assignEdgeSpines(): Map<string, EdgeSpine> {
+		const out = new Map<string, EdgeSpine>()
+		if (!diagram) return out
+		const drafts: SpineDraft[] = []
+		for (const edge of diagram.edges) {
+			const raw = edgeAnchorsAndWaypoints(edge)
+			if (!raw) continue
+			const { start, end, fromSide, toSide } = raw
+			const a = diagram.nodes.find((n) => n.id === edge.from)
+			const b = diagram.nodes.find((n) => n.id === edge.to)
+			if (!a || !b) continue
+			const y0 = Math.min(start.y, end.y)
+			const y1 = Math.max(start.y, end.y)
+			const left = Math.min(start.x, end.x)
+			const right = Math.max(start.x, end.x)
+			if (a.id === b.id) {
+				drafts.push({
+					id: edge.id,
+					kind: 'self',
+					start,
+					end,
+					channel: `self:${a.id}`,
+					y0,
+					y1,
+					left,
+					right,
+				})
+				continue
+			}
+			if (Math.abs(start.y - end.y) < 0.5) {
+				const pair = [edge.from, edge.to].sort().join('>')
+				drafts.push({
+					id: edge.id,
+					kind: 'horiz',
+					start,
+					end,
+					channel: `h:${Math.round(start.y / 4)}:${pair}`,
+					y0,
+					y1,
+					left,
+					right,
+				})
+				continue
+			}
+			if (fromSide === toSide) {
+				const kind = fromSide === 'right' ? 'outer-right' : 'outer-left'
+				drafts.push({
+					id: edge.id,
+					kind,
+					start,
+					end,
+					channel: `${kind}:${Math.round((fromSide === 'right' ? right : left) / ER_GRID)}`,
+					y0,
+					y1,
+					left,
+					right,
+				})
+				continue
+			}
+			drafts.push({
+				id: edge.id,
+				kind: 'mid',
+				start,
+				end,
+				channel: `mid:${Math.round(left / ER_GRID)}:${Math.round(right / ER_GRID)}`,
+				y0,
+				y1,
+				left,
+				right,
+			})
+		}
+
+		const byChannel = new Map<string, SpineDraft[]>()
+		for (const d of drafts) {
+			const arr = byChannel.get(d.channel) ?? []
+			arr.push(d)
+			byChannel.set(d.channel, arr)
+		}
+
+		const yPad = Math.max(10, ROW_H * 0.4)
+		const sep = 14
+
+		for (const group of byChannel.values()) {
+			group.sort((a, b) => a.y0 - b.y0 || a.id.localeCompare(b.id))
+			const laneOf = new Map<string, number>()
+			const active: { lane: number; y1: number }[] = []
+			for (const d of group) {
+				const used = new Set(
+					active.filter((a) => a.y1 + yPad > d.y0).map((a) => a.lane),
+				)
+				let lane = 0
+				while (used.has(lane)) lane += 1
+				laneOf.set(d.id, lane)
+				active.push({ lane, y1: d.y1 })
+			}
+
+			for (const d of group) {
+				const lane = laneOf.get(d.id) ?? 0
+				out.set(d.id, spineFromLane(d, lane, sep))
+			}
+		}
+		return out
+	}
+
+	function spineFromLane(d: SpineDraft, lane: number, sep: number): EdgeSpine {
+		if (d.kind === 'horiz') {
+			const sign = lane % 2 === 0 ? 1 : -1
+			const mag = Math.ceil((lane + 1) / 2) * 6
+			return { lane, spineX: (d.left + d.right) / 2, yNudge: sign * mag }
+		}
+		if (d.kind === 'self') {
+			return {
+				lane,
+				spineX: d.right + ER_GRID * 3 + lane * sep,
+				yNudge: 0,
+			}
+		}
+		if (d.kind === 'outer-right') {
+			return { lane, spineX: d.right + ER_GRID * 2 + lane * sep, yNudge: 0 }
+		}
+		if (d.kind === 'outer-left') {
+			return { lane, spineX: d.left - ER_GRID * 2 - lane * sep, yNudge: 0 }
+		}
+
+		const gap = d.right - d.left
+		const inset = 8
+		const usable = Math.max(sep, gap - inset * 2)
+		const tracks = Math.max(1, Math.floor(usable / sep))
+		if (lane < tracks) {
+			return {
+				lane,
+				spineX: d.left + inset + (lane + 0.5) * (usable / tracks),
+				yNudge: 0,
+			}
+		}
+		const over = lane - tracks
+		const extra = ER_GRID * 2 + Math.floor(over / 2) * sep
+		return {
+			lane,
+			spineX: over % 2 === 0 ? d.right + extra : d.left - extra,
+			yNudge: 0,
+		}
+	}
+
+	const edgeSpines = $derived.by(() => assignEdgeSpines())
+
+	function edgeSpine(edge: ErEdge): EdgeSpine {
+		const hit = edgeSpines.get(edge.id)
+		if (hit) return hit
+		const raw = edgeAnchorsAndWaypoints(edge)
+		if (!raw) return { lane: 0, spineX: 0, yNudge: 0 }
+		return {
+			lane: 0,
+			spineX: (raw.start.x + raw.end.x) / 2,
+			yNudge: 0,
+		}
+	}
+
+	/**
+	 * Default path: exit horizontally → vertical spine → enter horizontally.
+	 * `spine` is the unique corridor for this edge (no shared mid-X).
 	 */
 	function defaultManhattanWaypoints(
 		start: ErPoint,
 		end: ErPoint,
 		fromSide: TableSide,
 		toSide: TableSide,
-		lane = 0,
+		spine?: EdgeSpine,
 	): ErPoint[] {
-		const lanePad = lane * ER_GRID
+		const yNudge = spine?.yNudge ?? 0
 
-		// Pure horizontal (same row): already ──▶ / ◀──, no elbows needed
 		if (Math.abs(start.y - end.y) < 0.5) {
-			// Still separate parallel same-row links slightly in Y? skip — rare
-			return []
-		}
-
-		// NEVER pure vertical (same X): that makes the arrow tip point up/down.
-		// Always detour: ──┐ then │ then └──▶
-
-		// Same side (stacked tables or self-loop style): outer vertical corridor
-		if (fromSide === toSide) {
-			const basePad = ER_GRID * 2 + lanePad
-			const corridorX =
-				fromSide === 'right'
-					? snapToGrid(Math.max(start.x, end.x) + basePad)
-					: snapToGrid(Math.min(start.x, end.x) - basePad)
+			if (Math.abs(yNudge) < 0.5) return []
+			const mid = spine?.spineX ?? (start.x + end.x) / 2
 			return [
-				{ x: corridorX, y: start.y },
-				{ x: corridorX, y: end.y },
+				{ x: mid, y: start.y },
+				{ x: mid, y: start.y + yNudge },
+				{ x: end.x > start.x ? end.x - ER_GRID : end.x + ER_GRID, y: end.y + yNudge },
 			]
 		}
 
-		// Opposite sides (side-by-side tables): mid corridor with per-lane offset
-		let midX = (start.x + end.x) / 2
-		// Spread parallel links above/below the midpoint along X
-		const spread =
-			lane === 0 ? 0 : (lane % 2 === 1 ? 1 : -1) * Math.ceil(lane / 2) * ER_GRID
-		midX = snapToGrid(midX + spread)
-
-		// Ensure we actually leave horizontally from start (mid ≠ start.x)
-		if (Math.abs(midX - start.x) < ER_GRID) {
-			midX = snapToGrid(
-				start.x + (fromSide === 'right' ? ER_GRID * 2 : -ER_GRID * 2) + lanePad,
-			)
-		}
-		// Ensure we approach end horizontally (mid ≠ end.x)
-		if (Math.abs(midX - end.x) < ER_GRID) {
-			midX = snapToGrid(
-				end.x + (toSide === 'left' ? -ER_GRID * 2 : ER_GRID * 2) - lanePad,
-			)
-		}
+		const spineX =
+			spine?.spineX ??
+			(fromSide === toSide
+				? fromSide === 'right'
+					? Math.max(start.x, end.x) + ER_GRID * 2
+					: Math.min(start.x, end.x) - ER_GRID * 2
+				: (start.x + end.x) / 2)
 
 		return [
-			{ x: midX, y: start.y },
-			{ x: midX, y: end.y },
+			{ x: spineX, y: start.y },
+			{ x: spineX, y: end.y },
 		]
 	}
 
@@ -689,31 +1019,16 @@
 	function edgePoints(edge: ErEdge): ErPoint[] {
 		const raw = edgeAnchorsAndWaypoints(edge)
 		if (!raw) return []
-		const lane = edgeLaneIndex(edge)
+		const spine = edgeSpine(edge)
 		let { start, end, wps, fromSide, toSide } = raw
 
-		// Auto route (empty or only trivial) — always rebuild with lane separation
-		if (wps.length === 0) {
-			wps = defaultManhattanWaypoints(start, end, fromSide, toSide, lane)
-		} else if (wps.length <= 2) {
-			// Likely auto-generated elbows: rebuild so parallel links don't share a spine
-			wps = defaultManhattanWaypoints(start, end, fromSide, toSide, lane)
-		} else {
-			// User multi-bend path: keep shape but nudge by lane so overlaps ease
-			if (lane > 0) {
-				const sign =
-					fromSide === 'left' && toSide === 'left'
-						? -1
-						: fromSide === 'right' || toSide === 'right'
-							? 1
-							: 1
-				const dx = sign * lane * ER_GRID
-				wps = wps.map((p) => ({ x: snapToGrid(p.x + dx), y: p.y }))
-			}
+		// Auto route (empty or only trivial) — rebuild onto a unique spine
+		if (wps.length === 0 || wps.length <= 2) {
+			wps = defaultManhattanWaypoints(start, end, fromSide, toSide, spine)
 		}
 
 		const orth = toOrthogonal([start, ...wps, end])
-		return ensureHorizontalPorts(orth, fromSide, toSide, lane)
+		return ensureHorizontalPorts(orth, fromSide, toSide, spine.lane)
 	}
 
 	/**
@@ -728,7 +1043,7 @@
 		const { fromSide, toSide } = pickLinkSides(a, b, wps)
 		const start = columnSideAnchor(a, edge.fromColumnId, fromSide)
 		const end = columnSideAnchor(b, edge.toColumnId, toSide)
-		const lane = edgeLaneIndex(edge)
+		const lane = edgeSpine(edge).lane
 		const full = ensureHorizontalPorts(
 			toOrthogonal([
 				start,
@@ -967,7 +1282,7 @@
 					y: p.y,
 				}))
 			} else {
-				wps = defaultManhattanWaypoints(start, end, fromSide, toSide, lane)
+				wps = defaultManhattanWaypoints(start, end, fromSide, toSide)
 			}
 		}
 
@@ -1063,13 +1378,10 @@
 		}
 
 		if (!dragTableId || !diagram || !canvasEl) return
-		const rect = canvasEl.getBoundingClientRect()
-		const x = snapToGrid(
-			Math.max(0, e.clientX - rect.left + canvasEl.scrollLeft - dragOffX),
-		)
-		const y = snapToGrid(
-			Math.max(0, e.clientY - rect.top + canvasEl.scrollTop - dragOffY),
-		)
+		const pt = canvasPoint(e)
+		if (!pt) return
+		const x = snapToGrid(Math.max(0, pt.x - dragOffX))
+		const y = snapToGrid(Math.max(0, pt.y - dragOffY))
 
 		if (
 			multiDragOrigins &&
@@ -1121,7 +1433,7 @@
 
 	function onWindowPointerUp() {
 		if (dragWaypoint) {
-			markDirty()
+			markDirty({ structure: false })
 			dragWaypoint = null
 		}
 	}
@@ -1141,12 +1453,13 @@
 		}
 		// if already in multi-selection, keep it for group drag
 
-		const rect = canvasEl.getBoundingClientRect()
+		const origin = canvasPoint(e)
+		if (!origin) return
 		dragTableId = tableId
 		didDrag = false
 		dragHistoryPushed = false
-		dragOffX = e.clientX - rect.left + canvasEl.scrollLeft - node.x
-		dragOffY = e.clientY - rect.top + canvasEl.scrollTop - node.y
+		dragOffX = origin.x - node.x
+		dragOffY = origin.y - node.y
 		selectedEdgeId = null
 		ctxMenu = null
 		renameHistoryPushed = false
@@ -1167,7 +1480,7 @@
 
 	function onTablePointerUp(e: PointerEvent) {
 		if (dragTableId) {
-			if (didDrag) markDirty()
+			if (didDrag) markDirty({ structure: false })
 			try {
 				;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
 			} catch {
@@ -1311,6 +1624,32 @@
 			if (e.key === 'Backspace' || e.code === 'Backspace') return
 		}
 
+		if (e.key === '/' && !isEditableTarget(e.target)) {
+			e.preventDefault()
+			tableSearchWrap?.querySelector('input')?.focus()
+			return
+		}
+		if (mod && e.shiftKey && key === 'l') {
+			e.preventDefault()
+			autoLayout()
+			return
+		}
+		if (mod && (key === '=' || key === '+' || e.code === 'NumpadAdd')) {
+			e.preventDefault()
+			zoomIn()
+			return
+		}
+		if (mod && (key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')) {
+			e.preventDefault()
+			zoomOut()
+			return
+		}
+		if (mod && key === '0') {
+			e.preventDefault()
+			resetZoom()
+			return
+		}
+
 		// Live schema view: no edit shortcuts (delete / paste / undo / redo).
 		if (readOnly) {
 			if (mod && key === 'a') {
@@ -1321,6 +1660,7 @@
 				ctxMenu = null
 				selectedTableIds = []
 				selectedEdgeId = null
+				tableQuery = ''
 			}
 			return
 		}
@@ -1467,6 +1807,15 @@
 		markDirty()
 	}
 
+	function edgeEndpointLabel(edge: ErEdge, which: 'from' | 'to'): string {
+		if (!diagram) return '?'
+		const node = diagram.nodes.find((n) => n.id === edge[which])
+		const colId = which === 'from' ? edge.fromColumnId : edge.toColumnId
+		const col = node?.columns.find((c) => c.id === colId)
+		if (!node) return '?'
+		return col ? `${node.name}.${col.name}` : node.name
+	}
+
 	function selectEdge(edgeId: string, e?: Event) {
 		e?.stopPropagation()
 		e?.preventDefault()
@@ -1474,7 +1823,10 @@
 		selectedTableIds = []
 		showAddCol = false
 		ctxMenu = null
-		if (!arrowTool) {
+		const edge = diagram?.edges.find((ed) => ed.id === edgeId)
+		if (edge) {
+			toolMsg = `${edgeEndpointLabel(edge, 'from')} → ${edgeEndpointLabel(edge, 'to')} · other tables dimmed. Click canvas to clear.`
+		} else if (!arrowTool) {
 			toolMsg =
 				'Link selected. Drag handles to reshape. Delete key removes the link.'
 		}
@@ -1492,7 +1844,7 @@
 
 	function onWaypointUp(e: PointerEvent) {
 		if (dragWaypoint) {
-			markDirty()
+			markDirty({ structure: false })
 			dragWaypoint = null
 		}
 		try {
@@ -1567,13 +1919,12 @@
 				// Reset to default H-V-H corridor (separate lane for parallel links)
 				const raw = edgeAnchorsAndWaypoints({ ...ed, waypoints: [] })
 				if (!raw) return { ...ed, waypoints: [] }
-				const lane = edgeLaneIndex(ed)
 				const wps = defaultManhattanWaypoints(
 					raw.start,
 					raw.end,
 					raw.fromSide,
 					raw.toSide,
-					lane,
+					edgeSpine(ed),
 				)
 				return { ...ed, waypoints: wps }
 			}),
@@ -1588,15 +1939,45 @@
 	}
 
 	function toggleDbml() {
-		// Right export panel — not available while left source editor is open
+		// Snapshot panel — not available while left source editor is open
 		if (dbmlSourceMode) {
-			toolMsg = 'Close left DBML editor first to show the right export panel.'
+			toolMsg = 'Close left DBML editor first to show the DBML panel.'
 			return
 		}
 		showDbml = !showDbml
-		toolMsg = showDbml
-			? 'DBML export panel shown.'
-			: 'DBML export panel hidden.'
+		if (showDbml) {
+			toolMsg = 'Generating DBML…'
+			queueDbml()
+		} else {
+			toolMsg = 'DBML panel hidden.'
+		}
+	}
+
+	function autoLayout() {
+		if (!diagram) return
+		snapshotBeforeChange()
+		diagram = {
+			...diagram,
+			nodes: layoutErNodes(diagram.nodes, diagram.edges, { scale: uiScale }),
+		}
+		if (!readOnly) markDirty()
+		toolMsg =
+			diagram.edges.length > 0
+				? `Auto-layout · parents left, children right · ${diagram.nodes.length} ${entityWord}s.`
+				: `Auto-layout · packed grid · ${diagram.nodes.length} ${entityWord}s.`
+		requestAnimationFrame(() => {
+			canvasEl?.scrollTo({ left: 0, top: 0 })
+		})
+	}
+
+	function focusTable(id: string) {
+		if (!diagram || !canvasEl) return
+		const node = diagram.nodes.find((n) => n.id === id)
+		if (!node) return
+		selectOnly(id)
+		const left = Math.max(0, node.x * viewZoom - ER_GRID * 2)
+		const top = Math.max(0, node.y * viewZoom - ER_GRID * 2)
+		canvasEl.scrollTo({ left, top, behavior: 'smooth' })
 	}
 
 	function openDbmlSourceEditor() {
@@ -1608,14 +1989,14 @@
 		const hasTables = (diagram?.nodes.length ?? 0) > 0
 		dbmlEditorText = hasTables ? fromCanvas : sampleDbml(family)
 		toolMsg =
-			'DBML editor open — edit text, then Apply to rebuild the diagram. Right export panel hidden.'
+			'DBML editor open — edit text, then Apply to rebuild the diagram.'
 	}
 
 	function closeDbmlSourceEditor() {
 		dbmlSourceMode = false
 		dbmlParseError = null
 		toolMsg =
-			'DBML editor closed. Use tools to edit the canvas, or Show DBML for export view.'
+			'DBML editor closed. Use tools to edit the canvas, or Show DBML for a snapshot.'
 	}
 
 	function toggleDbmlSourceEditor() {
@@ -1657,7 +2038,9 @@
 	}
 
 	async function copyDbml() {
-		const text = dbmlSourceMode ? dbmlEditorText : dbmlText
+		const text = dbmlSourceMode
+			? dbmlEditorText
+			: dbmlText || diagramToDbml(diagram, diagramName)
 		try {
 			await navigator.clipboard.writeText(text)
 			dbmlCopied = true
@@ -1667,98 +2050,6 @@
 			}, 1600)
 		} catch {
 			toolMsg = 'Could not copy DBML — select text manually.'
-		}
-	}
-
-	/** Content bounds so export includes all tables (not only the viewport). */
-	function exportBounds(): { width: number; height: number } {
-		if (!diagram?.nodes.length) {
-			return { width: 1400, height: 800 }
-		}
-		let maxX = 400
-		let maxY = 300
-		for (const n of diagram.nodes) {
-			const h = HEADER_H + n.columns.length * ROW_H + 80
-			maxX = Math.max(maxX, n.x + TABLE_W + 120)
-			maxY = Math.max(maxY, n.y + h)
-		}
-		// Include edge corridor space
-		maxX += ER_GRID * 4
-		maxY += ER_GRID * 4
-		return {
-			width: Math.max(1400, Math.ceil(maxX)),
-			height: Math.max(800, Math.ceil(maxY)),
-		}
-	}
-
-	async function handleExportPng() {
-		if (!canvasEl || !diagram) {
-			toolMsg = 'Nothing to export yet.'
-			return
-		}
-		exporting = true
-		toolMsg = 'Choose where to save the PNG…'
-		try {
-			// Clear selection chrome for a cleaner shot
-			const prevTables = selectedTableIds
-			const prevEdge = selectedEdgeId
-			selectedTableIds = []
-			selectedEdgeId = null
-			ctxMenu = null
-			await new Promise((r) => requestAnimationFrame(() => r(null)))
-			const result = await exportDiagramPng(
-				canvasEl,
-				diagramName,
-				exportBounds(),
-			)
-			selectedTableIds = prevTables
-			selectedEdgeId = prevEdge
-			if (result.ok) {
-				toolMsg = `PNG saved: ${result.path}`
-			} else if (result.cancelled) {
-				toolMsg = 'PNG export cancelled.'
-			} else {
-				toolMsg = result.error
-			}
-		} catch (e) {
-			toolMsg = e instanceof Error ? e.message : 'PNG export failed.'
-		} finally {
-			exporting = false
-		}
-	}
-
-	async function handleExportPdf() {
-		if (!canvasEl || !diagram) {
-			toolMsg = 'Nothing to export yet.'
-			return
-		}
-		exporting = true
-		toolMsg = 'Choose where to save the PDF…'
-		try {
-			const prevTables = selectedTableIds
-			const prevEdge = selectedEdgeId
-			selectedTableIds = []
-			selectedEdgeId = null
-			ctxMenu = null
-			await new Promise((r) => requestAnimationFrame(() => r(null)))
-			const result = await exportDiagramPdf(
-				canvasEl,
-				diagramName,
-				exportBounds(),
-			)
-			selectedTableIds = prevTables
-			selectedEdgeId = prevEdge
-			if (result.ok) {
-				toolMsg = `PDF saved: ${result.path}`
-			} else if (result.cancelled) {
-				toolMsg = 'PDF export cancelled.'
-			} else {
-				toolMsg = result.error
-			}
-		} catch (e) {
-			toolMsg = e instanceof Error ? e.message : 'PDF export failed.'
-		} finally {
-			exporting = false
 		}
 	}
 
@@ -1842,13 +2133,12 @@
 />
 
 <div class="flex h-full min-h-0 flex-col">
-	<!-- Single row: chrome left · name field fills remaining space · actions right (no wrap). -->
 	<div
-		class="flex h-topbar shrink-0 items-center gap-3 border-b border-line bg-panel px-4"
+		class="flex h-topbar shrink-0 items-center gap-3 border-b border-line bg-panel px-3"
 	>
 		<div class="flex min-w-0 shrink-0 items-center gap-2">
 			<span
-				class="max-w-[10rem] truncate text-body font-semibold text-fg sm:max-w-[14rem]"
+				class="max-w-[12rem] truncate text-body font-semibold text-fg sm:max-w-[18rem]"
 			>
 				{embedded ? diagramName || 'Live schema' : `ER · ${meta.title}`}
 			</span>
@@ -1857,6 +2147,17 @@
 			{/if}
 			{#if dirty}
 				<Badge tone="warning" size="sm">Unsaved</Badge>
+			{/if}
+			{#if diagram}
+				<Badge tone="neutral" size="sm">
+					{diagram.nodes.length}
+					{entityWord}{diagram.nodes.length === 1 ? '' : 's'}
+					{#if diagram.edges.length > 0}
+						· {diagram.edges.length} link{diagram.edges.length === 1
+							? ''
+							: 's'}
+					{/if}
+				</Badge>
 			{/if}
 			{#if selectionCount > 0}
 				<Badge tone="neutral" size="sm">{selectionCount} selected</Badge>
@@ -1885,6 +2186,59 @@
 		{/if}
 
 		<div class="flex shrink-0 items-center gap-2">
+			<Button
+				variant="secondary"
+				size="sm"
+				onclick={autoLayout}
+				disabled={!diagram || diagram.nodes.length === 0}
+			>
+				Auto-layout
+			</Button>
+			<div class="flex items-center gap-1">
+				<IconButton
+					label="Zoom out"
+					size="sm"
+					variant="ghost"
+					onclick={zoomOut}
+					disabled={!canZoomOut}
+				>
+					−
+				</IconButton>
+				<button
+					type="button"
+					class="h-control-sm rounded-md border border-line bg-input px-2 font-mono text-caption text-fg hover:border-line-strong"
+					onclick={resetZoom}
+					title="Reset zoom to 100%"
+					aria-label="Reset zoom to 100%"
+				>
+					{zoomLabel}
+				</button>
+				<IconButton
+					label="Zoom in"
+					size="sm"
+					variant="ghost"
+					onclick={zoomIn}
+					disabled={!canZoomIn}
+				>
+					+
+				</IconButton>
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => void fitZoom()}
+					disabled={!diagram || diagram.nodes.length === 0}
+				>
+					Fit
+				</Button>
+			</div>
+			<Button
+				variant={showGrid ? 'secondary' : 'ghost'}
+				size="sm"
+				onclick={toggleGrid}
+				aria-pressed={showGrid}
+			>
+				{showGrid ? 'Grid on' : 'Grid'}
+			</Button>
 			{#if !readOnly}
 				<Button
 					variant={dbmlSourceMode ? 'secondary' : 'ghost'}
@@ -1892,19 +2246,10 @@
 					onclick={toggleDbmlSourceEditor}
 					aria-pressed={dbmlSourceMode}
 				>
-					{dbmlSourceMode ? 'Close DBML editor' : 'DBML editor'}
+					{dbmlSourceMode ? 'Close editor' : 'DBML editor'}
 				</Button>
-				{#if !dbmlSourceMode}
-					<Button
-						variant={showDbml ? 'secondary' : 'ghost'}
-						size="sm"
-						onclick={toggleDbml}
-						aria-pressed={showDbml}
-					>
-						{showDbml ? 'Hide export' : 'Show export'}
-					</Button>
-				{/if}
-			{:else}
+			{/if}
+			{#if !dbmlSourceMode}
 				<Button
 					variant={showDbml ? 'secondary' : 'ghost'}
 					size="sm"
@@ -1914,22 +2259,16 @@
 					{showDbml ? 'Hide DBML' : 'Show DBML'}
 				</Button>
 			{/if}
-			<Button
-				variant="secondary"
-				size="sm"
-				onclick={handleExportPng}
-				disabled={exporting || !diagram}
-			>
-				{exporting ? '…' : 'Export PNG'}
-			</Button>
-			<Button
-				variant="secondary"
-				size="sm"
-				onclick={handleExportPdf}
-				disabled={exporting || !diagram}
-			>
-				{exporting ? '…' : 'Export PDF'}
-			</Button>
+			{#if showRightDbml}
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={copyDbml}
+					disabled={dbmlBusy && !dbmlText}
+				>
+					{dbmlCopied ? 'Copied' : 'Copy DBML'}
+				</Button>
+			{/if}
 			{#if !readOnly}
 				<Button variant="secondary" size="sm" onclick={handleLoadLatest}
 					>Load last</Button
@@ -1955,7 +2294,7 @@
 				)}
 			>
 				{#if dbmlSourceMode}
-					<!-- Left DBML source editor (text → diagram); right export is hidden -->
+					<!-- Left DBML source editor (text → diagram); snapshot panel is hidden -->
 					<div
 						class="flex h-control shrink-0 items-center justify-between gap-2 border-b border-line px-3"
 					>
@@ -2007,7 +2346,7 @@
 						{/if}
 						<p class="text-caption text-fg-muted">
 							Write DBML, then <strong class="text-fg-secondary">Apply</strong>.
-							Right export panel stays hidden in this mode.
+							The snapshot panel stays hidden in this mode.
 							<a
 								class="text-accent hover:underline"
 								href="https://dbml.dbdiagram.io/docs"
@@ -2023,6 +2362,36 @@
 						>
 							Tools
 						</p>
+						<div bind:this={tableSearchWrap}>
+							<Input
+								bind:value={tableQuery}
+								inputSize="sm"
+								placeholder={`Find ${entityWord}`}
+								aria-label={`Find ${entityWord}`}
+							/>
+						</div>
+						{#if tableQuery.trim()}
+							<ul class="m-0 max-h-36 list-none space-y-0.5 overflow-auto p-0">
+								{#each navNodes as node (node.id)}
+									<li>
+										<button
+											type="button"
+											class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-mono text-caption text-fg-secondary hover:bg-hover"
+											onclick={() => focusTable(node.id)}
+										>
+											<span class="min-w-0 truncate">{node.name}</span>
+											<span class="text-micro text-fg-muted"
+												>{node.columns.length}</span
+											>
+										</button>
+									</li>
+								{:else}
+									<li class="px-2 py-1 text-caption text-fg-muted">
+										No matches.
+									</li>
+								{/each}
+							</ul>
+						{/if}
 						<Button
 							variant="primary"
 							fullWidth
@@ -2098,37 +2467,21 @@
 							onclick={toggleDbml}
 							aria-pressed={showDbml}
 						>
-							<span>DBML export</span>
+							<span>DBML snapshot</span>
 							<span class="font-mono text-micro uppercase tracking-wide">
 								{showDbml ? 'ON' : 'OFF'}
 							</span>
 						</button>
 
-						<p
-							class="mt-1 text-label font-semibold tracking-wider text-fg-muted uppercase"
+						<Button
+							variant="secondary"
+							size="sm"
+							fullWidth
+							onclick={autoLayout}
+							disabled={!diagram || diagram.nodes.length === 0}
 						>
-							File
-						</p>
-						<div class="grid grid-cols-2 gap-2">
-							<Button
-								variant="secondary"
-								size="sm"
-								fullWidth
-								onclick={handleExportPng}
-								disabled={exporting || !diagram}
-							>
-								PNG
-							</Button>
-							<Button
-								variant="secondary"
-								size="sm"
-								fullWidth
-								onclick={handleExportPdf}
-								disabled={exporting || !diagram}
-							>
-								PDF
-							</Button>
-						</div>
+							Auto-layout
+						</Button>
 
 						<p
 							class="mt-2 text-label font-semibold tracking-wider text-fg-muted uppercase"
@@ -2216,8 +2569,8 @@
 						>
 							<li>DBML editor → write text → Apply</li>
 							<li>Or draw tables / 90° links on canvas</li>
-							<li>Export panel shows live DBML (right)</li>
-							<li>Ctrl+Z undo · Ctrl+A select all</li>
+							<li>Show DBML to copy a snapshot</li>
+							<li>Ctrl+Z undo · / find · Shift+Ctrl+L layout</li>
 						</ol>
 
 						{#if linkFrom}
@@ -2291,148 +2644,110 @@
 		{:else}
 			<!-- Live DB diagram: slim read-only rail (no design tools) -->
 			<aside
-				class="flex w-52 shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-panel p-3"
-				aria-label="Live diagram info"
+				class="flex w-56 shrink-0 flex-col border-r border-line bg-panel"
+				aria-label="Schema objects"
 			>
-				<p
-					class="text-label font-semibold tracking-wider text-fg-muted uppercase"
+				<div
+					class="flex h-control shrink-0 items-center justify-between gap-2 border-b border-line px-3"
 				>
-					Live schema
-				</p>
-				<p
-					class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary"
-				>
-					Read-only view of the connected database. Tools are hidden — rearrange
-					tables for viewing, then export.
-				</p>
-				{#if statusNote}
-					<p class="text-caption font-medium text-fg">{statusNote}</p>
-				{/if}
-				{#if diagram}
-					<p class="font-mono text-caption text-fg-muted">
-						{diagram.nodes.length}
-						{meta.nodeLabel.toLowerCase()}s
-						{#if diagram.edges.length > 0}
-							· {diagram.edges.length} links
-						{/if}
-					</p>
-				{/if}
-
-				<button
-					type="button"
-					class={cn(
-						'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-caption font-medium transition-colors',
-						showGrid
-							? 'border-accent bg-accent-muted text-fg'
-							: 'border-line bg-input text-fg-secondary hover:border-line-strong',
-					)}
-					onclick={toggleGrid}
-					aria-pressed={showGrid}
-				>
-					<span>Grid</span>
-					<span class="font-mono text-micro uppercase tracking-wide">
-						{showGrid ? 'ON' : 'OFF'}
-					</span>
-				</button>
-
-				<p
-					class="mt-1 text-label font-semibold tracking-wider text-fg-muted uppercase"
-				>
-					Export
-				</p>
-				<div class="grid grid-cols-2 gap-2">
-					<Button
-						variant="secondary"
-						size="sm"
-						fullWidth
-						onclick={handleExportPng}
-						disabled={exporting || !diagram}
-					>
-						PNG
-					</Button>
-					<Button
-						variant="secondary"
-						size="sm"
-						fullWidth
-						onclick={handleExportPdf}
-						disabled={exporting || !diagram}
-					>
-						PDF
-					</Button>
-				</div>
-
-				{#if toolMsg}
 					<p
-						class="rounded-md border border-line bg-input px-2 py-1.5 text-caption text-fg-secondary"
-						role="status"
+						class="text-label font-semibold tracking-wider text-fg-muted uppercase"
 					>
-						{toolMsg}
+						{meta.nodeLabel}s
 					</p>
-				{/if}
-
-				{#if diagram && diagram.edges.length > 0}
-					<div class="border-t border-line pt-2">
-						<p class="mb-1 text-label font-semibold text-fg-muted uppercase">
-							Links
-						</p>
-						<ul class="m-0 max-h-48 list-none space-y-1 overflow-auto p-0">
-							{#each diagram.edges as edge (edge.id)}
-								<li>
-									<button
-										type="button"
-										class={cn(
-											'flex w-full items-start gap-1 rounded-md border px-2 py-1 text-left text-caption',
-											selectedEdgeId === edge.id
-												? 'border-accent bg-accent-muted'
-												: 'border-line bg-input',
-										)}
-										onclick={() => selectEdge(edge.id)}
-									>
-										<span class="min-w-0 truncate text-fg-secondary">
-											{isBroken(edge.kind) ? '┄' : '─'}
-											{edge.label}
-										</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
+					{#if diagram}
+						<span class="font-mono text-micro text-fg-muted">
+							{navNodes.length}{tableQuery.trim()
+								? `/${diagram.nodes.length}`
+								: ''}
+						</span>
+					{/if}
+				</div>
+				<div class="shrink-0 border-b border-line p-2" bind:this={tableSearchWrap}>
+					<Input
+						bind:value={tableQuery}
+						inputSize="sm"
+						placeholder={`Find ${entityWord} or column`}
+						aria-label={`Find ${entityWord} or column`}
+					/>
+				</div>
+				<ul class="m-0 min-h-0 flex-1 list-none overflow-y-auto p-1">
+					{#each navNodes as node (node.id)}
+						<li class="m-0 p-0">
+							<button
+								type="button"
+								class={cn(
+									'flex w-full items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left',
+									selectedTableIds.includes(node.id)
+										? 'bg-accent-muted text-fg'
+										: 'text-fg-secondary hover:bg-hover',
+								)}
+								onclick={() => focusTable(node.id)}
+							>
+								<span class="min-w-0 truncate font-mono text-caption"
+									>{node.name}</span
+								>
+								<span class="shrink-0 font-mono text-micro text-fg-muted"
+									>{node.columns.length}</span
+								>
+							</button>
+						</li>
+					{:else}
+						<li class="px-2 py-3 text-caption text-fg-muted">
+							{tableQuery.trim()
+								? `No ${entityWord} matches.`
+								: `No ${entityWord}s in this database.`}
+						</li>
+					{/each}
+				</ul>
 			</aside>
 		{/if}
 
 		<!-- Canvas -->
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div
-			class="relative min-w-0 flex-1 overflow-auto"
-			style="
-        background-color: var(--bg-app);
-        background-image: {showGrid
-				? `linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
-          linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px)`
-				: 'none'};
-        background-size: {ER_GRID}px {ER_GRID}px;
-        cursor: {readOnly ? 'default' : arrowTool ? 'crosshair' : 'default'};
-      "
-			bind:this={canvasEl}
-			role="application"
-			aria-label={readOnly ? 'Live ER diagram (read-only)' : 'ER grid canvas'}
-			tabindex="0"
-			onclick={onCanvasClick}
-			onpointermove={onCanvasPointerMove}
-			oncontextmenu={(e) => {
-				if (readOnly) {
-					e.preventDefault()
-					return
-				}
-				onCanvasContextMenu(e)
-			}}
-		>
+		<div class="relative min-h-0 min-w-0 flex-1">
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div
+				class="absolute inset-0 overflow-auto overscroll-none bg-app"
+				style="cursor: {readOnly
+					? 'default'
+					: arrowTool
+						? 'crosshair'
+						: 'default'};"
+				bind:this={canvasEl}
+				role="application"
+				aria-label={readOnly ? 'Live ER diagram (read-only)' : 'ER grid canvas'}
+				tabindex="0"
+				onclick={onCanvasClick}
+				onpointermove={onCanvasPointerMove}
+				oncontextmenu={(e) => {
+					if (readOnly) {
+						e.preventDefault()
+						return
+					}
+					onCanvasContextMenu(e)
+				}}
+			>
+				<div
+					class="relative"
+					style="width: {worldW}px; height: {worldH}px;"
+				>
+					<div
+						class="absolute top-0 left-0 origin-top-left"
+						style="
+							width: {canvasBounds.width}px;
+							height: {canvasBounds.height}px;
+							transform: scale({viewZoom});
+							background-image: {showGrid
+							? `linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
+								linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px)`
+							: 'none'};
+							background-size: {ER_GRID}px {ER_GRID}px;
+						"
+					>
 			{#if diagram}
 				<svg
-					class="absolute inset-0 h-full min-h-[800px] w-full min-w-[1400px]"
-					style="pointer-events: none;"
-					aria-hidden="true"
+					class="absolute top-0 left-0"
+					style="width: {canvasBounds.width}px; height: {canvasBounds.height}px; pointer-events: none;"
 				>
 					<defs>
 						<!-- Destination: solid ▶ chevron (source → destination) -->
@@ -2492,14 +2807,15 @@
 						</marker>
 					</defs>
 
-					{#each diagram.edges as edge (edge.id)}
+					{#each edgesDrawOrder as edge (edge.id)}
 						{@const selected = selectedEdgeId === edge.id}
+						{@const edgeDim = !!focusedLink && !selected}
 						<path
 							data-er-edge-hit
 							d={edgePolyline(edge)}
 							fill="none"
 							stroke="transparent"
-							stroke-width="14"
+							stroke-width="16"
 							style="pointer-events: stroke; cursor: pointer;"
 							onclick={(e) => selectEdge(edge.id, e)}
 						/>
@@ -2507,7 +2823,7 @@
 							d={edgePolyline(edge)}
 							fill="none"
 							stroke="var(--accent)"
-							stroke-width={selected ? 3 : 2.25}
+							stroke-width={selected ? 3.25 : 2.25}
 							stroke-linecap="round"
 							stroke-linejoin="round"
 							stroke-dasharray={isBroken(edge.kind) ? '8 5' : '0'}
@@ -2515,7 +2831,7 @@
 							marker-end={selected
 								? 'url(#er-arrow-head-sel)'
 								: 'url(#er-arrow-head)'}
-							opacity="0.98"
+							opacity={edgeDim ? 0.12 : selected ? 1 : 0.95}
 							style="pointer-events: none;"
 						/>
 
@@ -2605,19 +2921,26 @@
 
 				{#each diagram.nodes as node (node.id)}
 					{@const isSelected = selectedTableIds.includes(node.id)}
+					{@const inLinkFocus = !!focusedLink?.tableIds.has(node.id)}
+					{@const dimmed = !!focusedLink && !inLinkFocus}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						data-er-table
 						class={cn(
-							'absolute overflow-hidden rounded-lg border bg-panel shadow-sm',
-							isSelected
+							'absolute overflow-hidden rounded-lg border border-l-2 bg-panel shadow-sm transition-opacity duration-150',
+							isSelected || inLinkFocus
 								? 'border-accent ring-2 ring-accent/30'
-								: 'border-line',
+								: 'border-line hover:border-line-strong',
+							dimmed && 'opacity-25',
 							// Grab only on header — body uses default so inputs get a normal text caret
 							arrowTool ? 'cursor-default' : '',
 							dragTableId === node.id && 'cursor-grabbing',
 						)}
-						style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px; z-index: 2;"
+						style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px; z-index: {inLinkFocus
+							? 4
+							: dimmed
+								? 1
+								: 2}; border-left-color: var(--connection-color, var(--accent));"
 						onpointerdown={(e) => onTablePointerDown(node.id, e)}
 						onpointermove={onCanvasPointerMove}
 						onpointerup={onTablePointerUp}
@@ -2653,6 +2976,15 @@
 									>{node.name}</span
 								>
 							{/if}
+							<span
+								class="shrink-0 text-micro font-semibold tracking-wider text-fg-muted uppercase"
+							>
+								{node.kind === 'collection'
+									? 'Coll'
+									: node.kind === 'key_pattern'
+										? 'Key'
+										: 'Table'}
+							</span>
 						</div>
 
 						<ul class="m-0 list-none overflow-hidden p-0">
@@ -2663,12 +2995,21 @@
 										<div
 											data-er-column
 											data-no-drag
-											class="box-border flex h-full w-full min-w-0 items-center gap-1 overflow-hidden border-b border-line/50 px-1.5 last:border-b-0"
+											class={cn(
+												'box-border flex h-full w-full min-w-0 items-center gap-1 overflow-hidden border-b border-line/50 px-1.5 last:border-b-0',
+												focusedLink?.colIds.has(col.id) &&
+													'bg-accent-muted',
+											)}
 										>
 											{#if col.pk}
 												<span
 													class="shrink-0 text-micro font-semibold leading-none text-accent"
 													>PK</span
+												>
+											{:else if fkColumnIds.has(col.id)}
+												<span
+													class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
+													>FK</span
 												>
 											{/if}
 											<span
@@ -2720,6 +3061,8 @@
 												linkFrom?.tableId === node.id &&
 													linkFrom?.columnId === col.id &&
 													'bg-accent-muted ring-1 ring-inset ring-accent',
+												focusedLink?.colIds.has(col.id) &&
+													'bg-accent-muted',
 											)}
 											onclick={(e) => onColumnClick(node.id, col.id, e)}
 										>
@@ -2727,6 +3070,11 @@
 												<span
 													class="shrink-0 text-micro font-semibold leading-none text-accent"
 													>PK</span
+												>
+											{:else if fkColumnIds.has(col.id)}
+												<span
+													class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
+													>FK</span
 												>
 											{/if}
 											<span
@@ -2823,9 +3171,22 @@
 					</div>
 				{/each}
 			{/if}
+					</div>
+				</div>
+
+			{#if diagram && diagram.nodes.length === 0}
+				<div
+					class="pointer-events-none absolute inset-0 flex items-center justify-center"
+				>
+					<p class="text-caption text-fg-muted">
+						No {entityWord}s to map in this database.
+					</p>
+				</div>
+			{/if}
+			</div>
 		</div>
 
-		<!-- Right DBML export (hidden automatically when left DBML editor is open) -->
+		<!-- Right DBML snapshot (lazy; hidden when left editor is open) -->
 		{#if showRightDbml}
 			<aside
 				class="flex w-[min(22rem,36vw)] shrink-0 flex-col border-l border-line bg-panel"
@@ -2840,10 +3201,17 @@
 						>
 							DBML
 						</p>
-						<p class="truncate text-caption text-fg-muted">Live from canvas</p>
+						<p class="truncate text-caption text-fg-muted">
+							{dbmlBusy ? 'Generating…' : 'Snapshot · not live while dragging'}
+						</p>
 					</div>
 					<Inline gap="sm">
-						<Button variant="ghost" size="sm" onclick={copyDbml}>
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={copyDbml}
+							disabled={dbmlBusy && !dbmlText}
+						>
 							{dbmlCopied ? 'Copied' : 'Copy'}
 						</Button>
 						<Button
@@ -2856,14 +3224,24 @@
 						</Button>
 					</Inline>
 				</div>
-				<div class="min-h-0 flex-1 overflow-auto bg-input/40 p-3">
-					<pre
-						class="m-0 whitespace-pre-wrap break-words font-mono text-caption leading-relaxed text-fg">{dbmlText}</pre>
+				<div class="flex min-h-0 flex-1 flex-col bg-input">
+					{#if dbmlBusy && !dbmlText}
+						<p class="p-3 text-caption text-fg-muted">Generating DBML…</p>
+					{:else}
+						<textarea
+							class="min-h-0 w-full flex-1 resize-none border-0 bg-transparent p-3 font-mono text-caption leading-relaxed text-fg focus:outline-none"
+							readonly
+							wrap="off"
+							spellcheck="false"
+							aria-label="DBML snapshot"
+							value={dbmlText}
+						></textarea>
+					{/if}
 				</div>
 				<p
 					class="shrink-0 border-t border-line px-3 py-2 text-caption text-fg-muted"
 				>
-					Updates as you edit tables, columns, and links. Format:
+					Rebuilds when the schema changes, not on drag.
 					<a
 						class="text-accent hover:underline"
 						href="https://dbml.dbdiagram.io/docs"
@@ -2874,6 +3252,39 @@
 			</aside>
 		{/if}
 	</div>
+
+	<StatusBar ariaLabel="ER diagram status">
+		{#snippet left()}
+			{#if diagram}
+				<span>
+					{diagram.nodes.length}
+					{entityWord}{diagram.nodes.length === 1 ? '' : 's'}
+					{#if diagram.edges.length > 0}
+						· {diagram.edges.length} link{diagram.edges.length === 1
+							? ''
+							: 's'}
+					{/if}
+				</span>
+			{:else}
+				<span>No diagram</span>
+			{/if}
+			{#if statusNote}
+				<span class="text-fg-muted">· {statusNote}</span>
+			{/if}
+		{/snippet}
+		{#snippet center()}
+			{#if toolMsg}
+				<span class="truncate" role="status">{toolMsg}</span>
+			{/if}
+		{/snippet}
+		{#snippet right()}
+			<span class="text-fg-muted">
+				{readOnly
+					? '/ find · Ctrl+scroll zoom · Shift+Ctrl+L layout'
+					: 'Ctrl+Z undo · / find · Ctrl+scroll zoom'}
+			</span>
+		{/snippet}
+	</StatusBar>
 </div>
 
 <!-- Context menu: table or canvas (hidden for live read-only diagrams) -->

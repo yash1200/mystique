@@ -153,7 +153,7 @@ Avoid heavy skeuomorphism. Prefer **1px borders** and restrained shadows.
 ### 2.7 Theme toggle UX
 
 - Location: **Settings** (`AppSettingsPopover`) — home sidebar footer **and** workspace sessions-rail footer. Not a home titlebar.
-- Settings also expose **density** (compact / comfortable) and **UI scale**. Home always opens on **New connection**; pick a saved connection from the sidebar.
+- Settings also expose **density** (compact / comfortable), **UI scale**, and **Open row details on click** (default on; off = Show details in the row menu). Home always opens on **New connection**; pick a saved connection from the sidebar.
 - Persistence: `src/lib/utils/appPrefs.ts` (localStorage). Applied at boot in `+layout.svelte` via `applyStoredAppearance()`.
 - Icons: sun / moon / monitor (system).
 - Switching themes must **not** remount the whole workspace (preserve tabs, scroll, selection). CodeMirror reconfigures via `data-theme` observer.
@@ -359,7 +359,7 @@ Minimum window: **1024×640**. Ideal: **1440×900+**.
 - Drag reorder.
 - Sessions rail `+` opens the **Open connection** modal (saved profiles not already in this workspace).
 - Mystique mark is identity only — it does **not** return home. Last remaining disconnect still does.
-- **New connection…** in the modal goes home to create a profile.
+
 
 **Workspace tabs (secondary):**
 
