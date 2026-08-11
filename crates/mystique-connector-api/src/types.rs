@@ -11,6 +11,8 @@ pub struct EngineDescriptor {
     pub available: bool,
     pub supports_pooling: bool,
     pub description: String,
+    #[serde(default)]
+    pub capabilities: Option<crate::EngineCapabilities>,
 }
 
 /// Live session handle returned to API clients.

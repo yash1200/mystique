@@ -1,15 +1,18 @@
 <script lang="ts">
 	import type { TablePreviewFilter } from '$lib/api/engines'
 	import type { QueryHistoryItem } from '$lib/api/history'
-	import { familyForEngine } from '$lib/api/liveEr'
-	import ErWorkspace from '../ErWorkspace.svelte'
 	import { EmptyState } from '$lib/components/ui'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import { colorHex } from '$lib/types/connection'
+	import {
+		familyFromCaps,
+		resolveCapabilities,
+	} from '$lib/types/engineCaps'
 	import type { ErDiagramState } from '$lib/types/er'
 	import type { TableMeta, WorkspaceTab } from '$lib/types/workspace'
 	import DataGrid from '../DataGrid.svelte'
+	import ErWorkspace from '../ErWorkspace.svelte'
 	import QueryCanvas from '../QueryCanvas.svelte'
 	import RowInspector from '../RowInspector.svelte'
 	import type { SideNavMode } from '../SessionsRail.svelte'
@@ -115,6 +118,7 @@
 					connectionId={activeSession.profile.id}
 					connectionName={activeSession.profile.name}
 					engine={String(activeSession.profile.engine)}
+					capabilities={activeSession.capabilities}
 					profileReadOnly={!!activeSession.profile.readOnly}
 					engineSessionId={activeSession.engineSessionId}
 					database={currentDatabaseName}
@@ -157,7 +161,12 @@
 					{#key `${activeTab.id}:${activeModel.rev}`}
 						<ErWorkspace
 							family={activeModel.diagram.family ||
-								familyForEngine(String(activeSession.profile.engine))}
+								familyFromCaps(
+									resolveCapabilities(
+										String(activeSession.profile.engine),
+										activeSession.capabilities,
+									),
+								)}
 							initialDiagram={activeModel.diagram}
 							initialName={activeModel.title}
 							statusNote={activeModel.summary}
@@ -167,8 +176,13 @@
 				{:else}
 					<div class="flex flex-1 items-center justify-center p-8">
 						<EmptyState
-							title="ER diagram"
-							description="Click “ER diagram” in the explorer to build a live schema map for this database."
+							title={resolveCapabilities(
+								String(activeSession.profile.engine),
+								activeSession.capabilities,
+							).supportsErDiagram
+								? 'ER diagram'
+								: 'Model'}
+							description="Click the diagram action in the explorer to build a live schema map for this database."
 						/>
 					</div>
 				{/if}

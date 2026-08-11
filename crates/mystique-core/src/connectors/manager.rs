@@ -8,8 +8,8 @@ use mystique_connector_api::{
     ConnectorResult, ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
     FetchTablePreviewRequest, ListCatalogColumnsRequest, ListCatalogRequest,
     ListRelationshipsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo,
-    TablePreviewResult, TestResult, ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS,
-    HARD_MAX_ROWS,
+    TableAdminOp, TableAdminRequest, TableAdminResult, TablePreviewResult, TestResult,
+    ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -350,6 +350,36 @@ impl ConnectionManager {
             Arc::clone(&live.session)
         };
         session.list_relationships(req.database.as_deref()).await
+    }
+
+    /// Plugin-owned table/collection admin (CREATE text + mutating ops).
+    pub async fn apply_table_admin(
+        &self,
+        req: TableAdminRequest,
+    ) -> ConnectorResult<TableAdminResult> {
+        if req.profile_read_only && req.op != TableAdminOp::CreateStatement {
+            return Err(ConnectorError::Policy(
+                "This connection is read-only. Disable read-only to change objects.".into(),
+            ));
+        }
+        let needs_name = matches!(req.op, TableAdminOp::Rename | TableAdminOp::Duplicate);
+        if needs_name && req.new_name.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            return Err(ConnectorError::InvalidConfig(
+                "newName is required for rename and duplicate.".into(),
+            ));
+        }
+        if req.name.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        }
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        let input = req.into_input();
+        session.apply_table_admin(&input).await
     }
 }
 

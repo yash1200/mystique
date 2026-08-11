@@ -15,6 +15,10 @@
 		connectionEndpoint,
 		engineLabel,
 	} from '$lib/types/connection'
+	import {
+		connectionKindFromCaps,
+		defaultCapabilitiesForEngine,
+	} from '$lib/types/engineCaps'
 	import { cn } from '$lib/utils/cn'
 
 	interface Props {
@@ -72,13 +76,16 @@
 
 	const facts = $derived.by(() => {
 		const items: { label: string; value: string; wide?: boolean }[] = []
-		if (connection.engine === 'mongodb') {
+		const kind = connectionKindFromCaps(
+			defaultCapabilitiesForEngine(connection.engine),
+		)
+		if (kind === 'uri') {
 			items.push({
 				label: 'URI',
 				value: configStr(cfg, 'uri', '—'),
 				wide: true,
 			})
-		} else if (connection.engine === 'sqlite') {
+		} else if (kind === 'file') {
 			items.push({
 				label: 'File',
 				value: configStr(cfg, 'path', '—'),

@@ -30,6 +30,7 @@ pub use mystique_connector_api::{
     CatalogObject, CatalogRelationship, ColumnInfo, ConnectionConfig, DescribeTableRequest,
     EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, FetchTablePreviewRequest,
     ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, PoolConfig,
-    PoolStatus, QueryColumn, QueryMode, QueryResult, SessionInfo, TableEditColumn,
-    TablePreviewResult, TableRowInsert, TableRowUpdate, TestResult,
+    PoolStatus, QueryColumn, QueryMode, QueryResult, SessionInfo, TableAdminOp, TableAdminRequest,
+    TableAdminResult, TableEditColumn, TablePreviewResult, TableRowInsert, TableRowUpdate,
+    TestResult,
 };

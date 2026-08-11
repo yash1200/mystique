@@ -42,7 +42,7 @@ export interface SessionInfo {
   sessionId: string;
   engine: string;
   displayName: string;
-  capabilities: Record<string, unknown>;
+  capabilities: import("$lib/types/engineCaps").EngineCapabilities;
   pool?: PoolStatus | null;
   openedAt: string;
 }
@@ -318,4 +318,37 @@ export async function listEngineRelationships(
 ): Promise<CatalogRelationship[]> {
   requireTauri();
   return invoke("list_engine_relationships", { request });
+}
+
+export type TableAdminOp =
+  | "createStatement"
+  | "rename"
+  | "drop"
+  | "truncate"
+  | "duplicate";
+
+export interface TableAdminRequest {
+  sessionId: string;
+  op: TableAdminOp;
+  name: string;
+  schema?: string | null;
+  database?: string | null;
+  kind?: string | null;
+  newName?: string | null;
+  profileReadOnly?: boolean;
+}
+
+export interface TableAdminResult {
+  op: TableAdminOp;
+  statement?: string | null;
+  executed: boolean;
+  message?: string | null;
+}
+
+/** Plugin-owned catalog admin (CREATE text + rename/drop/truncate/duplicate). */
+export async function applyEngineTableAdmin(
+  request: TableAdminRequest,
+): Promise<TableAdminResult> {
+  requireTauri();
+  return invoke("apply_engine_table_admin", { request });
 }

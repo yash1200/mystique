@@ -290,10 +290,12 @@
 	async function openWorkspace(
 		profile: ConnectionProfile,
 		engineSessionId?: string | null,
+		capabilities?: import('$lib/types/engineCaps').EngineCapabilities | null,
 	) {
 		workspaceSession.connect(
 			{ ...profile, status: 'connected' },
 			engineSessionId,
+			capabilities,
 		)
 		await goto(`/workspace?c=${encodeURIComponent(profile.id)}`)
 	}
@@ -377,6 +379,7 @@
 			await openWorkspace(
 				{ ...updated, status: 'connected' },
 				session.sessionId,
+				session.capabilities,
 			)
 		} catch (err) {
 			connections = connections.map((c) =>

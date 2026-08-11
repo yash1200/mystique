@@ -27,6 +27,10 @@
 		type Environment,
 	} from '$lib/types/connection'
 	import {
+		connectionKindFromCaps,
+		defaultCapabilitiesForEngine,
+	} from '$lib/types/engineCaps'
+	import {
 		MongodbFields,
 		MysqlFields,
 		PostgresFields,
@@ -77,6 +81,9 @@
 	const isEdit = $derived(!!initial?.id)
 
 	const selectedEngine = $derived(ENGINE_OPTIONS.find((e) => e.id === engine))
+	const connectionKind = $derived(
+		connectionKindFromCaps(defaultCapabilitiesForEngine(engine)),
+	)
 	const colorHexVal = $derived(
 		CONNECTION_COLORS.find((c) => c.id === colorId)?.hex ?? '#3ec9c0',
 	)
@@ -272,9 +279,9 @@
 				</div>
 			</Field>
 
-			{#if engine === 'sqlite'}
+			{#if connectionKind === 'file'}
 				<SqliteFields bind:path bind:readOnly />
-			{:else if engine === 'mongodb'}
+			{:else if connectionKind === 'uri'}
 				<MongodbFields bind:uri bind:readOnly />
 			{:else if engine === 'mysql' || engine === 'mariadb'}
 				<MysqlFields

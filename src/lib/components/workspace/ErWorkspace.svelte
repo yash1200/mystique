@@ -14,7 +14,6 @@
 		Badge,
 		Button,
 		IconButton,
-		Inline,
 		Input,
 		Select,
 		StatusBar,
@@ -2259,16 +2258,6 @@
 					{showDbml ? 'Hide DBML' : 'Show DBML'}
 				</Button>
 			{/if}
-			{#if showRightDbml}
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={copyDbml}
-					disabled={dbmlBusy && !dbmlText}
-				>
-					{dbmlCopied ? 'Copied' : 'Copy DBML'}
-				</Button>
-			{/if}
 			{#if !readOnly}
 				<Button variant="secondary" size="sm" onclick={handleLoadLatest}
 					>Load last</Button
@@ -3205,24 +3194,14 @@
 							{dbmlBusy ? 'Generating…' : 'Snapshot · not live while dragging'}
 						</p>
 					</div>
-					<Inline gap="sm">
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={copyDbml}
-							disabled={dbmlBusy && !dbmlText}
-						>
-							{dbmlCopied ? 'Copied' : 'Copy'}
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={toggleDbml}
-							aria-label="Hide DBML"
-						>
-							Hide
-						</Button>
-					</Inline>
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={copyDbml}
+						disabled={dbmlBusy && !dbmlText}
+					>
+						{dbmlCopied ? 'Copied' : 'Copy'}
+					</Button>
 				</div>
 				<div class="flex min-h-0 flex-1 flex-col bg-input">
 					{#if dbmlBusy && !dbmlText}

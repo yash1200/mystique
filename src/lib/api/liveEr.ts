@@ -16,6 +16,13 @@ import type {
   ErNode,
 } from "$lib/types/er";
 import { layoutErNodes } from "$lib/utils/erLayout";
+import {
+  defaultCapabilitiesForEngine,
+  familyFromCaps,
+  modelTabTitle,
+  resolveCapabilities,
+  type EngineCapabilities,
+} from "$lib/types/engineCaps";
 
 function nodeId(schema: string, name: string): string {
   const s = schema?.trim();
@@ -28,10 +35,7 @@ function colId(schema: string, table: string, column: string): string {
 }
 
 export function familyForEngine(engine: string): DataFamily {
-  const e = engine.toLowerCase();
-  if (e === "mongodb" || e === "mongo" || e === "documentdb") return "nosql";
-  if (e === "redis") return "redis";
-  return "sql";
+  return familyFromCaps(defaultCapabilitiesForEngine(engine));
 }
 
 export type LiveErLoadResult = {
@@ -44,8 +48,10 @@ export async function loadLiveErDiagram(
   sessionId: string,
   engine: string,
   database: string | null | undefined,
+  caps?: EngineCapabilities | null,
 ): Promise<LiveErLoadResult> {
-  const family = familyForEngine(engine);
+  const resolved = resolveCapabilities(engine, caps);
+  const family = familyFromCaps(resolved);
   const db = (database ?? "").trim() || null;
   const catalogCols = await listEngineCatalogColumns({
     sessionId,
@@ -58,24 +64,19 @@ export async function loadLiveErDiagram(
   const diagram = buildFromCatalogColumns(family, catalogCols, db);
   addRelationshipEdges(diagram, rels);
 
-  const title =
-    family === "nosql"
-      ? `Model · ${db || "database"}`
-      : db
-        ? `ER · ${db}`
-        : "ER diagram";
+  const title = modelTabTitle(resolved, db);
   const noun =
-    family === "nosql"
+    resolved.explorer.objectLabel ||
+    (family === "nosql"
       ? "collections"
       : family === "redis"
         ? "key patterns"
-        : "tables";
-  const relLabel =
-    family === "sql"
-      ? `${diagram.edges.length} relationships`
-      : diagram.edges.length > 0
-        ? `${diagram.edges.length} inferred links`
-        : "no declared FKs";
+        : "tables");
+  const relLabel = resolved.supportsForeignKeys
+    ? `${diagram.edges.length} relationships`
+    : diagram.edges.length > 0
+      ? `${diagram.edges.length} inferred links`
+      : "no declared FKs";
   return {
     diagram: {
       ...diagram,

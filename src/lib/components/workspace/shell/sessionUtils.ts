@@ -4,36 +4,44 @@ import {
 	pluginConfigForSession,
 	type ConnectionProfile,
 } from '$lib/types/connection'
+import { defaultCapabilitiesForEngine } from '$lib/types/engineCaps'
 
 /** Postgres / MySQL pools bind to one database; switching requires a new session. */
-export function engineBindsSessionToDatabase(engine: string): boolean {
-	const e = String(engine).toLowerCase()
-	return (
-		e === 'postgres' || e === 'postgresql' || e === 'mysql' || e === 'mariadb'
-	)
+export function engineBindsSessionToDatabase(
+	engine: string,
+	caps?: { bindsSessionToDatabase?: boolean } | null,
+): boolean {
+	if (caps && typeof caps.bindsSessionToDatabase === 'boolean') {
+		return caps.bindsSessionToDatabase
+	}
+	return defaultCapabilitiesForEngine(engine).bindsSessionToDatabase
+}
+
+function databaseFromUriIfPreferred(
+	engine: string,
+	cfg: Record<string, unknown>,
+): string | null {
+	if (!defaultCapabilitiesForEngine(engine).preferDatabaseFromUri) return null
+	return databaseFromMongoUri(configStr(cfg, 'uri'))
 }
 
 export function preferredDbForProfile(profile: {
 	engine: string
 	pluginConfig?: Record<string, unknown>
 }): string | null {
-	const engine = String(profile.engine).toLowerCase()
+	const engine = String(profile.engine)
 	try {
 		const cfg = pluginConfigForSession(profile as ConnectionProfile)
-		if (engine === 'mongodb') {
-			const fromUri = databaseFromMongoUri(configStr(cfg, 'uri'))
-			if (fromUri) return fromUri
-		}
+		const fromUri = databaseFromUriIfPreferred(engine, cfg)
+		if (fromUri) return fromUri
 		const explicit = configStr(cfg, 'database').trim()
 		if (explicit) return explicit
 	} catch {
 		/* fall through */
 	}
 	const cfg = profile.pluginConfig ?? {}
-	if (engine === 'mongodb') {
-		const fromUri = databaseFromMongoUri(configStr(cfg, 'uri'))
-		if (fromUri) return fromUri
-	}
+	const fromUri = databaseFromUriIfPreferred(engine, cfg)
+	if (fromUri) return fromUri
 	const explicit = configStr(cfg, 'database').trim()
 	if (explicit) return explicit
 	return null

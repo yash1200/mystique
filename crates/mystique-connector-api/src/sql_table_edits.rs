@@ -59,11 +59,7 @@ fn is_numeric_type(t: &str) -> bool {
 
 fn is_bool_type(t: &str) -> bool {
     let t = t.to_ascii_lowercase();
-    t == "bool"
-        || t == "boolean"
-        || t == "bit"
-        || t == "bit(1)"
-        || t.contains("tinyint(1)")
+    t == "bool" || t == "boolean" || t == "bit" || t == "bit(1)" || t.contains("tinyint(1)")
 }
 
 fn bool_sql(style: SqlIdentStyle, v: bool) -> &'static str {
@@ -181,7 +177,9 @@ pub fn compile_update(
         )));
     }
     if update.values.is_empty() {
-        return Err(ConnectorError::Query("Update has no changed columns.".into()));
+        return Err(ConnectorError::Query(
+            "Update has no changed columns.".into(),
+        ));
     }
     let target = qualify_table(
         style,
@@ -248,10 +246,7 @@ pub fn compile_insert(
         input.schema.as_deref(),
         &input.table,
     );
-    let names: Vec<String> = cols
-        .iter()
-        .map(|(n, _)| quote_ident(style, n))
-        .collect();
+    let names: Vec<String> = cols.iter().map(|(n, _)| quote_ident(style, n)).collect();
     let values: Vec<String> = cols
         .iter()
         .map(|(n, v)| sql_literal(style, v, col_type(&input.columns, n)))

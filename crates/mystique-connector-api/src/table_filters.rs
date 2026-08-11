@@ -47,10 +47,7 @@ fn sql_text_expr(style: SqlIdentStyle, ident: &str) -> String {
 }
 
 /// ` WHERE a AND b` or empty. Identifiers are quoted; strings escaped.
-pub fn sql_where_clause(
-    style: SqlIdentStyle,
-    filters: &[TableFilter],
-) -> ConnectorResult<String> {
+pub fn sql_where_clause(style: SqlIdentStyle, filters: &[TableFilter]) -> ConnectorResult<String> {
     if filters.is_empty() {
         return Ok(String::new());
     }

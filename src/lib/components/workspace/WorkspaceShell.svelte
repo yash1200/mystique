@@ -9,9 +9,11 @@
 		preferDatabase,
 	} from '$lib/api/catalog'
 	import {
+		applyEngineTableAdmin,
 		closeEngineSession,
 		openEngineSession,
 		testEngineConnection,
+		type TableAdminOp,
 		type TablePreviewFilter,
 	} from '$lib/api/engines'
 	import {
@@ -42,8 +44,14 @@
 		type ConnectionProfile,
 	} from '$lib/types/connection'
 	import type { ErDiagramState } from '$lib/types/er'
+	import {
+		modelTabTitle,
+		resolveCapabilities,
+	} from '$lib/types/engineCaps'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
+	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
 	import { onMount } from 'svelte'
+	import type { TableExplorerAction } from './ObjectExplorer.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
@@ -116,7 +124,7 @@
 			pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 			sessionId: profile.id,
 		})
-		workspaceSession.connect(profile, session.sessionId)
+		workspaceSession.connect(profile, session.sessionId, session.capabilities)
 		return session.sessionId
 	}
 
@@ -127,6 +135,13 @@
 		const selected = selectedDb[connectionId]?.trim()
 		if (selected) return selected
 		return preferredDbForProfile(profile)
+	}
+
+	function systemDbNames(engine: string, connectionId?: string): string[] {
+		const session = connectionId
+			? sessions.find((s) => s.profile.id === connectionId)
+			: activeSession
+		return resolveCapabilities(engine, session?.capabilities).systemDatabases
 	}
 
 	/** Run against the live pool; reopen once if the session died. */
@@ -190,7 +205,11 @@
 			}
 			liveCatalogKey = { ...liveCatalogKey, [connectionId]: sessionId }
 			const names = live.map((d) => d.name)
-			const pick = preferDatabase(names, preferredDatabase)
+			const pick = preferDatabase(
+				names,
+				preferredDatabase,
+				systemDbNames(engine, connectionId),
+			)
 			const current = selectedDb[connectionId]
 			if (current && names.includes(current)) {
 				// Keep the database the user switched to.
@@ -220,7 +239,11 @@
 					}
 					liveCatalogKey = { ...liveCatalogKey, [connectionId]: sessionId }
 					const names = live.map((d) => d.name)
-					const pick = preferDatabase(names, preferredDatabase)
+					const pick = preferDatabase(
+						names,
+						preferredDatabase,
+						systemDbNames(engine, connectionId),
+					)
 					const current = selectedDb[connectionId]
 					if (current && names.includes(current)) {
 						// Keep the database the user switched to.
@@ -277,6 +300,7 @@
 						preferDatabase(
 							list.map((d) => d.name),
 							preferred,
+							systemDbNames(engine, id),
 						) || list[0].name,
 				}
 			}
@@ -455,8 +479,10 @@
 		if (!body.trim()) {
 			throw new Error('Query is empty — nothing to save.')
 		}
-		const engine = String(session.profile.engine)
-		const language = /mongo/i.test(engine) ? 'mql' : 'sql'
+		const language = queryLanguageFor(
+			String(session.profile.engine),
+			session.capabilities,
+		)
 		const saved = await saveQuery({
 			id: tab.savedQueryId ?? null,
 			connectionId: tab.connectionId,
@@ -739,11 +765,78 @@
 	})
 
 	/** Open SQL in a new query tab (history / external). */
-	function openSqlInEditor(sql: string) {
+	function openSqlInEditor(sql: string, title?: string) {
 		if (!activeId) return
-		workspaceSession.openNewQuery(activeId)
-		const tabId = workspaceSession.activeTabId
-		if (tabId) workspaceSession.setQueryDraft(tabId, sql)
+		workspaceSession.openNewQueryWithText(activeId, sql, title)
+	}
+
+	async function onTableExplorerAction(
+		action: TableExplorerAction,
+		table: TableMeta,
+		extra?: string,
+	) {
+		if (!activeId || !activeSession) return
+		if (action === 'open') {
+			void openTable(table)
+			return
+		}
+		if (action === 'erd') {
+			void openModelDiagram(false)
+			return
+		}
+		if (!isTauri()) {
+			catalogError = 'Live catalog actions require the desktop app.'
+			return
+		}
+
+		const newName = extra?.trim() || null
+		if ((action === 'rename' || action === 'duplicate') && !newName) return
+
+		const op: TableAdminOp = action === 'create' ? 'createStatement' : action
+
+		try {
+			catalogError = null
+			const result = await withLiveSession(activeId, (sid) =>
+				applyEngineTableAdmin({
+					sessionId: sid,
+					op,
+					name: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName,
+					kind: table.kind,
+					newName,
+					profileReadOnly: !!activeSession.profile.readOnly,
+				}),
+			)
+
+			// View Create is the only action that opens a query tab.
+			if (action === 'create') {
+				const sql = (result.statement ?? '').trim()
+				if (!sql) {
+					catalogError = 'Engine returned an empty create statement.'
+					return
+				}
+				openSqlInEditor(
+					sql.endsWith(';') || sql.includes('createCollection')
+						? `${sql}\n`
+						: `${sql};\n`,
+					`${table.name} · create`,
+				)
+				return
+			}
+
+			// Rename / drop / truncate / duplicate run in the plugin.
+			const tabId = `${activeId}::table::${table.id}`
+			const tableOpen = workspaceSession.openTabs.some((t) => t.id === tabId)
+			if (action === 'drop' || action === 'rename') {
+				if (tableOpen) workspaceSession.closeTab(tabId)
+			} else if (action === 'truncate' && tableOpen) {
+				void openTable(table)
+			}
+			await refreshDatabases()
+		} catch (e) {
+			catalogError = e instanceof Error ? e.message : String(e)
+		}
 	}
 
 	function onSelectHistory(id: string) {
@@ -797,7 +890,11 @@
 		selectedDb = { ...selectedDb, [activeId]: next }
 
 		const engine = String(activeSession.profile.engine)
-		if (!isTauri() || !engineBindsSessionToDatabase(engine)) return
+		if (
+			!isTauri() ||
+			!engineBindsSessionToDatabase(engine, activeSession?.capabilities)
+		)
+			return
 
 		refreshing = true
 		catalogError = null
@@ -817,10 +914,10 @@
 		sideMode = 'explorer'
 		const engine = String(activeSession.profile.engine)
 		const database = currentDatabaseName || ''
-		const title =
-			engine.toLowerCase() === 'mongodb' || engine.toLowerCase() === 'mongo'
-				? `Model · ${database || 'db'}`
-				: `ER · ${database || 'schema'}`
+		const title = modelTabTitle(
+			resolveCapabilities(engine, activeSession.capabilities),
+			database,
+		)
 
 		const key = modelCacheKey(activeId, database)
 		const alreadyOpen =
@@ -851,7 +948,12 @@
 					sessionDatabase(activeId, activeSession.profile),
 				)
 			}
-			const loaded = await loadLiveErDiagram(sid, engine, database || null)
+			const loaded = await loadLiveErDiagram(
+				sid,
+				engine,
+				database || null,
+				activeSession.capabilities,
+			)
 			liveModels = {
 				...liveModels,
 				[key]: {
@@ -870,7 +972,12 @@
 						activeSession.profile,
 						sessionDatabase(activeId, activeSession.profile),
 					)
-					const loaded = await loadLiveErDiagram(sid, engine, database || null)
+					const loaded = await loadLiveErDiagram(
+				sid,
+				engine,
+				database || null,
+				activeSession.capabilities,
+			)
 					liveModels = {
 						...liveModels,
 						[key]: {
@@ -994,6 +1101,7 @@
 			workspaceSession.connect(
 				{ ...updated, status: 'connected' },
 				session.sessionId,
+				session.capabilities,
 			)
 			sideMode = 'explorer'
 			pickerOpen = false
@@ -1091,9 +1199,10 @@
 					connectionId: q.connectionId || activeId,
 					name,
 					body: q.sql,
-					language: /mongo/i.test(String(activeSession?.profile.engine))
-						? 'mql'
-						: 'sql',
+					language: queryLanguageFor(
+						String(activeSession?.profile.engine ?? ''),
+						activeSession?.capabilities,
+					),
 				})
 				await refreshSavedQueries(activeId)
 				selectedQueryId = saved.id
@@ -1138,9 +1247,10 @@
 				connectionId: q.connectionId || activeId,
 				name,
 				body: q.sql,
-				language: /mongo/i.test(String(activeSession?.profile.engine))
-					? 'mql'
-					: 'sql',
+				language: queryLanguageFor(
+					String(activeSession?.profile.engine ?? ''),
+					activeSession?.capabilities,
+				),
 			})
 			workspaceSession.renameSavedQueryTabs(id, saved.name)
 			await refreshSavedQueries(activeId)
@@ -1313,6 +1423,8 @@
 		oncreatedatabase={createDatabase}
 		onopen={openTable}
 		onopenmodel={() => void openModelDiagram(false)}
+		ontableaction={(action, table, extra) =>
+			void onTableExplorerAction(action, table, extra)}
 		onsavedaction={(action, id) => void onSavedQueryAction(action, id)}
 	/>
 

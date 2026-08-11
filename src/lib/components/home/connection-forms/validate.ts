@@ -3,22 +3,31 @@ import {
 	type ConnectionFormDraft,
 	type EngineId,
 } from '$lib/types/connection'
+import {
+	connectionKindFromCaps,
+	defaultCapabilitiesForEngine,
+} from '$lib/types/engineCaps'
+
+function kindFor(engine: string) {
+	return connectionKindFromCaps(defaultCapabilitiesForEngine(engine))
+}
 
 /** Client-side checks before calling Test connection. */
 export function validateDraftForTest(
 	draft: ConnectionFormDraft,
 ): string | null {
-	if (draft.engine === 'sqlite') {
+	const kind = kindFor(draft.engine)
+	if (kind === 'file') {
 		if (!draft.path.trim()) return 'SQLite database file path is required.'
 		return null
 	}
-	if (draft.engine === 'mongodb') {
+	if (kind === 'uri') {
 		if (!draft.uri.trim()) {
-			return 'MongoDB connection URI is required.'
+			return 'Connection URI is required.'
 		}
 		return null
 	}
-	// postgres / mysql / relational network engines
+	// host / network engines
 	if (!draft.host.trim() || !draft.database.trim()) {
 		return 'Host and database are required.'
 	}
@@ -45,13 +54,14 @@ export function validateDraftForSave(
 		return 'Selected engine is not available yet.'
 	}
 
-	if (draft.engine === 'sqlite') {
+	const kind = kindFor(draft.engine)
+	if (kind === 'file') {
 		if (!draft.path.trim()) return 'SQLite database file path is required.'
 		return null
 	}
-	if (draft.engine === 'mongodb') {
+	if (kind === 'uri') {
 		if (!draft.uri.trim()) {
-			return 'MongoDB connection URI is required.'
+			return 'Connection URI is required.'
 		}
 		return null
 	}
@@ -62,8 +72,7 @@ export function validateDraftForSave(
 }
 
 export function namePlaceholder(engine: EngineId): string {
-	if (engine === 'mongodb') return 'e.g. local-mongo'
-	if (engine === 'sqlite') return 'e.g. app-dev.sqlite'
-	if (engine === 'mysql' || engine === 'mariadb') return 'e.g. local-mysql'
-	return 'e.g. local-pg'
+	return (
+		defaultCapabilitiesForEngine(engine).nameExample || 'e.g. local-pg'
+	)
 }

@@ -303,7 +303,7 @@
           inputSize="sm"
           placeholder="collection…"
           bind:value={collection}
-          title="MongoDB collection name"
+          title="Collection name"
         />
       {/if}
       <label

@@ -6,7 +6,10 @@
  * Prefer frontend over BE — formatting is local and needs no DB session.
  */
 import { format as formatSql, type SqlLanguage } from "sql-formatter";
-import { queryLanguageForEngine } from "./queryPolicyFe";
+import {
+  defaultCapabilitiesForEngine,
+  queryLangFromCaps,
+} from "$lib/types/engineCaps";
 
 export type FormatQueryResult =
   | { ok: true; text: string }
@@ -194,10 +197,10 @@ export function registerQueryFormatter(
 function resolveFormatter(engine: string): QueryFormatter {
   const id = engine.toLowerCase().trim();
   if (formatters[id]) return formatters[id];
-  // Unknown engine: pick by language family
-  const lang = queryLanguageForEngine(id);
-  if (lang === "mql") return formatMql;
-  // Prefer dialect from SQL_DIALECT map if present
+  const caps = defaultCapabilitiesForEngine(id);
+  if (queryLangFromCaps(caps) === "mql") return formatMql;
+  const fromCaps = caps.sqlDialect.trim().toLowerCase();
+  if (fromCaps) return formatWithSqlDialect(fromCaps as SqlLanguage);
   const dialect = SQL_DIALECT[id];
   if (dialect) return formatWithSqlDialect(dialect);
   return formatWithSqlDialect("sql");

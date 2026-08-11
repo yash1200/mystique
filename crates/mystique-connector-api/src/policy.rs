@@ -77,8 +77,22 @@ const SQL_READ: &[&str] = &[
 ];
 /// Session / connection utilities (search_path, timezone, USE db, etc.) — allowed in read mode.
 const SQL_SESSION: &[&str] = &[
-    "set", "reset", "use", "begin", "start", "commit", "rollback", "savepoint", "release",
-    "discard", "deallocate", "prepare", "execute", "listen", "unlisten", "notify",
+    "set",
+    "reset",
+    "use",
+    "begin",
+    "start",
+    "commit",
+    "rollback",
+    "savepoint",
+    "release",
+    "discard",
+    "deallocate",
+    "prepare",
+    "execute",
+    "listen",
+    "unlisten",
+    "notify",
 ];
 const SQL_WRITE: &[&str] = &["insert", "update", "replace", "merge"];
 const SQL_DELETE: &[&str] = &[

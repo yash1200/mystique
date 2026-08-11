@@ -1,3 +1,8 @@
+import {
+	connectionKindFromCaps,
+	defaultCapabilitiesForEngine,
+} from './engineCaps'
+
 export type EngineId = 'postgres' | 'sqlite' | 'mysql' | 'mongodb' | string
 
 export type ConnectionColorId =
@@ -150,6 +155,19 @@ export function asEnvironment(env: string): Environment {
  * Engines offered on the Home “choose database” step.
  * V1 product focus: PostgreSQL, MongoDB, MySQL, and SQLite.
  */
+function modelViewLabelFromCaps(engine: string): string {
+	const caps = defaultCapabilitiesForEngine(engine)
+	if (caps.supportsErDiagram || caps.modelViewKind === 'ER') return 'ER diagram'
+	if (caps.modelViewKind === 'COLLECTION_MAP') return 'Collection map'
+	return 'Model'
+}
+
+function familyLabelFromCaps(engine: string): EngineFamily {
+	return defaultCapabilitiesForEngine(engine).family === 'DOCUMENT'
+		? 'document'
+		: 'relational'
+}
+
 export const ENGINE_OPTIONS: EngineOption[] = [
 	{
 		id: 'postgres',
@@ -157,11 +175,11 @@ export const ENGINE_OPTIONS: EngineOption[] = [
 		description:
 			'Relational studio — schemas, tables, SQL, and classic ER Model view from foreign keys.',
 		available: true,
-		queryLanguage: 'SQL',
-		family: 'relational',
+		queryLanguage: defaultCapabilitiesForEngine('postgres').queryLanguage,
+		family: familyLabelFromCaps('postgres'),
 		mark: 'Pg',
 		defaultPort: 5432,
-		modelViewLabel: 'ER diagram',
+		modelViewLabel: modelViewLabelFromCaps('postgres'),
 	},
 	{
 		id: 'mysql',
@@ -169,11 +187,11 @@ export const ENGINE_OPTIONS: EngineOption[] = [
 		description:
 			'MySQL / MariaDB — databases, tables, SQL query space, and relational Model view.',
 		available: true,
-		queryLanguage: 'SQL',
-		family: 'relational',
+		queryLanguage: defaultCapabilitiesForEngine('mysql').queryLanguage,
+		family: familyLabelFromCaps('mysql'),
 		mark: 'My',
 		defaultPort: 3306,
-		modelViewLabel: 'ER diagram',
+		modelViewLabel: modelViewLabelFromCaps('mysql'),
 	},
 	{
 		id: 'mongodb',
@@ -181,11 +199,11 @@ export const ENGINE_OPTIONS: EngineOption[] = [
 		description:
 			'Document studio — databases, collections, find/aggregation, and collection Model map.',
 		available: true,
-		queryLanguage: 'MQL',
-		family: 'document',
+		queryLanguage: defaultCapabilitiesForEngine('mongodb').queryLanguage,
+		family: familyLabelFromCaps('mongodb'),
 		mark: 'Mo',
 		defaultPort: 27017,
-		modelViewLabel: 'Collection map',
+		modelViewLabel: modelViewLabelFromCaps('mongodb'),
 	},
 	{
 		id: 'sqlite',
@@ -193,11 +211,11 @@ export const ENGINE_OPTIONS: EngineOption[] = [
 		description:
 			'Local SQL file — same relational workspace as Postgres for offline and embedded DBs.',
 		available: true,
-		queryLanguage: 'SQL',
-		family: 'relational',
+		queryLanguage: defaultCapabilitiesForEngine('sqlite').queryLanguage,
+		family: familyLabelFromCaps('sqlite'),
 		mark: 'SQL',
 		defaultPort: 0,
-		modelViewLabel: 'ER diagram',
+		modelViewLabel: modelViewLabelFromCaps('sqlite'),
 	},
 ]
 
@@ -208,31 +226,28 @@ export function selectableEngines(): EngineOption[] {
 
 export function emptyDraft(engine: EngineId = 'postgres'): ConnectionFormDraft {
 	const opt = ENGINE_OPTIONS.find((e) => e.id === engine)
-	const port = opt?.defaultPort ?? 5432
+	const kind = connectionKindFromCaps(defaultCapabilitiesForEngine(engine))
+	const port = opt?.defaultPort ?? (kind === 'uri' ? 27017 : 5432)
 	const isMysql = engine === 'mysql' || engine === 'mariadb'
 	return {
 		name: '',
 		engine,
 		colorId: 'teal',
-		host: engine === 'sqlite' || engine === 'mongodb' ? '' : '127.0.0.1',
-		port: engine === 'mongodb' ? 27017 : port || 5432,
+		host: kind === 'host' ? '127.0.0.1' : '',
+		port: port || 5432,
 		// Postgres: Docker images use db/user `postgres`.
 		// MySQL docker seed: admin/123, database mystique (see docs/DEV_MYSQL.md).
 		// MongoDB: URI is empty; placeholder shows the expected shape.
 		database:
-			engine === 'mongodb' || isMysql
-				? 'mystique'
-				: engine === 'sqlite'
-					? ''
+			kind === 'file'
+				? ''
+				: engine === 'mongodb' || isMysql
+					? 'mystique'
 					: 'postgres',
 		path: '',
 		uri: '',
 		username:
-			engine === 'mongodb' || engine === 'sqlite'
-				? ''
-				: isMysql
-					? 'admin'
-					: 'postgres',
+			kind !== 'host' ? '' : isMysql ? 'admin' : 'postgres',
 		password: isMysql ? '123' : '',
 		ssl: false,
 		readOnly: false,
@@ -319,14 +334,23 @@ export function draftFromProfile(
 	const opt = ENGINE_OPTIONS.find((e) => e.id === eng)
 	const uri = configStr(c, 'uri')
 	let database = configStr(c, 'database')
-	if (!database && eng === 'mongodb') {
+	if (
+		!database &&
+		defaultCapabilitiesForEngine(eng).preferDatabaseFromUri
+	) {
 		database = databaseFromMongoUri(uri) ?? ''
 	}
 	return {
 		name: profile.name,
 		engine: profile.engine,
 		colorId: asColorId(profile.colorId),
-		host: configStr(c, 'host', eng === 'sqlite' ? '' : '127.0.0.1'),
+		host: configStr(
+			c,
+			'host',
+			connectionKindFromCaps(defaultCapabilitiesForEngine(eng)) === 'host'
+				? '127.0.0.1'
+				: '',
+		),
 		port: configNum(c, 'port', opt?.defaultPort || 5432),
 		database,
 		path: configStr(c, 'path'),
@@ -344,12 +368,15 @@ export function draftFromProfile(
 export function pluginConfigFromDraft(
 	draft: ConnectionFormDraft,
 ): PluginConfig {
-	if (draft.engine === 'sqlite') {
+	const kind = connectionKindFromCaps(
+		defaultCapabilitiesForEngine(draft.engine),
+	)
+	if (kind === 'file') {
 		return {
 			path: draft.path.trim() || draft.database.trim(),
 		}
 	}
-	if (draft.engine === 'mongodb') {
+	if (kind === 'uri') {
 		const uri = draft.uri.trim()
 		const fromUri = databaseFromMongoUri(uri)
 		const database = draft.database.trim() || fromUri || ''
@@ -440,19 +467,21 @@ export function pluginConfigForSession(
 	const stored = (profile.pluginConfig ?? {}) as PluginConfig
 	const cfg: PluginConfig = { ...stored, ...fromDraft }
 
-	if (String(profile.engine).toLowerCase() === 'mongodb') {
-		let uri = String(cfg.uri ?? '').trim()
-		if (!uri) {
-			uri =
-				buildMongoUriFromFields({ ...stored, ...cfg }, profile.password) ?? ''
-		}
-		if (uri) cfg.uri = uri
+	const caps = defaultCapabilitiesForEngine(profile.engine)
+	let uri = String(cfg.uri ?? '').trim()
+	// Mongo connector contract: assemble mongodb:// from legacy host fields.
+	if (!uri && String(profile.engine).toLowerCase() === 'mongodb') {
+		uri =
+			buildMongoUriFromFields({ ...stored, ...cfg }, profile.password) ?? ''
+	}
+	if (uri) cfg.uri = uri
 
+	if (caps.preferDatabaseFromUri) {
 		// Connection URI path is the default database. Stored `database` is only
 		// a fallback when the URI has no path.
 		const fromUri = databaseFromMongoUri(uri)
-		const stored = String(cfg.database ?? '').trim()
-		const db = fromUri || stored
+		const storedDb = String(cfg.database ?? '').trim()
+		const db = fromUri || storedDb
 		if (db) cfg.database = db
 		else delete cfg.database
 	}

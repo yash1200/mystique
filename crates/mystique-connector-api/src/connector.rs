@@ -11,6 +11,7 @@ use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
+use crate::table_admin::{TableAdminInput, TableAdminResult};
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;
 
@@ -33,10 +34,11 @@ pub trait DatabaseConnector: Send + Sync {
             id: self.id().into(),
             display_name: self.display_name().into(),
             family: self.family(),
-            query_language: caps.query_language,
+            query_language: caps.query_language.clone(),
             available: true,
             supports_pooling: caps.supports_pooling,
             description: self.description().into(),
+            capabilities: Some(caps),
         }
     }
 
@@ -44,7 +46,10 @@ pub trait DatabaseConnector: Send + Sync {
     async fn test_connection(&self, config: &ConnectionConfig) -> ConnectorResult<TestResult>;
 
     /// Open a pooled session for ongoing work.
-    async fn connect(&self, config: &ConnectionConfig) -> ConnectorResult<Box<dyn ConnectorSession>>;
+    async fn connect(
+        &self,
+        config: &ConnectionConfig,
+    ) -> ConnectorResult<Box<dyn ConnectorSession>>;
 }
 
 /// Live session backed by an engine-specific connection pool.
@@ -135,5 +140,17 @@ pub trait ConnectorSession: Send + Sync {
         _database: Option<&str>,
     ) -> ConnectorResult<Vec<CatalogRelationship>> {
         Ok(Vec::new())
+    }
+
+    /// Catalog object admin: CREATE text, rename, drop, truncate, duplicate.
+    /// Plugins own dialect and execution so new engines do not require FE SQL.
+    async fn apply_table_admin(
+        &self,
+        _input: &TableAdminInput,
+    ) -> ConnectorResult<TableAdminResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "table admin is not implemented for engine `{}`",
+            self.engine_id()
+        )))
     }
 }

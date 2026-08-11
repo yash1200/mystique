@@ -119,20 +119,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     // —— View (UI zoom + fullscreen) ———————————————————————————————
     // Use "=" not "Plus" — muda parses `CmdOrCtrl+=` / `CmdOrCtrl++` for zoom-in.
-    let zoom_in = MenuItem::with_id(
-        app,
-        "view_zoom_in",
-        "Zoom In",
-        true,
-        Some("CmdOrCtrl+="),
-    )?;
-    let zoom_out = MenuItem::with_id(
-        app,
-        "view_zoom_out",
-        "Zoom Out",
-        true,
-        Some("CmdOrCtrl+-"),
-    )?;
+    let zoom_in = MenuItem::with_id(app, "view_zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?;
+    let zoom_out = MenuItem::with_id(app, "view_zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
     let zoom_reset = MenuItem::with_id(
         app,
         "view_zoom_reset",
@@ -156,12 +144,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
 
     #[cfg(not(target_os = "macos"))]
-    let view_menu = Submenu::with_items(
-        app,
-        "View",
-        true,
-        &[&zoom_in, &zoom_out, &zoom_reset],
-    )?;
+    let view_menu = Submenu::with_items(app, "View", true, &[&zoom_in, &zoom_out, &zoom_reset])?;
 
     // —— Window ————————————————————————————————————————————————————
     #[cfg(target_os = "macos")]
@@ -260,17 +243,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .menu(|app| build_menu(app))
-        .on_menu_event(|app, event| {
-            match event.id().as_ref() {
-                "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
-                "workspace_new_query" => emit_to_webviews(app, "workspace-new-query"),
-                "workspace_save_query" => emit_to_webviews(app, "workspace-save-query"),
-                "view_zoom_in" => emit_to_webviews(app, "ui-zoom-in"),
-                "view_zoom_out" => emit_to_webviews(app, "ui-zoom-out"),
-                "view_zoom_reset" => emit_to_webviews(app, "ui-zoom-reset"),
-                "window_close" => close_focused_window(app),
-                _ => {}
-            }
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
+            "workspace_new_query" => emit_to_webviews(app, "workspace-new-query"),
+            "workspace_save_query" => emit_to_webviews(app, "workspace-save-query"),
+            "view_zoom_in" => emit_to_webviews(app, "ui-zoom-in"),
+            "view_zoom_out" => emit_to_webviews(app, "ui-zoom-out"),
+            "view_zoom_reset" => emit_to_webviews(app, "ui-zoom-reset"),
+            "window_close" => close_focused_window(app),
+            _ => {}
         })
         .setup(|app| {
             let data_dir = app
@@ -303,6 +284,7 @@ pub fn run() {
             ipc::engines::fetch_engine_table_preview,
             ipc::engines::list_engine_catalog,
             ipc::engines::list_engine_relationships,
+            ipc::engines::apply_engine_table_admin,
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

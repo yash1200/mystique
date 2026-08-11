@@ -178,3 +178,16 @@ pub async fn list_engine_relationships(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn apply_engine_table_admin(
+    state: State<'_, AppState>,
+    request: mystique_core::TableAdminRequest,
+) -> Result<mystique_core::TableAdminResult, String> {
+    state
+        .services
+        .connections()
+        .apply_table_admin(request)
+        .await
+        .map_err(|e| e.to_string())
+}

@@ -10,7 +10,8 @@ use mystique_connector_api::{
     split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
     CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
     ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput, PoolStatus,
-    QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TablePreviewResult, ValidatedQuery,
+    QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TableAdminInput, TableAdminOp,
+    TableAdminResult, TableObjectKind, TablePreviewResult, ValidatedQuery,
     sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
@@ -733,6 +734,117 @@ impl ConnectorSession for MysqlSession {
                 },
             )
             .collect())
+    }
+
+    async fn apply_table_admin(
+        &self,
+        input: &TableAdminInput,
+    ) -> ConnectorResult<TableAdminResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let qname = qualify_table(
+            SqlIdentStyle::Mysql,
+            input.database.as_deref(),
+            input.schema.as_deref(),
+            &input.name,
+        );
+        let is_view = input.kind == TableObjectKind::View;
+
+        match input.op {
+            TableAdminOp::CreateStatement => {
+                let kw = if is_view { "VIEW" } else { "TABLE" };
+                let sql = format!("SHOW CREATE {kw} {qname}");
+                let row: Option<mysql_async::Row> = conn
+                    .query_first(sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let row = row.ok_or_else(|| {
+                    ConnectorError::Query(format!("Object {qname} was not found."))
+                })?;
+                let create: Option<String> = row.get(1);
+                let statement = create
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| {
+                        ConnectorError::Query(format!("No CREATE text for {qname}."))
+                    })?;
+                let statement = if statement.trim_end().ends_with(';') {
+                    format!("{}\n", statement.trim_end())
+                } else {
+                    format!("{};\n", statement.trim_end())
+                };
+                Ok(TableAdminResult::statement(input.op, statement))
+            }
+            TableAdminOp::Rename => {
+                let new_name = input.new_name.as_deref().unwrap_or("").trim();
+                let dest = qualify_table(
+                    SqlIdentStyle::Mysql,
+                    input.database.as_deref(),
+                    input.schema.as_deref(),
+                    new_name,
+                );
+                let sql = format!("RENAME TABLE {qname} TO {dest}");
+                conn.query_drop(sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Renamed {qname} to {dest}."),
+                ))
+            }
+            TableAdminOp::Drop => {
+                let kw = if is_view { "VIEW" } else { "TABLE" };
+                let sql = format!("DROP {kw} IF EXISTS {qname}");
+                conn.query_drop(sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(input.op, format!("Dropped {qname}.")))
+            }
+            TableAdminOp::Truncate => {
+                if is_view {
+                    return Err(ConnectorError::NotSupported(
+                        "Cannot truncate a view.".into(),
+                    ));
+                }
+                let sql = format!("TRUNCATE TABLE {qname}");
+                conn.query_drop(sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Truncated {qname}."),
+                ))
+            }
+            TableAdminOp::Duplicate => {
+                if is_view {
+                    return Err(ConnectorError::NotSupported(
+                        "Duplicate is not supported for views.".into(),
+                    ));
+                }
+                let new_name = input.new_name.as_deref().unwrap_or("").trim();
+                let dest = qualify_table(
+                    SqlIdentStyle::Mysql,
+                    input.database.as_deref(),
+                    input.schema.as_deref(),
+                    new_name,
+                );
+                conn.query_drop(format!("CREATE TABLE {dest} LIKE {qname}"))
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                conn.query_drop(format!("INSERT INTO {dest} SELECT * FROM {qname}"))
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Duplicated {qname} to {dest}."),
+                ))
+            }
+        }
     }
 }
 

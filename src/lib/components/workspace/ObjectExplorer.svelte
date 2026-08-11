@@ -1,10 +1,36 @@
 <script lang="ts">
-	import { IconButton, Input, Select, StatusBar } from '$lib/components/ui'
+	import {
+		Button,
+		ContextMenu,
+		IconButton,
+		Input,
+		Select,
+		StatusBar,
+		type ContextMenuItem,
+	} from '$lib/components/ui'
+	import {
+		defaultCapabilitiesForEngine,
+		presentationFromCaps,
+		type EngineCapabilities,
+	} from '$lib/types/engineCaps'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
-	import { catalogPresentation } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
 	import CreateDatabaseForm from './explorer/CreateDatabaseForm.svelte'
 	import ObjectTree from './explorer/ObjectTree.svelte'
+	import SaveQueryModal from './SaveQueryModal.svelte'
+
+	export type TableExplorerAction =
+		| 'open'
+		| 'erd'
+		| 'rename'
+		| 'drop'
+		| 'truncate'
+		| 'duplicate'
+		| 'create'
+
+	function defaultCopyName(table: TableMeta): string {
+		return `${table.name}_copy`
+	}
 
 	interface Props {
 		engine: string
@@ -13,11 +39,18 @@
 		activeTableId: string | null
 		refreshing?: boolean
 		modelLoading?: boolean
+		readOnly?: boolean
+		capabilities?: EngineCapabilities | null
 		onselectdatabase: (name: string) => void
 		onrefresh: () => void
 		oncreatedatabase: (name: string) => void
 		onopen: (table: TableMeta) => void
 		onopenmodel?: () => void
+		ontableaction?: (
+			action: TableExplorerAction,
+			table: TableMeta,
+			extra?: string,
+		) => void
 	}
 
 	let {
@@ -27,21 +60,25 @@
 		activeTableId,
 		refreshing = false,
 		modelLoading = false,
+		readOnly = false,
+		capabilities = null,
 		onselectdatabase,
 		onrefresh,
 		oncreatedatabase,
 		onopen,
 		onopenmodel,
+		ontableaction,
 	}: Props = $props()
 
 	let query = $state('')
-	/** Schema groups start closed; membership means expanded. */
-	let expanded = $state<Set<string>>(new Set())
+	/** `public` / `main` start open; other schemas stay collapsed until clicked. */
+	let expanded = $state<Set<string>>(new Set(['public', 'main']))
 	let creating = $state(false)
 	let newDbName = $state('')
 	let createError = $state<string | null>(null)
 
-	const presentation = $derived(catalogPresentation(engine))
+	const caps = $derived(capabilities ?? defaultCapabilitiesForEngine(engine))
+	const presentation = $derived(presentationFromCaps(caps))
 	const isTree = $derived(presentation.layout === 'schema-tree')
 
 	const currentDb = $derived(
@@ -161,14 +198,131 @@
 		expanded = new Set()
 		onselectdatabase(value)
 	}
+
+	let tableMenu = $state<{
+		table: TableMeta
+		x: number
+		y: number
+	} | null>(null)
+	let namePrompt = $state<{
+		action: 'rename' | 'duplicate'
+		table: TableMeta
+	} | null>(null)
+	let confirmPrompt = $state<{
+		action: 'drop' | 'truncate'
+		table: TableMeta
+	} | null>(null)
+
+	const noun = $derived(caps.explorer.objectLabelSingular || 'table')
+	const admin = $derived(caps.tableAdmin)
+	const showModel = $derived(caps.supportsModelView || caps.supportsErDiagram)
+
+	const tableMenuItems = $derived.by((): ContextMenuItem[] => {
+		const t = tableMenu?.table
+		if (!t) return []
+		const isView = t.kind === 'view'
+		// Plugin config is the only feature gate. Do not grey out collection
+		// actions — read-only is enforced when the plugin runs the op.
+		const items: ContextMenuItem[] = [{ id: 'open', label: 'Open' }]
+		if (showModel) {
+			items.push({
+				id: 'erd',
+				label: caps.supportsErDiagram ? 'View ERD' : 'View model',
+			})
+		}
+		if (admin.rename) {
+			items.push({
+				id: 'rename',
+				label: 'Rename',
+				separatorBefore: true,
+			})
+		}
+		if (admin.duplicate && !isView) {
+			items.push({
+				id: 'duplicate',
+				label: 'Duplicate',
+				separatorBefore: !admin.rename,
+			})
+		}
+		if (admin.createStatement) {
+			items.push({
+				id: 'create',
+				label: 'View Create',
+				separatorBefore: true,
+			})
+		}
+		if (admin.truncate && !isView) {
+			items.push({
+				id: 'truncate',
+				label: 'Truncate',
+				separatorBefore: true,
+			})
+		}
+		if (admin.drop) {
+			items.push({
+				id: 'drop',
+				label: 'Drop',
+				danger: true,
+			})
+		}
+		return items
+	})
+
+	function openTableMenu(table: TableMeta, e: MouseEvent) {
+		tableMenu = { table, x: e.clientX, y: e.clientY }
+	}
+
+	function onMenuPick(id: string) {
+		const ctx = tableMenu
+		tableMenu = null
+		if (!ctx || !ontableaction) return
+		const { table } = ctx
+		if (id === 'open') {
+			ontableaction('open', table)
+			return
+		}
+		if (id === 'erd') {
+			ontableaction('erd', table)
+			return
+		}
+		if (id === 'create') {
+			ontableaction('create', table)
+			return
+		}
+		if (id === 'rename') {
+			namePrompt = { action: 'rename', table }
+			return
+		}
+		if (id === 'duplicate') {
+			namePrompt = { action: 'duplicate', table }
+			return
+		}
+		if (id === 'drop' || id === 'truncate') {
+			confirmPrompt = { action: id, table }
+		}
+	}
+
+	function submitName(name: string) {
+		const prompt = namePrompt
+		namePrompt = null
+		if (!prompt || !ontableaction) return
+		ontableaction(prompt.action, prompt.table, name)
+	}
+
+	function confirmDanger() {
+		const prompt = confirmPrompt
+		confirmPrompt = null
+		if (!prompt || !ontableaction) return
+		ontableaction(prompt.action, prompt.table)
+	}
 </script>
 
 <aside
 	class="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
 	aria-label="Database objects"
 >
-	<div class="shrink-0 space-y-2 border-b border-line px-2 py-2">
-		<div class="flex items-center gap-1.5">
+	<div class="shrink-0 space-y-1.5 border-b border-line px-2 py-2">
+		<div class="flex items-center gap-1">
 			<div class="min-w-0 flex-1">
 				<span class="sr-only">{presentation.databaseLabel}</span>
 				<Select
@@ -181,6 +335,58 @@
 					onchange={onDbChange}
 				/>
 			</div>
+			{#if onopenmodel && showModel}
+				<IconButton
+					label={caps.supportsErDiagram
+						? 'ER diagram for this database'
+						: 'Model for this database'}
+					size="sm"
+					variant="ghost"
+					disabled={modelLoading || !currentDb}
+					onclick={() => onopenmodel?.()}
+				>
+					<svg
+						class={cn('size-3.5', modelLoading && 'opacity-50')}
+						viewBox="0 0 16 16"
+						fill="none"
+						aria-hidden="true"
+					>
+						<rect
+							x="1.5"
+							y="2"
+							width="5"
+							height="4.5"
+							rx="0.8"
+							stroke="currentColor"
+							stroke-width="1.2"
+						/>
+						<rect
+							x="9.5"
+							y="2"
+							width="5"
+							height="4.5"
+							rx="0.8"
+							stroke="currentColor"
+							stroke-width="1.2"
+						/>
+						<rect
+							x="5.5"
+							y="9.5"
+							width="5"
+							height="4.5"
+							rx="0.8"
+							stroke="currentColor"
+							stroke-width="1.2"
+						/>
+						<path
+							d="M4 6.5v1.5M12 6.5v1.5M8 9.5V8"
+							stroke="currentColor"
+							stroke-width="1.2"
+							stroke-linecap="round"
+						/>
+					</svg>
+				</IconButton>
+			{/if}
 			<IconButton
 				label="Refresh databases"
 				size="sm"
@@ -248,66 +454,6 @@
 			bind:value={query}
 			inputSize="sm"
 		/>
-
-		{#if onopenmodel}
-			<button
-				type="button"
-				class={cn(
-					'flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-label font-medium transition-colors',
-					'border-line bg-elevated text-fg hover:border-accent hover:bg-accent-muted hover:text-accent',
-					'disabled:cursor-not-allowed disabled:opacity-60',
-				)}
-				disabled={modelLoading || !currentDb}
-				title="Show full ER / model diagram for this database"
-				onclick={() => onopenmodel?.()}
-			>
-				<svg
-					class="size-3.5 shrink-0"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<rect
-						x="1.5"
-						y="2"
-						width="5"
-						height="4.5"
-						rx="0.8"
-						stroke="currentColor"
-						stroke-width="1.2"
-					/>
-					<rect
-						x="9.5"
-						y="2"
-						width="5"
-						height="4.5"
-						rx="0.8"
-						stroke="currentColor"
-						stroke-width="1.2"
-					/>
-					<rect
-						x="5.5"
-						y="9.5"
-						width="5"
-						height="4.5"
-						rx="0.8"
-						stroke="currentColor"
-						stroke-width="1.2"
-					/>
-					<path
-						d="M4 6.5v1.5M12 6.5v1.5M8 9.5V8"
-						stroke="currentColor"
-						stroke-width="1.2"
-						stroke-linecap="round"
-					/>
-				</svg>
-				{#if modelLoading}
-					Building diagram…
-				{:else}
-					ER diagram
-				{/if}
-			</button>
-		{/if}
 	</div>
 
 	<ObjectTree
@@ -324,6 +470,7 @@
 		{isExpanded}
 		onToggleGroup={toggleGroup}
 		{onopen}
+		onmenu={openTableMenu}
 	/>
 
 	<StatusBar ariaLabel="Catalog status">
@@ -345,3 +492,79 @@
 		{/snippet}
 	</StatusBar>
 </aside>
+
+{#if tableMenu}
+	<ContextMenu
+		x={tableMenu.x}
+		y={tableMenu.y}
+		items={tableMenuItems}
+		ariaLabel="{tableMenu.table.name} actions"
+		onpick={onMenuPick}
+		onclose={() => {
+			tableMenu = null
+		}}
+	/>
+{/if}
+
+<SaveQueryModal
+	open={!!namePrompt}
+	initialName={namePrompt
+		? namePrompt.action === 'duplicate'
+			? defaultCopyName(namePrompt.table)
+			: namePrompt.table.name
+		: ''}
+	title={namePrompt?.action === 'duplicate'
+		? `Duplicate ${noun}`
+		: `Rename ${noun}`}
+	description={namePrompt?.action === 'duplicate'
+		? `Create a copy of “${namePrompt.table.name}” on this database.`
+		: `Rename “${namePrompt?.table.name ?? ''}” on this database.`}
+	confirmLabel={namePrompt?.action === 'duplicate' ? 'Duplicate' : 'Rename'}
+	onconfirm={submitName}
+	oncancel={() => {
+		namePrompt = null
+	}}
+/>
+
+{#if confirmPrompt}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+		role="presentation"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) confirmPrompt = null
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape') confirmPrompt = null
+		}}
+	>
+		<div
+			class="w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="table-confirm-title"
+		>
+			<h2 id="table-confirm-title" class="m-0 text-body font-semibold text-fg">
+				{confirmPrompt.action === 'drop' ? 'Drop' : 'Truncate'}
+				{noun}
+			</h2>
+			<p class="mt-2 mb-0 text-label leading-relaxed text-fg-secondary">
+				{confirmPrompt.action === 'drop'
+					? `Drop “${confirmPrompt.table.name}”? This runs on the database and cannot be undone.`
+					: `Truncate “${confirmPrompt.table.name}”? This deletes all rows on the database and cannot be undone.`}
+			</p>
+			<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => {
+						confirmPrompt = null
+					}}>Cancel</Button
+				>
+				<Button variant="danger" size="sm" onclick={confirmDanger}>
+					{confirmPrompt.action === 'drop' ? 'Drop' : 'Truncate'}
+				</Button>
+			</div>
+		</div>
+	</div>
+{/if}

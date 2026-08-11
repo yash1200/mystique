@@ -44,10 +44,15 @@ function emptyLeaf(
 export function preferDatabase(
 	names: string[],
 	preferred?: string | null,
+	systemNames?: Iterable<string> | null,
 ): string {
 	const pref = preferred?.trim() || ''
 	if (pref && names.includes(pref)) return pref
-	const nonSystem = names.filter((n) => !MONGO_SYSTEM_DBS.has(n))
+	const skip =
+		systemNames === undefined || systemNames === null
+			? MONGO_SYSTEM_DBS
+			: new Set(systemNames)
+	const nonSystem = names.filter((n) => !skip.has(n))
 	return nonSystem[0] ?? names[0] ?? ''
 }
 
