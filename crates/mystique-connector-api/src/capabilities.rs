@@ -69,6 +69,13 @@ pub struct TableAdminFeatures {
     pub drop: bool,
     pub truncate: bool,
     pub duplicate: bool,
+    /// Right-click “View structure” (plugin `describe_object_structure`).
+    #[serde(default = "default_true")]
+    pub view_structure: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// How Home collects / displays connection coordinates.
@@ -168,6 +175,7 @@ impl TableAdminFeatures {
             drop: true,
             truncate: true,
             duplicate: true,
+            view_structure: true,
         }
     }
 
@@ -178,6 +186,7 @@ impl TableAdminFeatures {
             drop: true,
             truncate: true,
             duplicate: true,
+            view_structure: true,
         }
     }
 }

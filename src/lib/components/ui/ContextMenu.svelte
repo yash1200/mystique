@@ -5,6 +5,8 @@
   export type ContextMenuItem = {
     id: string;
     label: string;
+    /** Optional keyboard hint shown on the right (e.g. ⌘D). */
+    shortcut?: string;
     danger?: boolean;
     disabled?: boolean;
     separatorBefore?: boolean;
@@ -79,7 +81,7 @@
       role="menuitem"
       disabled={item.disabled}
       class={cn(
-        "flex w-full cursor-pointer border-none bg-transparent px-2.5 py-1.5 text-left text-label",
+        "flex w-full cursor-pointer items-center gap-4 border-none bg-transparent px-2.5 py-1.5 text-left text-label",
         item.danger
           ? "text-danger hover:bg-danger/10"
           : "text-fg hover:bg-hover",
@@ -90,7 +92,12 @@
         pick(item.id, item.disabled);
       }}
     >
-      {item.label}
+      <span class="min-w-0 flex-1">{item.label}</span>
+      {#if item.shortcut}
+        <span class="shrink-0 font-mono text-micro text-fg-muted tabular-nums">
+          {item.shortcut}
+        </span>
+      {/if}
     </button>
   {/each}
 </div>

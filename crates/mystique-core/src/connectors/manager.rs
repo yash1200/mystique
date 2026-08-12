@@ -352,6 +352,31 @@ impl ConnectionManager {
         session.list_relationships(req.database.as_deref()).await
     }
 
+    /// Plugin-owned structure (columns, indexes, triggers, relations, …).
+    pub async fn describe_object_structure(
+        &self,
+        req: crate::ObjectStructureRequest,
+    ) -> ConnectorResult<crate::ObjectStructure> {
+        if req.table.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        }
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        session
+            .describe_object_structure(
+                req.database.as_deref(),
+                req.schema.as_deref(),
+                &req.table,
+                req.kind.as_deref(),
+            )
+            .await
+    }
+
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
     pub async fn apply_table_admin(
         &self,

@@ -4,7 +4,7 @@
   interface Props {
     open: boolean;
     tabTitle: string;
-    tabKind: "query" | "table" | "model";
+    tabKind: "query" | "table" | "model" | "structure";
     busy?: boolean;
     onsave: () => void;
     ondiscard: () => void;
@@ -22,7 +22,13 @@
   }: Props = $props();
 
   const kindLabel = $derived(
-    tabKind === "query" ? "query" : tabKind === "table" ? "table" : "tab",
+    tabKind === "query"
+      ? "query"
+      : tabKind === "table"
+        ? "table"
+        : tabKind === "structure"
+          ? "structure"
+          : "tab",
   );
 </script>
 

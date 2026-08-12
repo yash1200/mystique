@@ -5,12 +5,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use deadpool_postgres::Pool;
 use mystique_connector_api::{
-    compile_delete, compile_insert, compile_update, qualify_table, quote_ident,
-    split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
-    CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
-    ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput, PoolStatus,
-    QueryColumn, QueryMode, QueryResult, SqlIdentStyle, TableAdminInput, TableAdminOp,
-    TableAdminResult, TableObjectKind, TablePreviewResult, ValidatedQuery, sql_where_clause,
+    cell_bool, compile_delete, compile_insert, compile_update, qualify_table,
+    quote_ident, split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult,
+    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
+    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
+    ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult, SqlIdentStyle,
+    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
+    TablePreviewResult, ValidatedQuery, sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -453,7 +454,8 @@ impl ConnectorSession for PostgresSession {
                   AND tc.table_schema = c.table_schema
                   AND tc.table_name = c.table_name
                   AND kcu.column_name = c.column_name
-              ) AS is_pk
+              ) AS is_pk,
+              c.column_default
             FROM information_schema.columns c
             WHERE c.table_schema = $1 AND c.table_name = $2
             ORDER BY c.ordinal_position
@@ -476,6 +478,7 @@ impl ConnectorSession for PostgresSession {
             let is_nullable: String = row.get(7);
             let enum_labels: Option<String> = row.get(8);
             let is_pk: bool = row.get(9);
+            let column_default: Option<String> = row.get(10);
 
             let enum_values = enum_labels.and_then(|labels| {
                 let vals: Vec<String> = if labels.contains('\u{001f}') {
@@ -512,6 +515,9 @@ impl ConnectorSession for PostgresSession {
                 nullable: is_nullable.to_ascii_uppercase() != "NO",
                 pk: is_pk,
                 enum_values,
+                default_value: column_default
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
             });
         }
         Ok(out)
@@ -1004,6 +1010,297 @@ impl ConnectorSession for PostgresSession {
                 ))
             }
         }
+    }
+
+    async fn describe_object_structure(
+        &self,
+        _database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+        kind: Option<&str>,
+    ) -> ConnectorResult<ObjectStructure> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let schema = schema.unwrap_or("public");
+        let client = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+
+        let cols = self
+            .describe_table(None, Some(schema), table)
+            .await?;
+        let col_rows: Vec<Vec<String>> = cols
+            .iter()
+            .map(|c| {
+                vec![
+                    c.name.clone(),
+                    c.data_type.clone(),
+                    cell_bool(c.nullable),
+                    cell_bool(c.pk),
+                    c.default_value
+                        .clone()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "—".into()),
+                    c.enum_values
+                        .as_ref()
+                        .map(|v| v.join(", "))
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "—".into()),
+                ]
+            })
+            .collect();
+        let mut columns_sec = StructureSection::table(
+            "columns",
+            "Columns",
+            vec![
+                "Name".into(),
+                "Type".into(),
+                "Nullable".into(),
+                "PK".into(),
+                "Default".into(),
+                "Enum".into(),
+            ],
+            col_rows,
+        );
+        if columns_sec.rows.is_empty() {
+            columns_sec = columns_sec.with_empty_message("No columns found.");
+        }
+
+        let idx_rows = client
+            .query(
+                r#"
+                SELECT
+                  i.relname::text,
+                  ix.indisunique,
+                  ix.indisprimary,
+                  pg_get_indexdef(ix.indexrelid)
+                FROM pg_class t
+                JOIN pg_index ix ON t.oid = ix.indrelid
+                JOIN pg_class i ON i.oid = ix.indexrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE n.nspname = $1 AND t.relname = $2
+                ORDER BY i.relname
+                "#,
+                &[&schema, &table],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let index_rows: Vec<Vec<String>> = idx_rows
+            .iter()
+            .map(|r| {
+                vec![
+                    r.get::<_, String>(0),
+                    cell_bool(r.get::<_, bool>(1)),
+                    cell_bool(r.get::<_, bool>(2)),
+                    r.get::<_, String>(3),
+                ]
+            })
+            .collect();
+        let mut indexes_sec = StructureSection::table(
+            "indexes",
+            "Indexes",
+            vec![
+                "Name".into(),
+                "Unique".into(),
+                "Primary".into(),
+                "Definition".into(),
+            ],
+            index_rows,
+        )
+        .with_empty_message("No indexes.");
+
+        let fk_rows = client
+            .query(
+                r#"
+                SELECT
+                  tc.constraint_name,
+                  kcu.column_name,
+                  ccu.table_schema,
+                  ccu.table_name,
+                  ccu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = $1
+                  AND tc.table_name = $2
+                ORDER BY tc.constraint_name, kcu.ordinal_position
+                "#,
+                &[&schema, &table],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let fk_display: Vec<Vec<String>> = fk_rows
+            .iter()
+            .map(|r| {
+                let to_schema: String = r.get(2);
+                let to_table: String = r.get(3);
+                vec![
+                    r.get::<_, String>(0),
+                    r.get::<_, String>(1),
+                    format!("{to_schema}.{to_table}"),
+                    r.get::<_, String>(4),
+                ]
+            })
+            .collect();
+        let mut fks_sec = StructureSection::table(
+            "foreign_keys",
+            "Foreign keys",
+            vec![
+                "Constraint".into(),
+                "Column".into(),
+                "References".into(),
+                "Ref column".into(),
+            ],
+            fk_display,
+        )
+        .with_empty_message("No foreign keys.");
+
+        let inbound = client
+            .query(
+                r#"
+                SELECT
+                  tc.constraint_name,
+                  kcu.table_schema,
+                  kcu.table_name,
+                  kcu.column_name,
+                  ccu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND ccu.table_schema = $1
+                  AND ccu.table_name = $2
+                ORDER BY kcu.table_schema, kcu.table_name
+                "#,
+                &[&schema, &table],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let inbound_display: Vec<Vec<String>> = inbound
+            .iter()
+            .map(|r| {
+                let from_schema: String = r.get(1);
+                let from_table: String = r.get(2);
+                vec![
+                    r.get::<_, String>(0),
+                    format!("{from_schema}.{from_table}"),
+                    r.get::<_, String>(3),
+                    r.get::<_, String>(4),
+                ]
+            })
+            .collect();
+        let mut refs_sec = StructureSection::table(
+            "referenced_by",
+            "Referenced by",
+            vec![
+                "Constraint".into(),
+                "From table".into(),
+                "From column".into(),
+                "To column".into(),
+            ],
+            inbound_display,
+        )
+        .with_empty_message("No inbound foreign keys.");
+
+        let trig_rows = client
+            .query(
+                r#"
+                SELECT
+                  trigger_name,
+                  action_timing,
+                  event_manipulation,
+                  action_statement
+                FROM information_schema.triggers
+                WHERE event_object_schema = $1
+                  AND event_object_table = $2
+                ORDER BY trigger_name, event_manipulation
+                "#,
+                &[&schema, &table],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let trigger_display: Vec<Vec<String>> = trig_rows
+            .iter()
+            .map(|r| {
+                vec![
+                    r.get::<_, String>(0),
+                    r.get::<_, String>(1),
+                    r.get::<_, String>(2),
+                    r.get::<_, String>(3),
+                ]
+            })
+            .collect();
+        let mut triggers_sec = StructureSection::table(
+            "triggers",
+            "Triggers",
+            vec![
+                "Name".into(),
+                "Timing".into(),
+                "Event".into(),
+                "Action".into(),
+            ],
+            trigger_display,
+        )
+        .with_empty_message("No triggers.");
+
+        let check_rows = client
+            .query(
+                r#"
+                SELECT
+                  tc.constraint_name,
+                  cc.check_clause
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.check_constraints cc
+                  ON tc.constraint_name = cc.constraint_name
+                 AND tc.constraint_schema = cc.constraint_schema
+                WHERE tc.constraint_type = 'CHECK'
+                  AND tc.table_schema = $1
+                  AND tc.table_name = $2
+                ORDER BY tc.constraint_name
+                "#,
+                &[&schema, &table],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let check_display: Vec<Vec<String>> = check_rows
+            .iter()
+            .map(|r| vec![r.get::<_, String>(0), r.get::<_, String>(1)])
+            .collect();
+        let mut checks_sec = StructureSection::table(
+            "checks",
+            "Check constraints",
+            vec!["Name".into(), "Clause".into()],
+            check_display,
+        )
+        .with_empty_message("No check constraints.");
+
+        let title = format!("{schema}.{table}");
+        let object_kind = kind.unwrap_or("table").to_string();
+        Ok(ObjectStructure::new(
+            title,
+            vec![
+                columns_sec,
+                indexes_sec,
+                fks_sec,
+                refs_sec,
+                triggers_sec,
+                checks_sec,
+            ],
+        )
+        .with_subtitle(format!("PostgreSQL · {object_kind}"))
+        .with_object_kind(object_kind))
     }
 }
 

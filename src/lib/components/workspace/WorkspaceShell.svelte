@@ -11,8 +11,10 @@
 	import {
 		applyEngineTableAdmin,
 		closeEngineSession,
+		describeEngineObjectStructure,
 		openEngineSession,
 		testEngineConnection,
+		type ObjectStructure,
 		type TableAdminOp,
 		type TablePreviewFilter,
 	} from '$lib/api/engines'
@@ -107,6 +109,13 @@
 	>({})
 	let modelLoading = $state(false)
 	let modelError = $state<string | null>(null)
+
+	/** Object structure keyed by connectionId::tableId */
+	let liveStructures = $state<
+		Record<string, { data: ObjectStructure; rev: number }>
+	>({})
+	let structureLoading = $state(false)
+	let structureError = $state<string | null>(null)
 
 	/** Open / re-open a pooled engine session for a profile (fixes stale old connections). */
 	async function reopenEngineSession(
@@ -364,11 +373,61 @@
 
 	const activeTableIdForExplorer = $derived(
 		activeTab &&
-			activeTab.kind === 'table' &&
+			(activeTab.kind === 'table' || activeTab.kind === 'structure') &&
 			activeTab.connectionId === activeId
 			? (activeTab.tableId ?? null)
 			: null,
 	)
+
+	const activeStructure = $derived.by(() => {
+		if (
+			!activeId ||
+			!activeTab ||
+			activeTab.kind !== 'structure' ||
+			!activeTab.tableId
+		) {
+			return null
+		}
+		return (
+			liveStructures[structureCacheKey(activeId, activeTab.tableId)] ?? null
+		)
+	})
+
+	const structureTableMeta = $derived.by(() => {
+		if (
+			!activeTab ||
+			activeTab.kind !== 'structure' ||
+			!activeTab.tableId ||
+			!activeId
+		) {
+			return null
+		}
+		const cat = catalogs[activeId] ?? []
+		for (const d of cat) {
+			const t = d.tables.find((x) => x.id === activeTab.tableId)
+			if (t) return t
+		}
+		return null
+	})
+
+	// Reload structure when a structure tab is focused without cached data.
+	$effect(() => {
+		if (
+			!activeId ||
+			!activeTab ||
+			activeTab.kind !== 'structure' ||
+			!activeTab.tableId ||
+			structureLoading ||
+			structureError
+		) {
+			return
+		}
+		const key = structureCacheKey(activeId, activeTab.tableId)
+		if (liveStructures[key]?.data) return
+		const table = structureTableMeta
+		if (!table) return
+		void openObjectStructure(table)
+	})
 
 	const rowSelectionIndex = $derived.by(() => {
 		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
@@ -770,6 +829,55 @@
 		workspaceSession.openNewQueryWithText(activeId, sql, title)
 	}
 
+	function structureCacheKey(connectionId: string, tableId: string): string {
+		return `${connectionId}::${tableId}`
+	}
+
+	async function openObjectStructure(table: TableMeta, force = false) {
+		if (!activeId || !activeSession) return
+		sideMode = 'explorer'
+		const title = `Structure · ${table.name}`
+		workspaceSession.openStructure(activeId, table.id, title)
+		const key = structureCacheKey(activeId, table.id)
+		if (!force && liveStructures[key]?.data?.sections?.length) {
+			structureError = null
+			return
+		}
+		if (!isTauri()) {
+			structureError =
+				'Object structure requires Tauri. Run `npm run tauri dev` and Connect.'
+			return
+		}
+		structureLoading = true
+		structureError = null
+		try {
+			const loaded = await withLiveSession(activeId, (sid) =>
+				describeEngineObjectStructure({
+					sessionId: sid,
+					table: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName || null,
+					kind: table.kind,
+				}),
+			)
+			liveStructures = {
+				...liveStructures,
+				[key]: { data: loaded, rev: Date.now() },
+			}
+			if (loaded.title) {
+				workspaceSession.openStructure(
+					activeId,
+					table.id,
+					`Structure · ${table.name}`,
+				)
+			}
+		} catch (e) {
+			structureError = e instanceof Error ? e.message : String(e)
+		} finally {
+			structureLoading = false
+		}
+	}
+
 	async function onTableExplorerAction(
 		action: TableExplorerAction,
 		table: TableMeta,
@@ -782,6 +890,10 @@
 		}
 		if (action === 'erd') {
 			void openModelDiagram(false)
+			return
+		}
+		if (action === 'structure') {
+			void openObjectStructure(table)
 			return
 		}
 		if (!isTauri()) {
@@ -827,9 +939,19 @@
 
 			// Rename / drop / truncate / duplicate run in the plugin.
 			const tabId = `${activeId}::table::${table.id}`
+			const structureTabId = `${activeId}::structure::${table.id}`
 			const tableOpen = workspaceSession.openTabs.some((t) => t.id === tabId)
+			const structureOpen = workspaceSession.openTabs.some(
+				(t) => t.id === structureTabId,
+			)
 			if (action === 'drop' || action === 'rename') {
 				if (tableOpen) workspaceSession.closeTab(tabId)
+				if (structureOpen) workspaceSession.closeTab(structureTabId)
+				const sk = structureCacheKey(activeId, table.id)
+				if (liveStructures[sk]) {
+					const { [sk]: _drop, ...rest } = liveStructures
+					liveStructures = rest
+				}
 			} else if (action === 'truncate' && tableOpen) {
 				void openTable(table)
 			}
@@ -1440,6 +1562,9 @@
 		{modelError}
 		{modelLoading}
 		{activeModel}
+		structure={activeStructure?.data ?? null}
+		{structureLoading}
+		{structureError}
 		{gridTable}
 		{tableLoading}
 		{rowSelectionIndex}
@@ -1450,6 +1575,9 @@
 		onbaselinechange={onGridBaselineChange}
 		onselectrow={onSelectGridRow}
 		onopenmodelretry={() => void openModelDiagram(true)}
+		onopenstructureretry={() => {
+			if (structureTableMeta) void openObjectStructure(structureTableMeta, true)
+		}}
 		oninspectorchange={onInspectorFieldChange}
 		onsavequery={() => void saveActiveQuery()}
 		querysaving={querySaving}

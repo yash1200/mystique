@@ -11,6 +11,7 @@ use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
+use crate::object_structure::ObjectStructure;
 use crate::table_admin::{TableAdminInput, TableAdminResult};
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;
@@ -150,6 +151,21 @@ pub trait ConnectorSession: Send + Sync {
     ) -> ConnectorResult<TableAdminResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "table admin is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Columns, indexes, triggers, relations, and other structure details.
+    /// Plugins own the sections; the FE only renders them.
+    async fn describe_object_structure(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _table: &str,
+        _kind: Option<&str>,
+    ) -> ConnectorResult<ObjectStructure> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "object structure is not implemented for engine `{}`",
             self.engine_id()
         )))
     }

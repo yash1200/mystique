@@ -95,7 +95,7 @@
       size="sm"
       disabled={saving || refreshing}
       onclick={onAddRow}
-      title="Add a new empty row"
+      title="Add a new empty row (⌘/Ctrl+N)"
     >
       Add row
     </Button>

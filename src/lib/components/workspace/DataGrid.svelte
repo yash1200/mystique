@@ -303,31 +303,82 @@
 		return row
 	}
 
-	function addNewRow() {
-		if (editing) commitEdit()
-		const row = blankRow()
-		const idx = rows.length
-		rows = [...rows, { ...row }]
-		table.rows.push({ ...row })
-		// Baseline equals blank so only real field edits add dirtyKeys;
-		// membership in newRowIndices keeps Save/Reset visible.
-		originals = [...originals, { ...row }]
-		seed = [...seed, { ...row }]
-		newRowIndices = new Set([...newRowIndices, idx])
-		// Stay on the current server page; new row is local until save.
+	/** Shift absolute indices after inserting a row at the front. */
+	function shiftIndicesAfterPrepend() {
+		const shiftSet = (set: Set<number>) =>
+			new Set([...set].map((i) => i + 1))
+		newRowIndices = shiftSet(newRowIndices)
+		deletedIndices = shiftSet(deletedIndices)
+
+		const nextDirty = new Set<string>()
+		for (const key of dirtyKeys) {
+			const sep = key.indexOf('::')
+			if (sep < 0) continue
+			const i = Number(key.slice(0, sep))
+			const col = key.slice(sep + 2)
+			if (!Number.isFinite(i) || !col) continue
+			nextDirty.add(cellKey(i + 1, col))
+		}
+		dirtyKeys = nextDirty
+
+		if (editing) {
+			editing = { row: editing.row + 1, col: editing.col }
+		}
+		if (selectedCell) {
+			selectedCell = { row: selectedCell.row + 1, col: selectedCell.col }
+		}
+		if (highlightRow != null) {
+			highlightRow = highlightRow + 1
+		}
+	}
+
+	/**
+	 * Insert an unsaved local row at the top of the grid.
+	 * Baseline equals the inserted values so only real edits dirty cells;
+	 * membership in newRowIndices keeps Save/Reset visible.
+	 */
+	function insertLocalRowAtTop(row: Record<string, unknown>) {
+		shiftIndicesAfterPrepend()
+		const copy = { ...row }
+		rows = [copy, ...rows]
+		table.rows.unshift({ ...copy })
+		originals = [{ ...copy }, ...originals]
+		seed = [{ ...copy }, ...seed]
+		newRowIndices = new Set([0, ...newRowIndices])
+
 		const firstCol = table.columns[0]?.name
 		if (firstCol) {
-			selectedCell = { row: idx, col: firstCol }
-			highlightRow = idx
+			selectedCell = { row: 0, col: firstCol }
+			highlightRow = 0
+			if (shouldOpenInspector()) onselectrow(0)
 			requestAnimationFrame(() => {
-				scrollCellIntoView(idx, firstCol)
+				scrollCellIntoView(0, firstCol)
 				focusGridShell()
 			})
 		}
+		return 0
+	}
+
+	function addNewRow() {
+		if (profileReadOnly) {
+			flashStatus('Connection is read-only')
+			return
+		}
+		if (editing) commitEdit()
+		insertLocalRowAtTop(blankRow())
 		statusMsg = 'Row added'
 		setTimeout(() => {
 			if (statusMsg === 'Row added') statusMsg = null
 		}, 1500)
+	}
+
+	function cloneFocusedRow() {
+		const row = selectedCell?.row ?? highlightRow ?? selectedRowIndex
+		if (row == null) {
+			flashStatus('Select a row to clone')
+			return
+		}
+		cloneRow(row)
 	}
 
 	function flashStatus(msg: string, ms = 1600) {
@@ -383,6 +434,7 @@
 		if (editing) commitEdit()
 		const src = rows[index]
 		if (!src) return
+		// Snapshot before prepend shifts indices.
 		const row: Record<string, unknown> = { ...src }
 		for (const col of table.columns) {
 			if (
@@ -394,21 +446,7 @@
 				row[col.name] = null
 			}
 		}
-		const idx = rows.length
-		rows = [...rows, { ...row }]
-		table.rows.push({ ...row })
-		originals = [...originals, { ...row }]
-		seed = [...seed, { ...row }]
-		newRowIndices = new Set([...newRowIndices, idx])
-		const firstCol = table.columns[0]?.name
-		if (firstCol) {
-			selectedCell = { row: idx, col: firstCol }
-			highlightRow = idx
-			requestAnimationFrame(() => {
-				scrollCellIntoView(idx, firstCol)
-				focusGridShell()
-			})
-		}
+		insertLocalRowAtTop(row)
 		flashStatus('Row cloned — save to insert')
 	}
 
@@ -518,6 +556,7 @@
 			{
 				id: 'clone',
 				label: 'Clone row',
+				shortcut: '⌘/Ctrl+D',
 				disabled: ro || pending,
 				separatorBefore: true,
 			},
@@ -678,6 +717,8 @@
 		ensureRowVisible(nextAbs)
 		selectedCell = { row: nextAbs, col: nextCol }
 		highlightRow = nextAbs
+		// Keep the row details panel in sync (same path as click selection).
+		if (shouldOpenInspector()) onselectrow(nextAbs)
 		// Wait a frame for page change DOM
 		requestAnimationFrame(() => scrollCellIntoView(nextAbs, nextCol))
 	}
@@ -880,10 +921,24 @@
 		const mod = e.metaKey || e.ctrlKey
 
 		// ⌘/Ctrl+S — save (works even while a cell is being edited)
-		if (mod && !e.altKey && (e.key === 's' || e.key === 'S')) {
+		if (mod && !e.altKey && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
 			e.preventDefault()
 			e.stopPropagation()
 			void saveChanges()
+			return
+		}
+		// ⌘/Ctrl+N — new empty row
+		if (mod && !e.altKey && !e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+			e.preventDefault()
+			e.stopPropagation()
+			addNewRow()
+			return
+		}
+		// ⌘/Ctrl+D — clone focused / selected row
+		if (mod && !e.altKey && !e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+			e.preventDefault()
+			e.stopPropagation()
+			cloneFocusedRow()
 			return
 		}
 
@@ -1140,12 +1195,24 @@
 	// Global shortcuts + File→Save while this table is the active tab.
 	onMount(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+			if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
 			const k = e.key.toLowerCase()
 			if (k === 's') {
 				e.preventDefault()
 				e.stopPropagation()
 				void saveChanges()
+				return
+			}
+			if (k === 'n') {
+				e.preventDefault()
+				e.stopPropagation()
+				addNewRow()
+				return
+			}
+			if (k === 'd') {
+				e.preventDefault()
+				e.stopPropagation()
+				cloneFocusedRow()
 				return
 			}
 			if (k === 'r') {

@@ -124,6 +124,41 @@ export function writeInspectOnRowClick(on: boolean) {
   }
 }
 
+/** Object explorer / side panel width (px). Default matches former `w-60` (240px). */
+const EXPLORER_WIDTH_KEY = "mystique-explorer-panel-width";
+export const EXPLORER_PANEL_WIDTH_DEFAULT = 240;
+export const EXPLORER_PANEL_WIDTH_MIN = 180;
+export const EXPLORER_PANEL_WIDTH_MAX = 480;
+
+export function clampExplorerPanelWidth(px: number): number {
+  if (!Number.isFinite(px)) return EXPLORER_PANEL_WIDTH_DEFAULT;
+  return Math.min(
+    EXPLORER_PANEL_WIDTH_MAX,
+    Math.max(EXPLORER_PANEL_WIDTH_MIN, Math.round(px)),
+  );
+}
+
+export function readExplorerPanelWidth(): number {
+  try {
+    const raw = localStorage.getItem(EXPLORER_WIDTH_KEY);
+    if (raw == null || raw === "") return EXPLORER_PANEL_WIDTH_DEFAULT;
+    return clampExplorerPanelWidth(Number(raw));
+  } catch {
+    return EXPLORER_PANEL_WIDTH_DEFAULT;
+  }
+}
+
+export function writeExplorerPanelWidth(px: number) {
+  try {
+    localStorage.setItem(
+      EXPLORER_WIDTH_KEY,
+      String(clampExplorerPanelWidth(px)),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Apply stored theme + density (call once at app boot). */
 export function applyStoredAppearance() {
   applyThemePref(readThemePref());

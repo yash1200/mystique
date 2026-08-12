@@ -191,3 +191,16 @@ pub async fn apply_engine_table_admin(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn describe_engine_object_structure(
+    state: State<'_, AppState>,
+    request: mystique_core::ObjectStructureRequest,
+) -> Result<mystique_core::ObjectStructure, String> {
+    state
+        .services
+        .connections()
+        .describe_object_structure(request)
+        .await
+        .map_err(|e| e.to_string())
+}

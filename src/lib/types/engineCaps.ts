@@ -40,6 +40,7 @@ export interface TableAdminFeatures {
 	drop: boolean
 	truncate: boolean
 	duplicate: boolean
+	viewStructure: boolean
 }
 
 export interface EngineCapabilities {
@@ -77,6 +78,7 @@ const SQL_ADMIN: TableAdminFeatures = {
 	drop: true,
 	truncate: true,
 	duplicate: true,
+	viewStructure: true,
 }
 
 /** Fallback when no live session yet (browser / pre-connect). Mirrors plugin defaults. */
@@ -125,6 +127,7 @@ export function defaultCapabilitiesForEngine(
 				drop: true,
 				truncate: true,
 				duplicate: true,
+				viewStructure: true,
 			},
 		}
 	}
@@ -321,6 +324,10 @@ export function normalizeCapabilities(
 			drop: asBool(adminRaw.drop, fallback.tableAdmin.drop),
 			truncate: asBool(adminRaw.truncate, fallback.tableAdmin.truncate),
 			duplicate: asBool(adminRaw.duplicate, fallback.tableAdmin.duplicate),
+			viewStructure: asBool(
+				adminRaw.viewStructure ?? adminRaw.view_structure,
+				fallback.tableAdmin.viewStructure,
+			),
 		},
 		objectLabels: { ...fallback.objectLabels, ...(c.objectLabels ?? {}) },
 	}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { TablePreviewFilter } from '$lib/api/engines'
+	import type { ObjectStructure, TablePreviewFilter } from '$lib/api/engines'
 	import type { QueryHistoryItem } from '$lib/api/history'
 	import { EmptyState } from '$lib/components/ui'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
@@ -16,6 +16,7 @@
 	import QueryCanvas from '../QueryCanvas.svelte'
 	import RowInspector from '../RowInspector.svelte'
 	import type { SideNavMode } from '../SessionsRail.svelte'
+	import StructurePanel from '../StructurePanel.svelte'
 	import TableTabs from '../TableTabs.svelte'
 	import WorkspaceEmpty from '../WorkspaceEmpty.svelte'
 
@@ -36,6 +37,9 @@
 			summary: string
 			rev: number
 		} | null
+		structure?: ObjectStructure | null
+		structureLoading?: boolean
+		structureError?: string | null
 		gridTable: TableMeta | null
 		tableLoading: boolean
 		rowSelectionIndex: number | null
@@ -51,6 +55,7 @@
 		onbaselinechange: () => void
 		onselectrow: (index: number) => void
 		onopenmodelretry: () => void
+		onopenstructureretry?: () => void
 		oninspectorchange: (column: string, value: unknown) => void
 		onsavequery?: () => void
 		querysaving?: boolean
@@ -75,6 +80,9 @@
 		modelError,
 		modelLoading,
 		activeModel,
+		structure = null,
+		structureLoading = false,
+		structureError = null,
 		gridTable,
 		tableLoading,
 		rowSelectionIndex,
@@ -85,6 +93,7 @@
 		onbaselinechange,
 		onselectrow,
 		onopenmodelretry,
+		onopenstructureretry,
 		oninspectorchange,
 		onsavequery,
 		querysaving = false,
@@ -187,6 +196,15 @@
 					</div>
 				{/if}
 			</div>
+		{:else if activeSession && activeTab?.kind === 'structure'}
+			{#key activeTab.id}
+				<StructurePanel
+					{structure}
+					loading={structureLoading}
+					error={structureError}
+					onretry={onopenstructureretry}
+				/>
+			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 				{#if catalogError}

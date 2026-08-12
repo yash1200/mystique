@@ -154,6 +154,7 @@ export interface ColumnInfo {
   nullable: boolean;
   pk?: boolean;
   enumValues?: string[] | null;
+  defaultValue?: string | null;
 }
 
 export interface DescribeTableRequest {
@@ -351,4 +352,37 @@ export async function applyEngineTableAdmin(
 ): Promise<TableAdminResult> {
   requireTauri();
   return invoke("apply_engine_table_admin", { request });
+}
+
+/** One structure section (columns / indexes / …) — plugin-owned. */
+export interface StructureSection {
+  id: string;
+  title: string;
+  description?: string | null;
+  columns: string[];
+  rows: string[][];
+  emptyMessage?: string | null;
+}
+
+export interface ObjectStructure {
+  title: string;
+  subtitle?: string | null;
+  objectKind?: string | null;
+  sections: StructureSection[];
+}
+
+export interface ObjectStructureRequest {
+  sessionId: string;
+  table: string;
+  schema?: string | null;
+  database?: string | null;
+  kind?: string | null;
+}
+
+/** Plugin-owned object structure for “View structure”. */
+export async function describeEngineObjectStructure(
+  request: ObjectStructureRequest,
+): Promise<ObjectStructure> {
+  requireTauri();
+  return invoke("describe_engine_object_structure", { request });
 }

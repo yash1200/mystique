@@ -16,6 +16,9 @@ pub struct ColumnInfo {
     /// Enum / set member labels when the engine exposes them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_values: Option<Vec<String>>,
+    /// Default expression / value when the engine exposes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
 }
 
 /// Request to describe a single relation / collection.

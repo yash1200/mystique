@@ -55,14 +55,14 @@ export type DatabaseMeta = {
 	tables: TableMeta[]
 }
 
-/** Main workspace tab: query canvas, table data, or live ER / model diagram. */
-export type WorkspaceTabKind = 'query' | 'table' | 'model'
+/** Main workspace tab: query canvas, table data, ER / model, or object structure. */
+export type WorkspaceTabKind = 'query' | 'table' | 'model' | 'structure'
 
 export type WorkspaceTab = {
 	id: string
 	connectionId: string
 	kind: WorkspaceTabKind
-	/** Present when kind === "table". */
+	/** Present when kind === "table" or "structure". */
 	tableId?: string
 	/**
 	 * Database name the model/ER tab was opened for (kind === "model").

@@ -75,6 +75,9 @@
         {:else if tab.kind === "model"}
           <span class="text-info">⬡</span>
           {" "}
+        {:else if tab.kind === "structure"}
+          <span class="text-fg-muted">▣</span>
+          {" "}
         {/if}
         {tab.title}
       </button>

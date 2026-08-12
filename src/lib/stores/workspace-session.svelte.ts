@@ -366,6 +366,32 @@ class WorkspaceSessionStore {
 		this.schedulePersist(connectionId)
 	}
 
+	/** Open / focus object structure tab (columns, indexes, …). */
+	openStructure(connectionId: string, tableId: string, title: string) {
+		const id = `${connectionId}::structure::${tableId}`
+		if (!this.openTabs.some((t) => t.id === id)) {
+			this.openTabs = [
+				...this.openTabs,
+				{
+					id,
+					connectionId,
+					kind: 'structure',
+					tableId,
+					title,
+					dirty: false,
+				},
+			]
+		} else {
+			this.openTabs = this.openTabs.map((t) =>
+				t.id === id ? { ...t, title } : t,
+			)
+		}
+		this.activeTabId = id
+		this.activeConnectionId = connectionId
+		this.selectedRow = null
+		this.schedulePersist(connectionId)
+	}
+
 	/** Open / focus live ER · Model diagram tab for a connection (+ optional database). */
 	openModel(connectionId: string, database: string, title = 'ER diagram') {
 		const dbKey = database?.trim() || '_'

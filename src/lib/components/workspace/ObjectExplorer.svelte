@@ -22,6 +22,7 @@
 	export type TableExplorerAction =
 		| 'open'
 		| 'erd'
+		| 'structure'
 		| 'rename'
 		| 'drop'
 		| 'truncate'
@@ -172,22 +173,21 @@
 		createError = null
 	}
 
-	function submitCreate(e: Event) {
-		e.preventDefault()
-		const name = newDbName.trim()
-		if (!name) {
+	function submitCreate(name: string) {
+		const trimmed = name.trim()
+		if (!trimmed) {
 			createError = 'Enter a database name.'
 			return
 		}
-		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
 			createError = 'Use letters, numbers, underscore; start with a letter.'
 			return
 		}
-		if (databases.some((d) => d.name === name)) {
+		if (databases.some((d) => d.name === trimmed)) {
 			createError = 'A database with this name already exists.'
 			return
 		}
-		oncreatedatabase(name)
+		oncreatedatabase(trimmed)
 		creating = false
 		newDbName = ''
 		createError = null
@@ -224,6 +224,12 @@
 		// Plugin config is the only feature gate. Do not grey out collection
 		// actions — read-only is enforced when the plugin runs the op.
 		const items: ContextMenuItem[] = [{ id: 'open', label: 'Open' }]
+		if (admin.viewStructure) {
+			items.push({
+				id: 'structure',
+				label: 'View structure',
+			})
+		}
 		if (showModel) {
 			items.push({
 				id: 'erd',
@@ -285,6 +291,10 @@
 			ontableaction('erd', table)
 			return
 		}
+		if (id === 'structure') {
+			ontableaction('structure', table)
+			return
+		}
 		if (id === 'create') {
 			ontableaction('create', table)
 			return
@@ -318,7 +328,7 @@
 </script>
 
 <aside
-	class="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
+	class="flex h-full w-full min-w-0 flex-col bg-panel"
 	aria-label="Database objects"
 >
 	<div class="shrink-0 space-y-1.5 border-b border-line px-2 py-2">
@@ -439,15 +449,6 @@
 			{/if}
 		</div>
 
-		{#if creating}
-			<CreateDatabaseForm
-				bind:value={newDbName}
-				error={createError}
-				oncancel={cancelCreate}
-				onsubmit={submitCreate}
-			/>
-		{/if}
-
 		<Input
 			type="search"
 			placeholder={presentation.filterPlaceholder}
@@ -505,6 +506,15 @@
 		}}
 	/>
 {/if}
+
+<CreateDatabaseForm
+	open={creating}
+	bind:value={newDbName}
+	error={createError}
+	databaseLabel={presentation.databaseLabel}
+	oncancel={cancelCreate}
+	onconfirm={submitCreate}
+/>
 
 <SaveQueryModal
 	open={!!namePrompt}

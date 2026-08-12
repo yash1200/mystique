@@ -130,7 +130,7 @@
 </script>
 
 <aside
-  class="flex h-full w-60 shrink-0 flex-col border-r border-line bg-panel"
+  class="flex h-full w-full min-w-0 flex-col bg-panel"
   aria-label={title}
 >
   <header class="shrink-0 border-b border-line px-3 py-2.5">
