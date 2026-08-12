@@ -9,9 +9,9 @@ use mystique_connector_api::{
     quote_ident, split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult,
     CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
     ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
-    ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult, SqlIdentStyle,
-    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
-    TablePreviewResult, ValidatedQuery, sql_where_clause,
+    ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
+    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
+    TableObjectKind, TablePreviewResult, ValidatedQuery, sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -518,8 +518,54 @@ impl ConnectorSession for PostgresSession {
                 default_value: column_default
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty()),
+                references: None,
             });
         }
+
+        // Attach single-column FK targets (plugin-owned navigation for the grid).
+        if let Ok(fk_rows) = client
+            .query(
+                r#"
+                SELECT
+                  kcu.column_name,
+                  ccu.table_schema,
+                  ccu.table_name,
+                  ccu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = $1
+                  AND tc.table_name = $2
+                ORDER BY tc.constraint_name, kcu.ordinal_position
+                "#,
+                &[&schema, &table],
+            )
+            .await
+        {
+            use std::collections::HashMap;
+            let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
+            for row in fk_rows {
+                let from_col: String = row.get(0);
+                // First FK segment wins for multi-column keys (still navigable).
+                by_col.entry(from_col).or_insert(ColumnReference {
+                    database: None,
+                    schema: row.get::<_, Option<String>>(1),
+                    table: row.get(2),
+                    column: row.get(3),
+                });
+            }
+            for col in &mut out {
+                if let Some(r) = by_col.remove(&col.name) {
+                    col.references = Some(r);
+                }
+            }
+        }
+
         Ok(out)
     }
 

@@ -5,6 +5,14 @@ import {
 	type EngineCapabilities,
 } from './engineCaps'
 
+/** Plugin-owned FK (or equivalent) target for grid jump-to-row. */
+export type ColumnReference = {
+	database?: string | null
+	schema?: string | null
+	table: string
+	column: string
+}
+
 export type ColumnDef = {
 	name: string
 	type: string
@@ -15,6 +23,11 @@ export type ColumnDef = {
 	 * When set, the grid/inspector use a dropdown instead of free text.
 	 */
 	enumValues?: string[]
+	/**
+	 * When set by the engine plugin, the grid shows a jump control to this
+	 * referenced table/column for non-null cell values.
+	 */
+	ref?: ColumnReference
 }
 
 /**

@@ -7,9 +7,9 @@ use mystique_connector_api::{
     sql_where_clause, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
     CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
     ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
-    ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle, StructureSection,
-    TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind, TablePreviewResult,
-    ValidatedQuery,
+    ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle,
+    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
+    TablePreviewResult, ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -283,8 +283,39 @@ impl ConnectorSession for SqliteSession {
                     default_value: dflt
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty()),
+                    references: None,
                 });
             }
+
+            // PRAGMA foreign_key_list: id, seq, table, from, to, on_update, on_delete, match
+            if let Ok(mut fk_stmt) =
+                conn.prepare(&format!("PRAGMA foreign_key_list('{safe}')"))
+            {
+                use std::collections::HashMap;
+                let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
+                if let Ok(mut rows) = fk_stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let to_table: String = row.get(2).unwrap_or_default();
+                        let from_col: String = row.get(3).unwrap_or_default();
+                        let to_col: String = row.get(4).unwrap_or_default();
+                        if from_col.is_empty() || to_table.is_empty() || to_col.is_empty() {
+                            continue;
+                        }
+                        by_col.entry(from_col).or_insert(ColumnReference {
+                            database: None,
+                            schema: None,
+                            table: to_table,
+                            column: to_col,
+                        });
+                    }
+                }
+                for col in &mut out {
+                    if let Some(r) = by_col.remove(&col.name) {
+                        col.references = Some(r);
+                    }
+                }
+            }
+
             Ok(out)
         })
         .await

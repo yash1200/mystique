@@ -10,9 +10,9 @@ use mystique_connector_api::{
     split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
     CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
     ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
-    ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult, SqlIdentStyle,
-    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
-    TablePreviewResult, ValidatedQuery, sql_where_clause,
+    ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
+    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
+    TableObjectKind, TablePreviewResult, ValidatedQuery, sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -325,14 +325,12 @@ impl ConnectorSession for MysqlSession {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
         }
-        let db = database
-            .or(schema)
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig(
-                    "MySQL describe_table requires database/schema".into(),
-                )
-            })?
-            .replace('\'', "''");
+        let db_name = database.or(schema).ok_or_else(|| {
+            ConnectorError::InvalidConfig(
+                "MySQL describe_table requires database/schema".into(),
+            )
+        })?;
+        let db = db_name.replace('\'', "''");
         let tbl = table.replace('\'', "''");
         let mut conn = self
             .pool
@@ -363,8 +361,51 @@ impl ConnectorSession for MysqlSession {
                 pk: column_key.to_ascii_uppercase() == "PRI",
                 enum_values,
                 default_value,
+                references: None,
             });
         }
+
+        // Attach FK targets for grid jump-to-row navigation.
+        let fks: Vec<(String, Option<String>, String, String)> = conn
+            .exec_map(
+                r#"
+                SELECT
+                  COLUMN_NAME,
+                  REFERENCED_TABLE_SCHEMA,
+                  REFERENCED_TABLE_NAME,
+                  REFERENCED_COLUMN_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = ?
+                  AND TABLE_NAME = ?
+                  AND REFERENCED_TABLE_NAME IS NOT NULL
+                ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
+                "#,
+                (db_name, table),
+                |(col, rschema, rtable, rcol): (
+                    String,
+                    Option<String>,
+                    String,
+                    String,
+                )| (col, rschema, rtable, rcol),
+            )
+            .await
+            .unwrap_or_default();
+        use std::collections::HashMap;
+        let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
+        for (col, rschema, rtable, rcol) in fks {
+            by_col.entry(col).or_insert(ColumnReference {
+                database: rschema.or_else(|| Some(db_name.to_string())),
+                schema: None,
+                table: rtable,
+                column: rcol,
+            });
+        }
+        for col in &mut out {
+            if let Some(r) = by_col.remove(&col.name) {
+                col.references = Some(r);
+            }
+        }
+
         Ok(out)
     }
 

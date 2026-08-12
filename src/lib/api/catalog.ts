@@ -191,6 +191,14 @@ function previewToTableMeta(
 					pk: !!c.pk,
 					enumValues:
 						c.enumValues && c.enumValues.length > 0 ? c.enumValues : undefined,
+					ref: c.references
+						? {
+								database: c.references.database ?? null,
+								schema: c.references.schema ?? null,
+								table: c.references.table,
+								column: c.references.column,
+							}
+						: undefined,
 				}))
 			: base.columns
 

@@ -324,6 +324,8 @@ impl ConnectorSession for MongoSession {
                     enum_values: None,
                     // Documents have no column defaults; leave unset.
                     default_value: None,
+                    // No declared FKs in MongoDB.
+                    references: None,
                 }
             })
             .collect())
@@ -580,6 +582,7 @@ impl ConnectorSession for MongoSession {
                     pk: k == "_id",
                     enum_values: None,
                     default_value: None,
+                    references: None,
                 })
                 .collect()
         } else {

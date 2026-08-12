@@ -3,6 +3,19 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Foreign-key (or equivalent) target for a column — plugin-owned navigation.
+/// The FE shows a jump control; it does not invent relationships.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnReference {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    pub table: String,
+    pub column: String,
+}
+
 /// One column as described by the engine plugin (developer-facing types).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +32,9 @@ pub struct ColumnInfo {
     /// Default expression / value when the engine exposes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
+    /// When set, the grid may jump to this referenced table/column for a cell value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references: Option<ColumnReference>,
 }
 
 /// Request to describe a single relation / collection.

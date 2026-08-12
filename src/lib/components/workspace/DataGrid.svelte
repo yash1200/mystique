@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { TablePreviewFilter } from '$lib/api/engines'
+	import type { ColumnReference } from '$lib/types/workspace'
 	import { persistTableEdits } from '$lib/api/tablePersist'
 	import { ContextMenu, type ContextMenuItem } from '$lib/components/ui'
 	import { readInspectOnRowClick } from '$lib/utils/appPrefs'
@@ -24,6 +25,7 @@
 	import {
 		cellText,
 		type FilterMode,
+		type FilterOp,
 		type FilterRule,
 		newRule,
 		opNeedsValue,
@@ -54,6 +56,13 @@
 		}) => Promise<void>
 		/** Re-open a dead engine session; returns the new session id. */
 		onreconnect?: () => Promise<string | null>
+		/**
+		 * When opening a table via FK jump, seed the filter bar so pager/refresh
+		 * keep the same predicate the plugin already applied.
+		 */
+		seedFilters?: TablePreviewFilter[] | null
+		/** Plugin-owned FK jump from a cell. */
+		onopenreference?: (ref: ColumnReference, value: unknown) => void
 	}
 
 	let {
@@ -68,6 +77,8 @@
 		profileReadOnly = false,
 		onreload,
 		onreconnect,
+		seedFilters = null,
+		onopenreference,
 	}: Props = $props()
 
 	let seed = $state<Record<string, unknown>[]>([])
@@ -606,9 +617,22 @@
 		loadFromTable(true)
 		page = 0
 		statusMsg = null
-		filtersActive = false
-		filterRules = [makeRule()]
-		filterCode = ''
+		// Seed filters from FK jump (or clear when opening a normal table).
+		const seed = seedFilters
+		if (seed && seed.length > 0) {
+			filterRules = seed.map((f) => ({
+				id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+				column: f.column,
+				op: (f.op as FilterOp) || 'eq',
+				value: f.value ?? '',
+			}))
+			filterCode = rulesToCode(filterRules)
+			filtersActive = true
+		} else {
+			filtersActive = false
+			filterRules = [makeRule()]
+			filterCode = ''
+		}
 		filterMode = 'ui'
 		appliedSyncTick = -1
 	})
@@ -1308,6 +1332,7 @@
 			{onInputKeydown}
 			onCommitEdit={commitEdit}
 			onRowMenu={openRowMenu}
+			onOpenReference={onopenreference}
 		/>
 	</div>
 

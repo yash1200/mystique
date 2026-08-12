@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TableMeta } from "$lib/types/workspace";
+  import type { ColumnReference, TableMeta } from "$lib/types/workspace";
   import { cn } from "$lib/utils/cn";
   import {
     selectOptionsForColumn,
@@ -32,6 +32,8 @@
     onInputKeydown: (e: KeyboardEvent) => void;
     onCommitEdit: () => void;
     onRowMenu?: (row: number, e: MouseEvent) => void;
+    /** Plugin-owned FK jump: open referenced table filtered to this value. */
+    onOpenReference?: (ref: ColumnReference, value: unknown) => void;
   }
 
   let {
@@ -54,6 +56,7 @@
     onInputKeydown,
     onCommitEdit,
     onRowMenu,
+    onOpenReference,
   }: Props = $props();
 </script>
 
@@ -203,6 +206,45 @@
                     title="Edited"
                     aria-label="Edited"
                   ></span>
+                {/if}
+                {#if !isNull && !isDeleted && col.ref && onOpenReference}
+                  {@const ref = col.ref}
+                  <button
+                    type="button"
+                    class="inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent bg-transparent p-0 leading-none text-fg-muted transition-colors hover:border-accent/30 hover:bg-accent-muted hover:text-accent"
+                    title={`Open ${ref.schema ? `${ref.schema}.` : ""}${ref.table}.${ref.column} = ${cellText(raw)}`}
+                    aria-label={`Open referenced ${ref.table} row`}
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onOpenReference(ref, raw);
+                    }}
+                    ondblclick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                  >
+                    <svg
+                      class="pointer-events-none size-3.5 shrink-0"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M6.5 3.5H4.25A1.75 1.75 0 0 0 2.5 5.25v6.5c0 .97.78 1.75 1.75 1.75h6.5c.97 0 1.75-.78 1.75-1.75V9.5"
+                        stroke="currentColor"
+                        stroke-width="1.25"
+                        stroke-linecap="round"
+                      />
+                      <path
+                        d="M9.5 2.5h4v4M13.5 2.5 8 8"
+                        stroke="currentColor"
+                        stroke-width="1.25"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
                 {/if}
               </div>
               {#if isEditing}

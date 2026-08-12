@@ -18,6 +18,7 @@
 		type TableAdminOp,
 		type TablePreviewFilter,
 	} from '$lib/api/engines'
+	import type { ColumnReference } from '$lib/types/workspace'
 	import {
 		listQueryHistory,
 		listRecentQueryHistory,
@@ -969,6 +970,9 @@
 		openSqlInEditor(h.sql)
 	}
 
+	/** Filters applied when opening a table via FK jump (seed DataGrid filter bar). */
+	let tableSeedFilters = $state<TablePreviewFilter[] | null>(null)
+
 	async function openTable(
 		table: TableMeta,
 		offset = 0,
@@ -976,6 +980,7 @@
 	) {
 		if (!activeId || !activeSession) return
 		sideMode = 'explorer'
+		tableSeedFilters = filters.length > 0 ? filters : null
 		workspaceSession.openTable(activeId, table.id, table.name)
 
 		if (!isTauri()) return
@@ -1002,6 +1007,71 @@
 		} finally {
 			tableLoading = false
 		}
+	}
+
+	/** Resolve a plugin FK target to a catalog TableMeta (same connection). */
+	function findReferencedTable(ref: ColumnReference): TableMeta | null {
+		if (!activeId) return null
+		const list = catalogs[activeId] ?? []
+		const refDb = (ref.database ?? '').trim()
+		const refSchema = (ref.schema ?? '').trim()
+		const refTable = ref.table.trim()
+		const matches: TableMeta[] = []
+		for (const db of list) {
+			for (const t of db.tables) {
+				if (t.name !== refTable) continue
+				if (refSchema && t.schema && t.schema !== refSchema) continue
+				if (refDb && t.database && t.database !== refDb) continue
+				matches.push(t)
+			}
+		}
+		if (matches.length === 0) return null
+		// Prefer exact schema match, then current database, then first hit.
+		const curDb = currentDatabaseName
+		return (
+			matches.find((t) => refSchema && t.schema === refSchema) ??
+			matches.find((t) => t.database === curDb) ??
+			matches[0] ??
+			null
+		)
+	}
+
+	async function openForeignKeyReference(
+		ref: ColumnReference,
+		value: unknown,
+	) {
+		if (value === null || value === undefined) return
+		const target = findReferencedTable(ref)
+		if (!target) {
+			catalogError = `Referenced table “${ref.schema ? `${ref.schema}.` : ''}${ref.table}” is not in the explorer catalog.`
+			return
+		}
+		// Switch database session when the FK points at another DB (MySQL).
+		const targetDb = (target.database || ref.database || '').trim()
+		if (
+			targetDb &&
+			currentDatabaseName &&
+			targetDb !== currentDatabaseName &&
+			activeSession
+		) {
+			const engine = String(activeSession.profile.engine)
+			if (engineBindsSessionToDatabase(engine, activeSession.capabilities)) {
+				try {
+					await selectDatabase(targetDb)
+				} catch {
+					/* selectDatabase sets catalogError */
+				}
+			} else {
+				selectedDb = { ...selectedDb, [activeId!]: targetDb }
+			}
+		}
+		const filterValue =
+			typeof value === 'string' || typeof value === 'number'
+				? String(value)
+				: JSON.stringify(value)
+		await openTable(target, 0, [
+			{ column: ref.column, op: 'eq', value: filterValue },
+		])
 	}
 
 	async function selectDatabase(name: string) {
@@ -1584,6 +1654,8 @@
 		onclosetab={requestCloseTab}
 		onreloadtable={reloadGridTable}
 		onreconnect={reconnectActiveSession}
+		seedFilters={tableSeedFilters}
+		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
 	/>
 
 	{#if pickerOpen}

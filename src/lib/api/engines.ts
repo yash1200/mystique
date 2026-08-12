@@ -148,6 +148,13 @@ export async function executeEngineQuery(
 }
 
 /** Plugin-owned column metadata (developer-facing types, enums, pk). */
+export interface ColumnReference {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  column: string;
+}
+
 export interface ColumnInfo {
   name: string;
   dataType: string;
@@ -155,6 +162,8 @@ export interface ColumnInfo {
   pk?: boolean;
   enumValues?: string[] | null;
   defaultValue?: string | null;
+  /** Plugin-owned FK target for jump-to-row navigation. */
+  references?: ColumnReference | null;
 }
 
 export interface DescribeTableRequest {

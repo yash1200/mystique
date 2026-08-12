@@ -10,7 +10,11 @@
 		resolveCapabilities,
 	} from '$lib/types/engineCaps'
 	import type { ErDiagramState } from '$lib/types/er'
-	import type { TableMeta, WorkspaceTab } from '$lib/types/workspace'
+	import type {
+		ColumnReference,
+		TableMeta,
+		WorkspaceTab,
+	} from '$lib/types/workspace'
 	import DataGrid from '../DataGrid.svelte'
 	import ErWorkspace from '../ErWorkspace.svelte'
 	import QueryCanvas from '../QueryCanvas.svelte'
@@ -66,6 +70,9 @@
 			filters?: TablePreviewFilter[]
 		}) => Promise<void>
 		onreconnect?: () => Promise<string | null>
+		/** Seeded filters when jumping via FK (keeps pager/refresh consistent). */
+		seedFilters?: TablePreviewFilter[] | null
+		onopenreference?: (ref: ColumnReference, value: unknown) => void
 	}
 
 	let {
@@ -100,6 +107,8 @@
 		onclosetab,
 		onreloadtable,
 		onreconnect,
+		seedFilters = null,
+		onopenreference,
 	}: Props = $props()
 </script>
 
@@ -231,7 +240,7 @@
 						/>
 					</div>
 				{:else if gridTable}
-					{#key gridTable.id}
+					{#key `${gridTable.id}::${(seedFilters ?? []).map((f) => `${f.column}:${f.op}:${f.value}`).join('|')}`}
 						<DataGrid
 							table={gridTable}
 							selectedRowIndex={rowSelectionIndex}
@@ -243,6 +252,8 @@
 							profileReadOnly={!!activeSession.profile.readOnly}
 							onreload={onreloadtable}
 							{onreconnect}
+							{seedFilters}
+							{onopenreference}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
 						/>
