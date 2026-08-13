@@ -32,6 +32,8 @@
     onInputKeydown: (e: KeyboardEvent) => void;
     onCommitEdit: () => void;
     onRowMenu?: (row: number, e: MouseEvent) => void;
+    /** Right-click on a data cell. */
+    onCellMenu?: (row: number, col: string, e: MouseEvent) => void;
     /** Plugin-owned FK jump: open referenced table filtered to this value. */
     onOpenReference?: (ref: ColumnReference, value: unknown) => void;
   }
@@ -56,6 +58,7 @@
     onInputKeydown,
     onCommitEdit,
     onRowMenu,
+    onCellMenu,
     onOpenReference,
   }: Props = $props();
 </script>
@@ -188,6 +191,12 @@
                 onSelectCell(i, col.name);
               }}
               ondblclick={(e) => onStartEdit(i, col.name, e)}
+              oncontextmenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelectCell(i, col.name);
+                onCellMenu?.(i, col.name, e);
+              }}
             >
               <div
                 class={cn(

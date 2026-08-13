@@ -90,6 +90,12 @@
 	/** Absolute indices of persisted rows marked for delete (not yet saved). */
 	let deletedIndices = $state<Set<number>>(new Set())
 	let rowMenu = $state<{ row: number; x: number; y: number } | null>(null)
+	let cellMenu = $state<{
+		row: number
+		col: string
+		x: number
+		y: number
+	} | null>(null)
 	let editing = $state<CellRef | null>(null)
 	/** Focused cell for keyboard nav / copy-paste (absolute row index). */
 	let selectedCell = $state<CellRef | null>(null)
@@ -576,6 +582,7 @@
 				: {
 						id: 'delete',
 						label: 'Delete row',
+						shortcut: '⌘/Ctrl+Delete',
 						danger: true,
 						disabled: ro,
 					},
@@ -588,7 +595,15 @@
 	})
 
 	function openRowMenu(row: number, e: MouseEvent) {
+		cellMenu = null
 		rowMenu = { row, x: e.clientX, y: e.clientY }
+	}
+
+	function openCellMenu(row: number, col: string, e: MouseEvent) {
+		rowMenu = null
+		selectedCell = { row, col }
+		highlightRow = row
+		cellMenu = { row, col, x: e.clientX, y: e.clientY }
 	}
 
 	function onRowMenuPick(id: string) {
@@ -605,6 +620,139 @@
 		}
 		if (id === 'delete') deleteRow(row)
 		if (id === 'undelete') undeleteRow(row)
+		if (id === 'details') {
+			highlightRow = row
+			onselectrow(row)
+		}
+	}
+
+	const cellMenuItems = $derived.by((): ContextMenuItem[] => {
+		const ctx = cellMenu
+		if (!ctx) return []
+		const ro = profileReadOnly
+		const pending = deletedIndices.has(ctx.row)
+		const isNull =
+			rows[ctx.row]?.[ctx.col] === null ||
+			rows[ctx.row]?.[ctx.col] === undefined
+		return [
+			{
+				id: 'edit-modal',
+				label: 'Edit Modal',
+				shortcut: '⇧Enter',
+				disabled: ro || pending,
+			},
+			{
+				id: 'set-null',
+				label: 'Set NULL',
+				shortcut: 'Delete',
+				disabled: ro || pending || isNull,
+			},
+			{
+				id: 'copy',
+				label: 'Copy',
+				separatorBefore: true,
+			},
+			{
+				id: 'paste',
+				label: 'Paste',
+				disabled: ro || pending,
+			},
+			{
+				id: 'copy-column',
+				label: 'Copy Column Name',
+			},
+			{
+				id: 'clone',
+				label: 'Clone row',
+				shortcut: '⌘/Ctrl+D',
+				disabled: ro || pending,
+				separatorBefore: true,
+			},
+			pending
+				? { id: 'undelete', label: 'Undo delete', disabled: ro }
+				: {
+						id: 'delete',
+						label: 'Delete row',
+						shortcut: '⌘/Ctrl+Delete',
+						danger: true,
+						disabled: ro,
+					},
+			{
+				id: 'details',
+				label: 'Show details',
+				separatorBefore: true,
+			},
+		]
+	})
+
+	async function onCellMenuPick(id: string) {
+		const ctx = cellMenu
+		cellMenu = null
+		if (!ctx) return
+		const { row, col } = ctx
+		selectedCell = { row, col }
+		highlightRow = row
+
+		if (id === 'edit-modal') {
+			openCellModal(row, col)
+			return
+		}
+		if (id === 'set-null') {
+			if (profileReadOnly) {
+				flashStatus('Connection is read-only')
+				return
+			}
+			if (deletedIndices.has(row)) {
+				flashStatus('Row is marked for delete — undo delete to edit')
+				return
+			}
+			if (editing) commitEdit()
+			applyCellValue(row, col, 'NULL')
+			flashStatus('Set to NULL')
+			return
+		}
+		if (id === 'copy') {
+			// Ensure selection matches the menu cell for copySelectedCell.
+			selectedCell = { row, col }
+			copySelectedCell()
+			return
+		}
+		if (id === 'paste') {
+			if (profileReadOnly) {
+				flashStatus('Connection is read-only')
+				return
+			}
+			if (deletedIndices.has(row)) {
+				flashStatus('Row is marked for delete — undo delete to edit')
+				return
+			}
+			if (editing) commitEdit()
+			selectedCell = { row, col }
+			try {
+				const text = await navigator.clipboard.readText()
+				pasteIntoGrid(text)
+			} catch {
+				flashStatus('Could not read clipboard')
+			}
+			return
+		}
+		if (id === 'copy-column') {
+			const res = await copyTextToClipboard(col)
+			flashStatus(res.ok ? 'Column name copied' : 'Copy failed')
+			return
+		}
+		if (id === 'clone') {
+			cloneRow(row)
+			return
+		}
+		if (id === 'delete') {
+			deleteRow(row)
+			return
+		}
+		if (id === 'undelete') {
+			undeleteRow(row)
+			return
+		}
 		if (id === 'details') {
 			highlightRow = row
 			onselectrow(row)
@@ -1006,6 +1154,46 @@
 			return
 		}
 
+		// ⌘/Ctrl+Delete — mark focused row for delete.
+		if (
+			mod &&
+			!e.altKey &&
+			!e.shiftKey &&
+			(e.key === 'Delete' || e.key === 'Backspace')
+		) {
+			const row = selectedCell?.row ?? highlightRow ?? selectedRowIndex
+			if (row != null) {
+				e.preventDefault()
+				if (deletedIndices.has(row)) undeleteRow(row)
+				else deleteRow(row)
+				return
+			}
+		}
+
+		// Delete / Backspace (no mod) — set focused cell to NULL.
+		if (
+			(e.key === 'Delete' || e.key === 'Backspace') &&
+			!mod &&
+			!e.altKey &&
+			selectedCell
+		) {
+			e.preventDefault()
+			const { row, col } = selectedCell
+			if (profileReadOnly) {
+				flashStatus('Connection is read-only')
+				return
+			}
+			if (deletedIndices.has(row)) {
+				flashStatus('Row is marked for delete — undo delete to edit')
+				return
+			}
+			const cur = rows[row]?.[col]
+			if (cur === null || cur === undefined) return
+			applyCellValue(row, col, 'NULL')
+			flashStatus('Set to NULL')
+			return
+		}
+
 		if (e.key === 'Escape') {
 			e.preventDefault()
 			selectedCell = null
@@ -1332,6 +1520,7 @@
 			{onInputKeydown}
 			onCommitEdit={commitEdit}
 			onRowMenu={openRowMenu}
+			onCellMenu={openCellMenu}
 			onOpenReference={onopenreference}
 		/>
 	</div>
@@ -1355,6 +1544,17 @@
 			ariaLabel="Row actions"
 			onpick={onRowMenuPick}
 			onclose={() => (rowMenu = null)}
+		/>
+	{/if}
+
+	{#if cellMenu}
+		<ContextMenu
+			x={cellMenu.x}
+			y={cellMenu.y}
+			items={cellMenuItems}
+			ariaLabel="Cell actions"
+			onpick={(id) => void onCellMenuPick(id)}
+			onclose={() => (cellMenu = null)}
 		/>
 	{/if}
 
