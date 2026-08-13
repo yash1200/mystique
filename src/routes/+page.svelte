@@ -24,6 +24,7 @@
 		saveInputFromDraft,
 	} from '$lib/types/connection'
 	import { writeLastConnectionId } from '$lib/utils/appPrefs'
+	import { setAppTitle } from '$lib/utils/appTitle'
 	import { onMount } from 'svelte'
 
 	type ToastState = {
@@ -393,6 +394,7 @@
 	}
 
 	onMount(() => {
+		void setAppTitle()
 		;(async () => {
 			loading = true
 			loadError = null

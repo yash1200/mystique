@@ -58,7 +58,7 @@
 			<BrandMark />
 			<div>
 				<div class="text-body-lg font-semibold tracking-tight text-fg">
-					Mystique<span class="font-mono text-label font-medium text-fg-muted"
+					Mystique <span class="font-mono text-label font-medium text-fg-muted"
 						>DB</span
 					>
 				</div>

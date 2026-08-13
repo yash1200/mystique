@@ -53,7 +53,8 @@
 	} from '$lib/types/engineCaps'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
-	import { onMount } from 'svelte'
+	import { setAppTitle } from '$lib/utils/appTitle'
+	import { onDestroy, onMount } from 'svelte'
 	import type { TableExplorerAction } from './ObjectExplorer.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
@@ -75,6 +76,14 @@
 	const openTabs = $derived(workspaceSession.openTabs)
 	const activeTabId = $derived(workspaceSession.activeTabId)
 	const selectedRow = $derived(workspaceSession.selectedRow)
+
+	// OS window title: "Mystique DB · {connection}" (system title bar only).
+	$effect(() => {
+		void setAppTitle(activeSession?.profile.name ?? null)
+	})
+	onDestroy(() => {
+		void setAppTitle()
+	})
 
 	let catalogs = $state<Record<string, DatabaseMeta[]>>({})
 	let selectedDb = $state<Record<string, string>>({})

@@ -12,6 +12,7 @@
     readThemePref,
     applyThemePref,
   } from "$lib/utils/appPrefs";
+  import { setAppTitle } from "$lib/utils/appTitle";
 
   let { children } = $props();
 
@@ -30,6 +31,7 @@
   onMount(() => {
     applyStoredAppearance();
     applyPreferredUiScale();
+    void setAppTitle();
 
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onScheme = () => {
