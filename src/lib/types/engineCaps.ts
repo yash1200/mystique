@@ -27,6 +27,10 @@ export interface ExplorerConfig {
 	layout: ExplorerLayout | string
 	multiDatabase: boolean
 	canCreateDatabase: boolean
+	/** Create a group/namespace (e.g. Postgres schema). */
+	canCreateGroup: boolean
+	/** Create a leaf object (table / collection). */
+	canCreateObject: boolean
 	databaseLabel: string
 	groupLabel: string
 	objectLabel: string
@@ -115,6 +119,8 @@ export function defaultCapabilitiesForEngine(
 				layout: 'flat',
 				multiDatabase: true,
 				canCreateDatabase: true,
+				canCreateGroup: false,
+				canCreateObject: true,
 				databaseLabel: 'Database',
 				groupLabel: '',
 				objectLabel: 'collections',
@@ -160,6 +166,8 @@ export function defaultCapabilitiesForEngine(
 				layout: 'flat',
 				multiDatabase: false,
 				canCreateDatabase: false,
+				canCreateGroup: false,
+				canCreateObject: true,
 				databaseLabel: 'Database',
 				groupLabel: '',
 				objectLabel: 'tables',
@@ -198,6 +206,8 @@ export function defaultCapabilitiesForEngine(
 				layout: 'flat',
 				multiDatabase: true,
 				canCreateDatabase: true,
+				canCreateGroup: false,
+				canCreateObject: true,
 				databaseLabel: 'Database',
 				groupLabel: '',
 				objectLabel: 'tables',
@@ -231,6 +241,8 @@ export function defaultCapabilitiesForEngine(
 			layout: 'schema-tree',
 			multiDatabase: true,
 			canCreateDatabase: true,
+			canCreateGroup: true,
+			canCreateObject: true,
 			databaseLabel: 'Database',
 			groupLabel: 'Schema',
 			objectLabel: 'tables',
@@ -276,7 +288,7 @@ export function normalizeCapabilities(
 	const fallback = defaultCapabilitiesForEngine(engine)
 	if (!raw || typeof raw !== 'object') return fallback
 	const c = raw as Partial<EngineCapabilities> & {
-		explorer?: Partial<ExplorerConfig>
+		explorer?: Partial<ExplorerConfig> | Record<string, unknown>
 		tableAdmin?: Partial<TableAdminFeatures> & Record<string, unknown>
 		table_admin?: Partial<TableAdminFeatures> & Record<string, unknown>
 		objectLabels?: Partial<ObjectLabels>
@@ -314,7 +326,7 @@ export function normalizeCapabilities(
 			c.nameExample ?? c.name_example,
 			fallback.nameExample,
 		),
-		explorer: { ...fallback.explorer, ...(c.explorer ?? {}) },
+		explorer: normalizeExplorer(c.explorer, fallback.explorer),
 		tableAdmin: {
 			createStatement: asBool(
 				adminRaw.createStatement ?? adminRaw.create_statement,
@@ -333,24 +345,80 @@ export function normalizeCapabilities(
 	}
 }
 
+function normalizeExplorer(
+	raw: Partial<ExplorerConfig> | Record<string, unknown> | null | undefined,
+	fallback: ExplorerConfig,
+): ExplorerConfig {
+	const e = (raw ?? {}) as Record<string, unknown>
+	return {
+		layout: asString(e.layout, fallback.layout),
+		multiDatabase: asBool(
+			e.multiDatabase ?? e.multi_database,
+			fallback.multiDatabase,
+		),
+		canCreateDatabase: asBool(
+			e.canCreateDatabase ?? e.can_create_database,
+			fallback.canCreateDatabase,
+		),
+		canCreateGroup: asBool(
+			e.canCreateGroup ?? e.can_create_group,
+			fallback.canCreateGroup,
+		),
+		// Default true: every supported engine can create a leaf object.
+		canCreateObject: asBool(
+			e.canCreateObject ?? e.can_create_object,
+			fallback.canCreateObject !== false,
+		),
+		databaseLabel: asString(
+			e.databaseLabel ?? e.database_label,
+			fallback.databaseLabel,
+		),
+		groupLabel: asString(e.groupLabel ?? e.group_label, fallback.groupLabel),
+		objectLabel: asString(
+			e.objectLabel ?? e.object_label,
+			fallback.objectLabel,
+		),
+		objectLabelSingular: asString(
+			e.objectLabelSingular ?? e.object_label_singular,
+			fallback.objectLabelSingular,
+		),
+		filterPlaceholder: asString(
+			e.filterPlaceholder ?? e.filter_placeholder,
+			fallback.filterPlaceholder,
+		),
+	}
+}
+
 export function presentationFromCaps(caps: EngineCapabilities): {
 	layout: 'schema-tree' | 'flat'
 	multiDatabase: boolean
 	databaseLabel: string
 	groupLabel: string
 	objectLabel: string
+	objectLabelSingular: string
 	filterPlaceholder: string
 	canCreateDatabase: boolean
+	canCreateGroup: boolean
+	canCreateObject: boolean
 } {
-	const layout = caps.explorer.layout === 'schema-tree' ? 'schema-tree' : 'flat'
+	const ex = caps.explorer ?? defaultCapabilitiesForEngine(caps.engine).explorer
+	const layout = ex.layout === 'schema-tree' ? 'schema-tree' : 'flat'
+	const singular =
+		(ex.objectLabelSingular || '').trim() ||
+		(caps.objectLabels?.container || '').trim().toLowerCase() ||
+		'table'
 	return {
 		layout,
-		multiDatabase: caps.explorer.multiDatabase,
-		databaseLabel: caps.explorer.databaseLabel,
-		groupLabel: caps.explorer.groupLabel,
-		objectLabel: caps.explorer.objectLabel,
-		filterPlaceholder: caps.explorer.filterPlaceholder,
-		canCreateDatabase: caps.explorer.canCreateDatabase,
+		multiDatabase: !!ex.multiDatabase,
+		databaseLabel: ex.databaseLabel || 'Database',
+		groupLabel: ex.groupLabel || '',
+		objectLabel: ex.objectLabel || `${singular}s`,
+		objectLabelSingular: singular,
+		filterPlaceholder: ex.filterPlaceholder || `Filter ${ex.objectLabel || singular}…`,
+		canCreateDatabase: asBool(ex.canCreateDatabase, false),
+		canCreateGroup: asBool(ex.canCreateGroup, false),
+		// Prefer explicit false only; missing/undefined → allow create (plugins default true).
+		canCreateObject: asBool(ex.canCreateObject, true),
 	}
 }
 

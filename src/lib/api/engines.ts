@@ -332,6 +332,8 @@ export async function listEngineRelationships(
 
 export type TableAdminOp =
   | "createStatement"
+  | "createGroup"
+  | "createObject"
   | "rename"
   | "drop"
   | "truncate"

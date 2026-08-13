@@ -708,6 +708,18 @@ impl ConnectorSession for MongoSession {
                 );
                 Ok(TableAdminResult::statement(input.op, statement))
             }
+            TableAdminOp::CreateGroup => Err(ConnectorError::NotSupported(
+                "MongoDB does not use schemas; create a collection instead.".into(),
+            )),
+            TableAdminOp::CreateObject => {
+                db.create_collection(name)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Created collection {name} in {db_name}."),
+                ))
+            }
             TableAdminOp::Rename => {
                 let new_name = input.new_name.as_deref().unwrap_or("").trim();
                 mongo_rename_collection(&self.client, &db_name, name, new_name).await?;

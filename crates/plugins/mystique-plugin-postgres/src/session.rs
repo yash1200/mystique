@@ -991,6 +991,32 @@ impl ConnectorSession for PostgresSession {
                 let sql = pg_create_statement(&client, schema, &input.name, is_view).await?;
                 Ok(TableAdminResult::statement(input.op, sql))
             }
+            TableAdminOp::CreateGroup => {
+                let qschema = quote_ident(SqlIdentStyle::Postgres, input.name.trim());
+                let sql = format!("CREATE SCHEMA {qschema}");
+                client
+                    .batch_execute(&sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Created schema {qschema}."),
+                ))
+            }
+            TableAdminOp::CreateObject => {
+                // Minimal empty table with a PK so CREATE TABLE is valid.
+                let sql = format!(
+                    "CREATE TABLE {qname} (id bigserial PRIMARY KEY)"
+                );
+                client
+                    .batch_execute(&sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Created table {qname}."),
+                ))
+            }
             TableAdminOp::Rename => {
                 let new_name = input.new_name.as_deref().unwrap_or("").trim();
                 let dest = quote_ident(SqlIdentStyle::Postgres, new_name);

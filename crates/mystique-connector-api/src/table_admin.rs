@@ -29,6 +29,10 @@ impl TableObjectKind {
 pub enum TableAdminOp {
     /// Return engine-native CREATE / createCollection text. Does not execute.
     CreateStatement,
+    /// Create a group/namespace (e.g. Postgres `CREATE SCHEMA`). `name` is the schema.
+    CreateGroup,
+    /// Create a leaf object (table / collection). `name` + optional `schema` / `database`.
+    CreateObject,
     Rename,
     Drop,
     Truncate,

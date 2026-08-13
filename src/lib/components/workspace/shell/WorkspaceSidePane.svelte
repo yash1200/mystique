@@ -30,6 +30,10 @@
 		onselectdatabase: (name: string) => void
 		onrefresh: () => void
 		oncreatedatabase: (name: string) => void
+		oncreategroup?: (name: string) => void
+		oncreateobject?: (name: string, group?: string) => void
+		createBusy?: boolean
+		createError?: string | null
 		onopen: (table: TableMeta) => void
 		onopenmodel: () => void
 		ontableaction?: (
@@ -68,6 +72,10 @@
 		onselectdatabase,
 		onrefresh,
 		oncreatedatabase,
+		oncreategroup,
+		oncreateobject,
+		createBusy = false,
+		createError = null,
 		onopen,
 		onopenmodel,
 		ontableaction,
@@ -157,6 +165,10 @@
 				{onselectdatabase}
 				{onrefresh}
 				{oncreatedatabase}
+				{oncreategroup}
+				{oncreateobject}
+				{createBusy}
+				{createError}
 				{onopen}
 				{onopenmodel}
 				{ontableaction}

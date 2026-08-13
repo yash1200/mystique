@@ -396,6 +396,18 @@ impl ConnectionManager {
         if req.name.trim().is_empty() {
             return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
         }
+        if matches!(
+            req.op,
+            TableAdminOp::CreateGroup | TableAdminOp::CreateObject
+        ) && !req
+            .name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(ConnectorError::InvalidConfig(
+                "Name may only contain letters, numbers, and underscore.".into(),
+            ));
+        }
         let session = {
             let guard = self.sessions.read().await;
             let live = guard.get(&req.session_id).ok_or_else(|| {

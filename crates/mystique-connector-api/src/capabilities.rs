@@ -53,6 +53,12 @@ pub struct ExplorerConfig {
     pub layout: String,
     pub multi_database: bool,
     pub can_create_database: bool,
+    /// Create a group/namespace (e.g. Postgres schema).
+    #[serde(default)]
+    pub can_create_group: bool,
+    /// Create a leaf object (table / collection).
+    #[serde(default = "default_true")]
+    pub can_create_object: bool,
     pub database_label: String,
     pub group_label: String,
     pub object_label: String,
@@ -132,6 +138,8 @@ impl ExplorerConfig {
             layout: "schema-tree".into(),
             multi_database: true,
             can_create_database: true,
+            can_create_group: true,
+            can_create_object: true,
             database_label: "Database".into(),
             group_label: "Schema".into(),
             object_label: "tables".into(),
@@ -145,6 +153,8 @@ impl ExplorerConfig {
             layout: "flat".into(),
             multi_database,
             can_create_database,
+            can_create_group: false,
+            can_create_object: true,
             database_label: "Database".into(),
             group_label: String::new(),
             object_label: "tables".into(),
@@ -158,6 +168,8 @@ impl ExplorerConfig {
             layout: "flat".into(),
             multi_database: true,
             can_create_database: true,
+            can_create_group: false,
+            can_create_object: true,
             database_label: "Database".into(),
             group_label: String::new(),
             object_label: "collections".into(),
@@ -294,5 +306,23 @@ impl EngineCapabilities {
             explorer: ExplorerConfig::relational_flat(true, true),
             table_admin: TableAdminFeatures::sql_all(),
         }
+    }
+}
+
+#[cfg(test)]
+mod create_caps_tests {
+    use super::*;
+
+    #[test]
+    fn mongodb_explorer_can_create_object() {
+        let caps = EngineCapabilities::mongodb_defaults();
+        assert!(caps.explorer.can_create_object);
+        assert!(!caps.explorer.can_create_group);
+        assert!(caps.explorer.can_create_database);
+        let json = serde_json::to_value(&caps).unwrap();
+        let explorer = json.get("explorer").unwrap();
+        assert_eq!(explorer.get("canCreateObject").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(explorer.get("objectLabelSingular").and_then(|v| v.as_str()), Some("collection"));
+        println!("{}", serde_json::to_string_pretty(&caps.explorer).unwrap());
     }
 }

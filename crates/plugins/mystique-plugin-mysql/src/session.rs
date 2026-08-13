@@ -823,6 +823,21 @@ impl ConnectorSession for MysqlSession {
                 };
                 Ok(TableAdminResult::statement(input.op, statement))
             }
+            TableAdminOp::CreateGroup => Err(ConnectorError::NotSupported(
+                "MySQL does not use schemas; create a database instead.".into(),
+            )),
+            TableAdminOp::CreateObject => {
+                let sql = format!(
+                    "CREATE TABLE {qname} (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY)"
+                );
+                conn.query_drop(sql)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Created table {qname}."),
+                ))
+            }
             TableAdminOp::Rename => {
                 let new_name = input.new_name.as_deref().unwrap_or("").trim();
                 let dest = qualify_table(

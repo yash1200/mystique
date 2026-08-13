@@ -686,6 +686,20 @@ impl ConnectorSession for SqliteSession {
                     };
                     Ok(TableAdminResult::statement(op, statement))
                 }
+                TableAdminOp::CreateGroup => Err(ConnectorError::NotSupported(
+                    "SQLite does not support creating schemas.".into(),
+                )),
+                TableAdminOp::CreateObject => {
+                    conn.execute(
+                        &format!("CREATE TABLE {qname} (id INTEGER PRIMARY KEY)"),
+                        [],
+                    )
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    Ok(TableAdminResult::executed(
+                        op,
+                        format!("Created table {qname}."),
+                    ))
+                }
                 TableAdminOp::Rename => {
                     let dest = quote_ident(
                         SqlIdentStyle::Postgres,

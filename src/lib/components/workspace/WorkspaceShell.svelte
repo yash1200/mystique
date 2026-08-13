@@ -1245,6 +1245,90 @@
 		selectedDb = { ...selectedDb, [activeId]: name }
 	}
 
+	let createBusy = $state(false)
+
+	async function createCatalogGroup(name: string) {
+		if (!activeId || !activeSession) return
+		// Mock catalog: group is empty until an object is added; explorer keeps localGroups.
+		if (!isTauri()) {
+			catalogError = null
+			return
+		}
+		createBusy = true
+		catalogError = null
+		try {
+			await withLiveSession(activeId, (sid) =>
+				applyEngineTableAdmin({
+					sessionId: sid,
+					op: 'createGroup',
+					name,
+					database: currentDatabaseName,
+					profileReadOnly: !!activeSession.profile.readOnly,
+				}),
+			)
+			await refreshDatabases()
+		} catch (e) {
+			catalogError = e instanceof Error ? e.message : String(e)
+		} finally {
+			createBusy = false
+		}
+	}
+
+	async function createCatalogObject(name: string, group?: string) {
+		if (!activeId || !activeSession) return
+		const caps = resolveCapabilities(
+			String(activeSession.profile.engine),
+			activeSession.capabilities,
+		)
+		const kind =
+			caps.explorer.objectLabelSingular === 'collection'
+				? 'collection'
+				: 'table'
+		if (!isTauri()) {
+			const dbName = currentDatabaseName
+			const schema = group || (kind === 'collection' ? '' : 'public')
+			const id = schema ? `${dbName}.${schema}.${name}` : `${dbName}.${name}`
+			const table: TableMeta = {
+				id,
+				name,
+				schema,
+				database: dbName,
+				kind: kind as TableMeta['kind'],
+				rowCount: 0,
+				columns: [],
+				rows: [],
+			}
+			const list = (catalogs[activeId] ?? []).map((d) => {
+				if (d.name !== dbName) return d
+				if (d.tables.some((t) => t.id === id)) return d
+				return { ...d, tables: [...d.tables, table] }
+			})
+			catalogs = { ...catalogs, [activeId]: list }
+			catalogError = null
+			return
+		}
+		createBusy = true
+		catalogError = null
+		try {
+			await withLiveSession(activeId, (sid) =>
+				applyEngineTableAdmin({
+					sessionId: sid,
+					op: 'createObject',
+					name,
+					schema: group || null,
+					database: currentDatabaseName,
+					kind,
+					profileReadOnly: !!activeSession.profile.readOnly,
+				}),
+			)
+			await refreshDatabases()
+		} catch (e) {
+			catalogError = e instanceof Error ? e.message : String(e)
+		} finally {
+			createBusy = false
+		}
+	}
+
 	let pickerOpen = $state(false)
 	let pickerBusy = $state(false)
 	let pickerError = $state<string | null>(null)
@@ -1613,6 +1697,10 @@
 		onselectdatabase={selectDatabase}
 		onrefresh={refreshDatabases}
 		oncreatedatabase={createDatabase}
+		oncreategroup={(name) => void createCatalogGroup(name)}
+		oncreateobject={(name, group) => void createCatalogObject(name, group)}
+		{createBusy}
+		createError={null}
 		onopen={openTable}
 		onopenmodel={() => void openModelDiagram(false)}
 		ontableaction={(action, table, extra) =>

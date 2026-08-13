@@ -33,6 +33,8 @@
 		return `${table.name}_copy`
 	}
 
+	type CreateKind = 'database' | 'group' | 'object'
+
 	interface Props {
 		engine: string
 		databases: DatabaseMeta[]
@@ -42,9 +44,15 @@
 		modelLoading?: boolean
 		readOnly?: boolean
 		capabilities?: EngineCapabilities | null
+		createBusy?: boolean
+		createError?: string | null
 		onselectdatabase: (name: string) => void
 		onrefresh: () => void
 		oncreatedatabase: (name: string) => void
+		/** Create group/namespace (e.g. Postgres schema). */
+		oncreategroup?: (name: string) => void
+		/** Create leaf object (table / collection). Optional group = schema. */
+		oncreateobject?: (name: string, group?: string) => void
 		onopen: (table: TableMeta) => void
 		onopenmodel?: () => void
 		ontableaction?: (
@@ -63,9 +71,13 @@
 		modelLoading = false,
 		readOnly = false,
 		capabilities = null,
+		createBusy = false,
+		createError = null,
 		onselectdatabase,
 		onrefresh,
 		oncreatedatabase,
+		oncreategroup,
+		oncreateobject,
 		onopen,
 		onopenmodel,
 		ontableaction,
@@ -74,13 +86,20 @@
 	let query = $state('')
 	/** `public` / `main` start open; other schemas stay collapsed until clicked. */
 	let expanded = $state<Set<string>>(new Set(['public', 'main']))
-	let creating = $state(false)
-	let newDbName = $state('')
-	let createError = $state<string | null>(null)
+	/** Empty groups created this session (catalog only lists groups with objects). */
+	let localGroups = $state<string[]>([])
+	let createKind = $state<CreateKind | null>(null)
+	let createName = $state('')
+	let createGroupValue = $state('')
+	let createLocalError = $state<string | null>(null)
+	let createMenuOpen = $state(false)
+	let createMenuRoot = $state<HTMLDivElement | null>(null)
 
 	const caps = $derived(capabilities ?? defaultCapabilitiesForEngine(engine))
 	const presentation = $derived(presentationFromCaps(caps))
 	const isTree = $derived(presentation.layout === 'schema-tree')
+	const noun = $derived(presentation.objectLabelSingular || 'table')
+	const groupNoun = $derived(presentation.groupLabel.trim() || 'schema')
 
 	const currentDb = $derived(
 		databases.find((d) => d.name === selectedDatabase) ?? databases[0] ?? null,
@@ -116,6 +135,9 @@
 			list.push(t)
 			map.set(key, list)
 		}
+		for (const key of localGroups) {
+			if (!map.has(key)) map.set(key, [])
+		}
 		return [...map.entries()]
 			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([key, items]) => ({
@@ -129,6 +151,14 @@
 			}))
 	})
 
+	const groupOptions = $derived.by(() => {
+		const opts = groups.map((g) => ({ value: g.key, label: g.key }))
+		if (isTree && opts.length === 0) {
+			return [{ value: 'public', label: 'public' }]
+		}
+		return opts
+	})
+
 	const flatItems = $derived.by(() => {
 		if (isTree) return [] as TableMeta[]
 		return [...filtered].sort((a, b) => {
@@ -139,6 +169,44 @@
 	})
 
 	const totalCount = $derived(filtered.length)
+
+	const formError = $derived(createLocalError ?? createError)
+
+	const createForm = $derived.by(() => {
+		if (createKind === 'database') {
+			return {
+				title: `Create ${presentation.databaseLabel.toLowerCase()}`,
+				description: `Choose a name for the new ${presentation.databaseLabel.toLowerCase()} on this server.`,
+				nameLabel: presentation.databaseLabel,
+				namePlaceholder: 'my_database',
+				confirmLabel: 'Create',
+				showGroup: false,
+			}
+		}
+		if (createKind === 'group') {
+			return {
+				title: `Create ${groupNoun.toLowerCase()}`,
+				description: `Create a new ${groupNoun.toLowerCase()} in “${selectedDatabase}”.`,
+				nameLabel: groupNoun,
+				namePlaceholder: 'app',
+				confirmLabel: 'Create',
+				showGroup: false,
+			}
+		}
+		if (createKind === 'object') {
+			return {
+				title: `Create ${noun}`,
+				description: isTree
+					? `Create a new ${noun} in the selected ${groupNoun.toLowerCase()}.`
+					: `Create a new ${noun} in “${selectedDatabase}”.`,
+				nameLabel: noun.charAt(0).toUpperCase() + noun.slice(1),
+				namePlaceholder: noun === 'collection' ? 'my_collection' : 'my_table',
+				confirmLabel: 'Create',
+				showGroup: isTree,
+			}
+		}
+		return null
+	})
 
 	function toggleGroup(key: string) {
 		const next = new Set(expanded)
@@ -160,42 +228,212 @@
 		return expanded.has(key)
 	}
 
-	function openCreate() {
-		if (!presentation.canCreateDatabase) return
-		creating = true
-		newDbName = ''
-		createError = null
+	/** Show + when any create action is allowed by plugin caps (not FE engine checks). */
+	const canCreateAnything = $derived(
+		presentation.canCreateDatabase ||
+			presentation.canCreateGroup ||
+			presentation.canCreateObject,
+	)
+
+	type CreateMenuEntry = {
+		id: CreateKind
+		label: string
+		disabled?: boolean
+		separatorBefore?: boolean
 	}
+
+	const createMenuItems = $derived.by((): CreateMenuEntry[] => {
+		const items: CreateMenuEntry[] = []
+		if (presentation.canCreateDatabase) {
+			items.push({
+				id: 'database',
+				label: `Create ${presentation.databaseLabel.toLowerCase()}`,
+				disabled: createBusy,
+			})
+		}
+		if (presentation.canCreateGroup) {
+			items.push({
+				id: 'group',
+				label: `Create ${groupNoun.toLowerCase()}`,
+				separatorBefore: items.length > 0,
+				// Mutating ops: disable when profile is read-only or no DB context.
+				disabled: createBusy || readOnly || !selectedDatabase,
+			})
+		}
+		if (presentation.canCreateObject) {
+			items.push({
+				id: 'object',
+				label: `Create ${noun}`,
+				separatorBefore: items.length > 0 && !presentation.canCreateGroup,
+				// Need a database context (picker value or loaded catalog entry).
+				disabled:
+					createBusy ||
+					readOnly ||
+					!(selectedDatabase.trim() || currentDb?.name),
+			})
+		}
+		return items
+	})
+
+	function toggleCreateMenu() {
+		if (!canCreateAnything || createBusy) return
+		createMenuOpen = !createMenuOpen
+	}
+
+	function onCreateMenuPick(id: CreateKind) {
+		createMenuOpen = false
+		openCreate(id)
+	}
+
+	function openCreate(kind: CreateKind, preferredGroup?: string) {
+		if (kind === 'database' && !presentation.canCreateDatabase) return
+		if (kind === 'group' && !presentation.canCreateGroup) return
+		if (kind === 'object' && !presentation.canCreateObject) return
+		if ((kind === 'group' || kind === 'object') && readOnly) {
+			createLocalError = 'This connection is read-only.'
+			return
+		}
+		createMenuOpen = false
+		createKind = kind
+		createName = ''
+		createLocalError = null
+		if (kind === 'object') {
+			const pick =
+				preferredGroup ||
+				groupOptions.find((g) => g.value === 'public')?.value ||
+				groupOptions[0]?.value ||
+				'public'
+			createGroupValue = pick
+		} else {
+			createGroupValue = ''
+		}
+	}
+
+	// Close create dropdown on outside click / Escape.
+	$effect(() => {
+		if (!createMenuOpen) return
+		const onDoc = (e: PointerEvent) => {
+			if (
+				e.target instanceof Node &&
+				createMenuRoot?.contains(e.target)
+			) {
+				return
+			}
+			createMenuOpen = false
+		}
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') createMenuOpen = false
+		}
+		const tid = window.setTimeout(() => {
+			document.addEventListener('pointerdown', onDoc, true)
+		}, 0)
+		window.addEventListener('keydown', onKey)
+		return () => {
+			clearTimeout(tid)
+			document.removeEventListener('pointerdown', onDoc, true)
+			window.removeEventListener('keydown', onKey)
+		}
+	})
 
 	function cancelCreate() {
-		creating = false
-		newDbName = ''
-		createError = null
+		if (createBusy) return
+		closeCreate()
 	}
 
-	function submitCreate(name: string) {
+	function validateIdent(name: string, label: string): string | null {
 		const trimmed = name.trim()
-		if (!trimmed) {
-			createError = 'Enter a database name.'
-			return
-		}
+		if (!trimmed) return `Enter a ${label.toLowerCase()} name.`
 		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
-			createError = 'Use letters, numbers, underscore; start with a letter.'
-			return
+			return 'Use letters, numbers, underscore; start with a letter.'
 		}
-		if (databases.some((d) => d.name === trimmed)) {
-			createError = 'A database with this name already exists.'
-			return
-		}
-		oncreatedatabase(trimmed)
-		creating = false
-		newDbName = ''
-		createError = null
+		return null
 	}
+
+	function closeCreate() {
+		createKind = null
+		createName = ''
+		createGroupValue = ''
+		createLocalError = null
+	}
+
+	function submitCreate(name: string, group?: string) {
+		const kind = createKind
+		if (!kind || createBusy) return
+		if ((kind === 'group' || kind === 'object') && readOnly) {
+			createLocalError = 'This connection is read-only.'
+			return
+		}
+		if ((kind === 'group' || kind === 'object') && !selectedDatabase.trim()) {
+			createLocalError = `Select a ${presentation.databaseLabel.toLowerCase()} first.`
+			return
+		}
+		const label =
+			kind === 'database'
+				? presentation.databaseLabel
+				: kind === 'group'
+					? groupNoun
+					: noun
+		const err = validateIdent(name, label)
+		if (err) {
+			createLocalError = err
+			return
+		}
+		const trimmed = name.trim()
+		if (kind === 'database') {
+			if (databases.some((d) => d.name === trimmed)) {
+				createLocalError = `A ${presentation.databaseLabel.toLowerCase()} with this name already exists.`
+				return
+			}
+			oncreatedatabase(trimmed)
+			closeCreate()
+			return
+		}
+		if (kind === 'group') {
+			if (
+				groups.some((g) => g.key === trimmed) ||
+				localGroups.includes(trimmed)
+			) {
+				createLocalError = `A ${groupNoun.toLowerCase()} with this name already exists.`
+				return
+			}
+			if (!localGroups.includes(trimmed)) {
+				localGroups = [...localGroups, trimmed]
+			}
+			const next = new Set(expanded)
+			next.add(trimmed)
+			expanded = next
+			oncreategroup?.(trimmed)
+			closeCreate()
+			return
+		}
+		const schema = isTree ? group || createGroupValue || undefined : undefined
+		const schemaKey = schema || ''
+		if (tables.some((t) => t.name === trimmed && (t.schema || '') === schemaKey)) {
+			createLocalError = `A ${noun} with this name already exists.`
+			return
+		}
+		if (!oncreateobject) {
+			createLocalError = `Create ${noun} is not available.`
+			return
+		}
+		oncreateobject(trimmed, schema)
+		closeCreate()
+	}
+
+	// Drop local empty groups once they appear in the live catalog.
+	$effect(() => {
+		if (localGroups.length === 0) return
+		const present = new Set(
+			tables.map((t) => t.schema || 'public').filter(Boolean),
+		)
+		const next = localGroups.filter((g) => !present.has(g))
+		if (next.length !== localGroups.length) localGroups = next
+	})
 
 	function onDbChange(value: string) {
 		query = ''
-		expanded = new Set()
+		expanded = new Set(['public', 'main'])
+		localGroups = []
 		onselectdatabase(value)
 	}
 
@@ -213,7 +451,6 @@
 		table: TableMeta
 	} | null>(null)
 
-	const noun = $derived(caps.explorer.objectLabelSingular || 'table')
 	const admin = $derived(caps.tableAdmin)
 	const showModel = $derived(caps.supportsModelView || caps.supportsErDiagram)
 
@@ -425,27 +662,68 @@
 					/>
 				</svg>
 			</IconButton>
-			{#if presentation.canCreateDatabase}
-				<IconButton
-					label="Create database"
-					size="sm"
-					variant="ghost"
-					onclick={openCreate}
-				>
-					<svg
-						class="size-3.5"
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
+			{#if canCreateAnything}
+				<div class="relative" bind:this={createMenuRoot}>
+					<IconButton
+						label="Create"
+						size="sm"
+						variant="ghost"
+						disabled={createBusy}
+						aria-haspopup="menu"
+						aria-expanded={createMenuOpen}
+						onclick={(e) => {
+							e.stopPropagation()
+							toggleCreateMenu()
+						}}
 					>
-						<path
-							d="M8 3.25v9.5M3.25 8h9.5"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-						/>
-					</svg>
-				</IconButton>
+						<svg
+							class="size-3.5"
+							viewBox="0 0 16 16"
+							fill="none"
+							aria-hidden="true"
+						>
+							<path
+								d="M8 3.25v9.5M3.25 8h9.5"
+								stroke="currentColor"
+								stroke-width="1.4"
+								stroke-linecap="round"
+							/>
+						</svg>
+					</IconButton>
+					{#if createMenuOpen}
+						<div
+							class="absolute top-full right-0 z-50 mt-1 min-w-44 rounded-md border border-line bg-elevated py-1 shadow-md"
+							role="menu"
+							aria-label="Create"
+							onpointerdown={(e) => e.stopPropagation()}
+						>
+							{#each createMenuItems as item (item.id)}
+								{#if item.separatorBefore}
+									<div
+										class="my-1 border-t border-line"
+										role="separator"
+									></div>
+								{/if}
+								<button
+									type="button"
+									role="menuitem"
+									disabled={item.disabled}
+									class={cn(
+										'flex w-full cursor-pointer items-center border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover',
+										item.disabled &&
+											'cursor-not-allowed opacity-45 hover:bg-transparent',
+									)}
+									onclick={() => {
+										if (item.disabled) return
+										onCreateMenuPick(item.id)
+									}}
+								>
+									{item.label}
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			{/if}
 		</div>
 
@@ -470,6 +748,9 @@
 		{flatItems}
 		{isExpanded}
 		onToggleGroup={toggleGroup}
+		canCreateObject={presentation.canCreateObject && !readOnly}
+		objectLabelSingular={noun}
+		oncreatein={(groupKey) => openCreate('object', groupKey)}
 		{onopen}
 		onmenu={openTableMenu}
 	/>
@@ -507,14 +788,25 @@
 	/>
 {/if}
 
-<CreateDatabaseForm
-	open={creating}
-	bind:value={newDbName}
-	error={createError}
-	databaseLabel={presentation.databaseLabel}
-	oncancel={cancelCreate}
-	onconfirm={submitCreate}
-/>
+{#if createForm}
+	<CreateDatabaseForm
+		open={createKind !== null}
+		bind:value={createName}
+		bind:groupValue={createGroupValue}
+		error={formError}
+		busy={createBusy}
+		title={createForm.title}
+		description={createForm.description}
+		nameLabel={createForm.nameLabel}
+		namePlaceholder={createForm.namePlaceholder}
+		confirmLabel={createForm.confirmLabel}
+		showGroup={createForm.showGroup}
+		groupLabel={groupNoun}
+		groupOptions={groupOptions}
+		oncancel={cancelCreate}
+		onconfirm={submitCreate}
+	/>
+{/if}
 
 <SaveQueryModal
 	open={!!namePrompt}
