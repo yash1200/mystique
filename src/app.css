@@ -262,7 +262,9 @@
   Keep statusbars at default control height per dense workspace chrome.
 */
 @utility h-statusbar {
-  min-height: 2.125rem; /* 34px — h-control; may wrap when dirty */
+  /* Fixed bar height so single-line labels sit optically centered. */
+  height: 2.125rem; /* 34px — matches h-control */
+  min-height: 2.125rem;
 }
 
 @utility min-h-statusbar {

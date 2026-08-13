@@ -21,20 +21,29 @@
 
 <footer
   class={cn(
-    "flex min-h-statusbar shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-line bg-elevated px-2.5 py-0.5",
+    "flex h-statusbar shrink-0 items-center gap-x-2 border-t border-line bg-elevated px-2.5",
     className,
   )}
   aria-label={ariaLabel}
 >
   <div
-    class="flex min-w-[8rem] flex-1 items-center gap-1.5 overflow-hidden text-caption text-fg-secondary"
+    class="flex h-full min-w-0 flex-1 items-center gap-1.5 self-stretch overflow-hidden text-caption leading-none text-fg-secondary"
   >
     {@render left?.()}
   </div>
-  <div class="flex shrink-0 items-center gap-1.5">
-    {@render center?.()}
-  </div>
-  <div class="flex min-w-[8rem] flex-1 items-center justify-end gap-1">
-    {@render right?.()}
-  </div>
+  {#if center}
+    <div class="flex h-full shrink-0 items-center gap-1.5 self-stretch leading-none">
+      {@render center()}
+    </div>
+  {/if}
+  {#if right}
+    <div
+      class="flex h-full min-w-0 flex-1 items-center justify-end gap-1 self-stretch leading-none"
+    >
+      {@render right()}
+    </div>
+  {:else if center}
+    <!-- Balance center when there is no right slot -->
+    <div class="min-w-0 flex-1" aria-hidden="true"></div>
+  {/if}
 </footer>
