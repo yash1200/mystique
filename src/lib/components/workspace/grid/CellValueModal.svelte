@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button, Kbd, Textarea } from '$lib/components/ui'
 	import { cn } from '$lib/utils/cn'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import {
 		CELL_VIEW_MODES,
 		detectCellViewMode,
@@ -29,13 +29,15 @@
 		onclose,
 	}: Props = $props()
 
-	// Modal remounts on each open; seed editor from the cell once.
-	const openedMode = detectCellViewMode(initialText, columnType)
+	// Modal remounts on each open; one-time seed (props are frozen via untrack).
+	const openedMode = untrack(() => detectCellViewMode(initialText, columnType))
 	let mode = $state<CellViewMode>(openedMode)
 	let text = $state(
-		openedMode === 'json'
-			? (prettyJson(initialText) ?? initialText)
-			: initialText,
+		untrack(() =>
+			openedMode === 'json'
+				? (prettyJson(initialText) ?? initialText)
+				: initialText,
+		),
 	)
 	let editorWrap = $state<HTMLDivElement | null>(null)
 

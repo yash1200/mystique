@@ -21,7 +21,7 @@
 		queryPlaceholder,
 		type QueryMode,
 	} from '$lib/utils/queryPolicyFe'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import QueryEditor from './query/QueryEditor.svelte'
 	import QueryResultsPanel, {
 		type ResultExportAction,
@@ -79,8 +79,9 @@
 	let exporting = $state<ResultExportAction | null>(null)
 	let exportMsg = $state<string | null>(null)
 
-	let localText = $state(text ?? '')
-	let lastEmitted = text ?? ''
+	// One-time seed from prop; $effect below re-syncs when parent draft changes.
+	let localText = $state(untrack(() => text ?? ''))
+	let lastEmitted = $state(untrack(() => text ?? ''))
 
 	/** Vertical split: editor pane share (results get the rest). */
 	const SPLIT_MIN = 18
@@ -450,12 +451,14 @@
 			/>
 		</div>
 
-		<button
-			type="button"
+		<div
+			role="slider"
+			aria-orientation="horizontal"
 			aria-label="Resize editor and results"
 			aria-valuemin={SPLIT_MIN}
 			aria-valuemax={SPLIT_MAX}
 			aria-valuenow={Math.round(editorSharePct)}
+			tabindex="0"
 			class="group relative z-10 flex h-1.5 w-full shrink-0 cursor-row-resize items-center justify-center border-x-0 border-y border-line bg-elevated p-0 hover:bg-hover"
 			class:bg-accent-muted={splitDragging}
 			title="Drag to resize · double-click to reset"
@@ -479,7 +482,7 @@
 				class:bg-accent={splitDragging}
 				aria-hidden="true"
 			></span>
-		</button>
+		</div>
 
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			<QueryResultsPanel

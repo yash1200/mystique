@@ -313,10 +313,7 @@
 	$effect(() => {
 		if (!createMenuOpen) return
 		const onDoc = (e: PointerEvent) => {
-			if (
-				e.target instanceof Node &&
-				createMenuRoot?.contains(e.target)
-			) {
+			if (e.target instanceof Node && createMenuRoot?.contains(e.target)) {
 				return
 			}
 			createMenuOpen = false
@@ -408,7 +405,9 @@
 		}
 		const schema = isTree ? group || createGroupValue || undefined : undefined
 		const schemaKey = schema || ''
-		if (tables.some((t) => t.name === trimmed && (t.schema || '') === schemaKey)) {
+		if (
+			tables.some((t) => t.name === trimmed && (t.schema || '') === schemaKey)
+		) {
 			createLocalError = `A ${noun} with this name already exists.`
 			return
 		}
@@ -694,15 +693,13 @@
 						<div
 							class="absolute top-full right-0 z-50 mt-1 min-w-44 rounded-md border border-line bg-elevated py-1 shadow-md"
 							role="menu"
+							tabindex="-1"
 							aria-label="Create"
 							onpointerdown={(e) => e.stopPropagation()}
 						>
 							{#each createMenuItems as item (item.id)}
 								{#if item.separatorBefore}
-									<div
-										class="my-1 border-t border-line"
-										role="separator"
-									></div>
+									<div class="my-1 border-t border-line" role="separator"></div>
 								{/if}
 								<button
 									type="button"
@@ -802,7 +799,7 @@
 		confirmLabel={createForm.confirmLabel}
 		showGroup={createForm.showGroup}
 		groupLabel={groupNoun}
-		groupOptions={groupOptions}
+		{groupOptions}
 		oncancel={cancelCreate}
 		onconfirm={submitCreate}
 	/>

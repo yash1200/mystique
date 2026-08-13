@@ -222,7 +222,9 @@
 	const canvasBounds = $derived.by(() =>
 		erContentBounds(diagram?.nodes ?? [], uiScale),
 	)
-	const worldW = $derived(Math.max(1, Math.round(canvasBounds.width * viewZoom)))
+	const worldW = $derived(
+		Math.max(1, Math.round(canvasBounds.width * viewZoom)),
+	)
 	const worldH = $derived(
 		Math.max(1, Math.round(canvasBounds.height * viewZoom)),
 	)
@@ -450,9 +452,7 @@
 		if (dir > 0) {
 			return ZOOM_STOPS.find((s) => s > current + 0.001) ?? ZOOM_MAX
 		}
-		const prev = [...ZOOM_STOPS]
-			.reverse()
-			.find((s) => s < current - 0.001)
+		const prev = [...ZOOM_STOPS].reverse().find((s) => s < current - 0.001)
 		return prev ?? ZOOM_MIN
 	}
 
@@ -936,7 +936,10 @@
 			return [
 				{ x: mid, y: start.y },
 				{ x: mid, y: start.y + yNudge },
-				{ x: end.x > start.x ? end.x - ER_GRID : end.x + ER_GRID, y: end.y + yNudge },
+				{
+					x: end.x > start.x ? end.x - ER_GRID : end.x + ER_GRID,
+					y: end.y + yNudge,
+				},
 			]
 		}
 
@@ -1638,7 +1641,10 @@
 			zoomIn()
 			return
 		}
-		if (mod && (key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')) {
+		if (
+			mod &&
+			(key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')
+		) {
 			e.preventDefault()
 			zoomOut()
 			return
@@ -1987,8 +1993,7 @@
 		const fromCanvas = diagramToDbml(diagram, diagramName)
 		const hasTables = (diagram?.nodes.length ?? 0) > 0
 		dbmlEditorText = hasTables ? fromCanvas : sampleDbml(family)
-		toolMsg =
-			'DBML editor open — edit text, then Apply to rebuild the diagram.'
+		toolMsg = 'DBML editor open — edit text, then Apply to rebuild the diagram.'
 	}
 
 	function closeDbmlSourceEditor() {
@@ -2137,7 +2142,7 @@
 	>
 		<div class="flex min-w-0 shrink-0 items-center gap-2">
 			<span
-				class="max-w-[12rem] truncate text-body font-semibold text-fg sm:max-w-[18rem]"
+				class="max-w-48 truncate text-body font-semibold text-fg sm:max-w-[18rem]"
 			>
 				{embedded ? diagramName || 'Live schema' : `ER · ${meta.title}`}
 			</span>
@@ -2152,9 +2157,7 @@
 					{diagram.nodes.length}
 					{entityWord}{diagram.nodes.length === 1 ? '' : 's'}
 					{#if diagram.edges.length > 0}
-						· {diagram.edges.length} link{diagram.edges.length === 1
-							? ''
-							: 's'}
+						· {diagram.edges.length} link{diagram.edges.length === 1 ? '' : 's'}
 					{/if}
 				</Badge>
 			{/if}
@@ -2172,7 +2175,7 @@
 		</div>
 
 		{#if !readOnly}
-			<div class="min-w-[8rem] flex-1">
+			<div class="min-w-32 flex-1">
 				<Input
 					bind:value={diagramName}
 					class="w-full"
@@ -2595,32 +2598,29 @@
 								</p>
 								<ul class="m-0 max-h-36 list-none space-y-1 overflow-auto p-0">
 									{#each diagram.edges as edge (edge.id)}
-										<li>
+										<li
+											class={cn(
+												'flex w-full items-start justify-between gap-1 rounded-md border px-1 py-0.5 text-caption',
+												selectedEdgeId === edge.id
+													? 'border-accent bg-accent-muted'
+													: 'border-line bg-input',
+											)}
+										>
 											<button
 												type="button"
-												class={cn(
-													'flex w-full items-start justify-between gap-1 rounded-md border px-2 py-1 text-left text-caption',
-													selectedEdgeId === edge.id
-														? 'border-accent bg-accent-muted'
-														: 'border-line bg-input',
-												)}
+												class="min-w-0 flex-1 truncate border-none bg-transparent px-1 py-1 text-left text-fg-secondary"
 												onclick={() => selectEdge(edge.id)}
 											>
-												<span class="min-w-0 truncate text-fg-secondary">
-													{isBroken(edge.kind) ? '┄' : '─'}
-													{edge.label}
-												</span>
-												<span
-													class="shrink-0 text-danger"
-													role="button"
-													tabindex="0"
-													onclick={(e) => {
-														e.stopPropagation()
-														deleteEdge(edge.id)
-													}}
-												>
-													×
-												</span>
+												{isBroken(edge.kind) ? '┄' : '─'}
+												{edge.label}
+											</button>
+											<button
+												type="button"
+												class="shrink-0 border-none bg-transparent px-1 py-1 text-danger"
+												aria-label="Delete relationship"
+												onclick={() => deleteEdge(edge.id)}
+											>
+												×
 											</button>
 										</li>
 									{/each}
@@ -2652,7 +2652,10 @@
 						</span>
 					{/if}
 				</div>
-				<div class="shrink-0 border-b border-line p-2" bind:this={tableSearchWrap}>
+				<div
+					class="shrink-0 border-b border-line p-2"
+					bind:this={tableSearchWrap}
+				>
 					<Input
 						bind:value={tableQuery}
 						inputSize="sm"
@@ -2694,7 +2697,10 @@
 
 		<!-- Canvas -->
 		<div class="relative min-h-0 min-w-0 flex-1">
-			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="absolute inset-0 overflow-auto overscroll-none bg-app"
 				style="cursor: {readOnly
@@ -2716,10 +2722,7 @@
 					onCanvasContextMenu(e)
 				}}
 			>
-				<div
-					class="relative"
-					style="width: {worldW}px; height: {worldH}px;"
-				>
+				<div class="relative" style="width: {worldW}px; height: {worldH}px;">
 					<div
 						class="absolute top-0 left-0 origin-top-left"
 						style="
@@ -2733,445 +2736,464 @@
 							background-size: {ER_GRID}px {ER_GRID}px;
 						"
 					>
-			{#if diagram}
-				<svg
-					class="absolute top-0 left-0"
-					style="width: {canvasBounds.width}px; height: {canvasBounds.height}px; pointer-events: none;"
-				>
-					<defs>
-						<!-- Destination: solid ▶ chevron (source → destination) -->
-						<marker
-							id="er-arrow-head"
-							viewBox="0 0 14 14"
-							markerWidth="14"
-							markerHeight="14"
-							refX="12"
-							refY="7"
-							orient="auto"
-							markerUnits="userSpaceOnUse"
-						>
-							<path
-								d="M1,1 L13,7 L1,13 L4,7 Z"
-								fill="var(--accent)"
-								stroke="var(--accent)"
-								stroke-width="0.5"
-							/>
-						</marker>
-						<marker
-							id="er-arrow-head-sel"
-							viewBox="0 0 16 16"
-							markerWidth="16"
-							markerHeight="16"
-							refX="14"
-							refY="8"
-							orient="auto"
-							markerUnits="userSpaceOnUse"
-						>
-							<path
-								d="M1,1 L15,8 L1,15 L4.5,8 Z"
-								fill="var(--accent)"
-								stroke="var(--accent-hover)"
-								stroke-width="1"
-							/>
-						</marker>
-						<!-- Source: small filled circle so origin is obvious -->
-						<marker
-							id="er-arrow-tail"
-							viewBox="0 0 10 10"
-							markerWidth="8"
-							markerHeight="8"
-							refX="5"
-							refY="5"
-							orient="auto"
-							markerUnits="userSpaceOnUse"
-						>
-							<circle
-								cx="5"
-								cy="5"
-								r="3.5"
-								fill="var(--accent)"
-								stroke="var(--accent-hover)"
-								stroke-width="1"
-							/>
-						</marker>
-					</defs>
-
-					{#each edgesDrawOrder as edge (edge.id)}
-						{@const selected = selectedEdgeId === edge.id}
-						{@const edgeDim = !!focusedLink && !selected}
-						<path
-							data-er-edge-hit
-							d={edgePolyline(edge)}
-							fill="none"
-							stroke="transparent"
-							stroke-width="16"
-							style="pointer-events: stroke; cursor: pointer;"
-							onclick={(e) => selectEdge(edge.id, e)}
-						/>
-						<path
-							d={edgePolyline(edge)}
-							fill="none"
-							stroke="var(--accent)"
-							stroke-width={selected ? 3.25 : 2.25}
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-dasharray={isBroken(edge.kind) ? '8 5' : '0'}
-							marker-start="url(#er-arrow-tail)"
-							marker-end={selected
-								? 'url(#er-arrow-head-sel)'
-								: 'url(#er-arrow-head)'}
-							opacity={edgeDim ? 0.12 : selected ? 1 : 0.95}
-							style="pointer-events: none;"
-						/>
-
-						{#if selected && !arrowTool}
-							{#each segmentMids(edge) as mid (mid.insertAt + '-' + mid.x + '-' + mid.y)}
-								<g
-									role="button"
-									tabindex="-1"
-									aria-label="Add edge waypoint"
-									data-er-edge-handle
-									style="pointer-events: all; cursor: move;"
-									onpointerdown={(e) =>
-										onMidHandleDown(edge.id, mid.insertAt, e)}
-									onpointerup={onWaypointUp}
-									onpointercancel={onWaypointUp}
-								>
-									<rect
-										x={mid.x - 3.5}
-										y={mid.y - 3.5}
-										width="7"
-										height="7"
-										transform="rotate(45 {mid.x} {mid.y})"
-										fill="var(--bg-panel, #1a1a1a)"
-										stroke="var(--accent)"
-										stroke-width="1.25"
-									/>
-								</g>
-							{/each}
-
-							{#each edge.waypoints ?? [] as wp, wi (edge.id + '-wp-' + wi)}
-								<g
-									role="button"
-									tabindex="-1"
-									aria-label="Drag edge waypoint (double-click to remove)"
-									data-er-edge-handle
-									style="pointer-events: all; cursor: grab;"
-									onpointerdown={(e) => onWaypointDown(edge.id, wi, e)}
-									onpointerup={onWaypointUp}
-									onpointercancel={onWaypointUp}
-									ondblclick={(e) => removeWaypoint(edge.id, wi, e)}
-								>
-									<circle
-										cx={wp.x}
-										cy={wp.y}
-										r="4.5"
-										fill="var(--accent)"
-										stroke="var(--bg-panel, #fff)"
-										stroke-width="1.5"
-									/>
-								</g>
-							{/each}
-						{/if}
-					{/each}
-
-					{#if linkFrom && cursorPt}
-						<path
-							d={previewPolyline()}
-							fill="none"
-							stroke="var(--accent)"
-							stroke-width="2.25"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-dasharray="6 4"
-							opacity="0.85"
-							marker-start="url(#er-arrow-tail)"
-							marker-end="url(#er-arrow-head)"
-							style="pointer-events: none;"
-						/>
-						{#each draftWaypoints as wp, i}
-							<circle
-								cx={wp.x}
-								cy={wp.y}
-								r="4"
-								fill="var(--accent)"
-								style="pointer-events: none;"
-							/>
-							<text
-								x={wp.x + 6}
-								y={wp.y - 6}
-								fill="var(--text-muted)"
-								font-size="10"
-								style="pointer-events: none;">{i + 1}</text
+						{#if diagram}
+							<svg
+								class="absolute top-0 left-0"
+								style="width: {canvasBounds.width}px; height: {canvasBounds.height}px; pointer-events: none;"
 							>
-						{/each}
-					{/if}
-				</svg>
-
-				{#each diagram.nodes as node (node.id)}
-					{@const isSelected = selectedTableIds.includes(node.id)}
-					{@const inLinkFocus = !!focusedLink?.tableIds.has(node.id)}
-					{@const dimmed = !!focusedLink && !inLinkFocus}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						data-er-table
-						class={cn(
-							'absolute overflow-hidden rounded-lg border border-l-2 bg-panel shadow-sm transition-opacity duration-150',
-							isSelected || inLinkFocus
-								? 'border-accent ring-2 ring-accent/30'
-								: 'border-line hover:border-line-strong',
-							dimmed && 'opacity-25',
-							// Grab only on header — body uses default so inputs get a normal text caret
-							arrowTool ? 'cursor-default' : '',
-							dragTableId === node.id && 'cursor-grabbing',
-						)}
-						style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px; z-index: {inLinkFocus
-							? 4
-							: dimmed
-								? 1
-								: 2}; border-left-color: var(--connection-color, var(--accent));"
-						onpointerdown={(e) => onTablePointerDown(node.id, e)}
-						onpointermove={onCanvasPointerMove}
-						onpointerup={onTablePointerUp}
-						onpointercancel={onTablePointerUp}
-						oncontextmenu={(e) => {
-							if (readOnly) {
-								e.preventDefault()
-								return
-							}
-							onTableContextMenu(node.id, e)
-						}}
-					>
-						<div
-							class={cn(
-								'flex min-w-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-elevated px-2.5',
-								!arrowTool && 'cursor-grab',
-								dragTableId === node.id && 'cursor-grabbing',
-							)}
-							style="height: {HEADER_H}px"
-						>
-							{#if !readOnly && primaryTableId === node.id && !arrowTool}
-								<input
-									class="box-border h-control-sm min-w-0 max-w-full flex-1 cursor-text truncate rounded-md border border-line bg-input px-2 text-body font-semibold leading-none text-fg"
-									value={node.name}
-									data-no-drag
-									oninput={(e) =>
-										renameTable((e.currentTarget as HTMLInputElement).value)}
-									onclick={(e) => e.stopPropagation()}
-								/>
-							{:else}
-								<span
-									class="min-w-0 flex-1 truncate text-body font-semibold leading-tight text-fg"
-									>{node.name}</span
-								>
-							{/if}
-							<span
-								class="shrink-0 text-micro font-semibold tracking-wider text-fg-muted uppercase"
-							>
-								{node.kind === 'collection'
-									? 'Coll'
-									: node.kind === 'key_pattern'
-										? 'Key'
-										: 'Table'}
-							</span>
-						</div>
-
-						<ul class="m-0 list-none overflow-hidden p-0">
-							{#each node.columns as col (col.id)}
-								<li class="m-0 overflow-hidden p-0" style="height: {ROW_H}px">
-									{#if !readOnly && primaryTableId === node.id && !arrowTool}
-										<!-- Edit row: name + type dropdown + delete (heights match scaled ROW_H) -->
-										<div
-											data-er-column
-											data-no-drag
-											class={cn(
-												'box-border flex h-full w-full min-w-0 items-center gap-1 overflow-hidden border-b border-line/50 px-1.5 last:border-b-0',
-												focusedLink?.colIds.has(col.id) &&
-													'bg-accent-muted',
-											)}
-										>
-											{#if col.pk}
-												<span
-													class="shrink-0 text-micro font-semibold leading-none text-accent"
-													>PK</span
-												>
-											{:else if fkColumnIds.has(col.id)}
-												<span
-													class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
-													>FK</span
-												>
-											{/if}
-											<span
-												class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
-												title={col.name}
-											>
-												{col.name}
-											</span>
-											<div
-												class="w-[min(7.5rem,38%)] max-w-[42%] shrink-0 cursor-pointer [&_button]:box-border [&_button]:h-control-sm [&_button]:max-h-full [&_button]:px-1.5 [&_button]:text-caption [&_svg]:size-3"
-												role="presentation"
-												onclick={(e) => e.stopPropagation()}
-												onpointerdown={(e) => e.stopPropagation()}
-											>
-												<Select
-													value={col.dataType}
-													options={typeOptions.some(
-														(o) => o.value === col.dataType,
-													)
-														? typeOptions
-														: [
-																{ value: col.dataType, label: col.dataType },
-																...typeOptions,
-															]}
-													inputSize="sm"
-													onchange={(v) => updateColumnType(node.id, col.id, v)}
-												/>
-											</div>
-											<button
-												type="button"
-												class="flex size-control-sm shrink-0 cursor-pointer items-center justify-center rounded text-body leading-none text-danger hover:bg-danger/10"
-												onclick={(e) => {
-													e.stopPropagation()
-													deleteColumn(col.id)
-												}}
-												aria-label="Delete column"
-											>
-												×
-											</button>
-										</div>
-									{:else}
-										<button
-											type="button"
-											data-er-column
-											data-no-drag
-											class={cn(
-												'box-border flex h-full w-full min-w-0 cursor-default items-center gap-1.5 overflow-hidden border-b border-line/50 px-2.5 text-left last:border-b-0',
-												arrowTool && 'cursor-pointer hover:bg-accent-muted',
-												linkFrom?.tableId === node.id &&
-													linkFrom?.columnId === col.id &&
-													'bg-accent-muted ring-1 ring-inset ring-accent',
-												focusedLink?.colIds.has(col.id) &&
-													'bg-accent-muted',
-											)}
-											onclick={(e) => onColumnClick(node.id, col.id, e)}
-										>
-											{#if col.pk}
-												<span
-													class="shrink-0 text-micro font-semibold leading-none text-accent"
-													>PK</span
-												>
-											{:else if fkColumnIds.has(col.id)}
-												<span
-													class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
-													>FK</span
-												>
-											{/if}
-											<span
-												class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
-												title={col.name}
-											>
-												{col.name}
-											</span>
-											<span
-												class="max-w-[40%] shrink-0 truncate font-mono text-caption leading-none text-fg-muted"
-												title={col.dataType}>{col.dataType}</span
-											>
-										</button>
-									{/if}
-								</li>
-							{/each}
-						</ul>
-
-						{#if !readOnly && primaryTableId === node.id && !arrowTool}
-							<div
-								class="cursor-default border-t border-line p-2.5"
-								data-no-drag
-							>
-								{#if !showAddCol}
-									<button
-										type="button"
-										class="h-control-sm w-full cursor-pointer rounded-md border border-dashed border-line text-caption font-medium text-accent hover:bg-accent-muted"
-										onclick={(e) => {
-											e.stopPropagation()
-											newColType = defaultColumnType(family)
-											showAddCol = true
-										}}
+								<defs>
+									<!-- Destination: solid ▶ chevron (source → destination) -->
+									<marker
+										id="er-arrow-head"
+										viewBox="0 0 14 14"
+										markerWidth="14"
+										markerHeight="14"
+										refX="12"
+										refY="7"
+										orient="auto"
+										markerUnits="userSpaceOnUse"
 									>
-										+ Add column
-									</button>
-								{:else}
-									<div class="flex flex-col gap-2">
-										<Input
-											bind:value={newColName}
-											placeholder="column_name"
-											inputSize="md"
-											class="cursor-text font-mono text-body"
+										<path
+											d="M1,1 L13,7 L1,13 L4,7 Z"
+											fill="var(--accent)"
+											stroke="var(--accent)"
+											stroke-width="0.5"
 										/>
-										<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-										<div
-											class="cursor-pointer"
-											role="presentation"
-											onclick={(e) => e.stopPropagation()}
-											onpointerdown={(e) => e.stopPropagation()}
-										>
-											<Select
-												bind:value={newColType}
-												options={typeOptions}
-												inputSize="md"
-												placeholder="Column type"
-											/>
-										</div>
-										<label
-											class="flex cursor-pointer items-center gap-2 text-body text-fg-secondary"
-										>
-											<input
-												type="checkbox"
-												class="size-3.5 shrink-0 cursor-pointer accent-[var(--accent)]"
-												bind:checked={newColPk}
-											/>
-											Primary key
-										</label>
-										<div class="flex gap-2 pt-0.5">
-											<Button
-												size="md"
-												variant="primary"
-												onclick={(e: MouseEvent) => {
-													e.stopPropagation()
-													addColumn()
-												}}
+									</marker>
+									<marker
+										id="er-arrow-head-sel"
+										viewBox="0 0 16 16"
+										markerWidth="16"
+										markerHeight="16"
+										refX="14"
+										refY="8"
+										orient="auto"
+										markerUnits="userSpaceOnUse"
+									>
+										<path
+											d="M1,1 L15,8 L1,15 L4.5,8 Z"
+											fill="var(--accent)"
+											stroke="var(--accent-hover)"
+											stroke-width="1"
+										/>
+									</marker>
+									<!-- Source: small filled circle so origin is obvious -->
+									<marker
+										id="er-arrow-tail"
+										viewBox="0 0 10 10"
+										markerWidth="8"
+										markerHeight="8"
+										refX="5"
+										refY="5"
+										orient="auto"
+										markerUnits="userSpaceOnUse"
+									>
+										<circle
+											cx="5"
+											cy="5"
+											r="3.5"
+											fill="var(--accent)"
+											stroke="var(--accent-hover)"
+											stroke-width="1"
+										/>
+									</marker>
+								</defs>
+
+								{#each edgesDrawOrder as edge (edge.id)}
+									{@const selected = selectedEdgeId === edge.id}
+									{@const edgeDim = !!focusedLink && !selected}
+									<path
+										data-er-edge-hit
+										d={edgePolyline(edge)}
+										fill="none"
+										stroke="transparent"
+										stroke-width="16"
+										style="pointer-events: stroke; cursor: pointer;"
+										role="button"
+										tabindex="-1"
+										aria-label="Select relationship {edge.label}"
+										onclick={(e) => selectEdge(edge.id, e)}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault()
+												selectEdge(edge.id, e)
+											}
+										}}
+									/>
+									<path
+										d={edgePolyline(edge)}
+										fill="none"
+										stroke="var(--accent)"
+										stroke-width={selected ? 3.25 : 2.25}
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-dasharray={isBroken(edge.kind) ? '8 5' : '0'}
+										marker-start="url(#er-arrow-tail)"
+										marker-end={selected
+											? 'url(#er-arrow-head-sel)'
+											: 'url(#er-arrow-head)'}
+										opacity={edgeDim ? 0.12 : selected ? 1 : 0.95}
+										style="pointer-events: none;"
+									/>
+
+									{#if selected && !arrowTool}
+										{#each segmentMids(edge) as mid (mid.insertAt + '-' + mid.x + '-' + mid.y)}
+											<g
+												role="button"
+												tabindex="-1"
+												aria-label="Add edge waypoint"
+												data-er-edge-handle
+												style="pointer-events: all; cursor: move;"
+												onpointerdown={(e) =>
+													onMidHandleDown(edge.id, mid.insertAt, e)}
+												onpointerup={onWaypointUp}
+												onpointercancel={onWaypointUp}
 											>
-												Add
-											</Button>
-											<Button
-												size="md"
-												variant="ghost"
-												onclick={(e: MouseEvent) => {
-													e.stopPropagation()
-													showAddCol = false
-												}}
+												<rect
+													x={mid.x - 3.5}
+													y={mid.y - 3.5}
+													width="7"
+													height="7"
+													transform="rotate(45 {mid.x} {mid.y})"
+													fill="var(--bg-panel, #1a1a1a)"
+													stroke="var(--accent)"
+													stroke-width="1.25"
+												/>
+											</g>
+										{/each}
+
+										{#each edge.waypoints ?? [] as wp, wi (edge.id + '-wp-' + wi)}
+											<g
+												role="button"
+												tabindex="-1"
+												aria-label="Drag edge waypoint (double-click to remove)"
+												data-er-edge-handle
+												style="pointer-events: all; cursor: grab;"
+												onpointerdown={(e) => onWaypointDown(edge.id, wi, e)}
+												onpointerup={onWaypointUp}
+												onpointercancel={onWaypointUp}
+												ondblclick={(e) => removeWaypoint(edge.id, wi, e)}
 											>
-												Cancel
-											</Button>
-										</div>
-									</div>
+												<circle
+													cx={wp.x}
+													cy={wp.y}
+													r="4.5"
+													fill="var(--accent)"
+													stroke="var(--bg-panel, #fff)"
+													stroke-width="1.5"
+												/>
+											</g>
+										{/each}
+									{/if}
+								{/each}
+
+								{#if linkFrom && cursorPt}
+									<path
+										d={previewPolyline()}
+										fill="none"
+										stroke="var(--accent)"
+										stroke-width="2.25"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-dasharray="6 4"
+										opacity="0.85"
+										marker-start="url(#er-arrow-tail)"
+										marker-end="url(#er-arrow-head)"
+										style="pointer-events: none;"
+									/>
+									{#each draftWaypoints as wp, i (`${wp.x},${wp.y},${i}`)}
+										<circle
+											cx={wp.x}
+											cy={wp.y}
+											r="4"
+											fill="var(--accent)"
+											style="pointer-events: none;"
+										/>
+										<text
+											x={wp.x + 6}
+											y={wp.y - 6}
+											fill="var(--text-muted)"
+											font-size="10"
+											style="pointer-events: none;">{i + 1}</text
+										>
+									{/each}
 								{/if}
-							</div>
+							</svg>
+
+							{#each diagram.nodes as node (node.id)}
+								{@const isSelected = selectedTableIds.includes(node.id)}
+								{@const inLinkFocus = !!focusedLink?.tableIds.has(node.id)}
+								{@const dimmed = !!focusedLink && !inLinkFocus}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									data-er-table
+									class={cn(
+										'absolute overflow-hidden rounded-lg border border-l-2 bg-panel shadow-sm transition-opacity duration-150',
+										isSelected || inLinkFocus
+											? 'border-accent ring-2 ring-accent/30'
+											: 'border-line hover:border-line-strong',
+										dimmed && 'opacity-25',
+										// Grab only on header — body uses default so inputs get a normal text caret
+										arrowTool ? 'cursor-default' : '',
+										dragTableId === node.id && 'cursor-grabbing',
+									)}
+									style="left: {node.x}px; top: {node.y}px; width: {TABLE_W}px; z-index: {inLinkFocus
+										? 4
+										: dimmed
+											? 1
+											: 2}; border-left-color: var(--connection-color, var(--accent));"
+									onpointerdown={(e) => onTablePointerDown(node.id, e)}
+									onpointermove={onCanvasPointerMove}
+									onpointerup={onTablePointerUp}
+									onpointercancel={onTablePointerUp}
+									oncontextmenu={(e) => {
+										if (readOnly) {
+											e.preventDefault()
+											return
+										}
+										onTableContextMenu(node.id, e)
+									}}
+								>
+									<div
+										class={cn(
+											'flex min-w-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-elevated px-2.5',
+											!arrowTool && 'cursor-grab',
+											dragTableId === node.id && 'cursor-grabbing',
+										)}
+										style="height: {HEADER_H}px"
+									>
+										{#if !readOnly && primaryTableId === node.id && !arrowTool}
+											<input
+												class="box-border h-control-sm min-w-0 max-w-full flex-1 cursor-text truncate rounded-md border border-line bg-input px-2 text-body font-semibold leading-none text-fg"
+												value={node.name}
+												data-no-drag
+												oninput={(e) =>
+													renameTable(
+														(e.currentTarget as HTMLInputElement).value,
+													)}
+												onclick={(e) => e.stopPropagation()}
+											/>
+										{:else}
+											<span
+												class="min-w-0 flex-1 truncate text-body font-semibold leading-tight text-fg"
+												>{node.name}</span
+											>
+										{/if}
+										<span
+											class="shrink-0 text-micro font-semibold tracking-wider text-fg-muted uppercase"
+										>
+											{node.kind === 'collection'
+												? 'Coll'
+												: node.kind === 'key_pattern'
+													? 'Key'
+													: 'Table'}
+										</span>
+									</div>
+
+									<ul class="m-0 list-none overflow-hidden p-0">
+										{#each node.columns as col (col.id)}
+											<li
+												class="m-0 overflow-hidden p-0"
+												style="height: {ROW_H}px"
+											>
+												{#if !readOnly && primaryTableId === node.id && !arrowTool}
+													<!-- Edit row: name + type dropdown + delete (heights match scaled ROW_H) -->
+													<div
+														data-er-column
+														data-no-drag
+														class={cn(
+															'box-border flex h-full w-full min-w-0 items-center gap-1 overflow-hidden border-b border-line/50 px-1.5 last:border-b-0',
+															focusedLink?.colIds.has(col.id) &&
+																'bg-accent-muted',
+														)}
+													>
+														{#if col.pk}
+															<span
+																class="shrink-0 text-micro font-semibold leading-none text-accent"
+																>PK</span
+															>
+														{:else if fkColumnIds.has(col.id)}
+															<span
+																class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
+																>FK</span
+															>
+														{/if}
+														<span
+															class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
+															title={col.name}
+														>
+															{col.name}
+														</span>
+														<div
+															class="w-[min(7.5rem,38%)] max-w-[42%] shrink-0 cursor-pointer [&_button]:box-border [&_button]:h-control-sm [&_button]:max-h-full [&_button]:px-1.5 [&_button]:text-caption [&_svg]:size-3"
+															role="presentation"
+															onclick={(e) => e.stopPropagation()}
+															onpointerdown={(e) => e.stopPropagation()}
+														>
+															<Select
+																value={col.dataType}
+																options={typeOptions.some(
+																	(o) => o.value === col.dataType,
+																)
+																	? typeOptions
+																	: [
+																			{
+																				value: col.dataType,
+																				label: col.dataType,
+																			},
+																			...typeOptions,
+																		]}
+																inputSize="sm"
+																onchange={(v) =>
+																	updateColumnType(node.id, col.id, v)}
+															/>
+														</div>
+														<button
+															type="button"
+															class="flex size-control-sm shrink-0 cursor-pointer items-center justify-center rounded text-body leading-none text-danger hover:bg-danger/10"
+															onclick={(e) => {
+																e.stopPropagation()
+																deleteColumn(col.id)
+															}}
+															aria-label="Delete column"
+														>
+															×
+														</button>
+													</div>
+												{:else}
+													<button
+														type="button"
+														data-er-column
+														data-no-drag
+														class={cn(
+															'box-border flex h-full w-full min-w-0 cursor-default items-center gap-1.5 overflow-hidden border-b border-line/50 px-2.5 text-left last:border-b-0',
+															arrowTool &&
+																'cursor-pointer hover:bg-accent-muted',
+															linkFrom?.tableId === node.id &&
+																linkFrom?.columnId === col.id &&
+																'bg-accent-muted ring-1 ring-inset ring-accent',
+															focusedLink?.colIds.has(col.id) &&
+																'bg-accent-muted',
+														)}
+														onclick={(e) => onColumnClick(node.id, col.id, e)}
+													>
+														{#if col.pk}
+															<span
+																class="shrink-0 text-micro font-semibold leading-none text-accent"
+																>PK</span
+															>
+														{:else if fkColumnIds.has(col.id)}
+															<span
+																class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
+																>FK</span
+															>
+														{/if}
+														<span
+															class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
+															title={col.name}
+														>
+															{col.name}
+														</span>
+														<span
+															class="max-w-[40%] shrink-0 truncate font-mono text-caption leading-none text-fg-muted"
+															title={col.dataType}>{col.dataType}</span
+														>
+													</button>
+												{/if}
+											</li>
+										{/each}
+									</ul>
+
+									{#if !readOnly && primaryTableId === node.id && !arrowTool}
+										<div
+											class="cursor-default border-t border-line p-2.5"
+											data-no-drag
+										>
+											{#if !showAddCol}
+												<button
+													type="button"
+													class="h-control-sm w-full cursor-pointer rounded-md border border-dashed border-line text-caption font-medium text-accent hover:bg-accent-muted"
+													onclick={(e) => {
+														e.stopPropagation()
+														newColType = defaultColumnType(family)
+														showAddCol = true
+													}}
+												>
+													+ Add column
+												</button>
+											{:else}
+												<div class="flex flex-col gap-2">
+													<Input
+														bind:value={newColName}
+														placeholder="column_name"
+														inputSize="md"
+														class="cursor-text font-mono text-body"
+													/>
+													<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+													<div
+														class="cursor-pointer"
+														role="presentation"
+														onclick={(e) => e.stopPropagation()}
+														onpointerdown={(e) => e.stopPropagation()}
+													>
+														<Select
+															bind:value={newColType}
+															options={typeOptions}
+															inputSize="md"
+															placeholder="Column type"
+														/>
+													</div>
+													<label
+														class="flex cursor-pointer items-center gap-2 text-body text-fg-secondary"
+													>
+														<input
+															type="checkbox"
+															class="size-3.5 shrink-0 cursor-pointer accent-accent"
+															bind:checked={newColPk}
+														/>
+														Primary key
+													</label>
+													<div class="flex gap-2 pt-0.5">
+														<Button
+															size="md"
+															variant="primary"
+															onclick={(e: MouseEvent) => {
+																e.stopPropagation()
+																addColumn()
+															}}
+														>
+															Add
+														</Button>
+														<Button
+															size="md"
+															variant="ghost"
+															onclick={(e: MouseEvent) => {
+																e.stopPropagation()
+																showAddCol = false
+															}}
+														>
+															Cancel
+														</Button>
+													</div>
+												</div>
+											{/if}
+										</div>
+									{/if}
+								</div>
+							{/each}
 						{/if}
-					</div>
-				{/each}
-			{/if}
 					</div>
 				</div>
 
-			{#if diagram && diagram.nodes.length === 0}
-				<div
-					class="pointer-events-none absolute inset-0 flex items-center justify-center"
-				>
-					<p class="text-caption text-fg-muted">
-						No {entityWord}s to map in this database.
-					</p>
-				</div>
-			{/if}
+				{#if diagram && diagram.nodes.length === 0}
+					<div
+						class="pointer-events-none absolute inset-0 flex items-center justify-center"
+					>
+						<p class="text-caption text-fg-muted">
+							No {entityWord}s to map in this database.
+						</p>
+					</div>
+				{/if}
 			</div>
 		</div>
 
@@ -3239,9 +3261,7 @@
 					{diagram.nodes.length}
 					{entityWord}{diagram.nodes.length === 1 ? '' : 's'}
 					{#if diagram.edges.length > 0}
-						· {diagram.edges.length} link{diagram.edges.length === 1
-							? ''
-							: 's'}
+						· {diagram.edges.length} link{diagram.edges.length === 1 ? '' : 's'}
 					{/if}
 				</span>
 			{:else}
@@ -3283,7 +3303,7 @@
 	></div>
 	<div
 		data-ctx-menu
-		class="fixed z-50 min-w-[180px] overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
+		class="fixed z-50 min-w-45 overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
 		style="left: {ctxMenu.clientX}px; top: {ctxMenu.clientY}px;"
 		role="menu"
 	>
