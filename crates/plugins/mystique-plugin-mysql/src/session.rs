@@ -12,7 +12,7 @@ use mystique_connector_api::{
     ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
     ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
     SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TableObjectKind, TablePreviewResult, ValidatedQuery, sql_where_clause,
+    TableObjectKind, TablePreviewResult, ValidatedQuery, preview_sort_sql, sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -527,7 +527,13 @@ impl ConnectorSession for MysqlSession {
             input.schema.as_deref(),
             &input.table,
         );
-        let order = {
+        let order = preview_sort_sql(
+            SqlIdentStyle::Mysql,
+            &columns,
+            input.sort_column.as_deref(),
+            input.sort_dir.as_deref(),
+        )
+        .unwrap_or_else(|| {
             let pks: Vec<String> = columns
                 .iter()
                 .filter(|c| c.pk)
@@ -543,7 +549,7 @@ impl ConnectorSession for MysqlSession {
             } else {
                 String::new()
             }
-        };
+        });
         let limit = input.max_rows;
         let select_list = if columns.is_empty() {
             "*".into()

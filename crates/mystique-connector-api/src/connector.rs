@@ -113,7 +113,8 @@ pub trait ConnectorSession: Send + Sync {
         )))
     }
 
-    /// Fetch a page of rows in a stable, engine-native order (PK / `_id` / `rowid`).
+    /// Fetch a page of rows. Default order is engine-native (PK / `_id` / `rowid`);
+    /// `sort_column` + `sort_dir` override when the column is known.
     async fn fetch_table_preview(
         &self,
         _input: &FetchTablePreviewInput,

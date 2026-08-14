@@ -254,6 +254,13 @@ export interface TablePreviewFilter {
   value: string;
 }
 
+export type TablePreviewSortDir = "asc" | "desc";
+
+export interface TablePreviewSort {
+  column: string;
+  dir: TablePreviewSortDir;
+}
+
 export interface FetchTablePreviewRequest {
   sessionId: string;
   table: string;
@@ -262,6 +269,9 @@ export interface FetchTablePreviewRequest {
   maxRows?: number;
   offset?: number;
   filters?: TablePreviewFilter[];
+  /** Plugin-owned `ORDER BY` / Mongo `sort`. Omitted = default PK / `_id` / `rowid`. */
+  sortColumn?: string | null;
+  sortDir?: TablePreviewSortDir | null;
 }
 
 export interface TablePreviewResult {

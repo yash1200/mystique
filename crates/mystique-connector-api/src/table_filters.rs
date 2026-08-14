@@ -1,7 +1,7 @@
 //! Compile grid filter rules into engine SQL / JSON predicates.
 //! The frontend only collects rules; plugins execute this output.
 
-use crate::catalog::TableFilter;
+use crate::catalog::{ColumnInfo, TableFilter};
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::sql_table_edits::{quote_ident, SqlIdentStyle};
 
@@ -195,6 +195,56 @@ pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json:
     Ok(json!({ "$and": clauses }))
 }
 
+/// Resolve a requested sort column against described columns (exact name).
+pub fn resolve_preview_sort_column<'a>(
+    columns: &'a [ColumnInfo],
+    sort_column: Option<&str>,
+) -> Option<&'a str> {
+    let name = sort_column.map(str::trim).filter(|s| !s.is_empty())?;
+    columns
+        .iter()
+        .find(|c| c.name == name)
+        .map(|c| c.name.as_str())
+}
+
+fn preview_sort_dir_desc(sort_dir: Option<&str>) -> bool {
+    matches!(
+        sort_dir.unwrap_or("asc").trim().to_ascii_lowercase().as_str(),
+        "desc" | "descending" | "-1"
+    )
+}
+
+/// ` ORDER BY "col" ASC` when the column is known; `None` = plugin default order.
+pub fn preview_sort_sql(
+    style: SqlIdentStyle,
+    columns: &[ColumnInfo],
+    sort_column: Option<&str>,
+    sort_dir: Option<&str>,
+) -> Option<String> {
+    let col = resolve_preview_sort_column(columns, sort_column)?;
+    let dir = if preview_sort_dir_desc(sort_dir) {
+        "DESC"
+    } else {
+        "ASC"
+    };
+    Some(format!(" ORDER BY {} {}", quote_ident(style, col), dir))
+}
+
+/// Mongo `sort` field + direction (`1` / `-1`) when the column is known.
+pub fn preview_sort_field<'a>(
+    columns: &'a [ColumnInfo],
+    sort_column: Option<&str>,
+    sort_dir: Option<&str>,
+) -> Option<(&'a str, i32)> {
+    let col = resolve_preview_sort_column(columns, sort_column)?;
+    let dir = if preview_sort_dir_desc(sort_dir) {
+        -1
+    } else {
+        1
+    };
+    Some((col, dir))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +280,47 @@ mod tests {
         let where_sql =
             sql_where_clause(SqlIdentStyle::Mysql, &[f("na`me", "eq", "O'Brien")]).unwrap();
         assert_eq!(where_sql, " WHERE `na``me` = 'O''Brien'");
+    }
+
+    fn col(name: &str) -> ColumnInfo {
+        ColumnInfo {
+            name: name.into(),
+            data_type: "text".into(),
+            nullable: true,
+            pk: false,
+            enum_values: None,
+            default_value: None,
+            references: None,
+        }
+    }
+
+    #[test]
+    fn preview_sort_sql_quotes_and_dir() {
+        let cols = [col("na\"me")];
+        let sql = preview_sort_sql(
+            SqlIdentStyle::Postgres,
+            &cols,
+            Some("na\"me"),
+            Some("desc"),
+        )
+        .unwrap();
+        assert_eq!(sql, " ORDER BY \"na\"\"me\" DESC");
+    }
+
+    #[test]
+    fn preview_sort_sql_unknown_column_is_none() {
+        let cols = [col("id")];
+        assert!(preview_sort_sql(SqlIdentStyle::Postgres, &cols, Some("nope"), Some("asc")).is_none());
+        assert!(preview_sort_sql(SqlIdentStyle::Postgres, &cols, None, Some("desc")).is_none());
+    }
+
+    #[test]
+    fn preview_sort_field_defaults_asc() {
+        let cols = [col("age")];
+        assert_eq!(preview_sort_field(&cols, Some("age"), None), Some(("age", 1)));
+        assert_eq!(
+            preview_sort_field(&cols, Some("age"), Some("DESC")),
+            Some(("age", -1))
+        );
     }
 }

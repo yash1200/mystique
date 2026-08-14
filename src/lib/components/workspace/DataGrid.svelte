@@ -1,11 +1,12 @@
 <script lang="ts">
-	import type { TablePreviewFilter } from '$lib/api/engines'
-	import type { ColumnReference } from '$lib/types/workspace'
+	import type {
+		TablePreviewFilter,
+		TablePreviewSortDir,
+	} from '$lib/api/engines'
 	import { persistTableEdits } from '$lib/api/tablePersist'
 	import { ContextMenu, type ContextMenuItem } from '$lib/components/ui'
+	import type { ColumnReference, TableMeta } from '$lib/types/workspace'
 	import { readInspectOnRowClick } from '$lib/utils/appPrefs'
-	import { isSessionMissingError } from './shell/sessionUtils'
-	import type { TableMeta } from '$lib/types/workspace'
 	import {
 		selectDraftToValue,
 		usesSelectEditor,
@@ -37,6 +38,7 @@
 	import GridFilterBar from './grid/GridFilterBar.svelte'
 	import GridStatusBar from './grid/GridStatusBar.svelte'
 	import GridTable, { type CellRef } from './grid/GridTable.svelte'
+	import { isSessionMissingError } from './shell/sessionUtils'
 
 	interface Props {
 		table: TableMeta
@@ -53,6 +55,8 @@
 		onreload?: (opts?: {
 			offset?: number
 			filters?: TablePreviewFilter[]
+			sortColumn?: string
+			sortDir?: TablePreviewSortDir
 		}) => Promise<void>
 		/** Re-open a dead engine session; returns the new session id. */
 		onreconnect?: () => Promise<string | null>
@@ -61,6 +65,8 @@
 		 * keep the same predicate the plugin already applied.
 		 */
 		seedFilters?: TablePreviewFilter[] | null
+		/** Seeded preview sort when the grid remounts (filter apply / FK jump). */
+		seedSort?: { column: string; dir: TablePreviewSortDir } | null
 		/** Plugin-owned FK jump from a cell. */
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
 	}
@@ -78,6 +84,7 @@
 		onreload,
 		onreconnect,
 		seedFilters = null,
+		seedSort = null,
 		onopenreference,
 	}: Props = $props()
 
@@ -124,6 +131,9 @@
 	let filterRules = $state<FilterRule[]>([])
 	let filterCode = $state('')
 	let filtersActive = $state(false)
+	/** Single-column preview sort. Switching columns replaces the previous order. */
+	let sortColumn = $state<string | null>(null)
+	let sortDir = $state<TablePreviewSortDir | null>(null)
 
 	const columnOptions = $derived(
 		table.columns.map((c) => ({ value: c.name, label: c.name })),
@@ -179,6 +189,43 @@
 		}))
 	}
 
+	function reloadOpts(offset: number) {
+		const opts: {
+			offset: number
+			filters: TablePreviewFilter[]
+			sortColumn?: string
+			sortDir?: TablePreviewSortDir
+		} = {
+			offset,
+			filters: previewFilters(),
+		}
+		if (sortColumn && sortDir) {
+			opts.sortColumn = sortColumn
+			opts.sortDir = sortDir
+		}
+		return opts
+	}
+
+	function cycleSort(column: string) {
+		if (dirtyCount > 0) {
+			flashStatus('Save or reset changes before sorting.')
+			return
+		}
+		if (sortColumn === column) {
+			if (sortDir === 'asc') {
+				sortDir = 'desc'
+			} else {
+				sortColumn = null
+				sortDir = null
+			}
+		} else {
+			sortColumn = column
+			sortDir = 'asc'
+		}
+		page = 0
+		void reloadFromEngine(0)
+	}
+
 	/** Current engine page (already filtered server-side). */
 	const pageEntries = $derived(rows.map((row, index) => ({ row, index })))
 	const filteredCount = $derived(rows.length)
@@ -210,7 +257,7 @@
 		refreshing = true
 		statusMsg = null
 		try {
-			await onreload({ offset, filters: previewFilters() })
+			await onreload(reloadOpts(offset))
 			loadFromTable(true)
 			appliedSyncTick = rowSyncTick
 		} catch (err) {
@@ -322,8 +369,7 @@
 
 	/** Shift absolute indices after inserting a row at the front. */
 	function shiftIndicesAfterPrepend() {
-		const shiftSet = (set: Set<number>) =>
-			new Set([...set].map((i) => i + 1))
+		const shiftSet = (set: Set<number>) => new Set([...set].map((i) => i + 1))
 		newRowIndices = shiftSet(newRowIndices)
 		deletedIndices = shiftSet(deletedIndices)
 
@@ -539,8 +585,7 @@
 		}
 
 		const hasPk = table.columns.some(
-			(c) =>
-				c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
+			(c) => c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
 		)
 		if (!hasPk) {
 			flashStatus('Cannot delete: table has no primary key')
@@ -782,6 +827,13 @@
 			filterCode = ''
 		}
 		filterMode = 'ui'
+		if (seedSort?.column && seedSort.dir) {
+			sortColumn = seedSort.column
+			sortDir = seedSort.dir
+		} else {
+			sortColumn = null
+			sortDir = null
+		}
 		appliedSyncTick = -1
 	})
 
@@ -878,10 +930,7 @@
 		let filterIdx = pageEntries.findIndex((e) => e.index === row)
 		if (filterIdx < 0) filterIdx = 0
 
-		filterIdx = Math.max(
-			0,
-			Math.min(pageEntries.length - 1, filterIdx + dRow),
-		)
+		filterIdx = Math.max(0, Math.min(pageEntries.length - 1, filterIdx + dRow))
 		colIdx = Math.max(0, Math.min(cols.length - 1, colIdx + dCol))
 
 		const nextAbs = pageEntries[filterIdx]!.index
@@ -1062,9 +1111,7 @@
 		if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
 		if (lines.length === 0) return
 
-		let filterIdx = pageEntries.findIndex(
-			(e) => e.index === selectedCell!.row,
-		)
+		let filterIdx = pageEntries.findIndex((e) => e.index === selectedCell!.row)
 		if (filterIdx < 0) filterIdx = 0
 
 		let changed = 0
@@ -1273,7 +1320,7 @@
 		refreshing = true
 		statusMsg = null
 		try {
-			await onreload({ offset: p * PAGE_SIZE, filters: previewFilters() })
+			await onreload(reloadOpts(p * PAGE_SIZE))
 			loadFromTable(true)
 			appliedSyncTick = rowSyncTick
 		} catch (err) {
@@ -1298,10 +1345,7 @@
 		statusMsg = null
 		try {
 			if (onreload) {
-				await onreload({
-					offset: page * PAGE_SIZE,
-					filters: previewFilters(),
-				})
+				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
 				appliedSyncTick = rowSyncTick
 			} else {
@@ -1369,10 +1413,7 @@
 				)
 			}
 			if (onreload) {
-				await onreload({
-					offset: page * PAGE_SIZE,
-					filters: previewFilters(),
-				})
+				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
 				appliedSyncTick = rowSyncTick
 			} else {
@@ -1511,6 +1552,8 @@
 			bind:inputEl
 			{filtersActive}
 			{hasActiveFilters}
+			{sortColumn}
+			{sortDir}
 			{isDirty}
 			isNewRow={(row) => newRowIndices.has(row)}
 			isDeletedRow={(row) => deletedIndices.has(row)}
@@ -1522,6 +1565,7 @@
 			onRowMenu={openRowMenu}
 			onCellMenu={openCellMenu}
 			onOpenReference={onopenreference}
+			onSort={cycleSort}
 		/>
 	</div>
 

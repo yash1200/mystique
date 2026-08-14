@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { TablePreviewSortDir } from "$lib/api/engines";
   import type { ColumnReference, TableMeta } from "$lib/types/workspace";
   import { cn } from "$lib/utils/cn";
   import {
@@ -36,6 +37,10 @@
     onCellMenu?: (row: number, col: string, e: MouseEvent) => void;
     /** Plugin-owned FK jump: open referenced table filtered to this value. */
     onOpenReference?: (ref: ColumnReference, value: unknown) => void;
+    /** Single-column preview sort (plugin ORDER BY / Mongo sort). */
+    sortColumn?: string | null;
+    sortDir?: TablePreviewSortDir | null;
+    onSort?: (column: string) => void;
   }
 
   let {
@@ -60,7 +65,23 @@
     onRowMenu,
     onCellMenu,
     onOpenReference,
+    sortColumn = null,
+    sortDir = null,
+    onSort,
   }: Props = $props();
+
+  function sortLabel(name: string): string {
+    if (sortColumn === name && sortDir === "asc")
+      return `Sort ${name} descending`;
+    if (sortColumn === name && sortDir === "desc")
+      return `Clear sort on ${name}`;
+    return `Sort ${name} ascending`;
+  }
+
+  function ariaSort(name: string): "none" | "ascending" | "descending" {
+    if (sortColumn !== name || !sortDir) return "none";
+    return sortDir === "desc" ? "descending" : "ascending";
+  }
 </script>
 
 <div class="min-h-0 flex-1 overflow-auto" data-grid-scroll>
@@ -73,20 +94,83 @@
           #
         </th>
         {#each table.columns as col (col.name)}
+          {@const active = sortColumn === col.name}
           <th
             class="max-w-64 min-w-32 border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary"
             title={col.type}
+            aria-sort={ariaSort(col.name)}
           >
-            <span class="text-fg">{col.name}</span>
-            {#if col.pk}
-              <span
-                class="ml-1 text-caption font-semibold text-accent"
-                title="Primary key">PK</span
-              >
-            {/if}
-            <span class="ml-1.5 font-mono font-normal text-fg-muted"
-              >{col.type}</span
-            >
+            <div class="flex items-center gap-1.5">
+              <span class="min-w-0 flex-1 truncate">
+                <span class="text-fg">{col.name}</span>
+                {#if col.pk}
+                  <span
+                    class="ml-1 text-caption font-semibold text-accent"
+                    title="Primary key">PK</span
+                  >
+                {/if}
+                <span class="ml-1.5 font-mono font-normal text-fg-muted"
+                  >{col.type}</span
+                >
+              </span>
+              {#if onSort}
+                <button
+                  type="button"
+                  class={cn(
+                    "inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent p-0 leading-none transition-colors",
+                    active
+                      ? "text-accent hover:bg-accent-muted"
+                      : "text-fg-muted/70 hover:border-line hover:bg-hover hover:text-fg-secondary",
+                  )}
+                  title={sortLabel(col.name)}
+                  aria-label={sortLabel(col.name)}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onSort(col.name);
+                  }}
+                >
+                  <svg
+                    class="size-3"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    {#if active && sortDir === "asc"}
+                      <path
+                        d="M4 10.5 8 5.5 12 10.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    {:else if active && sortDir === "desc"}
+                      <path
+                        d="M4 5.5 8 10.5 12 5.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    {:else}
+                      <path
+                        d="M5 6.5 8 3.5 11 6.5"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M5 9.5 8 12.5 11 9.5"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    {/if}
+                  </svg>
+                </button>
+              {/if}
+            </div>
           </th>
         {/each}
         <!-- Absorbs leftover width so data columns keep a stable size. -->

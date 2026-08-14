@@ -13,6 +13,7 @@ import {
 	listEngineCatalog,
 	type TablePreviewFilter,
 	type TablePreviewResult,
+	type TablePreviewSort,
 } from './engines'
 
 const MONGO_SYSTEM_DBS = new Set(['admin', 'local', 'config'])
@@ -198,6 +199,7 @@ export async function loadTablePreview(
 	maxRows = 100,
 	offset = 0,
 	filters: TablePreviewFilter[] = [],
+	sort: TablePreviewSort | null = null,
 ): Promise<TableMeta> {
 	const preview = await fetchEngineTablePreview({
 		sessionId,
@@ -207,6 +209,8 @@ export async function loadTablePreview(
 		maxRows,
 		offset,
 		filters,
+		sortColumn: sort?.column ?? null,
+		sortDir: sort?.dir ?? null,
 	})
 	return previewToTableMeta(table, preview)
 }

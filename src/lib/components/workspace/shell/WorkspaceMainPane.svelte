@@ -5,10 +5,7 @@
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import { colorHex } from '$lib/types/connection'
-	import {
-		familyFromCaps,
-		resolveCapabilities,
-	} from '$lib/types/engineCaps'
+	import { familyFromCaps, resolveCapabilities } from '$lib/types/engineCaps'
 	import type { ErDiagramState } from '$lib/types/er'
 	import type {
 		ColumnReference,
@@ -68,10 +65,14 @@
 		onreloadtable?: (opts?: {
 			offset?: number
 			filters?: TablePreviewFilter[]
+			sortColumn?: string
+			sortDir?: 'asc' | 'desc'
 		}) => Promise<void>
 		onreconnect?: () => Promise<string | null>
 		/** Seeded filters when jumping via FK (keeps pager/refresh consistent). */
 		seedFilters?: TablePreviewFilter[] | null
+		/** Seeded preview sort so remounts keep the same column order. */
+		seedSort?: { column: string; dir: 'asc' | 'desc' } | null
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
 	}
 
@@ -108,6 +109,7 @@
 		onreloadtable,
 		onreconnect,
 		seedFilters = null,
+		seedSort = null,
 		onopenreference,
 	}: Props = $props()
 </script>
@@ -253,6 +255,7 @@
 							onreload={onreloadtable}
 							{onreconnect}
 							{seedFilters}
+							{seedSort}
 							{onopenreference}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}

@@ -109,6 +109,13 @@ pub struct FetchTablePreviewRequest {
     /// Plugin-compiled predicates (AND). Empty = unfiltered.
     #[serde(default)]
     pub filters: Vec<TableFilter>,
+    /// Column to `ORDER BY` / Mongo `sort`. Must match a described column.
+    /// Empty / unknown = plugin default (PK / `_id` / `rowid`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_column: Option<String>,
+    /// `asc` | `desc`. Ignored when `sort_column` is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_dir: Option<String>,
 }
 
 /// Plugin input (session already resolved).
@@ -120,6 +127,8 @@ pub struct FetchTablePreviewInput {
     pub max_rows: u32,
     pub offset: u32,
     pub filters: Vec<TableFilter>,
+    pub sort_column: Option<String>,
+    pub sort_dir: Option<String>,
 }
 
 impl FetchTablePreviewRequest {
@@ -131,6 +140,8 @@ impl FetchTablePreviewRequest {
             max_rows: self.max_rows.unwrap_or(default_max).clamp(1, hard_max),
             offset: self.offset.unwrap_or(0),
             filters: self.filters,
+            sort_column: self.sort_column,
+            sort_dir: self.sort_dir,
         }
     }
 }

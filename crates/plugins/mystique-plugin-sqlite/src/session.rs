@@ -3,11 +3,11 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
-    cell_bool, compile_delete, compile_insert, compile_update, quote_ident, split_sql_statements,
-    sql_where_clause, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
-    CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
-    ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
-    ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle,
+    cell_bool, compile_delete, compile_insert, compile_update, preview_sort_sql, quote_ident,
+    split_sql_statements, sql_where_clause, ApplyTableEditsInput, ApplyTableEditsResult,
+    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
+    ColumnReference, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
+    FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle,
     StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
     TablePreviewResult, ValidatedQuery,
 };
@@ -446,7 +446,13 @@ impl ConnectorSession for SqliteSession {
             )
             .await?;
         let target = quote_ident(SqlIdentStyle::Postgres, &input.table);
-        let order = {
+        let order = preview_sort_sql(
+            SqlIdentStyle::Postgres,
+            &columns,
+            input.sort_column.as_deref(),
+            input.sort_dir.as_deref(),
+        )
+        .unwrap_or_else(|| {
             let pks: Vec<String> = columns
                 .iter()
                 .filter(|c| c.pk)
@@ -457,7 +463,7 @@ impl ConnectorSession for SqliteSession {
             } else {
                 " ORDER BY rowid".into()
             }
-        };
+        });
         let limit = input.max_rows;
         let select_list = if columns.is_empty() {
             "*".into()

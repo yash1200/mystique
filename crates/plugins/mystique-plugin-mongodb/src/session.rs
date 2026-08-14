@@ -7,7 +7,8 @@ use mongodb::Client;
 use mystique_connector_api::{
     cell_bool, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogObject, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
+    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, preview_sort_field,
+    QueryColumn,
     QueryMode, QueryResult, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
     TablePreviewResult, ValidatedQuery,
 };
@@ -518,7 +519,15 @@ impl ConnectorSession for MongoSession {
                 .await
                 .map_err(|e| ConnectorError::Query(e.to_string()))?
         };
-        let mut find = coll.find(filter).sort(doc! { "_id": 1 });
+        let sort = match preview_sort_field(
+            &columns,
+            input.sort_column.as_deref(),
+            input.sort_dir.as_deref(),
+        ) {
+            Some((field, dir)) => doc! { field: dir },
+            None => doc! { "_id": 1 },
+        };
+        let mut find = coll.find(filter).sort(sort);
         if input.offset > 0 {
             find = find.skip(input.offset as u64);
         }

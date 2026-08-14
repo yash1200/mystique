@@ -18,8 +18,8 @@
 		type ObjectStructure,
 		type TableAdminOp,
 		type TablePreviewFilter,
+		type TablePreviewSort,
 	} from '$lib/api/engines'
-	import type { ColumnReference } from '$lib/types/workspace'
 	import {
 		listQueryHistory,
 		listRecentQueryHistory,
@@ -47,14 +47,15 @@
 		pluginConfigForSession,
 		type ConnectionProfile,
 	} from '$lib/types/connection'
+	import { modelTabTitle, resolveCapabilities } from '$lib/types/engineCaps'
 	import type { ErDiagramState } from '$lib/types/er'
-	import {
-		modelTabTitle,
-		resolveCapabilities,
-	} from '$lib/types/engineCaps'
-	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
-	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
+	import type {
+		ColumnReference,
+		DatabaseMeta,
+		TableMeta,
+	} from '$lib/types/workspace'
 	import { setAppTitle } from '$lib/utils/appTitle'
+	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
 	import { onDestroy, onMount } from 'svelte'
 	import type { TableExplorerAction } from './ObjectExplorer.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
@@ -985,15 +986,19 @@
 
 	/** Filters applied when opening a table via FK jump (seed DataGrid filter bar). */
 	let tableSeedFilters = $state<TablePreviewFilter[] | null>(null)
+	/** Preview sort so remounts (filter apply, FK jump) keep the same column. */
+	let tableSeedSort = $state<TablePreviewSort | null>(null)
 
 	async function openTable(
 		table: TableMeta,
 		offset = 0,
 		filters: TablePreviewFilter[] = [],
+		sort: TablePreviewSort | null = null,
 	) {
 		if (!activeId || !activeSession) return
 		sideMode = 'explorer'
 		tableSeedFilters = filters.length > 0 ? filters : null
+		tableSeedSort = sort
 		workspaceSession.openTable(activeId, table.id, table.name)
 
 		if (!isTauri()) return
@@ -1004,7 +1009,7 @@
 		try {
 			const engine = String(activeSession.profile.engine)
 			const preview = await withLiveSession(activeId, (sid) =>
-				loadTablePreview(sid, engine, table, 100, offset, filters),
+				loadTablePreview(sid, engine, table, 100, offset, filters, sort),
 			)
 			const list = catalogs[activeId] ?? []
 			const next = list.map((db) => ({
@@ -1049,10 +1054,7 @@
 		)
 	}
 
-	async function openForeignKeyReference(
-		ref: ColumnReference,
-		value: unknown,
-	) {
+	async function openForeignKeyReference(ref: ColumnReference, value: unknown) {
 		if (value === null || value === undefined) return
 		const target = findReferencedTable(ref)
 		if (!target) {
@@ -1178,11 +1180,11 @@
 						sessionDatabase(activeId, activeSession.profile),
 					)
 					const loaded = await loadLiveErDiagram(
-				sid,
-				engine,
-				database || null,
-				activeSession.capabilities,
-			)
+						sid,
+						engine,
+						database || null,
+						activeSession.capabilities,
+					)
 					liveModels = {
 						...liveModels,
 						[key]: {
@@ -1222,7 +1224,10 @@
 			refreshing = true
 			await new Promise((r) => setTimeout(r, 200))
 			const base = structuredClone(mockCatalogForEngine(engine))
-			catalogs = { ...catalogs, [activeId]: mergeCatalogKeepCached(catalogs[activeId], base) }
+			catalogs = {
+				...catalogs,
+				[activeId]: mergeCatalogKeepCached(catalogs[activeId], base),
+			}
 			if (!base.some((d) => d.name === selectedDb[activeId])) {
 				selectedDb = { ...selectedDb, [activeId]: base[0]?.name ?? '' }
 			}
@@ -1233,7 +1238,10 @@
 		refreshing = true
 		catalogError = null
 		try {
-			const sid = await withLiveSession(activeId, async (sessionId) => sessionId)
+			const sid = await withLiveSession(
+				activeId,
+				async (sessionId) => sessionId,
+			)
 			await ensureLiveCatalog(activeId, engine, sid, preferred, true, false)
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
@@ -1246,13 +1254,17 @@
 	async function refreshCurrentTables() {
 		if (!activeSession || !activeId) return
 		const engine = String(activeSession.profile.engine)
-		const db = currentDatabaseName || sessionDatabase(activeId, activeSession.profile)
+		const db =
+			currentDatabaseName || sessionDatabase(activeId, activeSession.profile)
 
 		if (!isTauri()) {
 			refreshingTables = true
 			await new Promise((r) => setTimeout(r, 200))
 			const base = structuredClone(mockCatalogForEngine(engine))
-			catalogs = { ...catalogs, [activeId]: mergeCatalogKeepCached(catalogs[activeId], base) }
+			catalogs = {
+				...catalogs,
+				[activeId]: mergeCatalogKeepCached(catalogs[activeId], base),
+			}
 			refreshingTables = false
 			return
 		}
@@ -1260,7 +1272,10 @@
 		refreshingTables = true
 		catalogError = null
 		try {
-			const sid = await withLiveSession(activeId, async (sessionId) => sessionId)
+			const sid = await withLiveSession(
+				activeId,
+				async (sessionId) => sessionId,
+			)
 			const live = await loadLiveCatalog(sid, engine, {
 				preferredDatabase: db,
 				includeObjects: true,
@@ -1696,13 +1711,19 @@
 	async function reloadGridTable(opts?: {
 		offset?: number
 		filters?: TablePreviewFilter[]
+		sortColumn?: string
+		sortDir?: TablePreviewSort['dir']
 	}) {
 		if (!gridTable) return
 		if (activeTabId) {
 			const { [activeTabId]: _done, ...rest } = hydratedTableTabs
 			hydratedTableTabs = rest
 		}
-		await openTable(gridTable, opts?.offset ?? 0, opts?.filters ?? [])
+		const sort =
+			opts?.sortColumn && opts?.sortDir
+				? { column: opts.sortColumn, dir: opts.sortDir }
+				: null
+		await openTable(gridTable, opts?.offset ?? 0, opts?.filters ?? [], sort)
 	}
 
 	onMount(() =>
@@ -1802,6 +1823,7 @@
 		onreloadtable={reloadGridTable}
 		onreconnect={reconnectActiveSession}
 		seedFilters={tableSeedFilters}
+		seedSort={tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
 	/>
 

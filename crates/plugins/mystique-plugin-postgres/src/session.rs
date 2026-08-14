@@ -11,7 +11,7 @@ use mystique_connector_api::{
     ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
     ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
     SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TableObjectKind, TablePreviewResult, ValidatedQuery, sql_where_clause,
+    TableObjectKind, TablePreviewResult, ValidatedQuery, preview_sort_sql, sql_where_clause,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -742,7 +742,13 @@ impl ConnectorSession for PostgresSession {
             input.schema.as_deref(),
             &input.table,
         );
-        let order = preview_order_sql(SqlIdentStyle::Postgres, &columns);
+        let order = preview_sort_sql(
+            SqlIdentStyle::Postgres,
+            &columns,
+            input.sort_column.as_deref(),
+            input.sort_dir.as_deref(),
+        )
+        .unwrap_or_else(|| preview_order_sql(SqlIdentStyle::Postgres, &columns));
         let limit = input.max_rows as i64;
         let select_list = preview_select_list(SqlIdentStyle::Postgres, &columns);
         let offset = input.offset;

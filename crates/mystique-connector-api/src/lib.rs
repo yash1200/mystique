@@ -43,5 +43,7 @@ pub use sql_table_edits::{
     compile_delete, compile_insert, compile_update, qualify_table, quote_ident, SqlIdentStyle,
 };
 pub use table_admin::*;
-pub use table_filters::{mongo_filter_json, sql_where_clause};
+pub use table_filters::{
+    mongo_filter_json, preview_sort_field, preview_sort_sql, sql_where_clause,
+};
 pub use types::*;
