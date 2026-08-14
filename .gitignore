@@ -10,7 +10,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 yarn.lock
-package-json.lock
+package-lock.json
 /target
 src-tauri/target
 
