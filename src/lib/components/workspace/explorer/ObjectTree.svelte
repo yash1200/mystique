@@ -16,10 +16,6 @@
 		flatItems: TableMeta[]
 		isExpanded: (key: string) => boolean
 		onToggleGroup: (key: string) => void
-		canCreateObject?: boolean
-		objectLabelSingular?: string
-		/** Create object inside a group (schema). */
-		oncreatein?: (groupKey: string) => void
 		onopen: (table: TableMeta) => void
 		onmenu: (table: TableMeta, e: MouseEvent) => void
 	}
@@ -37,9 +33,6 @@
 		flatItems,
 		isExpanded,
 		onToggleGroup,
-		canCreateObject = false,
-		objectLabelSingular = 'table',
-		oncreatein,
 		onopen,
 		onmenu,
 	}: Props = $props()
@@ -105,53 +98,33 @@
 		{#each groups as group (group.key)}
 			{@const expanded = isExpanded(group.key)}
 			<section class="mb-0.5" aria-label="{groupLabel} {group.key}">
-				<div
+				<button
+					type="button"
 					class={cn(
-						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-0.5 rounded-md bg-panel pr-0.5',
+						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1 rounded-md border-none bg-panel px-1.5 text-left transition-colors',
+						'text-fg-secondary hover:bg-hover hover:text-fg',
 					)}
+					aria-expanded={expanded}
+					title="{groupLabel} {group.key}"
+					onclick={() => onToggleGroup(group.key)}
 				>
-					<button
-						type="button"
+					<CatalogIcon
+						name="chevron"
 						class={cn(
-							'flex h-control-sm min-w-0 flex-1 items-center gap-1 rounded-md border-none bg-transparent px-1.5 text-left transition-colors',
-							'text-fg-secondary hover:bg-hover hover:text-fg',
+							'size-3 text-fg-muted transition-transform duration-150',
+							expanded ? 'rotate-90' : 'rotate-0',
 						)}
-						aria-expanded={expanded}
-						title="{groupLabel} {group.key}"
-						onclick={() => onToggleGroup(group.key)}
+					/>
+					<CatalogIcon name="schema" />
+					<span class="min-w-0 flex-1 truncate font-mono text-label">
+						{group.key}
+					</span>
+					<span
+						class="shrink-0 font-mono text-micro text-fg-muted tabular-nums"
 					>
-						<CatalogIcon
-							name="chevron"
-							class={cn(
-								'size-3 text-fg-muted transition-transform duration-150',
-								expanded ? 'rotate-90' : 'rotate-0',
-							)}
-						/>
-						<CatalogIcon name="schema" />
-						<span class="min-w-0 flex-1 truncate font-mono text-label">
-							{group.key}
-						</span>
-						<span
-							class="shrink-0 font-mono text-micro text-fg-muted tabular-nums"
-						>
-							{group.items.length}
-						</span>
-					</button>
-					{#if canCreateObject && oncreatein}
-						<button
-							type="button"
-							class="flex size-6 shrink-0 items-center justify-center rounded-md border-none bg-transparent text-fg-muted transition-colors hover:bg-hover hover:text-fg"
-							title="Create {objectLabelSingular} in {group.key}"
-							aria-label="Create {objectLabelSingular} in {group.key}"
-							onclick={(e) => {
-								e.stopPropagation()
-								oncreatein(group.key)
-							}}
-						>
-							<span class="text-caption leading-none" aria-hidden="true">+</span>
-						</button>
-					{/if}
-				</div>
+						{group.items.length}
+					</span>
+				</button>
 
 				{#if expanded}
 					<ul class="m-0 list-none py-0.5 pl-5" role="group">

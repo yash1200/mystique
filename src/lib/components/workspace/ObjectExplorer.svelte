@@ -753,9 +753,6 @@
 		{flatItems}
 		{isExpanded}
 		onToggleGroup={toggleGroup}
-		canCreateObject={presentation.canCreateObject && !readOnly}
-		objectLabelSingular={noun}
-		oncreatein={(groupKey) => openCreate('object', groupKey)}
 		{onopen}
 		onmenu={openTableMenu}
 	/>
