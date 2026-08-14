@@ -529,48 +529,51 @@ impl ConnectorSession for SqliteSession {
     async fn list_catalog(
         &self,
         _preferred_database: Option<&str>,
+        include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
         }
         let pool = self.pool.clone();
         tokio::task::spawn_blocking(move || -> ConnectorResult<Vec<CatalogDatabase>> {
-            let conn = pool
-                .get()
-                .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-            let mut stmt = conn
-                .prepare(
-                    "SELECT name, type FROM sqlite_master \
-                     WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' \
-                     ORDER BY name",
-                )
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let mut rows = stmt
-                .query([])
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
             let mut objects = Vec::new();
-            while let Some(row) = rows
-                .next()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-            {
-                let name: String = row
-                    .get(0)
+            if include_objects {
+                let conn = pool
+                    .get()
+                    .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT name, type FROM sqlite_master \
+                         WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' \
+                         ORDER BY name",
+                    )
                     .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let raw_type: String = row
-                    .get(1)
+                let mut rows = stmt
+                    .query([])
                     .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let kind = if raw_type.to_ascii_lowercase().contains("view") {
-                    "view"
-                } else {
-                    "table"
-                };
-                objects.push(CatalogObject {
-                    name,
-                    schema: None,
-                    database: Some("main".into()),
-                    kind: kind.into(),
-                    row_count: 0,
-                });
+                while let Some(row) = rows
+                    .next()
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?
+                {
+                    let name: String = row
+                        .get(0)
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let raw_type: String = row
+                        .get(1)
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let kind = if raw_type.to_ascii_lowercase().contains("view") {
+                        "view"
+                    } else {
+                        "table"
+                    };
+                    objects.push(CatalogObject {
+                        name,
+                        schema: None,
+                        database: Some("main".into()),
+                        kind: kind.into(),
+                        row_count: 0,
+                    });
+                }
             }
             Ok(vec![CatalogDatabase {
                 name: "main".into(),

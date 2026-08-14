@@ -183,6 +183,13 @@ pub struct ListCatalogRequest {
     pub session_id: String,
     #[serde(default)]
     pub preferred_database: Option<String>,
+    /// When false, plugins return database names only (no tables/collections).
+    #[serde(default = "default_include_objects")]
+    pub include_objects: bool,
+}
+
+fn default_include_objects() -> bool {
+    true
 }
 
 /// Declared relationship (FK or equivalent) for live ER.

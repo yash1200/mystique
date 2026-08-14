@@ -63,6 +63,9 @@ pub struct ExplorerConfig {
     pub group_label: String,
     pub object_label: String,
     pub object_label_singular: String,
+    /// Heading above the explorer list (e.g. "Tables", "Collections").
+    #[serde(default)]
+    pub list_title: String,
     pub filter_placeholder: String,
 }
 
@@ -144,6 +147,7 @@ impl ExplorerConfig {
             group_label: "Schema".into(),
             object_label: "tables".into(),
             object_label_singular: "table".into(),
+            list_title: "Tables".into(),
             filter_placeholder: "Filter schemas & tables…".into(),
         }
     }
@@ -159,6 +163,7 @@ impl ExplorerConfig {
             group_label: String::new(),
             object_label: "tables".into(),
             object_label_singular: "table".into(),
+            list_title: "Tables".into(),
             filter_placeholder: "Filter tables…".into(),
         }
     }
@@ -174,6 +179,7 @@ impl ExplorerConfig {
             group_label: String::new(),
             object_label: "collections".into(),
             object_label_singular: "collection".into(),
+            list_title: "Collections".into(),
             filter_placeholder: "Filter collections…".into(),
         }
     }

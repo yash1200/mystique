@@ -125,9 +125,11 @@ pub trait ConnectorSession: Send + Sync {
     }
 
     /// Explorer tree: databases + tables/collections (plugin-owned listing SQL / APIs).
+    /// `include_objects` false = database picker only (skip tables/collections).
     async fn list_catalog(
         &self,
         _preferred_database: Option<&str>,
+        _include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         Err(crate::ConnectorError::NotSupported(format!(
             "list_catalog not implemented for engine `{}`",

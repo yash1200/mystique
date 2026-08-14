@@ -86,11 +86,12 @@ export function isMockCatalog(
 export async function loadLiveCatalog(
 	sessionId: string,
 	_engine: string,
-	opts?: { preferredDatabase?: string | null },
+	opts?: { preferredDatabase?: string | null; includeObjects?: boolean },
 ): Promise<DatabaseMeta[]> {
 	const dbs = await listEngineCatalog({
 		sessionId,
 		preferredDatabase: opts?.preferredDatabase ?? null,
+		includeObjects: opts?.includeObjects,
 	})
 	return dbs.map((db) => ({
 		name: db.name,
@@ -113,6 +114,28 @@ export async function loadLiveCatalog(
  * Postgres can only attach objects for the connected database. Keep previously
  * loaded tables for other DBs so switching the picker does not wipe them.
  */
+/** Keep loaded preview (columns/rows) when a catalog refresh returns empty leaves. */
+function preserveTablePreviews(
+	prev: TableMeta[] | undefined,
+	live: TableMeta[],
+): TableMeta[] {
+	if (!prev?.length) return live
+	const prevById = new Map(prev.map((t) => [t.id, t]))
+	return live.map((t) => {
+		const p = prevById.get(t.id)
+		if (!p) return t
+		if (t.columns.length === 0 && p.columns.length > 0) {
+			return {
+				...t,
+				columns: p.columns,
+				rows: p.rows,
+				rowCount: p.rowCount,
+			}
+		}
+		return t
+	})
+}
+
 export function mergeCatalogKeepCached(
 	prev: DatabaseMeta[] | undefined,
 	live: DatabaseMeta[],
@@ -120,12 +143,50 @@ export function mergeCatalogKeepCached(
 	if (!prev?.length) return live
 	const prevByName = new Map(prev.map((d) => [d.name, d]))
 	return live.map((db) => {
-		if (db.tables.length > 0) return db
 		const cached = prevByName.get(db.name)
+		if (db.tables.length > 0) {
+			return {
+				...db,
+				tables: preserveTablePreviews(cached?.tables, db.tables),
+			}
+		}
 		if (cached && cached.tables.length > 0) {
 			return { ...db, tables: cached.tables, meta: cached.meta ?? db.meta }
 		}
 		return db
+	})
+}
+
+/** Replace objects for `database` from live; keep other DBs' cached tables. */
+export function mergeCatalogReplaceDatabase(
+	prev: DatabaseMeta[] | undefined,
+	live: DatabaseMeta[],
+	database: string,
+): DatabaseMeta[] {
+	const target = database.trim()
+	const prevByName = new Map((prev ?? []).map((d) => [d.name, d]))
+	const liveByName = new Map(live.map((d) => [d.name, d]))
+	const names = [
+		...new Set([...live.map((d) => d.name), ...(prev ?? []).map((d) => d.name)]),
+	]
+	return names.map((name) => {
+		const l = liveByName.get(name)
+		const p = prevByName.get(name)
+		if (target && name === target) {
+			if (!l) return { name, tables: [] }
+			return {
+				...l,
+				tables: preserveTablePreviews(p?.tables, l.tables),
+			}
+		}
+		if (l && l.tables.length > 0) {
+			return {
+				...l,
+				tables: preserveTablePreviews(p?.tables, l.tables),
+			}
+		}
+		if (p) return { ...p, meta: l?.meta ?? p.meta }
+		return l ?? { name, tables: [] }
 	})
 }
 

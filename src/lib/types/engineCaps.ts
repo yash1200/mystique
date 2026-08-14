@@ -35,6 +35,8 @@ export interface ExplorerConfig {
 	groupLabel: string
 	objectLabel: string
 	objectLabelSingular: string
+	/** Heading above the explorer list (e.g. Tables / Collections). */
+	listTitle: string
 	filterPlaceholder: string
 }
 
@@ -125,6 +127,7 @@ export function defaultCapabilitiesForEngine(
 				groupLabel: '',
 				objectLabel: 'collections',
 				objectLabelSingular: 'collection',
+				listTitle: 'Collections',
 				filterPlaceholder: 'Filter collections…',
 			},
 			tableAdmin: {
@@ -172,6 +175,7 @@ export function defaultCapabilitiesForEngine(
 				groupLabel: '',
 				objectLabel: 'tables',
 				objectLabelSingular: 'table',
+				listTitle: 'Tables',
 				filterPlaceholder: 'Filter tables…',
 			},
 			tableAdmin: { ...SQL_ADMIN },
@@ -212,6 +216,7 @@ export function defaultCapabilitiesForEngine(
 				groupLabel: '',
 				objectLabel: 'tables',
 				objectLabelSingular: 'table',
+				listTitle: 'Tables',
 				filterPlaceholder: 'Filter tables…',
 			},
 			tableAdmin: { ...SQL_ADMIN },
@@ -247,6 +252,7 @@ export function defaultCapabilitiesForEngine(
 			groupLabel: 'Schema',
 			objectLabel: 'tables',
 			objectLabelSingular: 'table',
+			listTitle: 'Tables',
 			filterPlaceholder: 'Filter schemas & tables…',
 		},
 		tableAdmin: { ...SQL_ADMIN },
@@ -382,6 +388,7 @@ function normalizeExplorer(
 			e.objectLabelSingular ?? e.object_label_singular,
 			fallback.objectLabelSingular,
 		),
+		listTitle: asString(e.listTitle ?? e.list_title, fallback.listTitle),
 		filterPlaceholder: asString(
 			e.filterPlaceholder ?? e.filter_placeholder,
 			fallback.filterPlaceholder,
@@ -396,6 +403,7 @@ export function presentationFromCaps(caps: EngineCapabilities): {
 	groupLabel: string
 	objectLabel: string
 	objectLabelSingular: string
+	listTitle: string
 	filterPlaceholder: string
 	canCreateDatabase: boolean
 	canCreateGroup: boolean
@@ -407,6 +415,11 @@ export function presentationFromCaps(caps: EngineCapabilities): {
 		(ex.objectLabelSingular || '').trim() ||
 		(caps.objectLabels?.container || '').trim().toLowerCase() ||
 		'table'
+	const listTitle =
+		(ex.listTitle || '').trim() ||
+		(caps.objectLabels?.container
+			? `${caps.objectLabels.container}${caps.objectLabels.container.endsWith('s') ? '' : 's'}`
+			: singular.charAt(0).toUpperCase() + singular.slice(1) + 's')
 	return {
 		layout,
 		multiDatabase: !!ex.multiDatabase,
@@ -414,6 +427,7 @@ export function presentationFromCaps(caps: EngineCapabilities): {
 		groupLabel: ex.groupLabel || '',
 		objectLabel: ex.objectLabel || `${singular}s`,
 		objectLabelSingular: singular,
+		listTitle,
 		filterPlaceholder: ex.filterPlaceholder || `Filter ${ex.objectLabel || singular}…`,
 		canCreateDatabase: asBool(ex.canCreateDatabase, false),
 		canCreateGroup: asBool(ex.canCreateGroup, false),

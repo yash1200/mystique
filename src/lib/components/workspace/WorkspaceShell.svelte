@@ -6,6 +6,7 @@
 		loadLiveCatalog,
 		loadTablePreview,
 		mergeCatalogKeepCached,
+		mergeCatalogReplaceDatabase,
 		preferDatabase,
 	} from '$lib/api/catalog'
 	import {
@@ -197,6 +198,7 @@
 		engineSessionId: string,
 		preferredDatabase: string | null,
 		force = false,
+		includeObjects = true,
 	) {
 		const existing = catalogs[connectionId]
 		const mockStuck = isMockCatalog(engine, existing)
@@ -217,6 +219,7 @@
 		try {
 			const live = await loadLiveCatalog(sessionId, engine, {
 				preferredDatabase,
+				includeObjects,
 			})
 			catalogs = {
 				...catalogs,
@@ -248,6 +251,7 @@
 					)
 					const live = await loadLiveCatalog(sessionId, engine, {
 						preferredDatabase,
+						includeObjects,
 					})
 					catalogs = {
 						...catalogs,
@@ -965,7 +969,7 @@
 			} else if (action === 'truncate' && tableOpen) {
 				void openTable(table)
 			}
-			await refreshDatabases()
+			await refreshCurrentTables()
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
 		}
@@ -1218,7 +1222,7 @@
 			refreshing = true
 			await new Promise((r) => setTimeout(r, 200))
 			const base = structuredClone(mockCatalogForEngine(engine))
-			catalogs = { ...catalogs, [activeId]: base }
+			catalogs = { ...catalogs, [activeId]: mergeCatalogKeepCached(catalogs[activeId], base) }
 			if (!base.some((d) => d.name === selectedDb[activeId])) {
 				selectedDb = { ...selectedDb, [activeId]: base[0]?.name ?? '' }
 			}
@@ -1226,19 +1230,53 @@
 			return
 		}
 
-		// Always re-open the pool session so *old* connections pick up URI/DB fixes.
-		liveCatalogKey = { ...liveCatalogKey, [activeId]: '' }
 		refreshing = true
 		catalogError = null
 		try {
-			const sid = await reopenEngineSession(
-				activeSession.profile,
-				sessionDatabase(activeId, activeSession.profile),
-			)
-			await ensureLiveCatalog(activeId, engine, sid, preferred, true)
+			const sid = await withLiveSession(activeId, async (sessionId) => sessionId)
+			await ensureLiveCatalog(activeId, engine, sid, preferred, true, false)
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
 			refreshing = false
+		}
+	}
+
+	let refreshingTables = $state(false)
+
+	async function refreshCurrentTables() {
+		if (!activeSession || !activeId) return
+		const engine = String(activeSession.profile.engine)
+		const db = currentDatabaseName || sessionDatabase(activeId, activeSession.profile)
+
+		if (!isTauri()) {
+			refreshingTables = true
+			await new Promise((r) => setTimeout(r, 200))
+			const base = structuredClone(mockCatalogForEngine(engine))
+			catalogs = { ...catalogs, [activeId]: mergeCatalogKeepCached(catalogs[activeId], base) }
+			refreshingTables = false
+			return
+		}
+
+		refreshingTables = true
+		catalogError = null
+		try {
+			const sid = await withLiveSession(activeId, async (sessionId) => sessionId)
+			const live = await loadLiveCatalog(sid, engine, {
+				preferredDatabase: db,
+				includeObjects: true,
+			})
+			catalogs = {
+				...catalogs,
+				[activeId]: mergeCatalogReplaceDatabase(
+					catalogs[activeId],
+					live,
+					db || '',
+				),
+			}
+		} catch (e) {
+			catalogError = e instanceof Error ? e.message : String(e)
+		} finally {
+			refreshingTables = false
 		}
 	}
 
@@ -1275,7 +1313,7 @@
 					profileReadOnly: !!activeSession.profile.readOnly,
 				}),
 			)
-			await refreshDatabases()
+			await refreshCurrentTables()
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
 		} finally {
@@ -1330,7 +1368,7 @@
 					profileReadOnly: !!activeSession.profile.readOnly,
 				}),
 			)
-			await refreshDatabases()
+			await refreshCurrentTables()
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
 		} finally {
@@ -1399,7 +1437,17 @@
 
 	async function refreshConnection(id: string) {
 		onSelectConnection(id)
-		await refreshDatabases()
+		if (!activeSession) return
+		const engine = String(activeSession.profile.engine)
+		const preferred = sessionDatabase(id, activeSession.profile)
+		if (!isTauri()) {
+			await refreshDatabases()
+			await refreshCurrentTables()
+			return
+		}
+		liveCatalogKey = { ...liveCatalogKey, [id]: '' }
+		const sid = await reopenEngineSession(activeSession.profile, preferred)
+		await ensureLiveCatalog(id, engine, sid, preferred, true, true)
 	}
 
 	function openNewQueryOn(id: string) {
@@ -1705,6 +1753,8 @@
 		onselecthistory={onSelectHistory}
 		onselectdatabase={selectDatabase}
 		onrefresh={refreshDatabases}
+		onrefreshtables={() => void refreshCurrentTables()}
+		{refreshingTables}
 		oncreatedatabase={createDatabase}
 		oncreategroup={(name) => void createCatalogGroup(name)}
 		oncreateobject={(name, group) => void createCatalogObject(name, group)}

@@ -29,6 +29,8 @@
 		onselecthistory: (id: string) => void
 		onselectdatabase: (name: string) => void
 		onrefresh: () => void
+		onrefreshtables?: () => void
+		refreshingTables?: boolean
 		oncreatedatabase: (name: string) => void
 		oncreategroup?: (name: string) => void
 		oncreateobject?: (name: string, group?: string) => void
@@ -71,6 +73,8 @@
 		onselecthistory,
 		onselectdatabase,
 		onrefresh,
+		onrefreshtables,
+		refreshingTables = false,
 		oncreatedatabase,
 		oncreategroup,
 		oncreateobject,
@@ -164,6 +168,8 @@
 				{modelLoading}
 				{onselectdatabase}
 				{onrefresh}
+				{onrefreshtables}
+				{refreshingTables}
 				{oncreatedatabase}
 				{oncreategroup}
 				{oncreateobject}

@@ -334,7 +334,7 @@ impl ConnectionManager {
             Arc::clone(&live.session)
         };
         session
-            .list_catalog(req.preferred_database.as_deref())
+            .list_catalog(req.preferred_database.as_deref(), req.include_objects)
             .await
     }
 

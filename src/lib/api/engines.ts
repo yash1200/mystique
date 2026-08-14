@@ -299,6 +299,8 @@ export interface CatalogDatabase {
 export interface ListCatalogRequest {
   sessionId: string;
   preferredDatabase?: string | null;
+  /** false = database names only (no tables/collections). */
+  includeObjects?: boolean;
 }
 
 export async function listEngineCatalog(

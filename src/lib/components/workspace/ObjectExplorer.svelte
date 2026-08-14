@@ -48,6 +48,8 @@
 		createError?: string | null
 		onselectdatabase: (name: string) => void
 		onrefresh: () => void
+		onrefreshtables?: () => void
+		refreshingTables?: boolean
 		oncreatedatabase: (name: string) => void
 		/** Create group/namespace (e.g. Postgres schema). */
 		oncreategroup?: (name: string) => void
@@ -68,6 +70,7 @@
 		selectedDatabase,
 		activeTableId,
 		refreshing = false,
+		refreshingTables = false,
 		modelLoading = false,
 		readOnly = false,
 		capabilities = null,
@@ -75,6 +78,7 @@
 		createError = null,
 		onselectdatabase,
 		onrefresh,
+		onrefreshtables,
 		oncreatedatabase,
 		oncreategroup,
 		oncreateobject,
@@ -92,8 +96,6 @@
 	let createName = $state('')
 	let createGroupValue = $state('')
 	let createLocalError = $state<string | null>(null)
-	let createMenuOpen = $state(false)
-	let createMenuRoot = $state<HTMLDivElement | null>(null)
 
 	const caps = $derived(capabilities ?? defaultCapabilitiesForEngine(engine))
 	const presentation = $derived(presentationFromCaps(caps))
@@ -218,72 +220,35 @@
 	function isExpanded(key: string): boolean {
 		// While filtering, open groups so matches are visible.
 		if (query.trim()) return true
-		// Keep the active table's schema open.
-		if (activeTableId) {
-			const hit = filtered.some(
-				(t) => t.id === activeTableId && (t.schema || 'public') === key,
-			)
-			if (hit) return true
-		}
 		return expanded.has(key)
 	}
 
-	/** Show + when any create action is allowed by plugin caps (not FE engine checks). */
-	const canCreateAnything = $derived(
-		presentation.canCreateDatabase ||
-			presentation.canCreateGroup ||
-			presentation.canCreateObject,
+	const allGroupsExpanded = $derived(
+		isTree &&
+			groups.length > 0 &&
+			groups.every((g) => expanded.has(g.key)),
 	)
 
-	type CreateMenuEntry = {
-		id: CreateKind
-		label: string
-		disabled?: boolean
-		separatorBefore?: boolean
+	function toggleAllGroups() {
+		if (allGroupsExpanded) expanded = new Set()
+		else expanded = new Set(groups.map((g) => g.key))
 	}
 
-	const createMenuItems = $derived.by((): CreateMenuEntry[] => {
-		const items: CreateMenuEntry[] = []
-		if (presentation.canCreateDatabase) {
-			items.push({
-				id: 'database',
-				label: `Create ${presentation.databaseLabel.toLowerCase()}`,
-				disabled: createBusy,
-			})
+	// Reveal the schema when a table tab becomes active; user can still collapse it.
+	let lastRevealedTableId = $state<string | null>(null)
+	$effect(() => {
+		const id = activeTableId
+		if (!id || id === lastRevealedTableId) return
+		const t = tables.find((x) => x.id === id)
+		lastRevealedTableId = id
+		if (!t) return
+		const key = t.schema || 'public'
+		if (!expanded.has(key)) {
+			const next = new Set(expanded)
+			next.add(key)
+			expanded = next
 		}
-		if (presentation.canCreateGroup) {
-			items.push({
-				id: 'group',
-				label: `Create ${groupNoun.toLowerCase()}`,
-				separatorBefore: items.length > 0,
-				// Mutating ops: disable when profile is read-only or no DB context.
-				disabled: createBusy || readOnly || !selectedDatabase,
-			})
-		}
-		if (presentation.canCreateObject) {
-			items.push({
-				id: 'object',
-				label: `Create ${noun}`,
-				separatorBefore: items.length > 0 && !presentation.canCreateGroup,
-				// Need a database context (picker value or loaded catalog entry).
-				disabled:
-					createBusy ||
-					readOnly ||
-					!(selectedDatabase.trim() || currentDb?.name),
-			})
-		}
-		return items
 	})
-
-	function toggleCreateMenu() {
-		if (!canCreateAnything || createBusy) return
-		createMenuOpen = !createMenuOpen
-	}
-
-	function onCreateMenuPick(id: CreateKind) {
-		createMenuOpen = false
-		openCreate(id)
-	}
 
 	function openCreate(kind: CreateKind, preferredGroup?: string) {
 		if (kind === 'database' && !presentation.canCreateDatabase) return
@@ -293,7 +258,6 @@
 			createLocalError = 'This connection is read-only.'
 			return
 		}
-		createMenuOpen = false
 		createKind = kind
 		createName = ''
 		createLocalError = null
@@ -308,29 +272,6 @@
 			createGroupValue = ''
 		}
 	}
-
-	// Close create dropdown on outside click / Escape.
-	$effect(() => {
-		if (!createMenuOpen) return
-		const onDoc = (e: PointerEvent) => {
-			if (e.target instanceof Node && createMenuRoot?.contains(e.target)) {
-				return
-			}
-			createMenuOpen = false
-		}
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') createMenuOpen = false
-		}
-		const tid = window.setTimeout(() => {
-			document.addEventListener('pointerdown', onDoc, true)
-		}, 0)
-		window.addEventListener('keydown', onKey)
-		return () => {
-			clearTimeout(tid)
-			document.removeEventListener('pointerdown', onDoc, true)
-			window.removeEventListener('keydown', onKey)
-		}
-	})
 
 	function cancelCreate() {
 		if (createBusy) return
@@ -661,66 +602,28 @@
 					/>
 				</svg>
 			</IconButton>
-			{#if canCreateAnything}
-				<div class="relative" bind:this={createMenuRoot}>
-					<IconButton
-						label="Create"
-						size="sm"
-						variant="ghost"
-						disabled={createBusy}
-						aria-haspopup="menu"
-						aria-expanded={createMenuOpen}
-						onclick={(e) => {
-							e.stopPropagation()
-							toggleCreateMenu()
-						}}
+			{#if presentation.canCreateDatabase}
+				<IconButton
+					label="Create {presentation.databaseLabel.toLowerCase()}"
+					size="sm"
+					variant="ghost"
+					disabled={createBusy}
+					onclick={() => openCreate('database')}
+				>
+					<svg
+						class="size-3.5"
+						viewBox="0 0 16 16"
+						fill="none"
+						aria-hidden="true"
 					>
-						<svg
-							class="size-3.5"
-							viewBox="0 0 16 16"
-							fill="none"
-							aria-hidden="true"
-						>
-							<path
-								d="M8 3.25v9.5M3.25 8h9.5"
-								stroke="currentColor"
-								stroke-width="1.4"
-								stroke-linecap="round"
-							/>
-						</svg>
-					</IconButton>
-					{#if createMenuOpen}
-						<div
-							class="absolute top-full right-0 z-50 mt-1 min-w-44 rounded-md border border-line bg-elevated py-1 shadow-md"
-							role="menu"
-							tabindex="-1"
-							aria-label="Create"
-							onpointerdown={(e) => e.stopPropagation()}
-						>
-							{#each createMenuItems as item (item.id)}
-								{#if item.separatorBefore}
-									<div class="my-1 border-t border-line" role="separator"></div>
-								{/if}
-								<button
-									type="button"
-									role="menuitem"
-									disabled={item.disabled}
-									class={cn(
-										'flex w-full cursor-pointer items-center border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover',
-										item.disabled &&
-											'cursor-not-allowed opacity-45 hover:bg-transparent',
-									)}
-									onclick={() => {
-										if (item.disabled) return
-										onCreateMenuPick(item.id)
-									}}
-								>
-									{item.label}
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
+						<path
+							d="M8 3.25v9.5M3.25 8h9.5"
+							stroke="currentColor"
+							stroke-width="1.4"
+							stroke-linecap="round"
+						/>
+					</svg>
+				</IconButton>
 			{/if}
 		</div>
 
@@ -730,6 +633,111 @@
 			bind:value={query}
 			inputSize="sm"
 		/>
+	</div>
+
+	<div
+		class="flex h-control-sm shrink-0 items-center gap-1 border-b border-line px-2"
+	>
+		<h2
+			class="m-0 min-w-0 flex-1 truncate text-caption font-semibold tracking-wide text-fg-muted uppercase"
+		>
+			{presentation.listTitle}
+		</h2>
+		{#if isTree && groups.length > 0}
+			<IconButton
+				label={allGroupsExpanded
+					? `Collapse all ${(presentation.groupLabel || 'schema').toLowerCase()}s`
+					: `Expand all ${(presentation.groupLabel || 'schema').toLowerCase()}s`}
+				size="sm"
+				variant="ghost"
+				onclick={toggleAllGroups}
+			>
+				<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+					{#if allGroupsExpanded}
+						<path
+							d="M4.25 2.75 8 6 11.75 2.75"
+							stroke="currentColor"
+							stroke-width="1.4"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+						<path
+							d="M4.25 13.25 8 10 11.75 13.25"
+							stroke="currentColor"
+							stroke-width="1.4"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					{:else}
+						<path
+							d="M4.25 5.5 8 2.25 11.75 5.5"
+							stroke="currentColor"
+							stroke-width="1.4"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+						<path
+							d="M4.25 10.5 8 13.75 11.75 10.5"
+							stroke="currentColor"
+							stroke-width="1.4"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					{/if}
+				</svg>
+			</IconButton>
+		{/if}
+		<IconButton
+			label="Refresh {presentation.listTitle.toLowerCase()}"
+			size="sm"
+			variant="ghost"
+			disabled={refreshingTables || !currentDb}
+			onclick={() => onrefreshtables?.()}
+		>
+			<svg
+				class={cn('size-3.5', refreshingTables && 'animate-spin')}
+				viewBox="0 0 16 16"
+				fill="none"
+				aria-hidden="true"
+			>
+				<path
+					d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
+					stroke="currentColor"
+					stroke-width="1.4"
+					stroke-linecap="round"
+				/>
+				<path
+					d="M13.5 2.5v3.2h-3.2"
+					stroke="currentColor"
+					stroke-width="1.4"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				/>
+			</svg>
+		</IconButton>
+		{#if presentation.canCreateObject}
+			<IconButton
+				label="Create {noun}"
+				size="sm"
+				variant="ghost"
+				disabled={createBusy || !currentDb || readOnly}
+				onclick={() => openCreate('object')}
+			>
+				<svg
+					class="size-3.5"
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+				>
+					<path
+						d="M8 3.25v9.5M3.25 8h9.5"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+					/>
+				</svg>
+			</IconButton>
+		{/if}
 	</div>
 
 	<ObjectTree

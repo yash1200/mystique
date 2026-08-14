@@ -605,6 +605,7 @@ impl ConnectorSession for MongoSession {
     async fn list_catalog(
         &self,
         preferred_database: Option<&str>,
+        include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
@@ -639,7 +640,7 @@ impl ConnectorSession for MongoSession {
         for db_name in names {
             let is_system = SYSTEM.contains(&db_name.as_str());
             let mut objects = Vec::new();
-            if !is_system {
+            if include_objects && !is_system {
                 if let Ok(mut colls) = self.client.database(&db_name).list_collection_names().await {
                     colls.sort();
                     for name in colls {

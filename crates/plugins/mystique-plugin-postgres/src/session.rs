@@ -791,6 +791,7 @@ impl ConnectorSession for PostgresSession {
     async fn list_catalog(
         &self,
         preferred_database: Option<&str>,
+        include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
@@ -832,35 +833,37 @@ impl ConnectorSession for PostgresSession {
             }
         }
 
-        let table_rows = client
-            .query(
-                r#"
-                SELECT table_schema, table_name, table_type
-                FROM information_schema.tables
-                WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY table_schema, table_name
-                "#,
-                &[],
-            )
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
         let mut current_objects = Vec::new();
-        for row in table_rows {
-            let schema: String = row.get(0);
-            let name: String = row.get(1);
-            let raw_type: String = row.get(2);
-            let kind = if raw_type.to_ascii_lowercase().contains("view") {
-                "view"
-            } else {
-                "table"
-            };
-            current_objects.push(CatalogObject {
-                name,
-                schema: Some(schema),
-                database: Some(current.clone()),
-                kind: kind.into(),
-                row_count: 0,
-            });
+        if include_objects {
+            let table_rows = client
+                .query(
+                    r#"
+                    SELECT table_schema, table_name, table_type
+                    FROM information_schema.tables
+                    WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+                    ORDER BY table_schema, table_name
+                    "#,
+                    &[],
+                )
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            for row in table_rows {
+                let schema: String = row.get(0);
+                let name: String = row.get(1);
+                let raw_type: String = row.get(2);
+                let kind = if raw_type.to_ascii_lowercase().contains("view") {
+                    "view"
+                } else {
+                    "table"
+                };
+                current_objects.push(CatalogObject {
+                    name,
+                    schema: Some(schema),
+                    database: Some(current.clone()),
+                    kind: kind.into(),
+                    row_count: 0,
+                });
+            }
         }
 
         let pref = preferred_database.map(str::trim).unwrap_or("");

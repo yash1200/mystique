@@ -610,6 +610,7 @@ impl ConnectorSession for MysqlSession {
     async fn list_catalog(
         &self,
         preferred_database: Option<&str>,
+        include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
@@ -619,16 +620,6 @@ impl ConnectorSession for MysqlSession {
             .get_conn()
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        let sql =
-            "SELECT table_schema, table_name, table_type, COALESCE(table_rows, 0) AS table_rows \
-             FROM information_schema.tables \
-             WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
-             ORDER BY table_schema, table_name";
-        let rows: Vec<(String, String, String, i64)> = conn
-            .query(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
         let mut by_db: std::collections::BTreeMap<String, Vec<CatalogObject>> =
             std::collections::BTreeMap::new();
         // Include empty databases (no tables yet) so the picker can switch to them.
@@ -644,6 +635,18 @@ impl ConnectorSession for MysqlSession {
                 by_db.entry(name).or_default();
             }
         }
+        let rows: Vec<(String, String, String, i64)> = if include_objects {
+            let sql =
+                "SELECT table_schema, table_name, table_type, COALESCE(table_rows, 0) AS table_rows \
+                 FROM information_schema.tables \
+                 WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+                 ORDER BY table_schema, table_name";
+            conn.query(sql)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?
+        } else {
+            Vec::new()
+        };
         for (schema, name, raw_type, approx) in rows {
             let kind = if raw_type.to_ascii_lowercase().contains("view") {
                 "view"
