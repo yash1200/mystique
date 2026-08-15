@@ -48,7 +48,8 @@
 				| 'truncate'
 				| 'duplicate'
 				| 'create'
-				| 'export',
+				| 'export'
+				| 'import',
 			table: TableMeta,
 			extra?: string,
 		) => void

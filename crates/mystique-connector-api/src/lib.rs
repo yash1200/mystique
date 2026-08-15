@@ -26,6 +26,7 @@ mod query;
 mod sql_table_edits;
 mod table_admin;
 mod table_export;
+mod table_import;
 mod table_filters;
 mod types;
 
@@ -41,13 +42,20 @@ pub use policy::*;
 pub use pool::*;
 pub use query::*;
 pub use sql_table_edits::{
-    compile_delete, compile_insert, compile_update, qualify_table, quote_ident, sql_literal,
-    SqlIdentStyle,
+    compile_delete, compile_insert, compile_update, compile_upsert, qualify_table, quote_ident,
+    sql_literal, SqlIdentStyle,
 };
 pub use table_admin::*;
 pub use table_export::{
     export_object_with_preview, ExportFormat, ExportObjectInput, ExportObjectRequest,
     ExportObjectResult, EXPORT_CHUNK_SIZE,
+};
+pub use table_import::{
+    import_chunk_sql, import_object_from_file, preview_import_with_describe, ImportChunkInput,
+    ImportChunkResult, ImportColumnMap, ImportEncoding, ImportFormat, ImportObjectInput,
+    ImportObjectRequest, ImportObjectResult, ImportOnDuplicate, ImportTableColumn,
+    PreviewImportInput, PreviewImportRequest, PreviewImportResult, IMPORT_CHUNK_SIZE,
+    IMPORT_PREVIEW_ROWS,
 };
 pub use table_filters::{
     mongo_filter_json, parse_code_filter_rules, preview_sort_field, preview_sort_sql,

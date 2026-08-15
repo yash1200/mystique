@@ -14,6 +14,10 @@ use crate::query::{QueryResult, ValidatedQuery};
 use crate::object_structure::ObjectStructure;
 use crate::table_admin::{TableAdminInput, TableAdminResult};
 use crate::table_export::{ExportObjectInput, ExportObjectResult};
+use crate::table_import::{
+    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, PreviewImportInput,
+    PreviewImportResult,
+};
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;
 
@@ -167,6 +171,39 @@ pub trait ConnectorSession: Send + Sync {
     ) -> ConnectorResult<ExportObjectResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "export is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Parse the first 100 file rows and suggest a column map.
+    async fn preview_import(
+        &self,
+        _input: &PreviewImportInput,
+    ) -> ConnectorResult<PreviewImportResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "import is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Import the whole file in [`crate::IMPORT_CHUNK_SIZE`] write batches.
+    async fn import_object(
+        &self,
+        _input: &ImportObjectInput,
+    ) -> ConnectorResult<ImportObjectResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "import is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Write one remapped import chunk. Plugins own insert / upsert SQL or Mongo ops.
+    async fn import_chunk(
+        &self,
+        _input: &ImportChunkInput,
+    ) -> ConnectorResult<ImportChunkResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "import is not implemented for engine `{}`",
             self.engine_id()
         )))
     }

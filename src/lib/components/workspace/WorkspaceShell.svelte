@@ -12,6 +12,11 @@
 	import {
 		applyEngineTableAdmin,
 		exportEngineObject,
+		importEngineObject,
+		previewEngineImport,
+		type ImportEncoding,
+		type ImportFormat,
+		type PreviewImportResult,
 		closeEngineSession,
 		describeEngineObjectStructure,
 		ensureEngineSession,
@@ -63,6 +68,12 @@
 	import ExportDataModal, {
 		type ExportDataSpec,
 	} from './ExportDataModal.svelte'
+	import ImportDataModal, {
+		type ImportFileSpec,
+	} from './ImportDataModal.svelte'
+	import ImportPreviewModal, {
+		type ImportRunSpec,
+	} from './ImportPreviewModal.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
@@ -100,6 +111,12 @@
 	let exportTable = $state<TableMeta | null>(null)
 	let exportBusy = $state(false)
 	let exportError = $state<string | null>(null)
+	let importTable = $state<TableMeta | null>(null)
+	let importBusy = $state(false)
+	let importError = $state<string | null>(null)
+	let importPath = $state('')
+	let importFormat = $state<ImportFormat>('csv')
+	let importPreview = $state<PreviewImportResult | null>(null)
 	let rowSyncTick = $state(0)
 	let baselineEpoch = $state(0)
 	/** connectionId → last engineSessionId we loaded a live catalog for */
@@ -929,6 +946,13 @@
 			exportError = null
 			return
 		}
+		if (action === 'import') {
+			importTable = table
+			importError = null
+			importPreview = null
+			importPath = ''
+			return
+		}
 		if (!isTauri()) {
 			catalogError = 'Live catalog actions require the desktop app.'
 			return
@@ -991,6 +1015,89 @@
 			await refreshCurrentTables()
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
+		}
+	}
+
+	function closeImport() {
+		if (importBusy) return
+		importTable = null
+		importPreview = null
+		importError = null
+		importPath = ''
+	}
+
+	async function loadImportPreview(
+		table: TableMeta,
+		path: string,
+		format: ImportFormat,
+		encoding: ImportEncoding,
+	) {
+		if (!activeId) return
+		importBusy = true
+		importError = null
+		try {
+			importPreview = await withLiveSession(activeId, (sid) =>
+				previewEngineImport({
+					sessionId: sid,
+					name: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName,
+					kind: table.kind,
+					path,
+					format,
+					encoding,
+				}),
+			)
+			importPath = path
+			importFormat = format
+		} catch (e) {
+			importError = e instanceof Error ? e.message : String(e)
+		} finally {
+			importBusy = false
+		}
+	}
+
+	async function confirmImportFile(spec: ImportFileSpec) {
+		if (!importTable) return
+		if (!isTauri()) {
+			importError = 'Import requires the desktop app.'
+			return
+		}
+		await loadImportPreview(importTable, spec.path, spec.format, 'utf8')
+	}
+
+	async function confirmImportRun(spec: ImportRunSpec) {
+		if (!importTable || !activeId || !importPath) return
+		const table = importTable
+		importBusy = true
+		importError = null
+		try {
+			await withLiveSession(activeId, (sid) =>
+				importEngineObject({
+					sessionId: sid,
+					name: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName,
+					kind: table.kind,
+					path: importPath,
+					format: importFormat,
+					encoding: spec.encoding,
+					mapping: spec.mapping,
+					onDuplicate: spec.onDuplicate,
+					profileReadOnly: !!activeSession?.profile.readOnly,
+				}),
+			)
+			importTable = null
+			importPreview = null
+			importPath = ''
+			const tabId = `${activeId}::table::${table.id}`
+			if (workspaceSession.openTabs.some((t) => t.id === tabId)) {
+				void openTable(table)
+			}
+		} catch (e) {
+			importError = e instanceof Error ? e.message : String(e)
+		} finally {
+			importBusy = false
 		}
 	}
 
@@ -1895,6 +2002,42 @@
 		seedCodeFilter={tableSeedCodeFilter}
 		seedSort={tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
+	/>
+
+	<ImportDataModal
+		open={!!importTable && !importPreview}
+		objectLabel={importTable?.kind === 'collection' ? 'collection' : 'table'}
+		formats={
+			activeSession
+				? resolveCapabilities(
+						String(activeSession.profile.engine),
+						activeSession.capabilities,
+					).exportFormats
+				: ['csv', 'json', 'jsonl']
+		}
+		busy={importBusy}
+		error={importError}
+		onconfirm={(spec) => void confirmImportFile(spec)}
+		oncancel={closeImport}
+	/>
+
+	<ImportPreviewModal
+		open={!!importTable && !!importPreview}
+		objectName={importTable?.name ?? ''}
+		preview={importPreview}
+		busy={importBusy}
+		error={importError}
+		onencoding={(enc) => {
+			if (!importTable || !importPath) return
+			void loadImportPreview(importTable, importPath, importFormat, enc)
+		}}
+		onconfirm={(spec) => void confirmImportRun(spec)}
+		onback={() => {
+			if (importBusy) return
+			importPreview = null
+			importError = null
+		}}
+		oncancel={closeImport}
 	/>
 
 	<ExportDataModal

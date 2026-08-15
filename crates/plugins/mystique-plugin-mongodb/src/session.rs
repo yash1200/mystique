@@ -5,12 +5,15 @@ use async_trait::async_trait;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
-    cell_bool, export_object_with_preview, preview_sort_field, ApplyTableEditsInput,
+    cell_bool, export_object_with_preview, import_object_from_file, preview_import_with_describe,
+    preview_sort_field, ApplyTableEditsInput,
     ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, ColumnInfo,
     ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
-    ExportObjectResult, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
-    QueryMode, QueryResult, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TablePreviewResult, ValidatedQuery,
+    ExportObjectResult, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, ImportOnDuplicate, ObjectStructure, PoolStatus,
+    PreviewImportInput, PreviewImportResult, QueryColumn, QueryMode, QueryResult,
+    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TablePreviewResult,
+    ValidatedQuery,
 };
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -739,6 +742,100 @@ impl ConnectorSession for MongoSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
         export_object_with_preview(self, input, None).await
+    }
+
+    async fn preview_import(
+        &self,
+        input: &PreviewImportInput,
+    ) -> ConnectorResult<PreviewImportResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        preview_import_with_describe(self, input).await
+    }
+
+    async fn import_object(
+        &self,
+        input: &ImportObjectInput,
+    ) -> ConnectorResult<ImportObjectResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        import_object_from_file(self, input).await
+    }
+
+    async fn import_chunk(
+        &self,
+        input: &ImportChunkInput,
+    ) -> ConnectorResult<ImportChunkResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let db_name = input
+            .database
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| self.default_db.clone())
+            .ok_or_else(|| {
+                ConnectorError::InvalidConfig("Mongo import requires a database.".into())
+            })?;
+        let coll = self
+            .client
+            .database(&db_name)
+            .collection::<Document>(&input.name);
+        let mut inserted = 0u64;
+        let mut updated = 0u64;
+        for row in &input.rows {
+            let mut doc_map = serde_json::Map::new();
+            for (k, v) in row {
+                if matches!(v, JsonValue::Null) || v.as_str() == Some("") {
+                    continue;
+                }
+                if k == "_id" {
+                    doc_map.insert(k.clone(), mongo_id_json(v));
+                } else {
+                    doc_map.insert(k.clone(), coerce_mongo_json(v));
+                }
+            }
+            if doc_map.is_empty() {
+                continue;
+            }
+            match input.on_duplicate {
+                ImportOnDuplicate::StopOnError => {
+                    let doc = json_to_document(&JsonValue::Object(doc_map))?;
+                    coll.insert_one(doc)
+                        .await
+                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    inserted += 1;
+                }
+                ImportOnDuplicate::UpdateOnDuplicate => {
+                    let id = row
+                        .get("_id")
+                        .or_else(|| row.get("id"))
+                        .cloned()
+                        .unwrap_or(JsonValue::Null);
+                    if matches!(id, JsonValue::Null) || id.as_str() == Some("") {
+                        let doc = json_to_document(&JsonValue::Object(doc_map))?;
+                        coll.insert_one(doc)
+                            .await
+                            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        inserted += 1;
+                    } else {
+                        let filter =
+                            json_to_document(&json!({ "_id": mongo_id_json(&id) }))?;
+                        let replacement = json_to_document(&JsonValue::Object(doc_map))?;
+                        coll.replace_one(filter, replacement)
+                            .upsert(true)
+                            .await
+                            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        updated += 1;
+                    }
+                }
+            }
+        }
+        Ok(ImportChunkResult { inserted, updated })
     }
 
     async fn describe_object_structure(

@@ -24,6 +24,7 @@
 		| 'erd'
 		| 'structure'
 		| 'export'
+		| 'import'
 		| 'rename'
 		| 'drop'
 		| 'truncate'
@@ -417,6 +418,12 @@
 			label: 'Export data',
 			separatorBefore: true,
 		})
+		if (!isView) {
+			items.push({
+				id: 'import',
+				label: 'Import data',
+			})
+		}
 		if (admin.rename) {
 			items.push({
 				id: 'rename',
@@ -482,6 +489,10 @@
 		}
 		if (id === 'export') {
 			ontableaction('export', table)
+			return
+		}
+		if (id === 'import') {
+			ontableaction('import', table)
 			return
 		}
 		if (id === 'rename') {

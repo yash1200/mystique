@@ -6,7 +6,8 @@ use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, CatalogColumnRow,
     CatalogDatabase, CatalogRelationship, ColumnInfo, ConnectionConfig, ConnectorError,
     ConnectorResult, ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
-    ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ListCatalogColumnsRequest,
+    ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ImportObjectRequest,
+    ImportObjectResult, ListCatalogColumnsRequest, PreviewImportRequest, PreviewImportResult,
     ListCatalogRequest, ListRelationshipsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult,
     SessionInfo, TableAdminOp, TableAdminRequest, TableAdminResult, TablePreviewResult, TestResult,
     ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
@@ -445,6 +446,65 @@ impl ConnectionManager {
             )));
         }
         session.export_object(&req.into_input()).await
+    }
+
+    pub async fn preview_import(
+        &self,
+        req: PreviewImportRequest,
+    ) -> ConnectorResult<PreviewImportResult> {
+        if req.name.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        }
+        if req.path.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Import path is required.".into()));
+        }
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        let allowed = session.capabilities().export_formats;
+        let format = req.format.as_str();
+        if !allowed.iter().any(|f| f == format) {
+            return Err(ConnectorError::NotSupported(format!(
+                "this engine does not import {format} files"
+            )));
+        }
+        session.preview_import(&req.into_input()).await
+    }
+
+    pub async fn import_object(
+        &self,
+        req: ImportObjectRequest,
+    ) -> ConnectorResult<ImportObjectResult> {
+        if req.profile_read_only {
+            return Err(ConnectorError::Policy(
+                "This connection is read-only. Disable read-only to import data.".into(),
+            ));
+        }
+        if req.name.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        }
+        if req.path.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Import path is required.".into()));
+        }
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        let allowed = session.capabilities().export_formats;
+        let format = req.format.as_str();
+        if !allowed.iter().any(|f| f == format) {
+            return Err(ConnectorError::NotSupported(format!(
+                "this engine does not import {format} files"
+            )));
+        }
+        session.import_object(&req.into_input()).await
     }
 }
 

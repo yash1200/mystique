@@ -425,6 +425,82 @@ export async function exportEngineObject(
 	return invoke('export_engine_object', { request })
 }
 
+export type ImportFormat = ExportFormat
+export type ImportEncoding =
+	| 'utf8'
+	| 'utf16Le'
+	| 'utf16Be'
+	| 'windows1252'
+	| 'iso88591'
+export type ImportOnDuplicate = 'stopOnError' | 'updateOnDuplicate'
+
+export interface ImportColumnMap {
+	fileKey: string
+	tableColumn?: string | null
+}
+
+export interface ImportTableColumn {
+	name: string
+	dataType: string
+	pk: boolean
+	nullable: boolean
+}
+
+export interface PreviewImportRequest {
+	sessionId: string
+	name: string
+	schema?: string | null
+	database?: string | null
+	kind?: string | null
+	path: string
+	format: ImportFormat
+	encoding?: ImportEncoding
+}
+
+export interface PreviewImportResult {
+	fileKeys: string[]
+	columns: ImportTableColumn[]
+	suggestedMap: ImportColumnMap[]
+	rows: unknown[][]
+	format: ImportFormat
+	encoding: ImportEncoding
+}
+
+export interface ImportObjectRequest {
+	sessionId: string
+	name: string
+	schema?: string | null
+	database?: string | null
+	kind?: string | null
+	path: string
+	format: ImportFormat
+	encoding?: ImportEncoding
+	mapping: ImportColumnMap[]
+	onDuplicate: ImportOnDuplicate
+	profileReadOnly?: boolean
+}
+
+export interface ImportObjectResult {
+	inserted: number
+	updated: number
+	format: ImportFormat
+	message?: string | null
+}
+
+export async function previewEngineImport(
+	request: PreviewImportRequest,
+): Promise<PreviewImportResult> {
+	requireTauri()
+	return invoke('preview_engine_import', { request })
+}
+
+export async function importEngineObject(
+	request: ImportObjectRequest,
+): Promise<ImportObjectResult> {
+	requireTauri()
+	return invoke('import_engine_object', { request })
+}
+
 /** One structure section (columns / indexes / …) — plugin-owned. */
 export interface StructureSection {
 	id: string

@@ -375,6 +375,69 @@ export async function defaultDownloadsDir(): Promise<string | null> {
   }
 }
 
+function normalizePickedPath(selected: unknown): string | null {
+  if (typeof selected === "string" && selected.trim()) {
+    return selected.trim().replace(/^file:\/\//, "");
+  }
+  if (Array.isArray(selected)) return normalizePickedPath(selected[0]);
+  if (selected && typeof selected === "object") {
+    const rec = selected as { path?: unknown };
+    if (typeof rec.path === "string") return normalizePickedPath(rec.path);
+  }
+  return null;
+}
+
+export async function pickDataFile(
+  formats: string[],
+  defaultPath?: string | null,
+): Promise<string | null> {
+  if (!isTauri()) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const allowed = (formats ?? []).filter((id) => typeof id === "string");
+  const filters = allowed
+    .map((id) => {
+      const ext = id === "jsonl" ? ["jsonl", "ndjson"] : [id];
+      const name =
+        id === "csv"
+          ? "CSV"
+          : id === "json"
+            ? "JSON"
+            : id === "jsonl"
+              ? "JSON Lines"
+              : id === "sql"
+                ? "SQL"
+                : id.toUpperCase();
+      return { name, extensions: ext };
+    })
+    .concat([{ name: "All files", extensions: ["*"] }]);
+  const selected = await open({
+    title: "Import data",
+    multiple: false,
+    directory: false,
+    filters,
+    defaultPath: defaultPath || undefined,
+  });
+  return normalizePickedPath(selected);
+}
+
+export function inferFormatFromPath(
+  path: string,
+  _allowed?: string[],
+): TableFileFormat | null {
+  const base =
+    path
+      .trim()
+      .replace(/^file:\/\//, "")
+      .split(/[/\\]/)
+      .pop()
+      ?.split("?")[0] ?? "";
+  const dot = base.lastIndexOf(".");
+  const ext = (dot >= 0 ? base.slice(dot + 1) : "").toLowerCase();
+  if (ext === "ndjson" || ext === "jsonl") return "jsonl";
+  if (ext === "json" || ext === "csv" || ext === "sql") return ext;
+  return null;
+}
+
 export async function pickDirectory(
   defaultPath?: string | null,
 ): Promise<string | null> {

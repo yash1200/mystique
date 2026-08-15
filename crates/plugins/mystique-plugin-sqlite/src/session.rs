@@ -4,13 +4,15 @@ use std::time::Instant;
 use async_trait::async_trait;
 use mystique_connector_api::{
     cell_bool, compile_delete, compile_insert, compile_update, export_object_with_preview,
-    preview_sort_sql, quote_ident, split_sql_statements, sql_preview_where, ApplyTableEditsInput,
-    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
-    ColumnInfo, ColumnReference, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchTablePreviewInput,
-    ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle, StructureSection,
-    TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind, TablePreviewResult,
-    ValidatedQuery,
+    import_chunk_sql, import_object_from_file, preview_import_with_describe, preview_sort_sql,
+    quote_ident, split_sql_statements, sql_preview_where,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
+    CatalogRelationship, ColumnInfo, ColumnReference, ConnectorError, ConnectorResult,
+    ConnectorSession, EngineCapabilities, ExportObjectInput, ExportObjectResult,
+    FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
+    ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult,
+    QueryColumn, QueryResult, SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp,
+    TableAdminResult, TableObjectKind, TablePreviewResult, ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -772,6 +774,52 @@ impl ConnectorSession for SqliteSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
         export_object_with_preview(self, input, Some(SqlIdentStyle::Postgres)).await
+    }
+
+    async fn preview_import(
+        &self,
+        input: &PreviewImportInput,
+    ) -> ConnectorResult<PreviewImportResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        preview_import_with_describe(self, input).await
+    }
+
+    async fn import_object(
+        &self,
+        input: &ImportObjectInput,
+    ) -> ConnectorResult<ImportObjectResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        import_object_from_file(self, input).await
+    }
+
+    async fn import_chunk(
+        &self,
+        input: &ImportChunkInput,
+    ) -> ConnectorResult<ImportChunkResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let (statements, counts) = import_chunk_sql(SqlIdentStyle::Postgres, input)?;
+        if statements.is_empty() {
+            return Ok(counts);
+        }
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+            for sql in statements {
+                conn.execute(&sql, [])
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            }
+            Ok(counts)
+        })
+        .await
+        .map_err(|e| ConnectorError::Internal(e.to_string()))?
     }
 
     async fn describe_object_structure(

@@ -33,6 +33,7 @@ pub use mystique_connector_api::{
     CatalogObject, CatalogRelationship, ColumnInfo, ColumnReference, ConnectionConfig,
     DescribeTableRequest, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest,
     ExportFormat, ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest,
+    ImportObjectRequest, ImportObjectResult, PreviewImportRequest, PreviewImportResult,
     ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, ObjectStructure,
     ObjectStructureRequest, PoolConfig, PoolStatus, QueryColumn, QueryMode, QueryResult,
     SessionInfo, StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult,

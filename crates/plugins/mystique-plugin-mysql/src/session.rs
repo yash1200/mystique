@@ -7,13 +7,16 @@ use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
     cell_bool, compile_delete, compile_insert, compile_update, export_object_with_preview,
-    preview_sort_sql, qualify_table, quote_ident, split_sql_statements, sql_preview_where,
-    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
-    CatalogRelationship, ColumnInfo, ColumnReference, ConnectorError, ConnectorResult,
-    ConnectorSession, EngineCapabilities, ExportObjectInput, ExportObjectResult,
-    FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TableObjectKind, TablePreviewResult, ValidatedQuery,
+    import_chunk_sql, import_object_from_file, preview_import_with_describe, preview_sort_sql,
+    qualify_table, quote_ident, split_sql_statements,
+    sql_preview_where, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
+    CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ColumnReference,
+    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
+    ExportObjectResult, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, PreviewImportInput, PreviewImportResult,
+    ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult, SqlIdentStyle,
+    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
+    TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -922,6 +925,50 @@ impl ConnectorSession for MysqlSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
         export_object_with_preview(self, input, Some(SqlIdentStyle::Mysql)).await
+    }
+
+    async fn preview_import(
+        &self,
+        input: &PreviewImportInput,
+    ) -> ConnectorResult<PreviewImportResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        preview_import_with_describe(self, input).await
+    }
+
+    async fn import_object(
+        &self,
+        input: &ImportObjectInput,
+    ) -> ConnectorResult<ImportObjectResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        import_object_from_file(self, input).await
+    }
+
+    async fn import_chunk(
+        &self,
+        input: &ImportChunkInput,
+    ) -> ConnectorResult<ImportChunkResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        let (statements, counts) = import_chunk_sql(SqlIdentStyle::Mysql, input)?;
+        if statements.is_empty() {
+            return Ok(counts);
+        }
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        for sql in statements {
+            conn.query_drop(sql)
+                .await
+                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        }
+        Ok(counts)
     }
 
     async fn describe_object_structure(

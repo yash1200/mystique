@@ -258,6 +258,65 @@ pub fn compile_insert(
     ))
 }
 
+/// Insert, or replace existing PK / unique-key rows.
+pub fn compile_upsert(
+    style: SqlIdentStyle,
+    input: &ApplyTableEditsInput,
+    insert: &crate::edits::TableRowInsert,
+) -> ConnectorResult<String> {
+    let insert_sql = compile_insert(style, input, insert)?;
+    let pks = pk_columns(&input.columns);
+    if pks.is_empty() {
+        return Err(ConnectorError::Query(format!(
+            "Update on duplicate needs a primary key on “{}”.",
+            input.table
+        )));
+    }
+    let pk_names: Vec<&str> = pks.iter().map(|c| c.name.as_str()).collect();
+    let set_cols: Vec<&String> = insert
+        .values
+        .iter()
+        .filter(|(n, v)| !pk_names.contains(&n.as_str()) && !is_empty_value(v))
+        .map(|(n, _)| n)
+        .collect();
+    match style {
+        SqlIdentStyle::Mysql => {
+            if set_cols.is_empty() {
+                return Ok(insert_sql);
+            }
+            let sets: Vec<String> = set_cols
+                .iter()
+                .map(|c| {
+                    let q = quote_ident(style, c);
+                    format!("{q} = VALUES({q})")
+                })
+                .collect();
+            Ok(format!("{insert_sql} ON DUPLICATE KEY UPDATE {}", sets.join(", ")))
+        }
+        SqlIdentStyle::Postgres => {
+            let conflict = pks
+                .iter()
+                .map(|c| quote_ident(style, &c.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if set_cols.is_empty() {
+                return Ok(format!("{insert_sql} ON CONFLICT ({conflict}) DO NOTHING"));
+            }
+            let sets: Vec<String> = set_cols
+                .iter()
+                .map(|c| {
+                    let q = quote_ident(style, c);
+                    format!("{q} = EXCLUDED.{q}")
+                })
+                .collect();
+            Ok(format!(
+                "{insert_sql} ON CONFLICT ({conflict}) DO UPDATE SET {}",
+                sets.join(", ")
+            ))
+        }
+    }
+}
+
 pub fn compile_delete(
     style: SqlIdentStyle,
     input: &ApplyTableEditsInput,

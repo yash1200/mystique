@@ -180,6 +180,32 @@ pub async fn list_engine_relationships(
 }
 
 #[tauri::command]
+pub async fn preview_engine_import(
+    state: State<'_, AppState>,
+    request: mystique_core::PreviewImportRequest,
+) -> Result<mystique_core::PreviewImportResult, String> {
+    state
+        .services
+        .connections()
+        .preview_import(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_engine_object(
+    state: State<'_, AppState>,
+    request: mystique_core::ImportObjectRequest,
+) -> Result<mystique_core::ImportObjectResult, String> {
+    state
+        .services
+        .connections()
+        .import_object(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn export_engine_object(
     state: State<'_, AppState>,
     request: mystique_core::ExportObjectRequest,
