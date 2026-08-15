@@ -13,6 +13,7 @@ use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
 use crate::object_structure::ObjectStructure;
 use crate::table_admin::{TableAdminInput, TableAdminResult};
+use crate::table_export::{ExportObjectInput, ExportObjectResult};
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;
 
@@ -154,6 +155,18 @@ pub trait ConnectorSession: Send + Sync {
     ) -> ConnectorResult<TableAdminResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "table admin is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Stream the full table/collection to `input.path` in plugin-owned format.
+    /// Implementations must page in [`crate::EXPORT_CHUNK_SIZE`] rows with no row cap.
+    async fn export_object(
+        &self,
+        _input: &ExportObjectInput,
+    ) -> ConnectorResult<ExportObjectResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "export is not implemented for engine `{}`",
             self.engine_id()
         )))
     }

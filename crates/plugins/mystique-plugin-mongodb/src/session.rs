@@ -5,9 +5,10 @@ use async_trait::async_trait;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
-    cell_bool, preview_sort_field, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
-    CatalogDatabase, CatalogObject, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
+    cell_bool, export_object_with_preview, preview_sort_field, ApplyTableEditsInput,
+    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, ColumnInfo,
+    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
+    ExportObjectResult, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
     QueryMode, QueryResult, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
     TablePreviewResult, ValidatedQuery,
 };
@@ -728,6 +729,16 @@ impl ConnectorSession for MongoSession {
                 ))
             }
         }
+    }
+
+    async fn export_object(
+        &self,
+        input: &ExportObjectInput,
+    ) -> ConnectorResult<ExportObjectResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        export_object_with_preview(self, input, None).await
     }
 
     async fn describe_object_structure(

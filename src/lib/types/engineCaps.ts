@@ -78,6 +78,8 @@ export interface EngineCapabilities {
 	tableAdmin: TableAdminFeatures
 	/** Grid code-filter placeholder from the plugin. */
 	codeFilterPlaceholder: string
+	/** Plugin-owned file export formats (`csv` / `json` / `jsonl` / `sql`). */
+	exportFormats: string[]
 }
 
 const SQL_ADMIN: TableAdminFeatures = {
@@ -141,6 +143,7 @@ export function defaultCapabilitiesForEngine(
 				duplicate: true,
 				viewStructure: true,
 			},
+			exportFormats: ['csv', 'json', 'jsonl'],
 		}
 	}
 	if (e === 'sqlite') {
@@ -183,6 +186,7 @@ export function defaultCapabilitiesForEngine(
 			},
 			codeFilterPlaceholder: '{ "status": "active" } or status = \'active\'',
 			tableAdmin: { ...SQL_ADMIN },
+			exportFormats: ['csv', 'json', 'jsonl', 'sql'],
 		}
 	}
 	if (e === 'mysql' || e === 'mariadb') {
@@ -225,6 +229,7 @@ export function defaultCapabilitiesForEngine(
 			},
 			codeFilterPlaceholder: '{ "status": "active" } or status = \'active\'',
 			tableAdmin: { ...SQL_ADMIN },
+			exportFormats: ['csv', 'json', 'jsonl', 'sql'],
 		}
 	}
 	return {
@@ -262,6 +267,7 @@ export function defaultCapabilitiesForEngine(
 		},
 		codeFilterPlaceholder: '{ "status": "active" } or status = \'active\'',
 		tableAdmin: { ...SQL_ADMIN },
+		exportFormats: ['csv', 'json', 'jsonl', 'sql'],
 	}
 }
 
@@ -342,6 +348,11 @@ export function normalizeCapabilities(
 			c.codeFilterPlaceholder ??
 				(c as { code_filter_placeholder?: unknown }).code_filter_placeholder,
 			fallback.codeFilterPlaceholder,
+		),
+		exportFormats: asStringList(
+			c.exportFormats ??
+				(c as { export_formats?: unknown }).export_formats,
+			fallback.exportFormats,
 		),
 		explorer: normalizeExplorer(c.explorer, fallback.explorer),
 		tableAdmin: {

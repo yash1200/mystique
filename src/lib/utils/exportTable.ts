@@ -12,9 +12,39 @@ export type SaveResult =
   | { ok: false; cancelled: true }
   | { ok: false; cancelled: false; error: string };
 
-function safeFileBase(name: string): string {
+export type TableFileFormat = "csv" | "json" | "jsonl" | "sql";
+
+export function safeExportFileBase(name: string): string {
   const base = (name || "export").trim() || "export";
-  return base.replace(/[^\w.\-]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").slice(0, 80) || "export";
+  return (
+    base
+      .replace(/[^\w.\-]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 80) || "export"
+  );
+}
+
+function safeFileBase(name: string): string {
+  return safeExportFileBase(name);
+}
+
+export function extensionForFormat(format: TableFileFormat): string {
+  if (format === "jsonl") return "jsonl";
+  if (format === "sql") return "sql";
+  if (format === "json") return "json";
+  return "csv";
+}
+
+/** Strip a known export suffix and attach the suffix for `format`. */
+export function applyFormatExtension(
+  name: string,
+  format: TableFileFormat,
+): string {
+  const stripped = name
+    .trim()
+    .replace(/\.(csv|jsonl|json|sql)$/i, "");
+  return `${safeExportFileBase(stripped || "export")}.${extensionForFormat(format)}`;
 }
 
 function stripSqlNoise(sql: string): string {
@@ -335,6 +365,32 @@ export function buildJson(
   return pretty ? `${JSON.stringify(data, null, 2)}\n` : `${JSON.stringify(data)}\n`;
 }
 
+export async function defaultDownloadsDir(): Promise<string | null> {
+  if (!isTauri()) return null;
+  try {
+    const { downloadDir } = await import("@tauri-apps/api/path");
+    return await downloadDir();
+  } catch {
+    return null;
+  }
+}
+
+export async function pickDirectory(
+  defaultPath?: string | null,
+): Promise<string | null> {
+  if (!isTauri()) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: "Choose export folder",
+    defaultPath: defaultPath || undefined,
+  });
+  if (typeof selected === "string" && selected.trim()) return selected;
+  return null;
+}
+
+/** Write UTF-8 text into `folder/fileName`. Browser fallback downloads the file. */
 /** Tab-separated values (no header) — paste-friendly single/multi row copy. */
 export function buildTsv(
   columns: TableExportColumn[],

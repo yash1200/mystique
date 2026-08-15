@@ -11,6 +11,7 @@
 	} from '$lib/api/catalog'
 	import {
 		applyEngineTableAdmin,
+		exportEngineObject,
 		closeEngineSession,
 		describeEngineObjectStructure,
 		ensureEngineSession,
@@ -59,6 +60,9 @@
 	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
 	import { onDestroy, onMount } from 'svelte'
 	import type { TableExplorerAction } from './ObjectExplorer.svelte'
+	import ExportDataModal, {
+		type ExportDataSpec,
+	} from './ExportDataModal.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
@@ -93,6 +97,9 @@
 	let refreshing = $state(false)
 	let tableLoading = $state(false)
 	let catalogError = $state<string | null>(null)
+	let exportTable = $state<TableMeta | null>(null)
+	let exportBusy = $state(false)
+	let exportError = $state<string | null>(null)
 	let rowSyncTick = $state(0)
 	let baselineEpoch = $state(0)
 	/** connectionId → last engineSessionId we loaded a live catalog for */
@@ -917,6 +924,11 @@
 			void openObjectStructure(table)
 			return
 		}
+		if (action === 'export') {
+			exportTable = table
+			exportError = null
+			return
+		}
 		if (!isTauri()) {
 			catalogError = 'Live catalog actions require the desktop app.'
 			return
@@ -979,6 +991,37 @@
 			await refreshCurrentTables()
 		} catch (e) {
 			catalogError = e instanceof Error ? e.message : String(e)
+		}
+	}
+
+	async function confirmExport(spec: ExportDataSpec) {
+		if (!exportTable || !activeId) return
+		if (!isTauri()) {
+			exportError = 'Export requires the desktop app.'
+			return
+		}
+		const table = exportTable
+		exportBusy = true
+		exportError = null
+		try {
+			const { join } = await import('@tauri-apps/api/path')
+			const path = await join(spec.folder, spec.fileName)
+			await withLiveSession(activeId, (sid) =>
+				exportEngineObject({
+					sessionId: sid,
+					name: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName,
+					kind: table.kind,
+					format: spec.format,
+					path,
+				}),
+			)
+			exportTable = null
+		} catch (e) {
+			exportError = e instanceof Error ? e.message : String(e)
+		} finally {
+			exportBusy = false
 		}
 	}
 
@@ -1852,6 +1895,32 @@
 		seedCodeFilter={tableSeedCodeFilter}
 		seedSort={tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
+	/>
+
+	<ExportDataModal
+		open={!!exportTable}
+		objectName={exportTable?.name ?? ''}
+		objectLabel={exportTable?.kind === 'collection'
+			? 'collection'
+			: exportTable?.kind === 'view'
+				? 'view'
+				: 'table'}
+		formats={
+			activeSession
+				? resolveCapabilities(
+						String(activeSession.profile.engine),
+						activeSession.capabilities,
+					).exportFormats
+				: ['csv', 'json', 'jsonl']
+		}
+		busy={exportBusy}
+		error={exportError}
+		onconfirm={(spec) => void confirmExport(spec)}
+		oncancel={() => {
+			if (exportBusy) return
+			exportTable = null
+			exportError = null
+		}}
 	/>
 
 	{#if pickerOpen}

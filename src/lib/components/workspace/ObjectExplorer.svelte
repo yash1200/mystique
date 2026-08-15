@@ -23,6 +23,7 @@
 		| 'open'
 		| 'erd'
 		| 'structure'
+		| 'export'
 		| 'rename'
 		| 'drop'
 		| 'truncate'
@@ -224,9 +225,7 @@
 	}
 
 	const allGroupsExpanded = $derived(
-		isTree &&
-			groups.length > 0 &&
-			groups.every((g) => expanded.has(g.key)),
+		isTree && groups.length > 0 && groups.every((g) => expanded.has(g.key)),
 	)
 
 	function toggleAllGroups() {
@@ -413,6 +412,11 @@
 				label: caps.supportsErDiagram ? 'View ERD' : 'View model',
 			})
 		}
+		items.push({
+			id: 'export',
+			label: 'Export data',
+			separatorBefore: true,
+		})
 		if (admin.rename) {
 			items.push({
 				id: 'rename',
@@ -474,6 +478,10 @@
 		}
 		if (id === 'create') {
 			ontableaction('create', table)
+			return
+		}
+		if (id === 'export') {
+			ontableaction('export', table)
 			return
 		}
 		if (id === 'rename') {
@@ -652,7 +660,12 @@
 				variant="ghost"
 				onclick={toggleAllGroups}
 			>
-				<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+				<svg
+					class="size-3.5"
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+				>
 					{#if allGroupsExpanded}
 						<path
 							d="M4.25 2.75 8 6 11.75 2.75"

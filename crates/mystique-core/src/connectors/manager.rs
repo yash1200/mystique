@@ -6,9 +6,9 @@ use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, CatalogColumnRow,
     CatalogDatabase, CatalogRelationship, ColumnInfo, ConnectionConfig, ConnectorError,
     ConnectorResult, ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
-    FetchTablePreviewRequest, ListCatalogColumnsRequest, ListCatalogRequest,
-    ListRelationshipsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult, SessionInfo,
-    TableAdminOp, TableAdminRequest, TableAdminResult, TablePreviewResult, TestResult,
+    ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ListCatalogColumnsRequest,
+    ListCatalogRequest, ListRelationshipsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult,
+    SessionInfo, TableAdminOp, TableAdminRequest, TableAdminResult, TablePreviewResult, TestResult,
     ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
@@ -417,6 +417,34 @@ impl ConnectionManager {
         };
         let input = req.into_input();
         session.apply_table_admin(&input).await
+    }
+
+    /// Plugin-owned full-table file export (100-row chunks, no row cap).
+    pub async fn export_object(
+        &self,
+        req: ExportObjectRequest,
+    ) -> ConnectorResult<ExportObjectResult> {
+        if req.name.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        }
+        if req.path.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig("Export path is required.".into()));
+        }
+        let session = {
+            let guard = self.sessions.read().await;
+            let live = guard.get(&req.session_id).ok_or_else(|| {
+                ConnectorError::InvalidConfig(format!("session not found: {}", req.session_id))
+            })?;
+            Arc::clone(&live.session)
+        };
+        let allowed = session.capabilities().export_formats;
+        let format = req.format.as_str();
+        if !allowed.iter().any(|f| f == format) {
+            return Err(ConnectorError::NotSupported(format!(
+                "this engine does not export {format} files"
+            )));
+        }
+        session.export_object(&req.into_input()).await
     }
 }
 

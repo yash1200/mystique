@@ -3,13 +3,14 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
-    cell_bool, compile_delete, compile_insert, compile_update, preview_sort_sql, quote_ident,
-    split_sql_statements, sql_preview_where, ApplyTableEditsInput, ApplyTableEditsResult,
-    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
-    ColumnReference, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
-    FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle,
-    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind,
-    TablePreviewResult, ValidatedQuery,
+    cell_bool, compile_delete, compile_insert, compile_update, export_object_with_preview,
+    preview_sort_sql, quote_ident, split_sql_statements, sql_preview_where, ApplyTableEditsInput,
+    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
+    ColumnInfo, ColumnReference, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchTablePreviewInput,
+    ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle, StructureSection,
+    TableAdminInput, TableAdminOp, TableAdminResult, TableObjectKind, TablePreviewResult,
+    ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -761,6 +762,16 @@ impl ConnectorSession for SqliteSession {
         })
         .await
         .map_err(|e| ConnectorError::Internal(e.to_string()))?
+    }
+
+    async fn export_object(
+        &self,
+        input: &ExportObjectInput,
+    ) -> ConnectorResult<ExportObjectResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        export_object_with_preview(self, input, Some(SqlIdentStyle::Postgres)).await
     }
 
     async fn describe_object_structure(

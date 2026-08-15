@@ -47,7 +47,8 @@
 				| 'drop'
 				| 'truncate'
 				| 'duplicate'
-				| 'create',
+				| 'create'
+				| 'export',
 			table: TableMeta,
 			extra?: string,
 		) => void

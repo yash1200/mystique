@@ -136,10 +136,21 @@ pub struct EngineCapabilities {
     /// Placeholder for the grid code-filter box (plugin-owned).
     #[serde(default = "default_code_filter_placeholder")]
     pub code_filter_placeholder: String,
+    /// File formats this plugin can export (`csv` / `json` / `jsonl` / `sql`).
+    #[serde(default = "default_export_formats")]
+    pub export_formats: Vec<String>,
 }
 
 fn default_code_filter_placeholder() -> String {
     r#"{ "email": "user@example.com" }"#.into()
+}
+
+fn default_export_formats() -> Vec<String> {
+    vec!["csv".into(), "json".into(), "jsonl".into()]
+}
+
+fn sql_export_formats() -> Vec<String> {
+    vec!["csv".into(), "json".into(), "jsonl".into(), "sql".into()]
 }
 
 impl ExplorerConfig {
@@ -241,6 +252,7 @@ impl EngineCapabilities {
             explorer: ExplorerConfig::relational_schema_tree(),
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
+            export_formats: sql_export_formats(),
         }
     }
 
@@ -268,6 +280,7 @@ impl EngineCapabilities {
             explorer: ExplorerConfig::relational_flat(false, false),
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
+            export_formats: sql_export_formats(),
         }
     }
 
@@ -295,6 +308,7 @@ impl EngineCapabilities {
             explorer: ExplorerConfig::document(),
             table_admin: TableAdminFeatures::mongodb(),
             code_filter_placeholder: r#"{ "email": "user@example.com" }"#.into(),
+            export_formats: default_export_formats(),
         }
     }
 
@@ -322,6 +336,7 @@ impl EngineCapabilities {
             explorer: ExplorerConfig::relational_flat(true, true),
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
+            export_formats: sql_export_formats(),
         }
     }
 }

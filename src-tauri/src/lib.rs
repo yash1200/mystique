@@ -292,6 +292,7 @@ pub fn run() {
             ipc::engines::list_engine_catalog,
             ipc::engines::list_engine_relationships,
             ipc::engines::apply_engine_table_admin,
+            ipc::engines::export_engine_object,
             ipc::engines::describe_engine_object_structure,
             // profiles
             ipc::profiles::list_profiles,

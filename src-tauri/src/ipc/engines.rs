@@ -180,6 +180,19 @@ pub async fn list_engine_relationships(
 }
 
 #[tauri::command]
+pub async fn export_engine_object(
+    state: State<'_, AppState>,
+    request: mystique_core::ExportObjectRequest,
+) -> Result<mystique_core::ExportObjectResult, String> {
+    state
+        .services
+        .connections()
+        .export_object(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn apply_engine_table_admin(
     state: State<'_, AppState>,
     request: mystique_core::TableAdminRequest,

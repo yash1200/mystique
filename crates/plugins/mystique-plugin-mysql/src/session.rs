@@ -6,13 +6,14 @@ use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    cell_bool, compile_delete, compile_insert, compile_update, preview_sort_sql, qualify_table,
-    quote_ident, split_sql_statements, sql_preview_where, ApplyTableEditsInput,
-    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
-    ColumnInfo, ColumnReference, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
-    QueryMode, QueryResult, SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp,
-    TableAdminResult, TableObjectKind, TablePreviewResult, ValidatedQuery,
+    cell_bool, compile_delete, compile_insert, compile_update, export_object_with_preview,
+    preview_sort_sql, qualify_table, quote_ident, split_sql_statements, sql_preview_where,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject,
+    CatalogRelationship, ColumnInfo, ColumnReference, ConnectorError, ConnectorResult,
+    ConnectorSession, EngineCapabilities, ExportObjectInput, ExportObjectResult,
+    FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
+    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
+    TableObjectKind, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -911,6 +912,16 @@ impl ConnectorSession for MysqlSession {
                 ))
             }
         }
+    }
+
+    async fn export_object(
+        &self,
+        input: &ExportObjectInput,
+    ) -> ConnectorResult<ExportObjectResult> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        export_object_with_preview(self, input, Some(SqlIdentStyle::Mysql)).await
     }
 
     async fn describe_object_structure(

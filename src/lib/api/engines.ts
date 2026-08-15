@@ -399,6 +399,32 @@ export async function applyEngineTableAdmin(
 	return invoke('apply_engine_table_admin', { request })
 }
 
+export type ExportFormat = 'csv' | 'json' | 'jsonl' | 'sql'
+
+export interface ExportObjectRequest {
+	sessionId: string
+	name: string
+	schema?: string | null
+	database?: string | null
+	kind?: string | null
+	format: ExportFormat
+	path: string
+}
+
+export interface ExportObjectResult {
+	path: string
+	rowCount: number
+	format: ExportFormat
+}
+
+/** Plugin-owned full-object file export (100-row chunks, no row cap). */
+export async function exportEngineObject(
+	request: ExportObjectRequest,
+): Promise<ExportObjectResult> {
+	requireTauri()
+	return invoke('export_engine_object', { request })
+}
+
 /** One structure section (columns / indexes / …) — plugin-owned. */
 export interface StructureSection {
 	id: string
