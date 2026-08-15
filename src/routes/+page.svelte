@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { openEngineSession, testEngineConnection } from '$lib/api/engines'
+	import { ensureEngineSession, testEngineConnection } from '$lib/api/engines'
 	import {
 		deleteProfile,
 		listProfiles,
@@ -360,7 +360,7 @@
 				c.id === updated.id ? { ...updated, status: 'connected' as const } : c,
 			)
 
-			const session = await openEngineSession({
+			const session = await ensureEngineSession({
 				engine: String(profile.engine),
 				pluginConfig,
 				password,

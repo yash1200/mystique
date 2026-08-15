@@ -25,11 +25,25 @@ fn ensure_connection_exists(conn: &Connection, connection_id: &str) -> AppResult
         |r| r.get(0),
     )?;
     if !exists {
-        return Err(AppError::NotFound(format!(
-            "connection '{connection_id}'"
-        )));
+        return Err(AppError::NotFound(format!("connection '{connection_id}'")));
     }
     Ok(())
+}
+
+pub fn list_all_queries(conn: &Connection) -> AppResult<Vec<SavedQuery>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, connection_id, name, body, language, sort_order, created_at, updated_at
+        FROM saved_queries
+        ORDER BY connection_id, sort_order, name COLLATE NOCASE
+        ",
+    )?;
+    let rows = stmt.query_map([], map_query)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
 }
 
 pub fn list_queries(conn: &Connection, connection_id: &str) -> AppResult<Vec<SavedQuery>> {

@@ -2,6 +2,8 @@
 //!
 //! IPC / HTTP adapters call these — never repositories or drivers directly.
 
+mod agent_tools;
+mod dbml;
 mod diagrams;
 mod history;
 mod profiles;
@@ -9,6 +11,10 @@ mod query_library;
 mod settings;
 mod workspace_tabs;
 
+pub use agent_tools::{
+    tool_specs, AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload,
+    AgentToolSpec, AgentTools,
+};
 pub use diagrams::DiagramService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
@@ -42,6 +48,10 @@ impl AppServices {
             db: Arc::new(db),
             connections: Arc::new(connections),
         }
+    }
+
+    pub fn agent_tools(&self) -> AgentTools {
+        AgentTools::new(Arc::clone(&self.db), Arc::clone(&self.connections))
     }
 
     pub fn profiles(&self) -> ProfileService<'_> {

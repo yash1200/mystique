@@ -13,6 +13,10 @@ impl QueryLibraryService<'_> {
             .with_conn(|c| repo::queries::list_queries(c, connection_id))
     }
 
+    pub fn list_all_queries(&self) -> AppResult<Vec<SavedQuery>> {
+        self.db.with_conn(repo::queries::list_all_queries)
+    }
+
     pub fn save_query(&self, input: SaveQueryInput) -> AppResult<SavedQuery> {
         self.db.with_conn(|c| repo::queries::save_query(c, input))
     }

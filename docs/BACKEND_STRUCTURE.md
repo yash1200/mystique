@@ -9,8 +9,9 @@ mystique-db/
 ├── Cargo.toml
 ├── crates/
 │   ├── mystique-connector-api/     # SPI: connector + EngineQueryPolicy + DTOs (no drivers)
-│   ├── mystique-core/              # domain + storage + ConnectionManager + QueryService
+│   ├── mystique-core/              # domain + storage + ConnectionManager + AgentTools
 │   │   └── src/connectors/         # registry (connectors + policies) + session/pool manager
+│   ├── mystique-mcp/               # localhost MCP HTTP server (calls AgentTools)
 │   └── plugins/
 │       ├── mystique-plugin-postgres/   # pool + session + PostgresQueryPolicy
 │       ├── mystique-plugin-mysql/      # pool + session + SqlQueryPolicy("mysql")
@@ -25,8 +26,9 @@ mystique-db/
 | ----- | ------------- | -------- |
 | `mystique-connector-api` | serde, async-trait | engine drivers, tauri |
 | `plugins/*` | connector-api + one driver | tauri, mystique-core |
-| `mystique-core` | connector-api + plugins (registry only) | dialect-specific SQL/MQL parsing |
-| `src-tauri/ipc` | mystique-core, tauri | SQL, driver imports |
+| `mystique-core` | connector-api + plugins (registry only) | dialect-specific SQL/MQL parsing, HTTP/MCP |
+| `mystique-mcp` | mystique-core (AgentTools) + axum | tauri, engine drivers |
+| `src-tauri/ipc` | mystique-core, mystique-mcp, tauri | SQL, driver imports |
 
 ## Query policy SPI
 

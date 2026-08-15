@@ -174,7 +174,8 @@ Bundles are written under `src-tauri/target/release/bundle/` (format depends on 
 mystique-db/
 ├── crates/
 │   ├── mystique-connector-api/   # SPI (traits, DTOs, pool types) — no drivers
-│   ├── mystique-core/            # domain, local app DB, ConnectionManager
+│   ├── mystique-core/            # domain, local app DB, ConnectionManager, AgentTools
+│   ├── mystique-mcp/             # localhost MCP HTTP server
 │   └── plugins/
 │       ├── mystique-plugin-postgres/  # deadpool pool
 │       ├── mystique-plugin-sqlite/    # r2d2 pool

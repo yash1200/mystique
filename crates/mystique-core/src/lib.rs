@@ -18,7 +18,10 @@ pub mod domain;
 pub mod error;
 pub mod storage;
 
-pub use application::AppServices;
+pub use application::{
+    tool_specs, AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload,
+    AgentToolSpec, AgentTools, AppServices,
+};
 pub use connectors::{ConnectionManager, ConnectorRegistry, OpenSessionRequest};
 pub use domain::*;
 pub use error::{AppError, AppResult};
@@ -28,10 +31,10 @@ pub use storage::AppDatabase;
 pub use mystique_connector_api::{
     ApplyTableEditsRequest, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogObject, CatalogRelationship, ColumnInfo, ColumnReference, ConnectionConfig,
-    DescribeTableRequest,
-    EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, FetchTablePreviewRequest,
-    ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, ObjectStructure,
-    ObjectStructureRequest, PoolConfig, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SessionInfo, StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableEditColumn, TablePreviewResult, TableRowInsert, TableRowUpdate, TestResult,
+    DescribeTableRequest, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest,
+    FetchTablePreviewRequest, ListCatalogColumnsRequest, ListCatalogRequest,
+    ListRelationshipsRequest, ObjectStructure, ObjectStructureRequest, PoolConfig, PoolStatus,
+    QueryColumn, QueryMode, QueryResult, SessionInfo, StructureSection, TableAdminOp,
+    TableAdminRequest, TableAdminResult, TableEditColumn, TablePreviewResult, TableRowInsert,
+    TableRowUpdate, TestResult,
 };

@@ -13,6 +13,7 @@ mod ipc;
 use std::sync::Arc;
 
 use mystique_core::{AppDatabase, AppServices};
+use mystique_mcp::McpService;
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     Emitter, Manager,
@@ -21,6 +22,7 @@ use tauri::{
 /// Tauri-managed application state.
 pub struct AppState {
     pub services: Arc<AppServices>,
+    pub mcp: McpService,
 }
 
 fn about_metadata(app: &tauri::AppHandle) -> AboutMetadata<'_> {
@@ -263,8 +265,13 @@ pub fn run() {
             let db_path = data_dir.join(mystique_core::storage::sqlite::db_file_name());
             let db = AppDatabase::open(&db_path).map_err(|e| e.to_string())?;
             let services = Arc::new(AppServices::new(db));
+            let mcp = McpService::new(Arc::clone(&services));
+            let boot = mcp.clone();
+            tauri::async_runtime::spawn(async move {
+                boot.restore_if_enabled().await;
+            });
 
-            app.manage(AppState { services });
+            app.manage(AppState { services, mcp });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -316,6 +323,10 @@ pub fn run() {
             ipc::settings::set_setting,
             ipc::settings::list_settings,
             ipc::settings::delete_setting,
+            // MCP (external clients). In-app agents must call AgentTools, not HTTP.
+            ipc::mcp::get_mcp_status,
+            ipc::mcp::set_mcp_enabled,
+            ipc::mcp::rotate_mcp_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

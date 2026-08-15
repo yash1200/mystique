@@ -13,6 +13,7 @@
 		applyEngineTableAdmin,
 		closeEngineSession,
 		describeEngineObjectStructure,
+		ensureEngineSession,
 		openEngineSession,
 		testEngineConnection,
 		type ObjectStructure,
@@ -138,13 +139,18 @@
 		const db = database?.trim()
 		if (db) pluginConfig.database = db
 		const password = profile.password?.trim() || null
-		const session = await openEngineSession({
+		const request = {
 			engine: String(profile.engine),
 			pluginConfig,
 			password,
 			pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 			sessionId: profile.id,
-		})
+		}
+		// MCP (and other tools) open sessions as profile.id — reuse unless we
+		// must rebind to another database.
+		const session = db
+			? await openEngineSession(request)
+			: await ensureEngineSession(request)
 		workspaceSession.connect(profile, session.sessionId, session.capabilities)
 		return session.sessionId
 	}
@@ -1429,7 +1435,7 @@
 				return
 			}
 			const updated = await touchProfileConnected(profile.id)
-			const session = await openEngineSession({
+			const session = await ensureEngineSession({
 				engine: String(profile.engine),
 				pluginConfig,
 				password,

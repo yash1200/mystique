@@ -80,6 +80,26 @@ export async function openEngineSession(
   return invoke("open_engine_session", { request });
 }
 
+/** Reuse a live session (e.g. opened by MCP) when the id already exists. */
+export async function ensureEngineSession(
+  request: OpenSessionRequest,
+): Promise<SessionInfo> {
+  requireTauri();
+  const sid = request.sessionId?.trim();
+  if (sid) {
+    try {
+      const existing = await getEngineSession(sid);
+      if (existing) {
+        await pingEngineSession(sid);
+        return existing;
+      }
+    } catch {
+      /* open a fresh pool */
+    }
+  }
+  return openEngineSession(request);
+}
+
 export async function closeEngineSession(sessionId: string): Promise<void> {
   requireTauri();
   return invoke("close_engine_session", { sessionId });

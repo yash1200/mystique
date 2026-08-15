@@ -36,6 +36,7 @@ export type { SelectOption } from "./Select.svelte";
 export { default as Stack } from "./Stack.svelte";
 export { default as StatusBar } from "./StatusBar.svelte";
 export { default as StatusDot } from "./StatusDot.svelte";
+export { default as Switch } from "./Switch.svelte";
 export { default as Textarea } from "./Textarea.svelte";
 export { default as ThemeToggle } from "./ThemeToggle.svelte";
 export { default as Toast } from "./Toast.svelte";

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
-	import { openEngineSession } from '$lib/api/engines'
+	import { ensureEngineSession } from '$lib/api/engines'
 	import { listProfiles } from '$lib/api/profiles'
 	import { isTauri } from '$lib/api/tauri'
 	import WorkspaceShell from '$lib/components/workspace/WorkspaceShell.svelte'
@@ -46,7 +46,7 @@
 						draft.password.trim().length > 0
 							? draft.password
 							: existing.profile.password?.trim() || null
-					const session = await openEngineSession({
+					const session = await ensureEngineSession({
 						engine: String(existing.profile.engine),
 						pluginConfig,
 						password,
@@ -84,7 +84,7 @@
 						draft.password.trim().length > 0
 							? draft.password
 							: profile.password?.trim() || null
-					const session = await openEngineSession({
+					const session = await ensureEngineSession({
 						engine: String(profile.engine),
 						pluginConfig,
 						password,
