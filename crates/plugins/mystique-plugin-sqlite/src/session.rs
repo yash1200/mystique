@@ -4,7 +4,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use mystique_connector_api::{
     cell_bool, compile_delete, compile_insert, compile_update, preview_sort_sql, quote_ident,
-    split_sql_statements, sql_where_clause, ApplyTableEditsInput, ApplyTableEditsResult,
+    split_sql_statements, sql_preview_where, ApplyTableEditsInput, ApplyTableEditsResult,
     CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
     ColumnReference, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
     FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn, QueryResult, SqlIdentStyle,
@@ -280,17 +280,13 @@ impl ConnectorSession for SqliteSession {
                     nullable: notnull == 0,
                     pk: pk != 0,
                     enum_values: None,
-                    default_value: dflt
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty()),
+                    default_value: dflt.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
                     references: None,
                 });
             }
 
             // PRAGMA foreign_key_list: id, seq, table, from, to, on_update, on_delete, match
-            if let Ok(mut fk_stmt) =
-                conn.prepare(&format!("PRAGMA foreign_key_list('{safe}')"))
-            {
+            if let Ok(mut fk_stmt) = conn.prepare(&format!("PRAGMA foreign_key_list('{safe}')")) {
                 use std::collections::HashMap;
                 let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
                 if let Ok(mut rows) = fk_stmt.query([]) {
@@ -475,7 +471,11 @@ impl ConnectorSession for SqliteSession {
                 .join(", ")
         };
         let offset = input.offset;
-        let where_sql = sql_where_clause(SqlIdentStyle::Postgres, &input.filters)?;
+        let where_sql = sql_preview_where(
+            SqlIdentStyle::Postgres,
+            &input.filters,
+            input.code_filter.as_deref(),
+        )?;
         let sql = format!(
             "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
         );

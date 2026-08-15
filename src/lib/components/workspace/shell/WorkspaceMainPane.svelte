@@ -71,6 +71,7 @@
 		onreconnect?: () => Promise<string | null>
 		/** Seeded filters when jumping via FK (keeps pager/refresh consistent). */
 		seedFilters?: TablePreviewFilter[] | null
+		seedCodeFilter?: string | null
 		/** Seeded preview sort so remounts keep the same column order. */
 		seedSort?: { column: string; dir: 'asc' | 'desc' } | null
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
@@ -109,6 +110,7 @@
 		onreloadtable,
 		onreconnect,
 		seedFilters = null,
+		seedCodeFilter = null,
 		seedSort = null,
 		onopenreference,
 	}: Props = $props()
@@ -255,7 +257,12 @@
 							onreload={onreloadtable}
 							{onreconnect}
 							{seedFilters}
+							{seedCodeFilter}
 							{seedSort}
+							codeFilterPlaceholder={resolveCapabilities(
+								String(activeSession.profile.engine),
+								activeSession.capabilities,
+							).codeFilterPlaceholder}
 							{onopenreference}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}

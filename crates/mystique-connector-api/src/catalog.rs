@@ -109,6 +109,9 @@ pub struct FetchTablePreviewRequest {
     /// Plugin-compiled predicates (AND). Empty = unfiltered.
     #[serde(default)]
     pub filters: Vec<TableFilter>,
+    /// Raw code-filter box. Plugins compile JSON `{col: val}` or `col = val` expressions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_filter: Option<String>,
     /// Column to `ORDER BY` / Mongo `sort`. Must match a described column.
     /// Empty / unknown = plugin default (PK / `_id` / `rowid`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,6 +130,7 @@ pub struct FetchTablePreviewInput {
     pub max_rows: u32,
     pub offset: u32,
     pub filters: Vec<TableFilter>,
+    pub code_filter: Option<String>,
     pub sort_column: Option<String>,
     pub sort_dir: Option<String>,
 }
@@ -140,6 +144,10 @@ impl FetchTablePreviewRequest {
             max_rows: self.max_rows.unwrap_or(default_max).clamp(1, hard_max),
             offset: self.offset.unwrap_or(0),
             filters: self.filters,
+            code_filter: self
+                .code_filter
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             sort_column: self.sort_column,
             sort_dir: self.sort_dir,
         }

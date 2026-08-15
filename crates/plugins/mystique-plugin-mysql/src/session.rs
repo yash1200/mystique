@@ -6,13 +6,13 @@ use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
-    cell_bool, compile_delete, compile_insert, compile_update, qualify_table, quote_ident,
-    split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
-    CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo, ConnectorError,
-    ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
-    ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TableObjectKind, TablePreviewResult, ValidatedQuery, preview_sort_sql, sql_where_clause,
+    cell_bool, compile_delete, compile_insert, compile_update, preview_sort_sql, qualify_table,
+    quote_ident, split_sql_statements, sql_preview_where, ApplyTableEditsInput,
+    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
+    ColumnInfo, ColumnReference, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
+    QueryMode, QueryResult, SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp,
+    TableAdminResult, TableObjectKind, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -326,9 +326,7 @@ impl ConnectorSession for MysqlSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
         let db_name = database.or(schema).ok_or_else(|| {
-            ConnectorError::InvalidConfig(
-                "MySQL describe_table requires database/schema".into(),
-            )
+            ConnectorError::InvalidConfig("MySQL describe_table requires database/schema".into())
         })?;
         let db = db_name.replace('\'', "''");
         let tbl = table.replace('\'', "''");
@@ -381,12 +379,9 @@ impl ConnectorSession for MysqlSession {
                 ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
                 "#,
                 (db_name, table),
-                |(col, rschema, rtable, rcol): (
-                    String,
-                    Option<String>,
-                    String,
-                    String,
-                )| (col, rschema, rtable, rcol),
+                |(col, rschema, rtable, rcol): (String, Option<String>, String, String)| {
+                    (col, rschema, rtable, rcol)
+                },
             )
             .await
             .unwrap_or_default();
@@ -561,7 +556,11 @@ impl ConnectorSession for MysqlSession {
                 .join(", ")
         };
         let offset = input.offset;
-        let where_sql = sql_where_clause(SqlIdentStyle::Mysql, &input.filters)?;
+        let where_sql = sql_preview_where(
+            SqlIdentStyle::Mysql,
+            &input.filters,
+            input.code_filter.as_deref(),
+        )?;
         let sql = format!(
             "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
         );
@@ -822,9 +821,7 @@ impl ConnectorSession for MysqlSession {
                 let create: Option<String> = row.get(1);
                 let statement = create
                     .filter(|s| !s.trim().is_empty())
-                    .ok_or_else(|| {
-                        ConnectorError::Query(format!("No CREATE text for {qname}."))
-                    })?;
+                    .ok_or_else(|| ConnectorError::Query(format!("No CREATE text for {qname}.")))?;
                 let statement = if statement.trim_end().ends_with(';') {
                     format!("{}\n", statement.trim_end())
                 } else {
@@ -836,9 +833,8 @@ impl ConnectorSession for MysqlSession {
                 "MySQL does not use schemas; create a database instead.".into(),
             )),
             TableAdminOp::CreateObject => {
-                let sql = format!(
-                    "CREATE TABLE {qname} (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY)"
-                );
+                let sql =
+                    format!("CREATE TABLE {qname} (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY)");
                 conn.query_drop(sql)
                     .await
                     .map_err(|e| ConnectorError::Query(e.to_string()))?;
@@ -870,7 +866,10 @@ impl ConnectorSession for MysqlSession {
                 conn.query_drop(sql)
                     .await
                     .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(input.op, format!("Dropped {qname}.")))
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Dropped {qname}."),
+                ))
             }
             TableAdminOp::Truncate => {
                 if is_view {
@@ -939,9 +938,7 @@ impl ConnectorSession for MysqlSession {
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
 
-        let cols = self
-            .describe_table(Some(db), schema, table)
-            .await?;
+        let cols = self.describe_table(Some(db), schema, table).await?;
         let col_rows: Vec<Vec<String>> = cols
             .iter()
             .map(|c| {
@@ -992,16 +989,24 @@ impl ConnectorSession for MysqlSession {
                 "#,
                 (db, table),
                 |(name, col, non_unique, seq, itype): (String, String, i64, i64, String)| {
-                    (name, col, if non_unique == 0 { "yes".into() } else { "no".into() }, seq, itype)
+                    (
+                        name,
+                        col,
+                        if non_unique == 0 {
+                            "yes".into()
+                        } else {
+                            "no".into()
+                        },
+                        seq,
+                        itype,
+                    )
                 },
             )
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
         let index_rows: Vec<Vec<String>> = idx
             .into_iter()
-            .map(|(name, col, unique, seq, itype)| {
-                vec![name, col, unique, seq.to_string(), itype]
-            })
+            .map(|(name, col, unique, seq, itype)| vec![name, col, unique, seq.to_string(), itype])
             .collect();
         let mut indexes_sec = StructureSection::table(
             "indexes",
@@ -1092,9 +1097,7 @@ impl ConnectorSession for MysqlSession {
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
         let inbound_rows: Vec<Vec<String>> = inbound
             .into_iter()
-            .map(|(c, tschema, tname, col)| {
-                vec![c, format!("{tschema}.{tname}"), col]
-            })
+            .map(|(c, tschema, tname, col)| vec![c, format!("{tschema}.{tname}"), col])
             .collect();
         let mut refs_sec = StructureSection::table(
             "referenced_by",
@@ -1146,13 +1149,7 @@ impl ConnectorSession for MysqlSession {
         let object_kind = kind.unwrap_or("table").to_string();
         Ok(ObjectStructure::new(
             format!("{db}.{table}"),
-            vec![
-                columns_sec,
-                indexes_sec,
-                fks_sec,
-                refs_sec,
-                triggers_sec,
-            ],
+            vec![columns_sec, indexes_sec, fks_sec, refs_sec, triggers_sec],
         )
         .with_subtitle(format!("MySQL · {object_kind}"))
         .with_object_kind(object_kind))

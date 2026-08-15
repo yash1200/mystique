@@ -4,6 +4,36 @@ use mongodb::bson::oid::ObjectId;
 use mongodb::bson::{doc, Bson, Document, Regex};
 use mystique_connector_api::{ConnectorError, ConnectorResult, TableFilter};
 
+use crate::shell_filter::parse_filter_object;
+
+/// UI rules plus optional raw code-filter (JSON document or `col = val`).
+pub fn compile_mongo_preview_predicate(
+    filters: &[TableFilter],
+    code_filter: Option<&str>,
+) -> ConnectorResult<Document> {
+    let mut docs: Vec<Document> = Vec::new();
+    if !filters.is_empty() {
+        docs.push(compile_mongo_preview_filter(filters)?);
+    }
+    if let Some(code) = code_filter.map(str::trim).filter(|s| !s.is_empty()) {
+        if code.starts_with('{') {
+            docs.push(parse_filter_object(code)?);
+        } else {
+            let rules = mystique_connector_api::parse_code_filter_rules(code)?;
+            if !rules.is_empty() {
+                docs.push(compile_mongo_preview_filter(&rules)?);
+            }
+        }
+    }
+    if docs.is_empty() {
+        return Ok(Document::new());
+    }
+    if docs.len() == 1 {
+        return Ok(docs.remove(0));
+    }
+    Ok(doc! { "$and": docs })
+}
+
 pub fn compile_mongo_preview_filter(filters: &[TableFilter]) -> ConnectorResult<Document> {
     if filters.is_empty() {
         return Ok(Document::new());
@@ -23,10 +53,13 @@ pub fn compile_mongo_preview_filter(filters: &[TableFilter]) -> ConnectorResult<
 
 fn clause(f: &TableFilter) -> ConnectorResult<Document> {
     let col = f.column.trim();
+    let op = f.op.trim().to_ascii_lowercase();
+    if op == "json" {
+        return parse_filter_object(f.value.trim());
+    }
     if col.is_empty() {
         return Err(ConnectorError::Query("filter is missing a column".into()));
     }
-    let op = f.op.trim().to_ascii_lowercase();
     let raw = f.value.as_str();
     match op.as_str() {
         "eq" => Ok(eq_doc(col, raw, false)),
@@ -175,6 +208,34 @@ mod tests {
         let inn = d.get("age").unwrap().as_document().unwrap();
         let arr = inn.get("$in").unwrap().as_array().unwrap();
         assert!(arr.iter().any(|b| matches!(b, Bson::Int32(10))));
-        assert!(arr.iter().any(|b| matches!(b, Bson::String(s) if s == "10")));
+        assert!(arr
+            .iter()
+            .any(|b| matches!(b, Bson::String(s) if s == "10")));
+    }
+
+    #[test]
+    fn json_object_filter() {
+        let d = compile_mongo_preview_filter(&[f(
+            "*",
+            "json",
+            r#"{ "email": "ajaybhatt17@gmail.com" }"#,
+        )])
+        .unwrap();
+        assert_eq!(d.get_str("email").unwrap(), "ajaybhatt17@gmail.com");
+    }
+
+    #[test]
+    fn json_shell_object_filter() {
+        let d =
+            compile_mongo_preview_filter(&[f("*", "json", r#"{ email: "ada@x.com" }"#)]).unwrap();
+        assert_eq!(d.get_str("email").unwrap(), "ada@x.com");
+    }
+
+    #[test]
+    fn code_filter_json_document() {
+        let d =
+            compile_mongo_preview_predicate(&[], Some(r#"{ "email": "ajaybhatt17@gmail.com" }"#))
+                .unwrap();
+        assert_eq!(d.get_str("email").unwrap(), "ajaybhatt17@gmail.com");
     }
 }

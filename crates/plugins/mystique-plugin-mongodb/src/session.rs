@@ -5,18 +5,18 @@ use async_trait::async_trait;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
-    cell_bool, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
-    CatalogObject, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, preview_sort_field,
-    QueryColumn,
+    cell_bool, preview_sort_field, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
+    CatalogDatabase, CatalogObject, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
     QueryMode, QueryResult, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
     TablePreviewResult, ValidatedQuery,
 };
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
-use crate::preview_filter::compile_mongo_preview_filter;
+use crate::preview_filter::compile_mongo_preview_predicate;
 use crate::shell_filter::json_to_document;
+use crate::shell_query::parse_read_query;
 
 pub struct MongoSession {
     client: Client,
@@ -56,67 +56,6 @@ fn bson_to_json(b: Bson) -> JsonValue {
         Bson::DateTime(dt) => JsonValue::String(dt.to_string()),
         other => JsonValue::String(other.to_string()),
     }
-}
-
-fn parse_filter(text: &str) -> ConnectorResult<Document> {
-    let t = text.trim();
-
-    // Bare JSON filter document
-    if t.starts_with('{') {
-        return parse_json_object_filter(t);
-    }
-
-    let lower = t.to_ascii_lowercase();
-
-    // Shell-style: db.users.find() / db.users.find({}) / find({...})
-    if let Some(find_at) = lower.find("find") {
-        // Argument object after find(
-        if let Some(brace_rel) = t[find_at..].find('{') {
-            let abs = find_at + brace_rel;
-            let end = t[abs..]
-                .rfind('}')
-                .map(|e| abs + e)
-                .ok_or_else(|| ConnectorError::Query("unclosed find filter object `{`".into()))?;
-            let slice = &t[abs..=end];
-            let compact: String = slice.chars().filter(|c| !c.is_whitespace()).collect();
-            if compact == "{}" {
-                return Ok(Document::new());
-            }
-            return parse_json_object_filter(slice);
-        }
-        // db.users.find() or find() with no object → match all
-        return Ok(Document::new());
-    }
-
-    Err(ConnectorError::Query(
-        "Mongo query must be a JSON filter `{ ... }`, `db.collection.find()`, or `find({ ... })`."
-            .into(),
-    ))
-}
-
-fn parse_json_object_filter(slice: &str) -> ConnectorResult<Document> {
-    crate::shell_filter::parse_filter_object(slice)
-}
-
-fn extract_collection(text: &str, explicit: Option<&str>) -> ConnectorResult<String> {
-    if let Some(c) = explicit.filter(|s| !s.is_empty()) {
-        return Ok(c.to_string());
-    }
-    // db.name.find
-    let lower = text.to_ascii_lowercase();
-    if let Some(idx) = lower.find(".find") {
-        let before = &text[..idx];
-        if let Some(dot) = before.rfind('.') {
-            let name = before[dot + 1..].trim();
-            if !name.is_empty() {
-                return Ok(name.to_string());
-            }
-        }
-    }
-    Err(ConnectorError::InvalidConfig(
-        "Mongo queries need a collection (use the Collection field or db.collection.find(...))."
-            .into(),
-    ))
 }
 
 #[async_trait]
@@ -179,10 +118,7 @@ impl ConnectorSession for MongoSession {
         ) {
             return self.list_databases(query.mode, start).await;
         }
-        if matches!(
-            text_key.as_str(),
-            "listcollections" | "showcollections"
-        ) {
+        if matches!(text_key.as_str(), "listcollections" | "showcollections") {
             let db_name = resolve_db_name(self, query)?;
             return self
                 .list_collections(&db_name, query.mode, query.max_rows, start)
@@ -190,21 +126,54 @@ impl ConnectorSession for MongoSession {
         }
 
         let db_name = resolve_db_name(self, query)?;
-        let coll_name = extract_collection(&query.text, query.collection.as_deref())?;
-        let filter = parse_filter(&query.text)?;
+        let parsed = parse_read_query(&query.text)?;
+        let coll_name = parsed
+            .collection
+            .clone()
+            .or_else(|| {
+                query
+                    .collection
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+            })
+            .ok_or_else(|| {
+                ConnectorError::InvalidConfig(
+                    "Mongo queries need a collection (use the Collection field or db.collection.find(...))."
+                        .into(),
+                )
+            })?;
 
         let coll = self
             .client
             .database(&db_name)
             .collection::<Document>(&coll_name);
-        let mut cursor = coll
-            .find(filter)
-            .limit(query.max_rows as i64)
+        let limit = parsed
+            .limit
+            .unwrap_or(query.max_rows as i64)
+            .clamp(1, query.max_rows as i64);
+        let mut find = coll.find(parsed.filter);
+        if let Some(proj) = parsed.projection {
+            find = find.projection(proj);
+        }
+        if let Some(sort) = parsed.sort {
+            find = find.sort(sort);
+        }
+        if let Some(skip) = parsed.skip {
+            find = find.skip(skip);
+        }
+        let mut cursor = find
+            .limit(limit)
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
 
         let mut docs = Vec::new();
-        while cursor.advance().await.map_err(|e| ConnectorError::Query(e.to_string()))? {
+        while cursor
+            .advance()
+            .await
+            .map_err(|e| ConnectorError::Query(e.to_string()))?
+        {
             let d = cursor
                 .deserialize_current()
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
@@ -278,10 +247,7 @@ impl ConnectorSession for MongoSession {
             .ok_or_else(|| {
                 ConnectorError::InvalidConfig("Mongo describe_table requires database".into())
             })?;
-        let coll = self
-            .client
-            .database(&db_name)
-            .collection::<Document>(table);
+        let coll = self.client.database(&db_name).collection::<Document>(table);
 
         let mut cursor = coll
             .find(doc! {})
@@ -290,8 +256,7 @@ impl ConnectorSession for MongoSession {
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
 
         let mut keys: Vec<String> = Vec::new();
-        let mut samples: std::collections::HashMap<String, Bson> =
-            std::collections::HashMap::new();
+        let mut samples: std::collections::HashMap<String, Bson> = std::collections::HashMap::new();
         while cursor
             .advance()
             .await
@@ -344,9 +309,7 @@ impl ConnectorSession for MongoSession {
             .map(str::to_string)
             .or_else(|| self.default_db.clone())
             .ok_or_else(|| {
-                ConnectorError::InvalidConfig(
-                    "Mongo list_catalog_columns requires database".into(),
-                )
+                ConnectorError::InvalidConfig("Mongo list_catalog_columns requires database".into())
             })?;
         let names = self
             .client
@@ -509,11 +472,9 @@ impl ConnectorSession for MongoSession {
             .client
             .database(&db_name)
             .collection::<Document>(&input.table);
-        let filter = compile_mongo_preview_filter(&input.filters)?;
+        let filter = compile_mongo_preview_predicate(&input.filters, input.code_filter.as_deref())?;
         let total_rows = if filter.is_empty() {
-            coll.estimated_document_count()
-                .await
-                .unwrap_or(0)
+            coll.estimated_document_count().await.unwrap_or(0)
         } else {
             coll.count_documents(filter.clone())
                 .await
@@ -650,7 +611,8 @@ impl ConnectorSession for MongoSession {
             let is_system = SYSTEM.contains(&db_name.as_str());
             let mut objects = Vec::new();
             if include_objects && !is_system {
-                if let Ok(mut colls) = self.client.database(&db_name).list_collection_names().await {
+                if let Ok(mut colls) = self.client.database(&db_name).list_collection_names().await
+                {
                     colls.sort();
                     for name in colls {
                         let count = self
@@ -782,16 +744,12 @@ impl ConnectorSession for MongoSession {
             .map(str::to_string)
             .or_else(|| self.default_db.clone())
             .ok_or_else(|| {
-                ConnectorError::InvalidConfig(
-                    "Mongo object structure requires database".into(),
-                )
+                ConnectorError::InvalidConfig("Mongo object structure requires database".into())
             })?;
         let db = self.client.database(&db_name);
         let coll = db.collection::<Document>(table);
 
-        let cols = self
-            .describe_table(Some(&db_name), None, table)
-            .await?;
+        let cols = self.describe_table(Some(&db_name), None, table).await?;
         let field_rows: Vec<Vec<String>> = cols
             .iter()
             .map(|c| {
@@ -844,11 +802,7 @@ impl ConnectorSession for MongoSession {
             let sparse = opts.and_then(|o| o.sparse).unwrap_or(false);
             index_rows.push(vec![
                 name,
-                if key.is_empty() {
-                    "—".into()
-                } else {
-                    key
-                },
+                if key.is_empty() { "—".into() } else { key },
                 cell_bool(unique),
                 cell_bool(sparse),
             ]);
@@ -881,10 +835,7 @@ impl ConnectorSession for MongoSession {
             let spec = listed
                 .deserialize_current()
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            validation_rows.push(vec![
-                "type".into(),
-                format!("{:?}", spec.collection_type),
-            ]);
+            validation_rows.push(vec!["type".into(), format!("{:?}", spec.collection_type)]);
             let options = &spec.options;
             if let Some(validator) = &options.validator {
                 validation_rows.push(vec![
@@ -1038,7 +989,9 @@ fn bson_type_label(sample: Option<&Bson>) -> String {
         Some(Bson::DateTime(_)) => "date".into(),
         Some(Bson::Binary(_)) => "binData".into(),
         Some(Bson::RegularExpression(_)) => "regex".into(),
-        Some(Bson::JavaScriptCode(_)) | Some(Bson::JavaScriptCodeWithScope(_)) => "javascript".into(),
+        Some(Bson::JavaScriptCode(_)) | Some(Bson::JavaScriptCodeWithScope(_)) => {
+            "javascript".into()
+        }
         Some(Bson::Timestamp(_)) => "timestamp".into(),
         Some(Bson::Decimal128(_)) => "decimal".into(),
         Some(Bson::Symbol(_)) => "symbol".into(),
@@ -1111,12 +1064,12 @@ impl MongoSession {
 
         let message = match op.as_str() {
             "updateone" => {
-                let filter_v = cmd.filter.ok_or_else(|| {
-                    ConnectorError::Query("updateOne requires `filter`".into())
-                })?;
-                let update_v = cmd.update.ok_or_else(|| {
-                    ConnectorError::Query("updateOne requires `update`".into())
-                })?;
+                let filter_v = cmd
+                    .filter
+                    .ok_or_else(|| ConnectorError::Query("updateOne requires `filter`".into()))?;
+                let update_v = cmd
+                    .update
+                    .ok_or_else(|| ConnectorError::Query("updateOne requires `update`".into()))?;
                 let filter = json_to_document(&filter_v)?;
                 let update = json_to_document(&update_v)?;
                 let result = coll
@@ -1129,9 +1082,9 @@ impl MongoSession {
                 )
             }
             "insertone" => {
-                let doc_v = cmd.doc.ok_or_else(|| {
-                    ConnectorError::Query("insertOne requires `doc`".into())
-                })?;
+                let doc_v = cmd
+                    .doc
+                    .ok_or_else(|| ConnectorError::Query("insertOne requires `doc`".into()))?;
                 let doc = json_to_document(&doc_v)?;
                 let result = coll
                     .insert_one(doc)
@@ -1254,8 +1207,8 @@ impl MongoSession {
 #[cfg(test)]
 mod catalog_live_tests {
     use super::*;
-    use mystique_connector_api::{QueryMode, ValidatedQuery};
     use mongodb::Client;
+    use mystique_connector_api::{QueryMode, ValidatedQuery};
 
     #[tokio::test]
     async fn list_databases_and_find_users_on_mystique() {
@@ -1267,7 +1220,12 @@ mod catalog_live_tests {
                 return;
             }
         };
-        if client.database("admin").run_command(doc! { "ping": 1 }).await.is_err() {
+        if client
+            .database("admin")
+            .run_command(doc! { "ping": 1 })
+            .await
+            .is_err()
+        {
             eprintln!("skip: mongo not reachable");
             return;
         }
@@ -1301,7 +1259,11 @@ mod catalog_live_tests {
             })
             .await
             .expect("listCollections");
-        assert!(colls.row_count >= 6, "expected seed collections, got {}", colls.row_count);
+        assert!(
+            colls.row_count >= 6,
+            "expected seed collections, got {}",
+            colls.row_count
+        );
 
         let users = session
             .execute_query(&ValidatedQuery {

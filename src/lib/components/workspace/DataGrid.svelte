@@ -28,6 +28,7 @@
 		type FilterMode,
 		type FilterOp,
 		type FilterRule,
+		looksLikeJsonFilter,
 		newRule,
 		opNeedsValue,
 		parseCodeFilters,
@@ -55,6 +56,7 @@
 		onreload?: (opts?: {
 			offset?: number
 			filters?: TablePreviewFilter[]
+			codeFilter?: string
 			sortColumn?: string
 			sortDir?: TablePreviewSortDir
 		}) => Promise<void>
@@ -65,8 +67,12 @@
 		 * keep the same predicate the plugin already applied.
 		 */
 		seedFilters?: TablePreviewFilter[] | null
+		/** Raw code-filter text so remounts stay in code mode. */
+		seedCodeFilter?: string | null
 		/** Seeded preview sort when the grid remounts (filter apply / FK jump). */
 		seedSort?: { column: string; dir: TablePreviewSortDir } | null
+		/** Plugin-owned placeholder for the code-filter box. */
+		codeFilterPlaceholder?: string
 		/** Plugin-owned FK jump from a cell. */
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
 	}
@@ -84,7 +90,9 @@
 		onreload,
 		onreconnect,
 		seedFilters = null,
+		seedCodeFilter = null,
 		seedSort = null,
+		codeFilterPlaceholder = '{ "email": "user@example.com" }',
 		onopenreference,
 	}: Props = $props()
 
@@ -178,10 +186,15 @@
 		})
 	}
 
-	const hasActiveFilters = $derived(activeRules().length > 0)
+	const hasActiveFilters = $derived(
+		filtersActive &&
+			(filterMode === 'code'
+				? filterCode.trim().length > 0
+				: activeRules().length > 0),
+	)
 
 	function previewFilters(): TablePreviewFilter[] {
-		if (!filtersActive) return []
+		if (!filtersActive || filterMode === 'code') return []
 		return activeRules().map((r) => ({
 			column: r.column,
 			op: r.op,
@@ -193,11 +206,15 @@
 		const opts: {
 			offset: number
 			filters: TablePreviewFilter[]
+			codeFilter?: string
 			sortColumn?: string
 			sortDir?: TablePreviewSortDir
 		} = {
 			offset,
 			filters: previewFilters(),
+		}
+		if (filtersActive && filterMode === 'code' && filterCode.trim()) {
+			opts.codeFilter = filterCode.trim()
 		}
 		if (sortColumn && sortDir) {
 			opts.sortColumn = sortColumn
@@ -242,11 +259,15 @@
 		if (mode === 'code') {
 			filterCode = rulesToCode(filterRules)
 		} else {
-			const parsed = parseCodeFilters(filterCode)
-			if (parsed && parsed.length > 0) {
-				filterRules = parsed
-			} else if (filterRules.length === 0) {
-				filterRules = [makeRule()]
+			if (looksLikeJsonFilter(filterCode)) {
+				if (filterRules.length === 0) filterRules = [makeRule()]
+			} else {
+				const parsed = parseCodeFilters(filterCode)
+				if (parsed && parsed.length > 0) {
+					filterRules = parsed
+				} else if (filterRules.length === 0) {
+					filterRules = [makeRule()]
+				}
 			}
 		}
 		filterMode = mode
@@ -272,8 +293,8 @@
 			flashStatus('Save or reset changes before filtering.')
 			return
 		}
-		if (filterMode === 'code' && parseCodeFilters(filterCode) == null) {
-			flashStatus('Could not parse filter expression')
+		if (filterMode === 'code' && !filterCode.trim()) {
+			flashStatus('Enter a filter')
 			return
 		}
 		filtersActive = true
@@ -810,9 +831,15 @@
 		loadFromTable(true)
 		page = 0
 		statusMsg = null
-		// Seed filters from FK jump (or clear when opening a normal table).
+		// Seed filters from FK jump, or restore the code-filter box.
 		const seed = seedFilters
-		if (seed && seed.length > 0) {
+		const codeSeed = seedCodeFilter?.trim() ?? ''
+		if (codeSeed) {
+			filterMode = 'code'
+			filterCode = codeSeed
+			filterRules = [makeRule()]
+			filtersActive = true
+		} else if (seed && seed.length > 0) {
 			filterRules = seed.map((f) => ({
 				id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
 				column: f.column,
@@ -821,12 +848,13 @@
 			}))
 			filterCode = rulesToCode(filterRules)
 			filtersActive = true
+			filterMode = 'ui'
 		} else {
 			filtersActive = false
 			filterRules = [makeRule()]
 			filterCode = ''
+			filterMode = 'ui'
 		}
-		filterMode = 'ui'
 		if (seedSort?.column && seedSort.dir) {
 			sortColumn = seedSort.column
 			sortDir = seedSort.dir
@@ -1528,6 +1556,7 @@
 		onAddRule={addRule}
 		onApply={applyFilters}
 		onClear={clearFilters}
+		codePlaceholder={codeFilterPlaceholder}
 	/>
 
 	<!-- tabindex so arrow/copy/paste work when grid is focused -->

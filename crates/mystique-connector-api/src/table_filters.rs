@@ -99,6 +99,12 @@ pub fn sql_where_clause(style: SqlIdentStyle, filters: &[TableFilter]) -> Connec
             "not_null" => format!("{ident} IS NOT NULL"),
             "is_empty" => format!("({ident} IS NOT NULL AND {ident} = '')"),
             "not_empty" => format!("({ident} IS NOT NULL AND {ident} <> '')"),
+            "json" => {
+                return Err(ConnectorError::Query(
+                    "JSON object filters are for MongoDB. Use column = value (e.g. email = 'a@b.com')."
+                        .into(),
+                ));
+            }
             other => {
                 return Err(ConnectorError::Query(format!(
                     "unknown table filter op `{other}`"
@@ -110,6 +116,199 @@ pub fn sql_where_clause(style: SqlIdentStyle, filters: &[TableFilter]) -> Connec
     Ok(format!(" WHERE {}", parts.join(" AND ")))
 }
 
+/// Compile UI rules plus the raw code-filter box into ` WHERE …`.
+pub fn sql_preview_where(
+    style: SqlIdentStyle,
+    filters: &[TableFilter],
+    code_filter: Option<&str>,
+) -> ConnectorResult<String> {
+    let mut all = filters.to_vec();
+    if let Some(code) = code_filter.map(str::trim).filter(|s| !s.is_empty()) {
+        all.extend(parse_code_filter_rules(code)?);
+    }
+    sql_where_clause(style, &all)
+}
+
+/// Parse the code-filter box: JSON `{ "col": "val" }` or `col = val AND …`.
+pub fn parse_code_filter_rules(code: &str) -> ConnectorResult<Vec<TableFilter>> {
+    let t = code.trim();
+    if t.is_empty() {
+        return Ok(Vec::new());
+    }
+    if t.starts_with('{') {
+        return object_to_eq_filters(t);
+    }
+    parse_predicate_lines(t)
+}
+
+fn object_to_eq_filters(raw: &str) -> ConnectorResult<Vec<TableFilter>> {
+    let v = parse_loose_json_object(raw)?;
+    let obj = v.as_object().ok_or_else(|| {
+        ConnectorError::Query("code filter JSON must be an object `{ column: value }`".into())
+    })?;
+    let mut out = Vec::with_capacity(obj.len());
+    for (k, val) in obj {
+        let value = match val {
+            serde_json::Value::Null => "null".into(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => s.clone(),
+            _ => {
+                return Err(ConnectorError::Query(format!(
+                    "JSON filter value for `{k}` must be a string, number, boolean, or null"
+                )));
+            }
+        };
+        out.push(TableFilter {
+            column: k.clone(),
+            op: "eq".into(),
+            value,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_loose_json_object(raw: &str) -> ConnectorResult<serde_json::Value> {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
+        return Ok(v);
+    }
+    let quoted = quote_unquoted_json_keys(raw);
+    serde_json::from_str(&quoted)
+        .map_err(|e| ConnectorError::Query(format!("invalid code filter JSON: {e}")))
+}
+
+fn quote_unquoted_json_keys(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len() + 16);
+    let mut i = 0;
+    let mut in_str: Option<char> = None;
+    let mut esc = false;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = in_str {
+            out.push(c);
+            if esc {
+                esc = false;
+            } else if c == '\\' {
+                esc = true;
+            } else if c == q {
+                in_str = None;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            in_str = Some(c);
+            out.push(if c == '\'' { '"' } else { c });
+            i += 1;
+            continue;
+        }
+        if c == '_' || c == '$' || c.is_ascii_alphabetic() {
+            let start = i;
+            i += 1;
+            while i < chars.len()
+                && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$')
+            {
+                i += 1;
+            }
+            let ident: String = chars[start..i].iter().collect();
+            let mut j = i;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j < chars.len() && chars[j] == ':' {
+                out.push('"');
+                out.push_str(&ident);
+                out.push('"');
+                out.extend(chars[i..j].iter());
+                out.push(':');
+                i = j + 1;
+                continue;
+            }
+            out.push_str(&ident);
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+fn parse_predicate_lines(code: &str) -> ConnectorResult<Vec<TableFilter>> {
+    let chunks: Vec<&str> = code
+        .split(|c| c == '\n')
+        .flat_map(|line| line.split(" AND ").flat_map(|p| p.split(" and ")))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if chunks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::with_capacity(chunks.len());
+    for line in chunks {
+        let (column, op, value) = parse_one_predicate(line)?;
+        out.push(TableFilter { column, op, value });
+    }
+    Ok(out)
+}
+
+fn parse_one_predicate(line: &str) -> ConnectorResult<(String, String, String)> {
+    let lower = line.to_ascii_lowercase();
+    let named: &[(&str, &str)] = &[
+        (" is not empty", "not_empty"),
+        (" is empty", "is_empty"),
+        (" is not null", "not_null"),
+        (" is null", "is_null"),
+        (" starts with ", "starts"),
+        (" ends with ", "ends"),
+        (" contains ", "contains"),
+    ];
+    for (needle, op) in named {
+        if let Some(idx) = lower.find(needle) {
+            let column = line[..idx].trim().to_string();
+            if column.is_empty() {
+                break;
+            }
+            let value = if *op == "starts" || *op == "ends" || *op == "contains" {
+                unquote_filter_value(line[idx + needle.len()..].trim())
+            } else {
+                String::new()
+            };
+            return Ok((column, (*op).into(), value));
+        }
+    }
+    let ops = [
+        (">=", "gte"),
+        ("<=", "lte"),
+        ("!=", "neq"),
+        ("<>", "neq"),
+        ("=", "eq"),
+        (">", "gt"),
+        ("<", "lt"),
+    ];
+    for (sym, op) in ops {
+        if let Some(idx) = line.find(sym) {
+            let column = line[..idx].trim().to_string();
+            if column.is_empty() {
+                continue;
+            }
+            let value = unquote_filter_value(line[idx + sym.len()..].trim());
+            return Ok((column, op.into(), value));
+        }
+    }
+    Err(ConnectorError::Query(format!(
+        "could not parse filter `{line}` — use {{ \"column\": \"value\" }} or column = value"
+    )))
+}
+
+fn unquote_filter_value(raw: &str) -> String {
+    let t = raw.trim();
+    if (t.starts_with('\'') && t.ends_with('\'')) || (t.starts_with('"') && t.ends_with('"')) {
+        return t[1..t.len() - 1].to_string();
+    }
+    t.to_string()
+}
+
 /// JSON object the Mongo plugin turns into a BSON filter (`$and` when needed).
 pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json::Value> {
     use serde_json::{json, Value};
@@ -119,10 +318,16 @@ pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json:
     let mut clauses = Vec::with_capacity(filters.len());
     for f in filters {
         let col = f.column.trim();
+        let op = f.op.trim().to_ascii_lowercase();
+        if op == "json" {
+            let v: Value = serde_json::from_str(f.value.trim())
+                .map_err(|e| ConnectorError::Query(format!("invalid JSON filter: {e}")))?;
+            clauses.push(v);
+            continue;
+        }
         if col.is_empty() {
             return Err(ConnectorError::Query("filter is missing a column".into()));
         }
-        let op = f.op.trim().to_ascii_lowercase();
         let as_json = || -> Value {
             let t = f.value.trim();
             if t.eq_ignore_ascii_case("null") {
@@ -209,7 +414,11 @@ pub fn resolve_preview_sort_column<'a>(
 
 fn preview_sort_dir_desc(sort_dir: Option<&str>) -> bool {
     matches!(
-        sort_dir.unwrap_or("asc").trim().to_ascii_lowercase().as_str(),
+        sort_dir
+            .unwrap_or("asc")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
         "desc" | "descending" | "-1"
     )
 }
@@ -282,6 +491,26 @@ mod tests {
         assert_eq!(where_sql, " WHERE `na``me` = 'O''Brien'");
     }
 
+    #[test]
+    fn code_filter_json_equals() {
+        let where_sql = sql_preview_where(
+            SqlIdentStyle::Postgres,
+            &[],
+            Some(r#"{ "email": "ajay@x.com" }"#),
+        )
+        .unwrap();
+        assert_eq!(where_sql, " WHERE \"email\" = 'ajay@x.com'");
+    }
+
+    #[test]
+    fn code_filter_expression() {
+        let rules = parse_code_filter_rules("status = 'active' AND age > 10").unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].column, "status");
+        assert_eq!(rules[0].op, "eq");
+        assert_eq!(rules[1].op, "gt");
+    }
+
     fn col(name: &str) -> ColumnInfo {
         ColumnInfo {
             name: name.into(),
@@ -297,27 +526,27 @@ mod tests {
     #[test]
     fn preview_sort_sql_quotes_and_dir() {
         let cols = [col("na\"me")];
-        let sql = preview_sort_sql(
-            SqlIdentStyle::Postgres,
-            &cols,
-            Some("na\"me"),
-            Some("desc"),
-        )
-        .unwrap();
+        let sql =
+            preview_sort_sql(SqlIdentStyle::Postgres, &cols, Some("na\"me"), Some("desc")).unwrap();
         assert_eq!(sql, " ORDER BY \"na\"\"me\" DESC");
     }
 
     #[test]
     fn preview_sort_sql_unknown_column_is_none() {
         let cols = [col("id")];
-        assert!(preview_sort_sql(SqlIdentStyle::Postgres, &cols, Some("nope"), Some("asc")).is_none());
+        assert!(
+            preview_sort_sql(SqlIdentStyle::Postgres, &cols, Some("nope"), Some("asc")).is_none()
+        );
         assert!(preview_sort_sql(SqlIdentStyle::Postgres, &cols, None, Some("desc")).is_none());
     }
 
     #[test]
     fn preview_sort_field_defaults_asc() {
         let cols = [col("age")];
-        assert_eq!(preview_sort_field(&cols, Some("age"), None), Some(("age", 1)));
+        assert_eq!(
+            preview_sort_field(&cols, Some("age"), None),
+            Some(("age", 1))
+        );
         assert_eq!(
             preview_sort_field(&cols, Some("age"), Some("DESC")),
             Some(("age", -1))

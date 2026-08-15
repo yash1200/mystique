@@ -1,9 +1,10 @@
 //! MongoDB engine plugin — official driver manages the connection pool.
 
 mod connector;
-mod session;
 mod preview_filter;
+mod session;
 mod shell_filter;
+mod shell_query;
 
 pub use connector::MongoConnector;
 

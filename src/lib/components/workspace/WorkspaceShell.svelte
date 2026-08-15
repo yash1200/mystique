@@ -992,6 +992,8 @@
 
 	/** Filters applied when opening a table via FK jump (seed DataGrid filter bar). */
 	let tableSeedFilters = $state<TablePreviewFilter[] | null>(null)
+	/** Raw code-filter box so remounts stay in code mode. */
+	let tableSeedCodeFilter = $state<string | null>(null)
 	/** Preview sort so remounts (filter apply, FK jump) keep the same column. */
 	let tableSeedSort = $state<TablePreviewSort | null>(null)
 
@@ -1000,10 +1002,12 @@
 		offset = 0,
 		filters: TablePreviewFilter[] = [],
 		sort: TablePreviewSort | null = null,
+		codeFilter: string | null = null,
 	) {
 		if (!activeId || !activeSession) return
 		sideMode = 'explorer'
 		tableSeedFilters = filters.length > 0 ? filters : null
+		tableSeedCodeFilter = codeFilter?.trim() || null
 		tableSeedSort = sort
 		workspaceSession.openTable(activeId, table.id, table.name)
 
@@ -1015,7 +1019,16 @@
 		try {
 			const engine = String(activeSession.profile.engine)
 			const preview = await withLiveSession(activeId, (sid) =>
-				loadTablePreview(sid, engine, table, 100, offset, filters, sort),
+				loadTablePreview(
+					sid,
+					engine,
+					table,
+					100,
+					offset,
+					filters,
+					sort,
+					codeFilter,
+				),
 			)
 			const list = catalogs[activeId] ?? []
 			const next = list.map((db) => ({
@@ -1717,6 +1730,7 @@
 	async function reloadGridTable(opts?: {
 		offset?: number
 		filters?: TablePreviewFilter[]
+		codeFilter?: string
 		sortColumn?: string
 		sortDir?: TablePreviewSort['dir']
 	}) {
@@ -1729,7 +1743,13 @@
 			opts?.sortColumn && opts?.sortDir
 				? { column: opts.sortColumn, dir: opts.sortDir }
 				: null
-		await openTable(gridTable, opts?.offset ?? 0, opts?.filters ?? [], sort)
+		await openTable(
+			gridTable,
+			opts?.offset ?? 0,
+			opts?.filters ?? [],
+			sort,
+			opts?.codeFilter ?? null,
+		)
 	}
 
 	onMount(() =>
@@ -1829,6 +1849,7 @@
 		onreloadtable={reloadGridTable}
 		onreconnect={reconnectActiveSession}
 		seedFilters={tableSeedFilters}
+		seedCodeFilter={tableSeedCodeFilter}
 		seedSort={tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
 	/>

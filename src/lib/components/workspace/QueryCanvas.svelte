@@ -3,7 +3,11 @@
 	 * Query space: Run → BE execute → results table.
 	 * Composes toolbar / editor / results; native paste via bind:value.
 	 */
-	import { executeEngineQuery } from '$lib/api/engines'
+	import {
+		executeEngineQuery,
+		listEngineCatalogColumns,
+		type CatalogColumnRow,
+	} from '$lib/api/engines'
 	import { appendQueryHistory, type QueryHistoryItem } from '$lib/api/history'
 	import { isTauri } from '$lib/api/tauri'
 	import type { EngineCapabilities } from '$lib/types/engineCaps'
@@ -74,6 +78,7 @@
 
 	let runState = $state<RunState>({ status: 'idle' })
 	let collection = $state('')
+	let catalogColumns = $state<CatalogColumnRow[]>([])
 	let resultPage = $state(0)
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let exporting = $state<ResultExportAction | null>(null)
@@ -92,6 +97,29 @@
 	let splitDragging = $state(false)
 
 	const language = $derived(queryLanguageFor(engine, capabilities))
+
+	$effect(() => {
+		const sid = engineSessionId
+		const db = database
+		if (!isTauri() || !sid) {
+			catalogColumns = []
+			return
+		}
+		let cancelled = false
+		void listEngineCatalogColumns({
+			sessionId: sid,
+			database: db || null,
+		})
+			.then((rows) => {
+				if (!cancelled) catalogColumns = rows ?? []
+			})
+			.catch(() => {
+				if (!cancelled) catalogColumns = []
+			})
+		return () => {
+			cancelled = true
+		}
+	})
 	const placeholder = $derived(queryPlaceholder(engine))
 	const effectiveMode = $derived<QueryMode>(
 		profileReadOnly || !writeEnabled ? 'read' : 'write',
@@ -436,6 +464,7 @@
 				bind:localText
 				{lineCount}
 				{language}
+				{catalogColumns}
 				{profileReadOnly}
 				{effectiveMode}
 				bind:collection

@@ -5,13 +5,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use deadpool_postgres::Pool;
 use mystique_connector_api::{
-    cell_bool, compile_delete, compile_insert, compile_update, qualify_table,
-    quote_ident, split_sql_statements, ApplyTableEditsInput, ApplyTableEditsResult,
-    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, FetchTablePreviewInput,
-    ColumnReference, ObjectStructure, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TableObjectKind, TablePreviewResult, ValidatedQuery, preview_sort_sql, sql_where_clause,
+    cell_bool, compile_delete, compile_insert, compile_update, preview_sort_sql, qualify_table,
+    quote_ident, split_sql_statements, sql_preview_where, ApplyTableEditsInput,
+    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
+    ColumnInfo, ColumnReference, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, FetchTablePreviewInput, ObjectStructure, PoolStatus, QueryColumn,
+    QueryMode, QueryResult, SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp,
+    TableAdminResult, TableObjectKind, TablePreviewResult, ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::Type;
@@ -752,7 +752,11 @@ impl ConnectorSession for PostgresSession {
         let limit = input.max_rows as i64;
         let select_list = preview_select_list(SqlIdentStyle::Postgres, &columns);
         let offset = input.offset;
-        let where_sql = sql_where_clause(SqlIdentStyle::Postgres, &input.filters)?;
+        let where_sql = sql_preview_where(
+            SqlIdentStyle::Postgres,
+            &input.filters,
+            input.code_filter.as_deref(),
+        )?;
         let sql = format!(
             "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
         );
@@ -987,12 +991,7 @@ impl ConnectorSession for PostgresSession {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or("public");
-        let qname = qualify_table(
-            SqlIdentStyle::Postgres,
-            None,
-            Some(schema),
-            &input.name,
-        );
+        let qname = qualify_table(SqlIdentStyle::Postgres, None, Some(schema), &input.name);
         let is_view = input.kind == TableObjectKind::View;
 
         match input.op {
@@ -1014,9 +1013,7 @@ impl ConnectorSession for PostgresSession {
             }
             TableAdminOp::CreateObject => {
                 // Minimal empty table with a PK so CREATE TABLE is valid.
-                let sql = format!(
-                    "CREATE TABLE {qname} (id bigserial PRIMARY KEY)"
-                );
+                let sql = format!("CREATE TABLE {qname} (id bigserial PRIMARY KEY)");
                 client
                     .batch_execute(&sql)
                     .await
@@ -1047,7 +1044,10 @@ impl ConnectorSession for PostgresSession {
                     .batch_execute(&sql)
                     .await
                     .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(input.op, format!("Dropped {qname}.")))
+                Ok(TableAdminResult::executed(
+                    input.op,
+                    format!("Dropped {qname}."),
+                ))
             }
             TableAdminOp::Truncate => {
                 if is_view {
@@ -1072,12 +1072,7 @@ impl ConnectorSession for PostgresSession {
                     ));
                 }
                 let new_name = input.new_name.as_deref().unwrap_or("").trim();
-                let dest = qualify_table(
-                    SqlIdentStyle::Postgres,
-                    None,
-                    Some(schema),
-                    new_name,
-                );
+                let dest = qualify_table(SqlIdentStyle::Postgres, None, Some(schema), new_name);
                 let sql = format!(
                     "CREATE TABLE {dest} (LIKE {qname} INCLUDING ALL); INSERT INTO {dest} SELECT * FROM {qname}"
                 );
@@ -1110,9 +1105,7 @@ impl ConnectorSession for PostgresSession {
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))?;
 
-        let cols = self
-            .describe_table(None, Some(schema), table)
-            .await?;
+        let cols = self.describe_table(None, Some(schema), table).await?;
         let col_rows: Vec<Vec<String>> = cols
             .iter()
             .map(|c| {
@@ -1448,10 +1441,7 @@ async fn pg_create_statement(
             let typ: String = c.get(1);
             let not_null: bool = c.get(2);
             let nn = if not_null { " NOT NULL" } else { "" };
-            format!(
-                "  {} {typ}{nn}",
-                quote_ident(SqlIdentStyle::Postgres, &col)
-            )
+            format!("  {} {typ}{nn}", quote_ident(SqlIdentStyle::Postgres, &col))
         })
         .collect();
     let pk = client

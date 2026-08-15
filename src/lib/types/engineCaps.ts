@@ -76,6 +76,8 @@ export interface EngineCapabilities {
 	objectLabels: ObjectLabels
 	explorer: ExplorerConfig
 	tableAdmin: TableAdminFeatures
+	/** Grid code-filter placeholder from the plugin. */
+	codeFilterPlaceholder: string
 }
 
 const SQL_ADMIN: TableAdminFeatures = {
@@ -130,6 +132,7 @@ export function defaultCapabilitiesForEngine(
 				listTitle: 'Collections',
 				filterPlaceholder: 'Filter collections…',
 			},
+			codeFilterPlaceholder: '{ "email": "user@example.com" }',
 			tableAdmin: {
 				createStatement: true,
 				rename: true,
@@ -178,6 +181,7 @@ export function defaultCapabilitiesForEngine(
 				listTitle: 'Tables',
 				filterPlaceholder: 'Filter tables…',
 			},
+			codeFilterPlaceholder: '{ "status": "active" } or status = \'active\'',
 			tableAdmin: { ...SQL_ADMIN },
 		}
 	}
@@ -219,6 +223,7 @@ export function defaultCapabilitiesForEngine(
 				listTitle: 'Tables',
 				filterPlaceholder: 'Filter tables…',
 			},
+			codeFilterPlaceholder: '{ "status": "active" } or status = \'active\'',
 			tableAdmin: { ...SQL_ADMIN },
 		}
 	}
@@ -255,6 +260,7 @@ export function defaultCapabilitiesForEngine(
 			listTitle: 'Tables',
 			filterPlaceholder: 'Filter schemas & tables…',
 		},
+		codeFilterPlaceholder: '{ "status": "active" } or status = \'active\'',
 		tableAdmin: { ...SQL_ADMIN },
 	}
 }
@@ -272,7 +278,10 @@ function asStringList(v: unknown, fallback: string[]): string[] {
 	return v.filter((x): x is string => typeof x === 'string')
 }
 
-function asConnectionKind(v: unknown, fallback: ConnectionKind): ConnectionKind {
+function asConnectionKind(
+	v: unknown,
+	fallback: ConnectionKind,
+): ConnectionKind {
 	const s = String(v ?? '')
 		.toLowerCase()
 		.trim()
@@ -312,10 +321,7 @@ export function normalizeCapabilities(
 		...fallback,
 		...c,
 		engine: c.engine || fallback.engine,
-		sqlDialect: asString(
-			c.sqlDialect ?? c.sql_dialect,
-			fallback.sqlDialect,
-		),
+		sqlDialect: asString(c.sqlDialect ?? c.sql_dialect, fallback.sqlDialect),
 		preferDatabaseFromUri: asBool(
 			c.preferDatabaseFromUri ?? c.prefer_database_from_uri,
 			fallback.preferDatabaseFromUri,
@@ -331,6 +337,11 @@ export function normalizeCapabilities(
 		nameExample: asString(
 			c.nameExample ?? c.name_example,
 			fallback.nameExample,
+		),
+		codeFilterPlaceholder: asString(
+			c.codeFilterPlaceholder ??
+				(c as { code_filter_placeholder?: unknown }).code_filter_placeholder,
+			fallback.codeFilterPlaceholder,
 		),
 		explorer: normalizeExplorer(c.explorer, fallback.explorer),
 		tableAdmin: {
@@ -428,7 +439,8 @@ export function presentationFromCaps(caps: EngineCapabilities): {
 		objectLabel: ex.objectLabel || `${singular}s`,
 		objectLabelSingular: singular,
 		listTitle,
-		filterPlaceholder: ex.filterPlaceholder || `Filter ${ex.objectLabel || singular}…`,
+		filterPlaceholder:
+			ex.filterPlaceholder || `Filter ${ex.objectLabel || singular}…`,
 		canCreateDatabase: asBool(ex.canCreateDatabase, false),
 		canCreateGroup: asBool(ex.canCreateGroup, false),
 		// Prefer explicit false only; missing/undefined → allow create (plugins default true).
@@ -446,7 +458,9 @@ export function queryLangFromCaps(caps: EngineCapabilities): 'sql' | 'mql' {
 	return caps.queryLanguage.toUpperCase() === 'MQL' ? 'mql' : 'sql'
 }
 
-export function connectionKindFromCaps(caps: EngineCapabilities): ConnectionKind {
+export function connectionKindFromCaps(
+	caps: EngineCapabilities,
+): ConnectionKind {
 	return asConnectionKind(caps.connectionKind, 'host')
 }
 

@@ -168,7 +168,10 @@ export function mergeCatalogReplaceDatabase(
 	const prevByName = new Map((prev ?? []).map((d) => [d.name, d]))
 	const liveByName = new Map(live.map((d) => [d.name, d]))
 	const names = [
-		...new Set([...live.map((d) => d.name), ...(prev ?? []).map((d) => d.name)]),
+		...new Set([
+			...live.map((d) => d.name),
+			...(prev ?? []).map((d) => d.name),
+		]),
 	]
 	return names.map((name) => {
 		const l = liveByName.get(name)
@@ -200,6 +203,7 @@ export async function loadTablePreview(
 	offset = 0,
 	filters: TablePreviewFilter[] = [],
 	sort: TablePreviewSort | null = null,
+	codeFilter: string | null = null,
 ): Promise<TableMeta> {
 	const preview = await fetchEngineTablePreview({
 		sessionId,
@@ -209,6 +213,7 @@ export async function loadTablePreview(
 		maxRows,
 		offset,
 		filters,
+		codeFilter,
 		sortColumn: sort?.column ?? null,
 		sortDir: sort?.dir ?? null,
 	})

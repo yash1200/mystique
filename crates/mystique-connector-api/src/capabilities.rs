@@ -133,6 +133,13 @@ pub struct EngineCapabilities {
     pub object_labels: ObjectLabels,
     pub explorer: ExplorerConfig,
     pub table_admin: TableAdminFeatures,
+    /// Placeholder for the grid code-filter box (plugin-owned).
+    #[serde(default = "default_code_filter_placeholder")]
+    pub code_filter_placeholder: String,
+}
+
+fn default_code_filter_placeholder() -> String {
+    r#"{ "email": "user@example.com" }"#.into()
 }
 
 impl ExplorerConfig {
@@ -233,6 +240,7 @@ impl EngineCapabilities {
             object_labels: ObjectLabels::relational(),
             explorer: ExplorerConfig::relational_schema_tree(),
             table_admin: TableAdminFeatures::sql_all(),
+            code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
         }
     }
 
@@ -259,6 +267,7 @@ impl EngineCapabilities {
             object_labels: ObjectLabels::relational(),
             explorer: ExplorerConfig::relational_flat(false, false),
             table_admin: TableAdminFeatures::sql_all(),
+            code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
         }
     }
 
@@ -285,6 +294,7 @@ impl EngineCapabilities {
             object_labels: ObjectLabels::document(),
             explorer: ExplorerConfig::document(),
             table_admin: TableAdminFeatures::mongodb(),
+            code_filter_placeholder: r#"{ "email": "user@example.com" }"#.into(),
         }
     }
 
@@ -311,6 +321,7 @@ impl EngineCapabilities {
             object_labels: ObjectLabels::relational(),
             explorer: ExplorerConfig::relational_flat(true, true),
             table_admin: TableAdminFeatures::sql_all(),
+            code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
         }
     }
 }
@@ -327,8 +338,14 @@ mod create_caps_tests {
         assert!(caps.explorer.can_create_database);
         let json = serde_json::to_value(&caps).unwrap();
         let explorer = json.get("explorer").unwrap();
-        assert_eq!(explorer.get("canCreateObject").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(explorer.get("objectLabelSingular").and_then(|v| v.as_str()), Some("collection"));
+        assert_eq!(
+            explorer.get("canCreateObject").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            explorer.get("objectLabelSingular").and_then(|v| v.as_str()),
+            Some("collection")
+        );
         println!("{}", serde_json::to_string_pretty(&caps.explorer).unwrap());
     }
 }
