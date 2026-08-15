@@ -483,6 +483,46 @@ class WorkspaceSessionStore {
 		this.schedulePersist(tab.connectionId)
 	}
 
+	/**
+	 * Move a tab within its connection. `beforeId` is the tab it should sit
+	 * in front of; `null` appends to the end of that connection's tabs.
+	 */
+	reorderTabs(movedId: string, beforeId: string | null) {
+		if (movedId === beforeId) return
+		const moved = this.openTabs.find((t) => t.id === movedId)
+		if (!moved) return
+		const connectionId = moved.connectionId
+		if (
+			beforeId &&
+			!this.openTabs.some(
+				(t) => t.id === beforeId && t.connectionId === connectionId,
+			)
+		) {
+			return
+		}
+
+		const conn = this.openTabs.filter((t) => t.connectionId === connectionId)
+		const from = conn.findIndex((t) => t.id === movedId)
+		const dest =
+			beforeId == null ? conn.length : conn.findIndex((t) => t.id === beforeId)
+		if (from < 0 || dest < 0 || from === dest || from + 1 === dest) return
+
+		const nextConn = conn.slice()
+		const [item] = nextConn.splice(from, 1)
+		const insertAt =
+			beforeId == null
+				? nextConn.length
+				: nextConn.findIndex((t) => t.id === beforeId)
+		if (insertAt < 0) return
+		nextConn.splice(insertAt, 0, item)
+
+		let i = 0
+		this.openTabs = this.openTabs.map((t) =>
+			t.connectionId === connectionId ? nextConn[i++]! : t,
+		)
+		this.schedulePersist(connectionId)
+	}
+
 	setQueryDraft(tabId: string, text: string) {
 		this.queryDrafts = { ...this.queryDrafts, [tabId]: text }
 		const baseline = this.queryBaselines[tabId] ?? ''

@@ -130,6 +130,8 @@
 			onclose={(id) =>
 				onclosetab ? onclosetab(id) : workspaceSession.closeTab(id)}
 			onopenquery={() => workspaceSession.openNewQuery(activeId)}
+			onreorder={(movedId, beforeId) =>
+				workspaceSession.reorderTabs(movedId, beforeId)}
 		/>
 	{/if}
 

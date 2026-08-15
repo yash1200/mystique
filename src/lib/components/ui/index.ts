@@ -19,6 +19,8 @@ export type { ContextMenuItem } from "./ContextMenu.svelte";
 export { default as ConnectionStripe } from "./ConnectionStripe.svelte";
 export { default as ContentPanel } from "./ContentPanel.svelte";
 export { default as DefinitionList } from "./DefinitionList.svelte";
+export { default as Draggable } from "./Draggable.svelte";
+export type { DraggableApi, DropEdge } from "./Draggable.svelte";
 export { default as EmptyState } from "./EmptyState.svelte";
 export { default as EngineBadge } from "./EngineBadge.svelte";
 export { default as Field } from "./Field.svelte";
