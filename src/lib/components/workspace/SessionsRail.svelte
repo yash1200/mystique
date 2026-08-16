@@ -12,6 +12,8 @@
 		engineLabel,
 	} from '$lib/types/connection'
 	import { cn } from '$lib/utils/cn'
+	import { resetAppToHome } from '$lib/utils/resetApp'
+	import LeaveWorkspaceModal from './LeaveWorkspaceModal.svelte'
 
 	export type SideNavMode = 'explorer' | 'saved-queries' | 'history'
 
@@ -40,6 +42,23 @@
 	}: Props = $props()
 
 	let menu = $state<{ id: string; x: number; y: number } | null>(null)
+	let leaveOpen = $state(false)
+	let leaveBusy = $state(false)
+
+	function requestLeaveHome() {
+		if (leaveBusy) return
+		leaveOpen = true
+	}
+
+	async function confirmLeaveHome() {
+		if (leaveBusy) return
+		leaveBusy = true
+		try {
+			await resetAppToHome()
+		} finally {
+			leaveBusy = false
+		}
+	}
 
 	function selectConnection(id: string) {
 		onmode('explorer')
@@ -84,9 +103,16 @@
 >
 	<header
 		class="flex h-topbar w-full shrink-0 items-center justify-center border-b border-line"
-		title="MystiqueDB"
 	>
-		<BrandMark size="sm" />
+		<button
+			type="button"
+			class="grid size-9 place-items-center rounded-lg border-none bg-transparent p-0 transition-opacity hover:opacity-85 focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1"
+			title="Back to connections"
+			aria-label="Back to connections"
+			onclick={requestLeaveHome}
+		>
+			<BrandMark size="sm" />
+		</button>
 	</header>
 
 	<div
@@ -262,3 +288,12 @@
 		onclose={() => (menu = null)}
 	/>
 {/if}
+
+<LeaveWorkspaceModal
+	open={leaveOpen}
+	busy={leaveBusy}
+	onconfirm={() => void confirmLeaveHome()}
+	oncancel={() => {
+		if (!leaveBusy) leaveOpen = false
+	}}
+/>
