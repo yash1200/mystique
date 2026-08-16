@@ -28,6 +28,7 @@ export { default as FormGrid } from "./FormGrid.svelte";
 export { default as IconButton } from "./IconButton.svelte";
 export { default as Inline } from "./Inline.svelte";
 export { default as Kbd } from "./Kbd.svelte";
+export { default as KeyboardShortcutsModal } from "./KeyboardShortcutsModal.svelte";
 export { default as Input } from "./Input.svelte";
 export { default as PasswordInput } from "./PasswordInput.svelte";
 export { default as PageHeader } from "./PageHeader.svelte";
