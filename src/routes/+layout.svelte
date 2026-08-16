@@ -13,6 +13,7 @@
     applyThemePref,
   } from "$lib/utils/appPrefs";
   import { setAppTitle } from "$lib/utils/appTitle";
+  import { resetAppToHome } from "$lib/utils/resetApp";
 
   let { children } = $props();
 
@@ -41,6 +42,13 @@
 
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.shiftKey && e.code === "KeyR") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        void resetAppToHome();
+        return;
+      }
+      if (e.shiftKey) return;
       if (e.key === "=" || e.key === "+") {
         e.preventDefault();
         zoomBy(0.1);
@@ -52,7 +60,7 @@
         zoomReset();
       }
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
 
     const unsubs: Array<() => void> = [];
     let cancelled = false;
@@ -72,7 +80,7 @@
     return () => {
       cancelled = true;
       mq.removeEventListener("change", onScheme);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       for (const u of unsubs) u();
     };
   });

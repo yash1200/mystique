@@ -345,6 +345,12 @@ class WorkspaceSessionStore {
 		}
 	}
 
+	/** Drop every live session from memory (engine pools closed by the caller). */
+	disconnectAll() {
+		const ids = this.sessions.map((s) => s.profile.id)
+		for (const id of ids) this.disconnect(id)
+	}
+
 	openTable(connectionId: string, tableId: string, title: string) {
 		const id = `${connectionId}::table::${tableId}`
 		if (!this.openTabs.some((t) => t.id === id)) {
