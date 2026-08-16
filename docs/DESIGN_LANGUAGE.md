@@ -140,11 +140,13 @@ CodeMirror and any code chrome must use these tokens (light + dark in `tokens.cs
 | `--syntax-string` | Strings |
 | `--syntax-number` | Numbers |
 | `--syntax-comment` | Comments |
-| `--syntax-operator` | Operators / punctuation |
+| `--syntax-operator` | Operators (`=`, `>`, `AND`) |
+| `--syntax-punct` | Punctuation / brackets |
 | `--syntax-name` | Identifiers |
 | `--syntax-property` | Properties / fields |
-| `--syntax-type` | Types / bool / null |
-| `--syntax-func` | Functions |
+| `--syntax-type` | Types |
+| `--syntax-func` | Functions / builtins |
+| `--syntax-atom` | Bool / null / atoms |
 | `--syntax-invalid` | Errors |
 
 Do not reuse `--accent` or connection hues for syntax. Reconfigure the editor theme when `data-theme` changes (`createMystiqueEditorTheme`).

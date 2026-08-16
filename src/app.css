@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "./lib/styles/tokens.css";
+@import 'tailwindcss';
+@import './lib/styles/tokens.css';
 
 /*
   MystiqueDB design language → Tailwind
@@ -11,249 +11,257 @@
 @custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 @theme inline {
-  /* —— Fonts —— */
-  --font-sans: var(--mds-font-ui);
-  --font-mono: var(--mds-font-mono);
+	/* —— Fonts —— */
+	--font-sans: var(--mds-font-ui);
+	--font-mono: var(--mds-font-mono);
 
-  /* —— Type scale (closed set) — must match docs/DESIGN_LANGUAGE.md —— */
-  --text-micro: 0.625rem; /* 10px */
-  --text-micro--line-height: 1.2;
-  --text-caption: 0.6875rem; /* 11px */
-  --text-caption--line-height: 1.35;
-  --text-label: 0.75rem; /* 12px */
-  --text-label--line-height: 1.4;
-  --text-body: 0.8125rem; /* 13px — default UI */
-  --text-body--line-height: 1.4;
-  --text-body-lg: 0.875rem; /* 14px */
-  --text-body-lg--line-height: 1.45;
-  --text-title: 1.125rem; /* 18px */
-  --text-title--line-height: 1.3;
-  --text-display: 1.375rem; /* 22px */
-  --text-display--line-height: 1.25;
+	/* —— Type scale (closed set) — must match docs/DESIGN_LANGUAGE.md —— */
+	--text-micro: 0.625rem; /* 10px */
+	--text-micro--line-height: 1.2;
+	--text-caption: 0.6875rem; /* 11px */
+	--text-caption--line-height: 1.35;
+	--text-label: 0.75rem; /* 12px */
+	--text-label--line-height: 1.4;
+	--text-body: 0.8125rem; /* 13px — default UI */
+	--text-body--line-height: 1.4;
+	--text-body-lg: 0.875rem; /* 14px */
+	--text-body-lg--line-height: 1.45;
+	--text-title: 1.125rem; /* 18px */
+	--text-title--line-height: 1.3;
+	--text-display: 1.375rem; /* 22px */
+	--text-display--line-height: 1.25;
 
-  /* —— Radius —— */
-  --radius-sm: var(--mds-radius-sm);
-  --radius-md: var(--mds-radius-md);
-  --radius-lg: var(--mds-radius-lg);
-  --radius-xl: var(--mds-radius-xl);
+	/* —— Radius —— */
+	--radius-sm: var(--mds-radius-sm);
+	--radius-md: var(--mds-radius-md);
+	--radius-lg: var(--mds-radius-lg);
+	--radius-xl: var(--mds-radius-xl);
 
-  /* —— Surfaces —— */
-  --color-app: var(--bg-app);
-  --color-panel: var(--bg-panel);
-  --color-elevated: var(--bg-elevated);
-  --color-input: var(--bg-input);
-  --color-hover: var(--bg-hover);
-  --color-active: var(--bg-active);
-  --color-selected: var(--bg-selected);
+	/* —— Surfaces —— */
+	--color-app: var(--bg-app);
+	--color-panel: var(--bg-panel);
+	--color-elevated: var(--bg-elevated);
+	--color-input: var(--bg-input);
+	--color-hover: var(--bg-hover);
+	--color-active: var(--bg-active);
+	--color-selected: var(--bg-selected);
 
-  /* —— Text —— */
-  --color-fg: var(--text-primary);
-  --color-fg-secondary: var(--text-secondary);
-  --color-fg-muted: var(--text-muted);
-  --color-fg-inverse: var(--text-inverse);
+	/* —— Text —— */
+	--color-fg: var(--text-primary);
+	--color-fg-secondary: var(--text-secondary);
+	--color-fg-muted: var(--text-muted);
+	--color-fg-inverse: var(--text-inverse);
 
-  /* —— Borders —— */
-  --color-line: var(--border-subtle);
-  --color-line-strong: var(--border-strong);
-  --color-focus: var(--border-focus);
+	/* —— Borders —— */
+	--color-line: var(--border-subtle);
+	--color-line-strong: var(--border-strong);
+	--color-focus: var(--border-focus);
 
-  /* —— Brand / status —— */
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-accent-muted: var(--accent-muted);
-  --color-success: var(--status-success);
-  --color-warning: var(--status-warning);
-  --color-danger: var(--status-danger);
-  --color-info: var(--status-info);
-  --color-syntax-keyword: var(--syntax-keyword);
-  --color-syntax-string: var(--syntax-string);
-  --color-syntax-number: var(--syntax-number);
-  --color-syntax-comment: var(--syntax-comment);
-  --color-syntax-operator: var(--syntax-operator);
-  --color-syntax-name: var(--syntax-name);
-  --color-syntax-property: var(--syntax-property);
-  --color-syntax-type: var(--syntax-type);
-  --color-syntax-func: var(--syntax-func);
-  --color-syntax-invalid: var(--syntax-invalid);
+	/* —— Brand / status —— */
+	--color-accent: var(--accent);
+	--color-accent-hover: var(--accent-hover);
+	--color-accent-muted: var(--accent-muted);
+	--color-success: var(--status-success);
+	--color-warning: var(--status-warning);
+	--color-danger: var(--status-danger);
+	--color-info: var(--status-info);
+	--color-syntax-keyword: var(--syntax-keyword);
+	--color-syntax-string: var(--syntax-string);
+	--color-syntax-number: var(--syntax-number);
+	--color-syntax-comment: var(--syntax-comment);
+	--color-syntax-operator: var(--syntax-operator);
+	--color-syntax-punct: var(--syntax-punct);
+	--color-syntax-name: var(--syntax-name);
+	--color-syntax-property: var(--syntax-property);
+	--color-syntax-type: var(--syntax-type);
+	--color-syntax-func: var(--syntax-func);
+	--color-syntax-atom: var(--syntax-atom);
+	--color-syntax-invalid: var(--syntax-invalid);
 
-  /* —— Connection palette —— */
-  --color-conn-rose: var(--conn-rose);
-  --color-conn-orange: var(--conn-orange);
-  --color-conn-amber: var(--conn-amber);
-  --color-conn-lime: var(--conn-lime);
-  --color-conn-green: var(--conn-green);
-  --color-conn-teal: var(--conn-teal);
-  --color-conn-cyan: var(--conn-cyan);
-  --color-conn-blue: var(--conn-blue);
-  --color-conn-indigo: var(--conn-indigo);
-  --color-conn-violet: var(--conn-violet);
-  --color-conn-magenta: var(--conn-magenta);
-  --color-conn-slate: var(--conn-slate);
+	/* —— Connection palette —— */
+	--color-conn-rose: var(--conn-rose);
+	--color-conn-orange: var(--conn-orange);
+	--color-conn-amber: var(--conn-amber);
+	--color-conn-lime: var(--conn-lime);
+	--color-conn-green: var(--conn-green);
+	--color-conn-teal: var(--conn-teal);
+	--color-conn-cyan: var(--conn-cyan);
+	--color-conn-blue: var(--conn-blue);
+	--color-conn-indigo: var(--conn-indigo);
+	--color-conn-violet: var(--conn-violet);
+	--color-conn-magenta: var(--conn-magenta);
+	--color-conn-slate: var(--conn-slate);
 
-  /* —— Shadows —— */
-  --shadow-sm: var(--mds-shadow-sm);
-  --shadow-md: var(--mds-shadow-md);
+	/* —— Shadows —— */
+	--shadow-sm: var(--mds-shadow-sm);
+	--shadow-md: var(--mds-shadow-md);
 
-  /* —— Layout widths —— */
-  --spacing-sidebar: var(--sidebar-width);
-  --spacing-panel-sm: 26.25rem; /* 420px */
-  --spacing-panel-md: 45rem; /* 720px */
-  --spacing-panel-lg: 55rem; /* 880px */
+	/* —— Layout widths —— */
+	--spacing-sidebar: var(--sidebar-width);
+	--spacing-panel-sm: 26.25rem; /* 420px */
+	--spacing-panel-md: 45rem; /* 720px */
+	--spacing-panel-lg: 55rem; /* 880px */
 
-  /* —— Control heights (as spacing for h-* if needed) —— */
-  --spacing-control-sm: 1.75rem; /* 28px — design language */
-  --spacing-control: 2.125rem; /* 34px — design language */
-  --spacing-control-lg: 2.5rem; /* 40px — design language */
-  /* Top bar raised for Home breadcrumb + Back (dda16c7); not for status footers */
-  --spacing-topbar: 3.25rem; /* 52px */
-  --spacing-row: var(--row-height);
+	/* —— Control heights (as spacing for h-* if needed) —— */
+	--spacing-control-sm: 1.75rem; /* 28px — design language */
+	--spacing-control: 2.125rem; /* 34px — design language */
+	--spacing-control-lg: 2.5rem; /* 40px — design language */
+	/* Top bar raised for Home breadcrumb + Back (dda16c7); not for status footers */
+	--spacing-topbar: 3.25rem; /* 52px */
+	--spacing-row: var(--row-height);
 }
 
 @layer base {
-  /*
+	/*
     Root font-size anchors rem → design-language px at scale 1 (16px).
     Optional zoom via `uiScale.ts` (Ctrl/Cmd +/- / 0). Do not hard-code px type in UI.
   */
-  html {
-    /* Design-language base (16px). uiScale.ts may adjust if user zooms. */
-    font-size: 16px;
-    -webkit-tap-highlight-color: color-mix(in srgb, var(--accent) 22%, transparent);
-  }
+	html {
+		/* Design-language base (16px). uiScale.ts may adjust if user zooms. */
+		font-size: 16px;
+		-webkit-tap-highlight-color: color-mix(
+			in srgb,
+			var(--accent) 22%,
+			transparent
+		);
+	}
 
-  html,
-  body {
-    @apply m-0 h-full overflow-hidden p-0;
-    -webkit-user-select: none;
-    user-select: none;
-  }
+	html,
+	body {
+		@apply m-0 h-full overflow-hidden p-0;
+		-webkit-user-select: none;
+		user-select: none;
+	}
 
-  body {
-    @apply bg-app font-sans text-body text-fg antialiased;
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    font-feature-settings: "ss01" on, "cv11" on;
-    touch-action: manipulation;
-  }
+	body {
+		@apply bg-app font-sans text-body text-fg antialiased;
+		font-synthesis: none;
+		text-rendering: optimizeLegibility;
+		font-feature-settings:
+			'ss01' on,
+			'cv11' on;
+		touch-action: manipulation;
+	}
 
-  /* Chrome is not selectable. Data cells, editors, and fields stay copyable. */
-  input,
-  textarea,
-  select,
-  [contenteditable="true"],
-  [contenteditable=""],
-  .cm-editor,
-  .cm-content,
-  .cm-line,
-  [data-grid-cell],
-  [data-result-cell] {
-    -webkit-user-select: text;
-    user-select: text;
-  }
+	/* Chrome is not selectable. Data cells, editors, and fields stay copyable. */
+	input,
+	textarea,
+	select,
+	[contenteditable='true'],
+	[contenteditable=''],
+	.cm-editor,
+	.cm-content,
+	.cm-line,
+	[data-grid-cell],
+	[data-result-cell] {
+		-webkit-user-select: text;
+		user-select: text;
+	}
 
-  body::after {
-    content: "";
-    pointer-events: none;
-    position: fixed;
-    inset: 0;
-    z-index: 1;
-    opacity: var(--grain-opacity);
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
+	body::after {
+		content: '';
+		pointer-events: none;
+		position: fixed;
+		inset: 0;
+		z-index: 1;
+		opacity: var(--grain-opacity);
+		mix-blend-mode: overlay;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	}
 
-  button,
-  input,
-  select,
-  textarea {
-    font: inherit;
-    color: inherit;
-  }
+	button,
+	input,
+	select,
+	textarea {
+		font: inherit;
+		color: inherit;
+	}
 
-  button,
-  [role="button"],
-  input[type="button"],
-  input[type="submit"],
-  input[type="reset"] {
-    @apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-55;
-  }
+	button,
+	[role='button'],
+	input[type='button'],
+	input[type='submit'],
+	input[type='reset'] {
+		@apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-55;
+	}
 
-  a {
-    @apply text-accent;
-  }
+	a {
+		@apply text-accent;
+	}
 
-  kbd {
-    @apply rounded-sm border border-line bg-input px-1 py-px font-mono text-micro font-medium text-fg-secondary;
-  }
+	kbd {
+		@apply rounded-sm border border-line bg-input px-1 py-px font-mono text-micro font-medium text-fg-secondary;
+	}
 
-  /* Use OS/system cursors only — no custom PNG cursor overrides. */
+	/* Use OS/system cursors only — no custom PNG cursor overrides. */
 
-  :focus-visible {
-    @apply outline-2 outline-offset-2 outline-focus;
-  }
+	:focus-visible {
+		@apply outline-2 outline-offset-2 outline-focus;
+	}
 
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-    }
-  }
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
 }
 
 /* —— Design-language utilities —— */
 
 @utility w-sidebar {
-  width: var(--sidebar-width);
+	width: var(--sidebar-width);
 }
 
 @utility max-w-panel-sm {
-  max-width: 26.25rem;
+	max-width: 26.25rem;
 }
 
 @utility max-w-panel-md {
-  max-width: 45rem;
+	max-width: 45rem;
 }
 
 @utility max-w-panel-lg {
-  max-width: 55rem;
+	max-width: 55rem;
 }
 
 @utility max-w-prose-ui {
-  max-width: 52ch;
+	max-width: 52ch;
 }
 
 @utility h-control-sm {
-  height: 1.75rem; /* 28px */
+	height: 1.75rem; /* 28px */
 }
 
 @utility h-control {
-  height: 2.125rem; /* 34px — default control */
+	height: 2.125rem; /* 34px — default control */
 }
 
 @utility h-control-lg {
-  height: 2.5rem; /* 40px */
+	height: 2.5rem; /* 40px */
 }
 
 /* Square control sizes (icon buttons, matching Input heights) */
 @utility size-control-sm {
-  width: 1.75rem;
-  height: 1.75rem;
+	width: 1.75rem;
+	height: 1.75rem;
 }
 
 @utility size-control {
-  width: 2.125rem;
-  height: 2.125rem;
+	width: 2.125rem;
+	height: 2.125rem;
 }
 
 @utility size-control-lg {
-  width: 2.5rem;
-  height: 2.5rem;
+	width: 2.5rem;
+	height: 2.5rem;
 }
 
 @utility h-topbar {
-  height: 3.25rem; /* 52px — matches --spacing-topbar */
+	height: 3.25rem; /* 52px — matches --spacing-topbar */
 }
 
 /*
@@ -262,82 +270,83 @@
   Keep statusbars at default control height per dense workspace chrome.
 */
 @utility h-statusbar {
-  /* Fixed bar height so single-line labels sit optically centered. */
-  height: 2.125rem; /* 34px — matches h-control */
-  min-height: 2.125rem;
+	/* Fixed bar height so single-line labels sit optically centered. */
+	height: 2.125rem; /* 34px — matches h-control */
+	min-height: 2.125rem;
 }
 
 @utility min-h-statusbar {
-  min-height: 2.125rem;
+	min-height: 2.125rem;
 }
 
 @utility min-h-grid-row {
-  min-height: var(--grid-row-height, 1.75rem);
+	min-height: var(--grid-row-height, 1.75rem);
 }
 
 @utility min-h-row {
-  min-height: var(--row-height);
+	min-height: var(--row-height);
 }
 
 /* Keep overflow scroll, hide the track so it cannot steal clicks. */
 @utility scrollbar-none {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  &::-webkit-scrollbar {
-    display: none;
-  }
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+	&::-webkit-scrollbar {
+		display: none;
+	}
 }
 
 @utility w-stripe {
-  width: 3px;
+	width: 3px;
 }
 
 @utility size-swatch {
-  width: 1.375rem; /* 22px */
-  height: 1.375rem;
+	width: 1.375rem; /* 22px */
+	height: 1.375rem;
 }
 
 @utility size-status {
-  width: 0.5rem; /* 8px */
-  height: 0.5rem;
+	width: 0.5rem; /* 8px */
+	height: 0.5rem;
 }
 
 @utility conn-tint {
-  background: color-mix(in srgb, var(--connection-color) 14%, var(--bg-panel));
+	background: color-mix(in srgb, var(--connection-color) 14%, var(--bg-panel));
 }
 
 @utility conn-tint-soft {
-  background: color-mix(in srgb, var(--connection-color) 12%, var(--bg-panel));
+	background: color-mix(in srgb, var(--connection-color) 12%, var(--bg-panel));
 }
 
 @utility conn-ring {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--connection-color) 25%, transparent);
+	box-shadow: 0 0 0 3px
+		color-mix(in srgb, var(--connection-color) 25%, transparent);
 }
 
 @utility bg-conn {
-  background-color: var(--connection-color);
+	background-color: var(--connection-color);
 }
 
 @utility bg-app-wash {
-  background:
-    radial-gradient(
-      900px 520px at 88% -12%,
-      color-mix(
-        in srgb,
-        var(--connection-color, var(--accent)) 11%,
-        transparent
-      ),
-      transparent 58%
-    ),
-    var(--bg-app);
+	background:
+		radial-gradient(
+			900px 520px at 88% -12%,
+			color-mix(
+				in srgb,
+				var(--connection-color, var(--accent)) 11%,
+				transparent
+			),
+			transparent 58%
+		),
+		var(--bg-app);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
 }

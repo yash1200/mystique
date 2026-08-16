@@ -31,7 +31,11 @@
 	} from '@codemirror/view'
 	import { basicSetup } from 'codemirror'
 	import { onMount } from 'svelte'
-	import { createMystiqueEditorTheme, mystiqueHighlight } from './cmTheme'
+	import {
+		createMystiqueEditorTheme,
+		identPathHighlight,
+		mystiqueHighlight,
+	} from './cmTheme'
 
 	interface Props {
 		connectionId: string
@@ -187,6 +191,7 @@
 			basicSetup,
 			themeCompartment.of(createMystiqueEditorTheme(themeIsDark())),
 			mystiqueHighlight,
+			identPathHighlight,
 			langCompartment.of(languageExtension(lang, engine, catalogColumns)),
 			placeholderCompartment.of(ph ? cmPlaceholder(ph) : []),
 			autocompletion({ activateOnTyping: true, icons: true }),

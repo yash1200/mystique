@@ -2,58 +2,184 @@
  * CodeMirror theme + highlight styles bound to Mystique design tokens
  * so light/dark themes stay consistent without a separate CM theme package.
  */
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { EditorView } from '@codemirror/view'
+import {
+	HighlightStyle,
+	syntaxHighlighting,
+	syntaxTree,
+} from '@codemirror/language'
+import { Prec, RangeSetBuilder } from '@codemirror/state'
+import {
+	Decoration,
+	EditorView,
+	ViewPlugin,
+	type DecorationSet,
+	type ViewUpdate,
+} from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 
-/** Syntax colors → CSS variables from tokens.css */
-export const mystiqueHighlight = syntaxHighlighting(
-	HighlightStyle.define([
-		{ tag: t.keyword, color: 'var(--syntax-keyword)', fontWeight: '600' },
-		{ tag: t.moduleKeyword, color: 'var(--syntax-keyword)', fontWeight: '600' },
-		{
-			tag: t.controlKeyword,
-			color: 'var(--syntax-keyword)',
-			fontWeight: '600',
-		},
-		{ tag: t.operatorKeyword, color: 'var(--syntax-type)' },
-		{
-			tag: t.definitionKeyword,
-			color: 'var(--syntax-keyword)',
-			fontWeight: '600',
-		},
-		{ tag: t.bool, color: 'var(--syntax-type)' },
-		{ tag: t.null, color: 'var(--syntax-type)' },
-		{ tag: t.string, color: 'var(--syntax-string)' },
-		{ tag: t.special(t.string), color: 'var(--syntax-string)' },
-		{ tag: t.number, color: 'var(--syntax-number)' },
-		{ tag: t.integer, color: 'var(--syntax-number)' },
-		{ tag: t.float, color: 'var(--syntax-number)' },
-		{ tag: t.comment, color: 'var(--syntax-comment)', fontStyle: 'italic' },
-		{ tag: t.lineComment, color: 'var(--syntax-comment)', fontStyle: 'italic' },
-		{
-			tag: t.blockComment,
-			color: 'var(--syntax-comment)',
-			fontStyle: 'italic',
-		},
-		{ tag: t.operator, color: 'var(--syntax-operator)' },
-		{ tag: t.punctuation, color: 'var(--syntax-operator)' },
-		{ tag: t.bracket, color: 'var(--syntax-operator)' },
-		{ tag: t.paren, color: 'var(--syntax-operator)' },
-		{ tag: t.squareBracket, color: 'var(--syntax-operator)' },
-		{ tag: t.brace, color: 'var(--syntax-operator)' },
-		{ tag: t.name, color: 'var(--syntax-name)' },
-		{ tag: t.variableName, color: 'var(--syntax-name)' },
-		{ tag: t.propertyName, color: 'var(--syntax-property)' },
-		{ tag: t.attributeName, color: 'var(--syntax-property)' },
-		{ tag: t.typeName, color: 'var(--syntax-type)' },
-		{ tag: t.className, color: 'var(--syntax-type)' },
-		{ tag: t.namespace, color: 'var(--syntax-type)' },
-		{ tag: t.function(t.variableName), color: 'var(--syntax-func)' },
-		{ tag: t.function(t.propertyName), color: 'var(--syntax-func)' },
-		{ tag: t.meta, color: 'var(--syntax-comment)' },
-		{ tag: t.invalid, color: 'var(--syntax-invalid)' },
-	]),
+/** First matching spec wins — more specific tags before generic ones. */
+export const mystiqueHighlight = Prec.high(
+	syntaxHighlighting(
+		HighlightStyle.define([
+			{
+				tag: t.function(t.variableName),
+				color: 'var(--syntax-func)',
+				fontWeight: '600',
+			},
+			{
+				tag: t.function(t.propertyName),
+				color: 'var(--syntax-func)',
+				fontWeight: '600',
+			},
+			{
+				tag: t.function(t.definition(t.variableName)),
+				color: 'var(--syntax-func)',
+				fontWeight: '600',
+			},
+			{
+				tag: t.standard(t.name),
+				color: 'var(--syntax-func)',
+				fontWeight: '600',
+			},
+			{ tag: t.special(t.name), color: 'var(--syntax-property)' },
+			{ tag: t.special(t.propertyName), color: 'var(--syntax-property)' },
+			/* SQL "quoted ids"; JS template strings are rare in MQL. */
+			{ tag: t.special(t.string), color: 'var(--syntax-name)' },
+			{
+				tag: t.keyword,
+				color: 'var(--syntax-keyword)',
+				fontWeight: '700',
+			},
+			{
+				tag: t.moduleKeyword,
+				color: 'var(--syntax-keyword)',
+				fontWeight: '700',
+			},
+			{
+				tag: t.controlKeyword,
+				color: 'var(--syntax-keyword)',
+				fontWeight: '700',
+			},
+			{
+				tag: t.definitionKeyword,
+				color: 'var(--syntax-keyword)',
+				fontWeight: '700',
+			},
+			{
+				tag: t.modifier,
+				color: 'var(--syntax-keyword)',
+				fontWeight: '600',
+			},
+			{
+				tag: t.operatorKeyword,
+				color: 'var(--syntax-keyword)',
+				fontWeight: '700',
+			},
+			{ tag: t.bool, color: 'var(--syntax-atom)', fontWeight: '600' },
+			{ tag: t.null, color: 'var(--syntax-atom)', fontWeight: '600' },
+			{ tag: t.atom, color: 'var(--syntax-atom)', fontWeight: '600' },
+			{ tag: t.self, color: 'var(--syntax-atom)', fontWeight: '600' },
+			{ tag: t.string, color: 'var(--syntax-string)' },
+			{ tag: t.regexp, color: 'var(--syntax-string)' },
+			{ tag: t.escape, color: 'var(--syntax-number)' },
+			{ tag: t.number, color: 'var(--syntax-number)' },
+			{ tag: t.integer, color: 'var(--syntax-number)' },
+			{ tag: t.float, color: 'var(--syntax-number)' },
+			{
+				tag: t.comment,
+				color: 'var(--syntax-comment)',
+				fontStyle: 'italic',
+			},
+			{
+				tag: t.lineComment,
+				color: 'var(--syntax-comment)',
+				fontStyle: 'italic',
+			},
+			{
+				tag: t.blockComment,
+				color: 'var(--syntax-comment)',
+				fontStyle: 'italic',
+			},
+			{
+				tag: t.docComment,
+				color: 'var(--syntax-comment)',
+				fontStyle: 'italic',
+			},
+			{ tag: t.operator, color: 'var(--syntax-operator)' },
+			{ tag: t.compareOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.logicOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.arithmeticOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.bitwiseOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.updateOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.definitionOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.derefOperator, color: 'var(--syntax-operator)' },
+			{ tag: t.punctuation, color: 'var(--syntax-punct)' },
+			{ tag: t.separator, color: 'var(--syntax-punct)' },
+			{ tag: t.bracket, color: 'var(--syntax-punct)' },
+			{ tag: t.paren, color: 'var(--syntax-punct)' },
+			{ tag: t.squareBracket, color: 'var(--syntax-punct)' },
+			{ tag: t.brace, color: 'var(--syntax-punct)' },
+			{ tag: t.angleBracket, color: 'var(--syntax-punct)' },
+			{ tag: t.special(t.brace), color: 'var(--syntax-punct)' },
+			{ tag: t.name, color: 'var(--syntax-name)' },
+			{ tag: t.variableName, color: 'var(--syntax-name)' },
+			{ tag: t.definition(t.variableName), color: 'var(--syntax-name)' },
+			{ tag: t.labelName, color: 'var(--syntax-property)' },
+			{ tag: t.propertyName, color: 'var(--syntax-property)' },
+			{ tag: t.definition(t.propertyName), color: 'var(--syntax-property)' },
+			{ tag: t.attributeName, color: 'var(--syntax-property)' },
+			{ tag: t.typeName, color: 'var(--syntax-type)' },
+			{ tag: t.definition(t.typeName), color: 'var(--syntax-type)' },
+			{ tag: t.className, color: 'var(--syntax-type)' },
+			{ tag: t.namespace, color: 'var(--syntax-type)' },
+			{ tag: t.macroName, color: 'var(--syntax-func)' },
+			{ tag: t.meta, color: 'var(--syntax-comment)' },
+			{ tag: t.invalid, color: 'var(--syntax-invalid)' },
+		]),
+	),
+)
+
+function isSqlIdent(name: string) {
+	return name === 'Identifier' || name === 'QuotedIdentifier'
+}
+
+const identHeadMark = Decoration.mark({ class: 'cm-ident-head' })
+const identLeafMark = Decoration.mark({ class: 'cm-ident-leaf' })
+
+/** Color `schema.table.col` paths: qualifier vs field. Bare aliases stay `--syntax-name`. */
+function identPathDecos(view: EditorView): DecorationSet {
+	const builder = new RangeSetBuilder<Decoration>()
+	const tree = syntaxTree(view.state)
+	for (const { from, to } of view.visibleRanges) {
+		tree.iterate({
+			from,
+			to,
+			enter(node) {
+				if (!isSqlIdent(node.name)) return
+				if (node.node.prevSibling?.name === '.') {
+					builder.add(node.from, node.to, identLeafMark)
+				} else if (node.node.nextSibling?.name === '.') {
+					builder.add(node.from, node.to, identHeadMark)
+				}
+			},
+		})
+	}
+	return builder.finish()
+}
+
+export const identPathHighlight = ViewPlugin.fromClass(
+	class {
+		decorations: DecorationSet
+		constructor(view: EditorView) {
+			this.decorations = identPathDecos(view)
+		}
+		update(update: ViewUpdate) {
+			if (update.docChanged || update.viewportChanged) {
+				this.decorations = identPathDecos(update.view)
+			}
+		}
+	},
+	{ decorations: (v) => v.decorations },
 )
 
 const editorThemeSpec = {
@@ -155,6 +281,13 @@ const editorThemeSpec = {
 	'.cm-placeholder': {
 		color: 'var(--text-muted)',
 		fontStyle: 'normal',
+	},
+	/* Beat highlight token color on the inner span. */
+	'.cm-ident-head, .cm-ident-head span': {
+		color: 'var(--syntax-name) !important',
+	},
+	'.cm-ident-leaf, .cm-ident-leaf span': {
+		color: 'var(--syntax-property) !important',
 	},
 }
 
