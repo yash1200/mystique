@@ -36,8 +36,6 @@ class WorkspaceSessionStore {
 	queryDrafts = $state<Record<string, string>>({})
 	/** Baseline body used to compute dirty (saved body or last restore). */
 	queryBaselines = $state<Record<string, string>>({})
-	/** Allow-writes flag per query tab id. */
-	queryWriteMode = $state<Record<string, boolean>>({})
 
 	/** Debounced persist handles per connection. */
 	private persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -111,21 +109,18 @@ class WorkspaceSessionStore {
 			const tabs = records.map(recordToWorkspaceTab)
 			const drafts: Record<string, string> = { ...this.queryDrafts }
 			const baselines: Record<string, string> = { ...this.queryBaselines }
-			const writes: Record<string, boolean> = { ...this.queryWriteMode }
 
 			for (const r of records) {
 				if (r.kind === 'query') {
 					const body = r.body ?? ''
 					drafts[r.id] = body
 					baselines[r.id] = body
-					writes[r.id] = !!r.writeEnabled
 				}
 			}
 
 			this.openTabs = [...this.openTabs, ...tabs]
 			this.queryDrafts = drafts
 			this.queryBaselines = baselines
-			this.queryWriteMode = writes
 
 			const active =
 				records.find((r) => r.isActive)?.id ??
@@ -171,7 +166,6 @@ class WorkspaceSessionStore {
 						sortOrder: i,
 						isActive: tab.id === activeTabId,
 						body: this.queryDrafts[tab.id] ?? '',
-						writeEnabled: this.queryWriteMode[tab.id] ?? false,
 					}),
 				),
 			})
@@ -218,7 +212,6 @@ class WorkspaceSessionStore {
 		]
 		this.queryDrafts = { ...this.queryDrafts, [id]: '' }
 		this.queryBaselines = { ...this.queryBaselines, [id]: '' }
-		this.queryWriteMode = { ...this.queryWriteMode, [id]: false }
 		this.activeTabId = id
 		this.activeConnectionId = connectionId
 		this.selectedRow = null
@@ -282,7 +275,6 @@ class WorkspaceSessionStore {
 		]
 		this.queryDrafts = { ...this.queryDrafts, [id]: saved.body }
 		this.queryBaselines = { ...this.queryBaselines, [id]: saved.body }
-		this.queryWriteMode = { ...this.queryWriteMode, [id]: false }
 		this.activeTabId = id
 		this.activeConnectionId = connectionId
 		this.selectedRow = null
@@ -319,15 +311,12 @@ class WorkspaceSessionStore {
 		this.openTabs = this.openTabs.filter((t) => t.connectionId !== id)
 		const drafts = { ...this.queryDrafts }
 		const baselines = { ...this.queryBaselines }
-		const writes = { ...this.queryWriteMode }
 		for (const tid of removedTabIds) {
 			delete drafts[tid]
 			delete baselines[tid]
-			delete writes[tid]
 		}
 		this.queryDrafts = drafts
 		this.queryBaselines = baselines
-		this.queryWriteMode = writes
 
 		if (this.activeConnectionId === id) {
 			this.activeConnectionId = this.sessions[0]?.profile.id ?? null
@@ -438,13 +427,10 @@ class WorkspaceSessionStore {
 		if (tab.kind === 'query') {
 			const drafts = { ...this.queryDrafts }
 			const baselines = { ...this.queryBaselines }
-			const writes = { ...this.queryWriteMode }
 			delete drafts[tabId]
 			delete baselines[tabId]
-			delete writes[tabId]
 			this.queryDrafts = drafts
 			this.queryBaselines = baselines
-			this.queryWriteMode = writes
 		}
 
 		if (wasActive) {
@@ -539,12 +525,6 @@ class WorkspaceSessionStore {
 				t.id === tabId ? { ...t, dirty } : t,
 			)
 		}
-		if (tab) this.schedulePersist(tab.connectionId)
-	}
-
-	setQueryWriteMode(tabId: string, enabled: boolean) {
-		this.queryWriteMode = { ...this.queryWriteMode, [tabId]: enabled }
-		const tab = this.openTabs.find((t) => t.id === tabId)
 		if (tab) this.schedulePersist(tab.connectionId)
 	}
 

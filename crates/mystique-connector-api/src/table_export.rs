@@ -98,16 +98,19 @@ pub async fn export_object_with_preview(
         ));
     }
     if input.path.trim().is_empty() {
-        return Err(ConnectorError::InvalidConfig("Export path is required.".into()));
+        return Err(ConnectorError::InvalidConfig(
+            "Export path is required.".into(),
+        ));
     }
     if input.name.trim().is_empty() {
-        return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        return Err(ConnectorError::InvalidConfig(
+            "Object name is required.".into(),
+        ));
     }
 
     let path = Path::new(&input.path);
-    let file = File::create(path).map_err(|e| {
-        ConnectorError::Internal(format!("could not create {}: {e}", input.path))
-    })?;
+    let file = File::create(path)
+        .map_err(|e| ConnectorError::Internal(format!("could not create {}: {e}", input.path)))?;
     let mut out = BufWriter::new(file);
 
     let mut offset: u32 = 0;

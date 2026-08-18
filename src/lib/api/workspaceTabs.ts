@@ -104,7 +104,7 @@ export function workspaceTabToSaveInput(
     savedQueryId: tab.savedQueryId ?? null,
     body: tab.kind === "query" ? (opts.body ?? "") : null,
     language: opts.language ?? null,
-    writeEnabled: opts.writeEnabled ?? false,
+    writeEnabled: opts.writeEnabled ?? true,
     tableId: tab.tableId ?? null,
     modelDatabase: tab.modelDatabase ?? null,
     isDirty: !!tab.dirty,

@@ -1,9 +1,7 @@
 use rusqlite::{params, Connection};
 
 use crate::domain::now_iso;
-use crate::domain::{
-    ReplaceWorkspaceTabsInput, SaveWorkspaceTabInput, WorkspaceTabRecord,
-};
+use crate::domain::{ReplaceWorkspaceTabsInput, SaveWorkspaceTabInput, WorkspaceTabRecord};
 use crate::error::{AppError, AppResult};
 
 fn map_tab(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceTabRecord> {
@@ -36,9 +34,7 @@ fn ensure_connection_exists(conn: &Connection, connection_id: &str) -> AppResult
         |r| r.get(0),
     )?;
     if !exists {
-        return Err(AppError::NotFound(format!(
-            "connection '{connection_id}'"
-        )));
+        return Err(AppError::NotFound(format!("connection '{connection_id}'")));
     }
     Ok(())
 }

@@ -46,7 +46,9 @@ fn normalize_mongo_shell_object(input: &str) -> ConnectorResult<String> {
         let n = trim_quotes(arg.trim());
         Ok(format!(r#"{{"$numberLong":"{n}"}}"#))
     })?;
-    s = replace_ctor(&s, "NumberInt", |arg| Ok(trim_quotes(arg.trim()).to_string()))?;
+    s = replace_ctor(&s, "NumberInt", |arg| {
+        Ok(trim_quotes(arg.trim()).to_string())
+    })?;
     s = quote_unquoted_keys(&s);
     s = strip_trailing_commas(&s);
     Ok(s)

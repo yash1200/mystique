@@ -9,9 +9,9 @@ use crate::config::ConnectionConfig;
 use crate::edits::{ApplyTableEditsInput, ApplyTableEditsResult};
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
+use crate::object_structure::ObjectStructure;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
-use crate::object_structure::ObjectStructure;
 use crate::table_admin::{TableAdminInput, TableAdminResult};
 use crate::table_export::{ExportObjectInput, ExportObjectResult};
 use crate::table_import::{
@@ -198,10 +198,7 @@ pub trait ConnectorSession: Send + Sync {
     }
 
     /// Write one remapped import chunk. Plugins own insert / upsert SQL or Mongo ops.
-    async fn import_chunk(
-        &self,
-        _input: &ImportChunkInput,
-    ) -> ConnectorResult<ImportChunkResult> {
+    async fn import_chunk(&self, _input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "import is not implemented for engine `{}`",
             self.engine_id()

@@ -71,9 +71,14 @@ async fn build_client(config: &ConnectionConfig) -> ConnectorResult<(Client, Opt
         .str_field("database")
         .filter(|s| !s.is_empty())
         .or_else(|| options.default_database.clone())
-        .or_else(|| config.str_field("uri").and_then(|u| database_from_mongo_uri(&u)));
+        .or_else(|| {
+            config
+                .str_field("uri")
+                .and_then(|u| database_from_mongo_uri(&u))
+        });
 
-    let client = Client::with_options(options).map_err(|e| ConnectorError::Connect(e.to_string()))?;
+    let client =
+        Client::with_options(options).map_err(|e| ConnectorError::Connect(e.to_string()))?;
     Ok((client, default_db))
 }
 
@@ -83,7 +88,10 @@ fn database_from_mongo_uri(uri: &str) -> Option<String> {
         .strip_prefix("mongodb://")
         .or_else(|| uri.strip_prefix("mongodb+srv://"))?;
     // Authority ends at first `/` that starts the path (not credentials@host).
-    let after_at = rest.rsplit_once('@').map(|(_, host_path)| host_path).unwrap_or(rest);
+    let after_at = rest
+        .rsplit_once('@')
+        .map(|(_, host_path)| host_path)
+        .unwrap_or(rest);
     let path = after_at.split_once('/')?.1;
     let name = path.split(['?', '#']).next()?.trim();
     if name.is_empty() {
@@ -209,7 +217,10 @@ mod live_tests {
         match connector.test_connection(&config).await {
             Ok(r) => {
                 assert!(r.ok, "expected ok: {}", r.message);
-                println!("ok latency={}ms version={:?}", r.latency_ms, r.server_version);
+                println!(
+                    "ok latency={}ms version={:?}",
+                    r.latency_ms, r.server_version
+                );
             }
             Err(e) => {
                 // Environment without docker mongo

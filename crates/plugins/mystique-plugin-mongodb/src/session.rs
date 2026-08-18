@@ -6,14 +6,13 @@ use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
     cell_bool, export_object_with_preview, import_object_from_file, preview_import_with_describe,
-    preview_sort_field, ApplyTableEditsInput,
-    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, ColumnInfo,
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
-    ExportObjectResult, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
-    ImportObjectInput, ImportObjectResult, ImportOnDuplicate, ObjectStructure, PoolStatus,
-    PreviewImportInput, PreviewImportResult, QueryColumn, QueryMode, QueryResult,
-    StructureSection, TableAdminInput, TableAdminOp, TableAdminResult, TablePreviewResult,
-    ValidatedQuery,
+    preview_sort_field, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
+    CatalogDatabase, CatalogObject, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchTablePreviewInput,
+    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, ImportOnDuplicate,
+    ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult, QueryColumn, QueryMode,
+    QueryResult, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
+    TablePreviewResult, ValidatedQuery,
 };
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -109,7 +108,12 @@ impl ConnectorSession for MongoSession {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
         }
-        if query.mode == QueryMode::Write {
+        if is_mongo_write_command(&query.text) {
+            if query.mode == QueryMode::Read {
+                return Err(ConnectorError::Policy(
+                    "Write operation blocked. This connection is read-only.".into(),
+                ));
+            }
             return self.execute_write(query).await;
         }
 
@@ -764,10 +768,7 @@ impl ConnectorSession for MongoSession {
         import_object_from_file(self, input).await
     }
 
-    async fn import_chunk(
-        &self,
-        input: &ImportChunkInput,
-    ) -> ConnectorResult<ImportChunkResult> {
+    async fn import_chunk(&self, input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ConnectorError::Connect("session closed".into()));
         }
@@ -823,8 +824,7 @@ impl ConnectorSession for MongoSession {
                             .map_err(|e| ConnectorError::Query(e.to_string()))?;
                         inserted += 1;
                     } else {
-                        let filter =
-                            json_to_document(&json!({ "_id": mongo_id_json(&id) }))?;
+                        let filter = json_to_document(&json!({ "_id": mongo_id_json(&id) }))?;
                         let replacement = json_to_document(&JsonValue::Object(doc_map))?;
                         coll.replace_one(filter, replacement)
                             .upsert(true)
@@ -1147,6 +1147,37 @@ struct MongoWriteCmd {
     doc: Option<JsonValue>,
 }
 
+fn is_mongo_write_command(text: &str) -> bool {
+    if let Ok(cmd) = serde_json::from_str::<MongoWriteCmd>(text.trim()) {
+        return matches!(
+            cmd.op.to_ascii_lowercase().as_str(),
+            "insertone"
+                | "insertmany"
+                | "updateone"
+                | "updatemany"
+                | "replaceone"
+                | "bulkwrite"
+                | "deleteone"
+                | "deletemany"
+        );
+    }
+    let lower = text.to_ascii_lowercase();
+    lower.contains("insertone")
+        || lower.contains("insertmany")
+        || lower.contains("updateone")
+        || lower.contains("updatemany")
+        || lower.contains("replaceone")
+        || lower.contains("bulkwrite")
+        || lower.contains("deleteone")
+        || lower.contains("deletemany")
+        || lower.contains(".drop(")
+        || lower.contains("dropdatabase")
+        || lower.contains("dropcollection")
+        || lower.contains("$out")
+        || lower.contains("$merge")
+        || lower.contains(".remove(")
+}
+
 impl MongoSession {
     async fn execute_write(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         let start = Instant::now();
@@ -1201,6 +1232,34 @@ impl MongoSession {
                 format!(
                     "insertOne on {db_name}.{coll_name} id={:?}",
                     result.inserted_id
+                )
+            }
+            "deleteone" => {
+                let filter_v = cmd
+                    .filter
+                    .ok_or_else(|| ConnectorError::Query("deleteOne requires `filter`".into()))?;
+                let filter = json_to_document(&filter_v)?;
+                let result = coll
+                    .delete_one(filter)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                format!(
+                    "deleteOne on {db_name}.{coll_name} deleted={}",
+                    result.deleted_count
+                )
+            }
+            "deletemany" => {
+                let filter_v = cmd
+                    .filter
+                    .ok_or_else(|| ConnectorError::Query("deleteMany requires `filter`".into()))?;
+                let filter = json_to_document(&filter_v)?;
+                let result = coll
+                    .delete_many(filter)
+                    .await
+                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                format!(
+                    "deleteMany on {db_name}.{coll_name} deleted={}",
+                    result.deleted_count
                 )
             }
             other => {

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-/// Read (default) vs opt-in write. DELETE remains blocked in policy.
+/// Read vs write. Connection profile `read_only` forces Read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum QueryMode {

@@ -7,8 +7,8 @@ use mystique_connector_api::{
     CatalogDatabase, CatalogRelationship, ColumnInfo, ConnectionConfig, ConnectorError,
     ConnectorResult, ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
     ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ImportObjectRequest,
-    ImportObjectResult, ListCatalogColumnsRequest, PreviewImportRequest, PreviewImportResult,
-    ListCatalogRequest, ListRelationshipsRequest, PoolConfig, PoolStatus, QueryMode, QueryResult,
+    ImportObjectResult, ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest,
+    PoolConfig, PoolStatus, PreviewImportRequest, PreviewImportResult, QueryMode, QueryResult,
     SessionInfo, TableAdminOp, TableAdminRequest, TableAdminResult, TablePreviewResult, TestResult,
     ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
@@ -109,10 +109,9 @@ impl ConnectionManager {
     }
 
     pub async fn open_session(&self, req: OpenSessionRequest) -> ConnectorResult<SessionInfo> {
-        let connector = self
-            .registry
-            .get(&req.engine)
-            .ok_or_else(|| ConnectorError::InvalidConfig(format!("unknown engine `{}`", req.engine)))?;
+        let connector = self.registry.get(&req.engine).ok_or_else(|| {
+            ConnectorError::InvalidConfig(format!("unknown engine `{}`", req.engine))
+        })?;
 
         let config = ConnectionConfig {
             engine: req.engine.clone(),
@@ -166,17 +165,17 @@ impl ConnectionManager {
 
     pub async fn ping(&self, session_id: &str) -> ConnectorResult<()> {
         let guard = self.sessions.read().await;
-        let live = guard
-            .get(session_id)
-            .ok_or_else(|| ConnectorError::InvalidConfig(format!("session not found: {session_id}")))?;
+        let live = guard.get(session_id).ok_or_else(|| {
+            ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
+        })?;
         live.session.ping().await
     }
 
     pub async fn pool_status(&self, session_id: &str) -> ConnectorResult<Option<PoolStatus>> {
         let guard = self.sessions.read().await;
-        let live = guard
-            .get(session_id)
-            .ok_or_else(|| ConnectorError::InvalidConfig(format!("session not found: {session_id}")))?;
+        let live = guard.get(session_id).ok_or_else(|| {
+            ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
+        })?;
         Ok(live.session.pool_status())
     }
 
@@ -259,11 +258,7 @@ impl ConnectionManager {
             Arc::clone(&live.session)
         };
         session
-            .describe_table(
-                req.database.as_deref(),
-                req.schema.as_deref(),
-                &req.table,
-            )
+            .describe_table(req.database.as_deref(), req.schema.as_deref(), &req.table)
             .await
     }
 
@@ -359,7 +354,9 @@ impl ConnectionManager {
         req: crate::ObjectStructureRequest,
     ) -> ConnectorResult<crate::ObjectStructure> {
         if req.table.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Object name is required.".into(),
+            ));
         }
         let session = {
             let guard = self.sessions.read().await;
@@ -389,13 +386,22 @@ impl ConnectionManager {
             ));
         }
         let needs_name = matches!(req.op, TableAdminOp::Rename | TableAdminOp::Duplicate);
-        if needs_name && req.new_name.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        if needs_name
+            && req
+                .new_name
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+        {
             return Err(ConnectorError::InvalidConfig(
                 "newName is required for rename and duplicate.".into(),
             ));
         }
         if req.name.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Object name is required.".into(),
+            ));
         }
         if matches!(
             req.op,
@@ -426,10 +432,14 @@ impl ConnectionManager {
         req: ExportObjectRequest,
     ) -> ConnectorResult<ExportObjectResult> {
         if req.name.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Object name is required.".into(),
+            ));
         }
         if req.path.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Export path is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Export path is required.".into(),
+            ));
         }
         let session = {
             let guard = self.sessions.read().await;
@@ -453,10 +463,14 @@ impl ConnectionManager {
         req: PreviewImportRequest,
     ) -> ConnectorResult<PreviewImportResult> {
         if req.name.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Object name is required.".into(),
+            ));
         }
         if req.path.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Import path is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Import path is required.".into(),
+            ));
         }
         let session = {
             let guard = self.sessions.read().await;
@@ -485,10 +499,14 @@ impl ConnectionManager {
             ));
         }
         if req.name.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Object name is required.".into(),
+            ));
         }
         if req.path.trim().is_empty() {
-            return Err(ConnectorError::InvalidConfig("Import path is required.".into()));
+            return Err(ConnectorError::InvalidConfig(
+                "Import path is required.".into(),
+            ));
         }
         let session = {
             let guard = self.sessions.read().await;
@@ -507,7 +525,6 @@ impl ConnectionManager {
         session.import_object(&req.into_input()).await
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -624,13 +641,11 @@ mod tests {
         );
         // Skip-friendly: if Postgres isn't running, just assert structured fail.
         if result.ok {
-            assert!(
-                result
-                    .server_version
-                    .as_deref()
-                    .unwrap_or("")
-                    .contains("PostgreSQL")
-            );
+            assert!(result
+                .server_version
+                .as_deref()
+                .unwrap_or("")
+                .contains("PostgreSQL"));
         } else {
             assert!(!result.message.is_empty());
         }

@@ -16,5 +16,5 @@ pub use er_diagram::*;
 pub use history::*;
 pub use query_library::*;
 pub use settings::*;
-pub use workspace_tabs::*;
 pub(crate) use time::now_iso;
+pub use workspace_tabs::*;

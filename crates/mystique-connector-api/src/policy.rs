@@ -94,10 +94,10 @@ const SQL_SESSION: &[&str] = &[
     "unlisten",
     "notify",
 ];
-const SQL_WRITE: &[&str] = &["insert", "update", "replace", "merge"];
-const SQL_DELETE: &[&str] = &[
-    "delete", "truncate", "drop", "alter", "create", "grant", "revoke", "comment", "vacuum",
-    "reindex", "attach", "detach",
+/// Inserts, updates, deletes, and DDL — allowed unless the connection is read-only.
+const SQL_WRITE: &[&str] = &[
+    "insert", "update", "replace", "merge", "delete", "truncate", "drop", "alter", "create",
+    "grant", "revoke", "comment", "vacuum", "reindex", "attach", "detach",
 ];
 
 fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
@@ -106,11 +106,6 @@ fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
             "Could not classify this SQL. Blocked (fail closed).".into(),
         ));
     };
-    if SQL_DELETE.contains(&kw.as_str()) {
-        return Err(ConnectorError::Policy(
-            "DELETE and other destructive statements are disabled for now.".into(),
-        ));
-    }
     if SQL_READ.contains(&kw.as_str()) {
         return Ok(());
     }
@@ -121,7 +116,7 @@ fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
     if SQL_WRITE.contains(&kw.as_str()) {
         if mode == QueryMode::Read {
             return Err(ConnectorError::Policy(format!(
-                "Write statement ({}) blocked. Enable “Allow writes” to run inserts/updates.",
+                "Write statement ({}) blocked. This connection is read-only.",
                 kw.to_ascii_uppercase()
             )));
         }
@@ -181,7 +176,13 @@ impl EngineQueryPolicy for MongoQueryPolicy {
         }
         let lower = t.to_ascii_lowercase();
 
-        if lower.contains("deleteone")
+        let is_write = lower.contains("insertone")
+            || lower.contains("insertmany")
+            || lower.contains("updateone")
+            || lower.contains("updatemany")
+            || lower.contains("replaceone")
+            || lower.contains("bulkwrite")
+            || lower.contains("deleteone")
             || lower.contains("deletemany")
             || lower.contains("delete ")
             || lower.contains(".drop(")
@@ -189,24 +190,12 @@ impl EngineQueryPolicy for MongoQueryPolicy {
             || lower.contains("dropcollection")
             || lower.contains("$out")
             || lower.contains("$merge")
-            || lower.contains(".remove(")
-        {
-            return Err(ConnectorError::Policy(
-                "Delete/drop and write stages ($out / $merge) are disabled for now.".into(),
-            ));
-        }
-
-        let is_write = lower.contains("insertone")
-            || lower.contains("insertmany")
-            || lower.contains("updateone")
-            || lower.contains("updatemany")
-            || lower.contains("replaceone")
-            || lower.contains("bulkwrite");
+            || lower.contains(".remove(");
 
         if is_write {
             if mode == QueryMode::Read {
                 return Err(ConnectorError::Policy(
-                    "Write operation blocked. Enable “Allow writes” to run inserts/updates.".into(),
+                    "Write operation blocked. This connection is read-only.".into(),
                 ));
             }
             return Ok(());

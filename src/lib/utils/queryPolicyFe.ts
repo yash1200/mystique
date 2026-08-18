@@ -67,8 +67,12 @@ const SQL_SESSION = new Set([
 	'unlisten',
 	'notify',
 ])
-const SQL_WRITE = new Set(['insert', 'update', 'replace', 'merge'])
-const SQL_DELETE = new Set([
+/** Inserts, updates, deletes, and DDL — allowed unless the connection is read-only. */
+const SQL_WRITE = new Set([
+	'insert',
+	'update',
+	'replace',
+	'merge',
 	'delete',
 	'truncate',
 	'drop',
@@ -87,13 +91,6 @@ function validateOneSql(text: string, mode: QueryMode): FePolicyResult {
 			message: 'Could not classify this SQL. Blocked (fail closed).',
 		}
 	}
-	if (SQL_DELETE.has(kw) || kw === 'delete') {
-		return {
-			ok: false,
-			code: 'delete_blocked',
-			message: 'DELETE and other destructive statements are disabled for now.',
-		}
-	}
 	if (SQL_READ.has(kw)) {
 		return { ok: true, summary: `Read SQL (${kw.toUpperCase()}) allowed.` }
 	}
@@ -105,12 +102,12 @@ function validateOneSql(text: string, mode: QueryMode): FePolicyResult {
 			return {
 				ok: false,
 				code: 'read_only',
-				message: `Write statement (${kw.toUpperCase()}) blocked. Enable “Allow writes” to run inserts/updates.`,
+				message: `Write statement (${kw.toUpperCase()}) blocked. This connection is read-only.`,
 			}
 		}
 		return {
 			ok: true,
-			summary: `Write SQL (${kw.toUpperCase()}) allowed (DELETE still blocked).`,
+			summary: `Write SQL (${kw.toUpperCase()}) allowed.`,
 		}
 	}
 	return {
@@ -147,27 +144,16 @@ function validateMongo(text: string, mode: QueryMode): FePolicyResult {
 	}
 	const lower = t.toLowerCase()
 
-	// Destructive / delete-class
-	if (
+	const isWrite =
+		/\binsert(one|many)?\b/.test(lower) ||
+		/\bupdate(one|many)?\b/.test(lower) ||
+		/\breplaceone\b/.test(lower) ||
+		/\bbulkwrite\b/.test(lower) ||
 		/\bdelete(one|many)?\b/.test(lower) ||
 		/\bdrop(database|collection)?\b/.test(lower) ||
 		/\$out\b/.test(lower) ||
 		/\$merge\b/.test(lower) ||
 		/\bremove\b/.test(lower)
-	) {
-		return {
-			ok: false,
-			code: 'delete_blocked',
-			message:
-				'Delete/drop and write stages ($out / $merge) are disabled for now.',
-		}
-	}
-
-	const isWrite =
-		/\binsert(one|many)?\b/.test(lower) ||
-		/\bupdate(one|many)?\b/.test(lower) ||
-		/\breplaceone\b/.test(lower) ||
-		/\bbulkwrite\b/.test(lower)
 
 	const isRead =
 		/\bfind\b/.test(lower) ||
@@ -183,12 +169,12 @@ function validateMongo(text: string, mode: QueryMode): FePolicyResult {
 				ok: false,
 				code: 'read_only',
 				message:
-					'Write operation blocked. Enable “Allow writes” to run inserts/updates.',
+					'Write operation blocked. This connection is read-only.',
 			}
 		}
 		return {
 			ok: true,
-			summary: 'Write MQL allowed (delete/drop still blocked).',
+			summary: 'Write MQL allowed.',
 		}
 	}
 

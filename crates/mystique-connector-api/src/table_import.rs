@@ -371,9 +371,7 @@ fn parse_json(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable> 
                 rows: vec![row_from_object(&keys, &o)],
             })
         }
-        JsonValue::Array(items)
-            if items.first().is_some_and(|v| v.is_array()) =>
-        {
+        JsonValue::Array(items) if items.first().is_some_and(|v| v.is_array()) => {
             let mut iter = items.into_iter();
             let first = iter.next().and_then(|v| match v {
                 JsonValue::Array(a) => Some(a),
@@ -439,9 +437,8 @@ fn parse_jsonl(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable>
         if line.is_empty() {
             continue;
         }
-        let v: JsonValue = serde_json::from_str(line).map_err(|e| {
-            ConnectorError::InvalidConfig(format!("jsonl line {}: {e}", i + 1))
-        })?;
+        let v: JsonValue = serde_json::from_str(line)
+            .map_err(|e| ConnectorError::InvalidConfig(format!("jsonl line {}: {e}", i + 1)))?;
         let obj = v.as_object().ok_or_else(|| {
             ConnectorError::InvalidConfig(format!("jsonl line {} is not an object", i + 1))
         })?;
@@ -456,12 +453,11 @@ fn parse_jsonl(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable>
         }
     }
     if keys.is_empty() {
-        return Err(ConnectorError::InvalidConfig("JSON Lines file is empty.".into()));
+        return Err(ConnectorError::InvalidConfig(
+            "JSON Lines file is empty.".into(),
+        ));
     }
-    let rows = objects
-        .iter()
-        .map(|o| row_from_object(&keys, o))
-        .collect();
+    let rows = objects.iter().map(|o| row_from_object(&keys, o)).collect();
     Ok(ParsedTable { keys, rows })
 }
 
@@ -622,9 +618,7 @@ fn parse_sql(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable> {
         while let Some(tuple) = parse_sql_tuple(text, &mut i) {
             if keys.is_empty() {
                 keys = if col_keys.is_empty() {
-                    (0..tuple.len())
-                        .map(|n| format!("col_{}", n + 1))
-                        .collect()
+                    (0..tuple.len()).map(|n| format!("col_{}", n + 1)).collect()
                 } else {
                     col_keys.clone()
                 };
@@ -688,7 +682,9 @@ pub async fn preview_import_with_describe(
     input: &PreviewImportInput,
 ) -> ConnectorResult<PreviewImportResult> {
     if input.path.trim().is_empty() {
-        return Err(ConnectorError::InvalidConfig("Import path is required.".into()));
+        return Err(ConnectorError::InvalidConfig(
+            "Import path is required.".into(),
+        ));
     }
     let columns = session
         .describe_table(
@@ -752,10 +748,14 @@ pub async fn import_object_from_file(
     input: &ImportObjectInput,
 ) -> ConnectorResult<ImportObjectResult> {
     if input.path.trim().is_empty() {
-        return Err(ConnectorError::InvalidConfig("Import path is required.".into()));
+        return Err(ConnectorError::InvalidConfig(
+            "Import path is required.".into(),
+        ));
     }
     if input.name.trim().is_empty() {
-        return Err(ConnectorError::InvalidConfig("Object name is required.".into()));
+        return Err(ConnectorError::InvalidConfig(
+            "Object name is required.".into(),
+        ));
     }
     let columns = session
         .describe_table(

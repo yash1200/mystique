@@ -4,16 +4,14 @@
 	 * Highlighting is frontend-only — live as you type, no backend.
 	 */
 	import type { CatalogColumnRow } from '$lib/api/engines'
-	import { Button, Checkbox, Input } from '$lib/components/ui'
+	import { Button, Input } from '$lib/components/ui'
 	import { watchHtmlAttr } from '$lib/utils/appPrefs'
-	import { cn } from '$lib/utils/cn'
 	import { formatQuery } from '$lib/utils/formatQuery'
 	import {
 		mongoCompletionSource,
 		sqlCompleteFromColumns,
 		sqlDialectForEngine,
 	} from '$lib/utils/queryComplete'
-	import type { QueryMode } from '$lib/utils/queryPolicyFe'
 	import { autocompletion } from '@codemirror/autocomplete'
 	import { indentWithTab } from '@codemirror/commands'
 	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'
@@ -45,10 +43,7 @@
 		localText?: string
 		lineCount: number
 		language: string
-		profileReadOnly: boolean
-		effectiveMode: QueryMode
 		collection?: string
-		writeEnabled: boolean
 		canRun: boolean
 		running: boolean
 		/** True when draft differs from last saved baseline. */
@@ -59,7 +54,6 @@
 		catalogColumns?: CatalogColumnRow[]
 		/** Fired when document text changes. */
 		onchange?: (text: string) => void
-		onwritechange: (checked: boolean) => void
 		onrun: () => void
 		/** Save query for this connection (name prompt handled by parent). */
 		onsave?: () => void
@@ -72,17 +66,13 @@
 		localText = $bindable(''),
 		lineCount,
 		language,
-		profileReadOnly,
-		effectiveMode,
 		collection = $bindable(''),
-		writeEnabled,
 		canRun,
 		running,
 		dirty = false,
 		saving = false,
 		catalogColumns = [],
 		onchange,
-		onwritechange,
 		onrun,
 		onsave,
 	}: Props = $props()
@@ -349,30 +339,6 @@
 					title="Collection name"
 				/>
 			{/if}
-			<label
-				class={cn(
-					'inline-flex h-control-sm items-center gap-1.5 rounded-md border px-2 text-label',
-					profileReadOnly
-						? 'cursor-not-allowed border-line bg-input text-fg-muted opacity-70'
-						: effectiveMode === 'write'
-							? 'border-warning/50 bg-warning/10 text-fg'
-							: 'border-line bg-input text-fg-secondary',
-				)}
-				title={profileReadOnly
-					? 'Connection is read-only'
-					: effectiveMode === 'read'
-						? 'Enable writes for INSERT/UPDATE (DELETE blocked)'
-						: 'Write mode · DELETE still blocked'}
-			>
-				<Checkbox
-					checked={writeEnabled && !profileReadOnly}
-					disabled={profileReadOnly}
-					onchange={(e) =>
-						onwritechange((e.currentTarget as HTMLInputElement).checked)}
-					aria-label="Allow writes"
-				/>
-				<span class="whitespace-nowrap">Allow writes</span>
-			</label>
 			<Button
 				variant="ghost"
 				size="sm"

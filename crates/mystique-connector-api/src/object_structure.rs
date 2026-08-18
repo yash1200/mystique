@@ -118,5 +118,9 @@ pub fn cell_opt(v: Option<impl ToString>) -> String {
 }
 
 pub fn cell_bool(v: bool) -> String {
-    if v { "yes".into() } else { "no".into() }
+    if v {
+        "yes".into()
+    } else {
+        "no".into()
+    }
 }

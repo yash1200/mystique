@@ -58,11 +58,7 @@ impl ConnectorRegistry {
     }
 
     pub fn list(&self) -> Vec<EngineDescriptor> {
-        let mut list: Vec<_> = self
-            .connectors
-            .values()
-            .map(|c| c.descriptor())
-            .collect();
+        let mut list: Vec<_> = self.connectors.values().map(|c| c.descriptor()).collect();
         list.sort_by(|a, b| a.id.cmp(&b.id));
         list
     }
@@ -97,12 +93,26 @@ mod tests {
     }
 
     #[test]
-    fn policies_block_delete() {
+    fn policies_allow_writes_and_deletes_unless_read_only() {
         let reg = ConnectorRegistry::bootstrap();
         let p = reg.policy("postgres").unwrap();
-        assert!(p.validate("DELETE FROM t", QueryMode::Write).is_err());
         assert!(p.validate("SELECT 1", QueryMode::Read).is_ok());
-        assert!(p.validate("INSERT INTO t VALUES (1)", QueryMode::Read).is_err());
-        assert!(p.validate("INSERT INTO t VALUES (1)", QueryMode::Write).is_ok());
+        assert!(p
+            .validate("INSERT INTO t VALUES (1)", QueryMode::Write)
+            .is_ok());
+        assert!(p.validate("DELETE FROM t", QueryMode::Write).is_ok());
+        assert!(p.validate("DROP TABLE t", QueryMode::Write).is_ok());
+        assert!(p
+            .validate("INSERT INTO t VALUES (1)", QueryMode::Read)
+            .is_err());
+        assert!(p.validate("DELETE FROM t", QueryMode::Read).is_err());
+
+        let mongo = reg.policy("mongodb").unwrap();
+        assert!(mongo
+            .validate(r#"{"op":"deleteOne","filter":{"_id":1}}"#, QueryMode::Write)
+            .is_ok());
+        assert!(mongo
+            .validate(r#"{"op":"deleteOne","filter":{"_id":1}}"#, QueryMode::Read)
+            .is_err());
     }
 }

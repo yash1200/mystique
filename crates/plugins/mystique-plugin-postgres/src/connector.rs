@@ -296,10 +296,7 @@ impl DatabaseConnector for PostgresConnector {
                 .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
         }
 
-        Ok(Box::new(PostgresSession::new(
-            pool,
-            config.pool.max_size,
-        )))
+        Ok(Box::new(PostgresSession::new(pool, config.pool.max_size)))
     }
 }
 

@@ -45,11 +45,9 @@
 		engineSessionId?: string | null
 		database?: string | null
 		text?: string
-		writeEnabled?: boolean
 		dirty?: boolean
 		saving?: boolean
 		ontextchange?: (text: string) => void
-		onwritechange?: (enabled: boolean) => void
 		onhistory?: (item?: QueryHistoryItem | null) => void
 		onsave?: () => void
 		/** Re-open a dead engine session; returns the new session id. */
@@ -65,11 +63,9 @@
 		engineSessionId = null,
 		database = null,
 		text = '',
-		writeEnabled = false,
 		dirty = false,
 		saving = false,
 		ontextchange,
-		onwritechange,
 		onhistory,
 		onsave,
 		onreconnect,
@@ -122,7 +118,7 @@
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
 	const effectiveMode = $derived<QueryMode>(
-		profileReadOnly || !writeEnabled ? 'read' : 'write',
+		profileReadOnly ? 'read' : 'write',
 	)
 
 	const lineCount = $derived.by(() => {
@@ -168,17 +164,6 @@
 			runState.result.columns.length > 0 &&
 			runState.result.rows.length > 0,
 	)
-
-	$effect(() => {
-		if (profileReadOnly && writeEnabled) {
-			onwritechange?.(false)
-		}
-	})
-
-	function onToggleWrite(checked: boolean) {
-		if (profileReadOnly) return
-		onwritechange?.(checked)
-	}
 
 	function emitText(value: string) {
 		localText = value
@@ -465,16 +450,12 @@
 				{lineCount}
 				{language}
 				{catalogColumns}
-				{profileReadOnly}
-				{effectiveMode}
 				bind:collection
-				{writeEnabled}
 				canRun={!!localText.trim()}
 				running={runState.status === 'running'}
 				{dirty}
 				{saving}
 				onchange={emitText}
-				onwritechange={onToggleWrite}
 				onrun={() => void runQuery()}
 				{onsave}
 			/>

@@ -53,9 +53,9 @@ impl AppDatabase {
 
 pub mod repo {
     pub use super::repositories::connections;
+    pub use super::repositories::diagrams;
     pub use super::repositories::history;
     pub use super::repositories::queries;
     pub use super::repositories::settings;
-    pub use super::repositories::diagrams;
     pub use super::repositories::workspace_tabs;
 }

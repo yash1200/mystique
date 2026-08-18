@@ -31,11 +31,11 @@ pub use storage::AppDatabase;
 pub use mystique_connector_api::{
     ApplyTableEditsRequest, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogObject, CatalogRelationship, ColumnInfo, ColumnReference, ConnectionConfig,
-    DescribeTableRequest, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest,
-    ExportFormat, ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest,
-    ImportObjectRequest, ImportObjectResult, PreviewImportRequest, PreviewImportResult,
-    ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, ObjectStructure,
-    ObjectStructureRequest, PoolConfig, PoolStatus, QueryColumn, QueryMode, QueryResult,
-    SessionInfo, StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableEditColumn, TablePreviewResult, TableRowInsert, TableRowUpdate, TestResult,
+    DescribeTableRequest, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, ExportFormat,
+    ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ImportObjectRequest,
+    ImportObjectResult, ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest,
+    ObjectStructure, ObjectStructureRequest, PoolConfig, PoolStatus, PreviewImportRequest,
+    PreviewImportResult, QueryColumn, QueryMode, QueryResult, SessionInfo, StructureSection,
+    TableAdminOp, TableAdminRequest, TableAdminResult, TableEditColumn, TablePreviewResult,
+    TableRowInsert, TableRowUpdate, TestResult,
 };

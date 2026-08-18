@@ -40,8 +40,7 @@ pub fn set(conn: &Connection, key: &str, value: &str) -> AppResult<AppSetting> {
 }
 
 pub fn list_all(conn: &Connection) -> AppResult<Vec<AppSetting>> {
-    let mut stmt =
-        conn.prepare("SELECT key, value, updated_at FROM app_settings ORDER BY key")?;
+    let mut stmt = conn.prepare("SELECT key, value, updated_at FROM app_settings ORDER BY key")?;
     let rows = stmt.query_map([], |r| {
         Ok(AppSetting {
             key: r.get(0)?,

@@ -291,7 +291,10 @@ pub fn compile_upsert(
                     format!("{q} = VALUES({q})")
                 })
                 .collect();
-            Ok(format!("{insert_sql} ON DUPLICATE KEY UPDATE {}", sets.join(", ")))
+            Ok(format!(
+                "{insert_sql} ON DUPLICATE KEY UPDATE {}",
+                sets.join(", ")
+            ))
         }
         SqlIdentStyle::Postgres => {
             let conflict = pks

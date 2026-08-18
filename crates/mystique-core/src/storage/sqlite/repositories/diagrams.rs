@@ -7,7 +7,8 @@ use crate::error::{AppError, AppResult};
 
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ErDiagram> {
     let body_str: String = row.get(3)?;
-    let body: JsonValue = serde_json::from_str(&body_str).unwrap_or(JsonValue::Object(Default::default()));
+    let body: JsonValue =
+        serde_json::from_str(&body_str).unwrap_or(JsonValue::Object(Default::default()));
     Ok(ErDiagram {
         id: row.get(0)?,
         name: row.get(1)?,

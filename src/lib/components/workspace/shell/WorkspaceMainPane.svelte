@@ -147,12 +147,9 @@
 					engineSessionId={activeSession.engineSessionId}
 					database={currentDatabaseName}
 					text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
-					writeEnabled={workspaceSession.queryWriteMode[activeTab.id] ?? false}
 					dirty={!!activeTab.dirty}
 					saving={querysaving}
 					ontextchange={(v) => workspaceSession.setQueryDraft(activeTab.id, v)}
-					onwritechange={(v) =>
-						workspaceSession.setQueryWriteMode(activeTab.id, v)}
 					{onhistory}
 					onsave={onsavequery}
 					{onreconnect}

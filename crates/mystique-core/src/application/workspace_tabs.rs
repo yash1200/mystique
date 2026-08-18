@@ -1,6 +1,4 @@
-use crate::domain::{
-    ReplaceWorkspaceTabsInput, WorkspaceTabRecord,
-};
+use crate::domain::{ReplaceWorkspaceTabsInput, WorkspaceTabRecord};
 use crate::error::AppResult;
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;

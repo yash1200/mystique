@@ -2,10 +2,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
+use crate::domain::now_iso;
 use crate::domain::{
     is_placeholder_secret_ref, validate_environment, ConnectionProfile, SaveConnectionInput,
 };
-use crate::domain::now_iso;
 use crate::error::{AppError, AppResult};
 
 /// Normalize stored secret: drop legacy keychain placeholders; keep real passwords.
