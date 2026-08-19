@@ -15,6 +15,7 @@
 	} from '$lib/types/engineCaps'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import CreateDatabaseForm from './explorer/CreateDatabaseForm.svelte'
 	import ObjectTree from './explorer/ObjectTree.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
@@ -857,19 +858,25 @@
 />
 
 {#if confirmPrompt}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+		class="fixed inset-0 z-50 flex items-center justify-center p-4"
 		role="presentation"
-		onclick={(e) => {
-			if (e.target === e.currentTarget) confirmPrompt = null
-		}}
 		onkeydown={(e) => {
 			if (e.key === 'Escape') confirmPrompt = null
 		}}
 	>
+		<button
+			type="button"
+			class="absolute inset-0 border-none bg-black/45"
+			aria-label="Dismiss"
+			transition:overlayFade
+			onclick={() => {
+				confirmPrompt = null
+			}}
+		></button>
 		<div
-			class="w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+			class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+			transition:modalPanel
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="table-confirm-title"

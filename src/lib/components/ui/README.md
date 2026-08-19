@@ -23,7 +23,7 @@ Implementations of [`docs/DESIGN_LANGUAGE.md`](../../../../docs/DESIGN_LANGUAGE.
 | `AppSettingsPopover` | Gear trigger + settings panel |
 | `EmptyState` | Centered title + description + actions |
 | `ContentPanel` | Page column; `center` vertically centers short content |
-| `BrandMark` | Jade lens logo |
+| `BrandMark` | Jade cat logo |
 | `Kbd` | Shortcut chip |
 | `ContextMenu` | Right-click / action menu |
 

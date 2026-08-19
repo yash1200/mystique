@@ -9,6 +9,7 @@
 		engineLabel,
 	} from '$lib/types/connection'
 	import { cn } from '$lib/utils/cn'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import { onMount } from 'svelte'
 
 	interface Props {
@@ -74,11 +75,13 @@
 		type="button"
 		class="absolute inset-0 border-none bg-app/70"
 		aria-label="Dismiss"
+		transition:overlayFade|global
 		onclick={onclose}
 		disabled={busy}
 	></button>
 	<div
 		class="relative z-10 flex max-h-[min(32rem,80vh)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line bg-elevated shadow-md"
+		transition:modalPanel|global
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="open-conn-title"

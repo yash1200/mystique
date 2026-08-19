@@ -8,6 +8,7 @@
 		PreviewImportResult,
 	} from '$lib/api/engines'
 	import { cn } from '$lib/utils/cn'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 
 	const ENCODING_OPTIONS: SelectOption[] = [
 		{ value: 'utf8', label: 'UTF-8' },
@@ -133,6 +134,7 @@
 			type="button"
 			class="absolute inset-0 border-none bg-black/45"
 			aria-label="Dismiss"
+			transition:overlayFade
 			onclick={() => {
 				if (!busy) oncancel()
 			}}
@@ -140,6 +142,7 @@
 		></button>
 		<div
 			class="relative z-10 flex max-h-[min(44rem,92vh)] w-full max-w-panel-lg flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
+			transition:modalPanel
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="import-preview-title"

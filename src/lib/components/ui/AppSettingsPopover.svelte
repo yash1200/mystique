@@ -8,6 +8,7 @@
 	} from '$lib/api/mcp'
 	import { isTauri } from '$lib/api/tauri'
 	import { cn } from '$lib/utils/cn'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import AppSettings from './AppSettings.svelte'
 	import Button from './Button.svelte'
 	import IconButton from './IconButton.svelte'
@@ -116,17 +117,22 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+		class="fixed inset-0 z-50 flex items-center justify-center p-4"
 		role="presentation"
-		onclick={(e) => {
-			if (e.target === e.currentTarget) close()
-		}}
 		onkeydown={(e) => {
 			if (e.key === 'Escape') close()
 		}}
 	>
+		<button
+			type="button"
+			class="absolute inset-0 border-none bg-black/45"
+			aria-label="Dismiss"
+			transition:overlayFade
+			onclick={close}
+		></button>
 		<div
-			class="flex h-[min(36rem,calc(100vh-2rem))] w-full max-w-2xl overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
+			class="relative z-10 flex h-[min(36rem,calc(100vh-2rem))] w-full max-w-2xl overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
+			transition:modalPanel
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="settings-title"

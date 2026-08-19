@@ -3,6 +3,7 @@
    * Custom select — same look on every OS (no native <select> menu).
    * Menu is position:fixed so it isn’t clipped by overflow parents.
    */
+  import { popover } from "$lib/utils/motion";
   import { cn } from "$lib/utils/cn";
 
   export type SelectOption = {
@@ -35,6 +36,7 @@
   }: Props = $props();
 
   let open = $state(false);
+  let openUp = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);
   let highlighted = $state(-1);
@@ -63,7 +65,7 @@
     const gap = 4;
     const spaceBelow = window.innerHeight - rect.bottom - 8;
     const spaceAbove = rect.top - 8;
-    const openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
+    openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
     const height = Math.min(maxH, Math.max(80, openUp ? spaceAbove : spaceBelow));
 
     if (openUp) {
@@ -87,6 +89,12 @@
 
   function openMenu() {
     if (disabled || options.length === 0) return;
+    if (triggerEl) {
+      const rect = triggerEl.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
+    }
     open = true;
     const current = options.findIndex((o) => o.value === value && !o.disabled);
     highlighted = current >= 0 ? current : firstEnabledIndex();
@@ -275,6 +283,7 @@
         "focus:outline-none",
       )}
       style={menuStyle}
+      transition:popover={{ origin: openUp ? "bottom center" : "top center" }}
       role="listbox"
       tabindex="-1"
       aria-activedescendant={highlighted >= 0 && id

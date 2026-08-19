@@ -37,7 +37,7 @@
 <button
   {type}
   class={cn(
-    "inline-grid shrink-0 place-items-center rounded-md border p-0 leading-none transition-[color,background-color,border-color] duration-150",
+    "inline-grid shrink-0 place-items-center rounded-md border p-0 leading-none transition-[color,background-color,border-color,transform] duration-150 [transition-timing-function:var(--ease-out)] enabled:active:scale-[0.97]",
     sizes[size],
     variant === "ghost" && "border-line bg-transparent text-fg",
     variant === "default" && "border-line bg-elevated text-fg",

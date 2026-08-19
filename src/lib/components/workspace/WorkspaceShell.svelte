@@ -11,18 +11,18 @@
 	} from '$lib/api/catalog'
 	import {
 		applyEngineTableAdmin,
-		exportEngineObject,
-		importEngineObject,
-		previewEngineImport,
-		type ImportEncoding,
-		type ImportFormat,
-		type PreviewImportResult,
 		closeEngineSession,
 		describeEngineObjectStructure,
 		ensureEngineSession,
+		exportEngineObject,
+		importEngineObject,
 		openEngineSession,
+		previewEngineImport,
 		testEngineConnection,
+		type ImportEncoding,
+		type ImportFormat,
 		type ObjectStructure,
+		type PreviewImportResult,
 		type TableAdminOp,
 		type TablePreviewFilter,
 		type TablePreviewSort,
@@ -62,9 +62,9 @@
 		TableMeta,
 	} from '$lib/types/workspace'
 	import { setAppTitle } from '$lib/utils/appTitle'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
 	import { onDestroy, onMount } from 'svelte'
-	import type { TableExplorerAction } from './ObjectExplorer.svelte'
 	import ExportDataModal, {
 		type ExportDataSpec,
 	} from './ExportDataModal.svelte'
@@ -74,6 +74,7 @@
 	import ImportPreviewModal, {
 		type ImportRunSpec,
 	} from './ImportPreviewModal.svelte'
+	import type { TableExplorerAction } from './ObjectExplorer.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
@@ -2007,14 +2008,12 @@
 	<ImportDataModal
 		open={!!importTable && !importPreview}
 		objectLabel={importTable?.kind === 'collection' ? 'collection' : 'table'}
-		formats={
-			activeSession
-				? resolveCapabilities(
-						String(activeSession.profile.engine),
-						activeSession.capabilities,
-					).exportFormats
-				: ['csv', 'json', 'jsonl']
-		}
+		formats={activeSession
+			? resolveCapabilities(
+					String(activeSession.profile.engine),
+					activeSession.capabilities,
+				).exportFormats
+			: ['csv', 'json', 'jsonl']}
 		busy={importBusy}
 		error={importError}
 		onconfirm={(spec) => void confirmImportFile(spec)}
@@ -2048,14 +2047,12 @@
 			: exportTable?.kind === 'view'
 				? 'view'
 				: 'table'}
-		formats={
-			activeSession
-				? resolveCapabilities(
-						String(activeSession.profile.engine),
-						activeSession.capabilities,
-					).exportFormats
-				: ['csv', 'json', 'jsonl']
-		}
+		formats={activeSession
+			? resolveCapabilities(
+					String(activeSession.profile.engine),
+					activeSession.capabilities,
+				).exportFormats
+			: ['csv', 'json', 'jsonl']}
 		busy={exportBusy}
 		error={exportError}
 		onconfirm={(spec) => void confirmExport(spec)}
@@ -2121,16 +2118,9 @@
 	/>
 
 	{#if deleteModalOpen}
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+			class="fixed inset-0 z-50 flex items-center justify-center p-4"
 			role="presentation"
-			onclick={(e) => {
-				if (e.target === e.currentTarget && !deleteBusy) {
-					deleteModalOpen = false
-					deleteQueryId = null
-				}
-			}}
 			onkeydown={(e) => {
 				if (e.key === 'Escape' && !deleteBusy) {
 					deleteModalOpen = false
@@ -2138,8 +2128,21 @@
 				}
 			}}
 		>
+			<button
+				type="button"
+				class="absolute inset-0 border-none bg-black/45"
+				aria-label="Dismiss"
+				transition:overlayFade
+				onclick={() => {
+					if (!deleteBusy) {
+						deleteModalOpen = false
+						deleteQueryId = null
+					}
+				}}
+			></button>
 			<div
-				class="w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+				class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+				transition:modalPanel
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby="delete-query-title"

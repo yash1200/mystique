@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { popover } from "$lib/utils/motion";
   import { cn } from "$lib/utils/cn";
 
   export type ContextMenuItem = {
@@ -66,6 +67,7 @@
   bind:this={root}
   class="fixed z-50 min-w-44 rounded-md border border-line bg-elevated py-1 shadow-md"
   style="left:{left}px; top:{top}px"
+  transition:popover|global={{ origin: "top left" }}
   role="menu"
   tabindex="-1"
   aria-label={ariaLabel}

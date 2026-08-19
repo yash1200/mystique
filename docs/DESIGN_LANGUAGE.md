@@ -301,14 +301,28 @@ Input padding: `px-2.5` horizontal; textareas `px-2.5 py-2`.
 
 ## 9. Motion
 
-| Class | Use |
+Tokens live on `:root` in `tokens.css`. Helpers in `$lib/utils/motion`.
+
+| Token | Value | Use |
+| ----- | ----- | --- |
+| `--ease-out` | `cubic-bezier(0.23, 1, 0.32, 1)` | Enter / exit |
+| `--ease-in-out` | `cubic-bezier(0.77, 0, 0.175, 1)` | On-screen movement |
+| `--ease-drawer` | `cubic-bezier(0.32, 0.72, 0, 1)` | Sheets (if added) |
+| `--duration-press` | `160ms` | `:active` scale |
+| `--duration-popover` | `200ms` | Menus, selects |
+| `--duration-modal` | `250ms` | Dialogs + backdrops |
+| `--duration-toast` | `400ms` | Toasts |
+
+| Class / helper | Use |
 | ----- | --- |
 | `transition-colors` | Default interactive |
 | `duration-100` / `duration-150` | Hovers, theme-adjacent |
+| `ease-[var(--ease-out)]` | Transform / opacity transitions |
 | `motion-safe:hover:scale-105` | Color swatches only |
+| `overlayFade` / `modalPanel` / `popover` / `toastSlide` | Enter + exit (Svelte `transition:`) |
 | `motion-reduce:…` | Always respect reduced motion |
 
-No continuous animation in chrome.
+Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.97`. No continuous animation in chrome.
 
 ---
 
@@ -327,7 +341,7 @@ No continuous animation in chrome.
 | Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
 | Settings | `AppSettings` | Theme, density, UI scale, open row details on click |
 | Settings trigger | `AppSettingsPopover` | Gear + panel (home sidebar + workspace rail) |
-| Brand | `BrandMark` | Jade lens mark — identity only in the workspace rail (not a home button) |
+| Brand | `BrandMark` | Jade cat mark — identity only in the workspace rail (not a home button) |
 | Shortcut | `Kbd` | Keyboard chips (`⌘T`) |
 | Alert | `Alert` | `info` uses `--status-info`, not accent |
 

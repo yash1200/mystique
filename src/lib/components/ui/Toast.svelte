@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toastSlide } from "$lib/utils/motion";
   import { cn } from "$lib/utils/cn";
 
   type Tone = "info" | "success" | "warning" | "danger";
@@ -24,6 +25,7 @@
     edge[tone],
   )}
   role="status"
+  transition:toastSlide|global
 >
   {message}
 </div>

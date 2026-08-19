@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Kbd, Textarea } from '$lib/components/ui'
 	import { cn } from '$lib/utils/cn'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import { onMount, untrack } from 'svelte'
 	import {
 		CELL_VIEW_MODES,
@@ -102,10 +103,12 @@
 		type="button"
 		class="absolute inset-0 border-none bg-app/70"
 		aria-label="Dismiss"
+		transition:overlayFade|global
 		onclick={onclose}
 	></button>
 	<div
 		class="relative z-10 flex max-h-[min(40rem,88vh)] w-full max-w-panel-lg flex-col overflow-hidden rounded-xl border border-line bg-elevated shadow-md"
+		transition:modalPanel|global
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="cell-value-title"

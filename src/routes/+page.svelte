@@ -24,6 +24,7 @@
 		saveInputFromDraft,
 	} from '$lib/types/connection'
 	import { writeLastConnectionId } from '$lib/utils/appPrefs'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import { setAppTitle } from '$lib/utils/appTitle'
 	import { onMount } from 'svelte'
 
@@ -479,11 +480,13 @@
 				type="button"
 				class="absolute inset-0 border-none bg-app/70"
 				aria-label="Dismiss delete dialog"
+				transition:overlayFade
 				onclick={cancelPendingDelete}
 				disabled={deleting}
 			></button>
 			<div
 				class="relative z-10 w-full max-w-md rounded-xl border border-line bg-elevated p-5 shadow-md"
+				transition:modalPanel
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby="delete-conn-title"
@@ -516,6 +519,8 @@
 	{/if}
 
 	{#if toast}
-		<Toast message={toast.message} tone={toast.kind} />
+		{#key toast.kind + toast.message}
+			<Toast message={toast.message} tone={toast.kind} />
+		{/key}
 	{/if}
 </div>

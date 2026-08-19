@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Field, Input } from '$lib/components/ui'
 	import { isTauri } from '$lib/api/tauri'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import type { ImportFormat } from '$lib/api/engines'
 	import {
 		inferFormatFromPath,
@@ -93,6 +94,7 @@
 			type="button"
 			class="absolute inset-0 border-none bg-black/45"
 			aria-label="Dismiss"
+			transition:overlayFade
 			onclick={() => {
 				if (!busy) oncancel()
 			}}
@@ -100,6 +102,7 @@
 		></button>
 		<div
 			class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
+			transition:modalPanel
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="import-data-title"

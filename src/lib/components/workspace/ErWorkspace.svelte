@@ -36,6 +36,7 @@
 		snapToGrid,
 	} from '$lib/types/er'
 	import { cn } from '$lib/utils/cn'
+	import { popover } from '$lib/utils/motion'
 	import { dbmlToDiagram, diagramToDbml, sampleDbml } from '$lib/utils/dbml'
 	import { erContentBounds, layoutErNodes } from '$lib/utils/erLayout'
 	import { currentUiScale, onUiScaleChange } from '$lib/utils/uiScale'
@@ -3305,6 +3306,7 @@
 		data-ctx-menu
 		class="fixed z-50 min-w-45 overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
 		style="left: {ctxMenu.clientX}px; top: {ctxMenu.clientY}px;"
+		transition:popover={{ origin: 'top left' }}
 		role="menu"
 	>
 		{#if ctxMenu.kind === 'canvas'}

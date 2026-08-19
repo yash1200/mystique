@@ -4,6 +4,7 @@
 		isMacPlatform,
 		labelForKey,
 	} from '$lib/data/appShortcuts'
+	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import IconButton from './IconButton.svelte'
 	import Kbd from './Kbd.svelte'
 
@@ -29,10 +30,12 @@
 			type="button"
 			class="absolute inset-0 border-none bg-black/45"
 			aria-label="Dismiss"
+			transition:overlayFade
 			onclick={onclose}
 		></button>
 		<div
 			class="relative z-10 flex h-[min(36rem,calc(100vh-2rem))] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
+			transition:modalPanel
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="shortcuts-title"

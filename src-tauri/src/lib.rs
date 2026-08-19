@@ -15,9 +15,23 @@ use std::sync::Arc;
 use mystique_core::{AppDatabase, AppServices};
 use mystique_mcp::McpService;
 use tauri::{
+    image::Image,
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     Emitter, Manager,
 };
+
+const APP_ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
+
+fn apply_app_icon(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let icon = Image::from_bytes(APP_ICON_PNG)?;
+    if let Some(win) = app.get_webview_window("main") {
+        win.set_icon(icon.clone())?;
+    }
+    for (_label, win) in app.webview_windows() {
+        let _ = win.set_icon(icon.clone());
+    }
+    Ok(())
+}
 
 /// Tauri-managed application state.
 pub struct AppState {
@@ -25,15 +39,20 @@ pub struct AppState {
     pub mcp: McpService,
 }
 
+const APP_DISPLAY_NAME: &str = "Mystique DB";
+
 fn about_metadata(app: &tauri::AppHandle) -> AboutMetadata<'_> {
     let pkg = app.package_info();
     let config = app.config();
     AboutMetadata {
-        name: Some(pkg.name.clone()),
+        name: Some(APP_DISPLAY_NAME.into()),
         version: Some(pkg.version.to_string()),
         copyright: config.bundle.copyright.clone(),
         authors: config.bundle.publisher.clone().map(|p| vec![p]),
         comments: Some("Multi-engine database studio".into()),
+        icon: Image::from_bytes(APP_ICON_PNG)
+            .ok()
+            .or_else(|| app.default_window_icon().cloned()),
         ..Default::default()
     }
 }
@@ -179,7 +198,11 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         "Help",
         true,
-        &[&PredefinedMenuItem::about(app, None, Some(about))?],
+        &[&PredefinedMenuItem::about(
+            app,
+            Some("About Mystique DB"),
+            Some(about),
+        )?],
     )?;
 
     // macOS: app-named first menu (About / Services / Hide / Quit).
@@ -187,18 +210,18 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     {
         let app_menu = Submenu::with_items(
             app,
-            "MystiqueDB",
+            APP_DISPLAY_NAME,
             true,
             &[
-                &PredefinedMenuItem::about(app, None, Some(about))?,
+                &PredefinedMenuItem::about(app, Some("About Mystique DB"), Some(about))?,
                 &PredefinedMenuItem::separator(app)?,
                 &PredefinedMenuItem::services(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::hide(app, None)?,
+                &PredefinedMenuItem::hide(app, Some("Hide Mystique DB"))?,
                 &PredefinedMenuItem::hide_others(app, None)?,
                 &PredefinedMenuItem::show_all(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::quit(app, None)?,
+                &PredefinedMenuItem::quit(app, Some("Quit Mystique DB"))?,
             ],
         )?;
         return Menu::with_items(
@@ -272,6 +295,7 @@ pub fn run() {
             });
 
             app.manage(AppState { services, mcp });
+            apply_app_icon(app).map_err(|e| format!("app icon: {e}"))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { Input, StatusBar } from "$lib/components/ui";
   import { cn } from "$lib/utils/cn";
+  import { popover } from "$lib/utils/motion";
   import {
     formatRelativeTime,
     previewSql,
@@ -251,6 +252,7 @@
     bind:this={menuRoot}
     class="fixed z-50 min-w-40 rounded-md border border-line bg-elevated py-1 shadow-md"
     style="left: {menuX}px; top: {menuY}px"
+    transition:popover={{ origin: "top left" }}
     role="menu"
     aria-label="Saved query actions"
   >

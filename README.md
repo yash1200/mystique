@@ -1,4 +1,6 @@
-# mystique-db
+# Mystique DB
+
+<img src="static/brand/mystique-mark.svg" width="48" height="48" alt="Mystique DB" />
 
 Desktop app built with [Tauri 2](https://tauri.app/), [SvelteKit](https://kit.svelte.dev/), and TypeScript.
 

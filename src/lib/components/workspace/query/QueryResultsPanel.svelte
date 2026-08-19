@@ -3,6 +3,7 @@
   import { Badge, Button, Pager, StatusBar } from "$lib/components/ui";
   import type { QueryResult } from "$lib/api/engines";
   import { cn } from "$lib/utils/cn";
+  import { popover } from "$lib/utils/motion";
   import type { RunState } from "./types";
   import QueryResultsGrid from "./QueryResultsGrid.svelte";
 
@@ -262,6 +263,7 @@
           <div
             class="rounded-md border border-line bg-elevated py-1 shadow-md"
             style={menuStyle}
+            transition:popover={{ origin: "bottom right" }}
             role="menu"
           >
             <p

@@ -647,7 +647,7 @@ applyStoredAppearance(); // +layout onMount
 | Default density | Compact |
 | Grid row | 28px compact / 32px comfortable |
 | Settings | `AppSettingsPopover` on home + workspace |
-| Icon style | 16px stroke; brand = jade lens |
+| Icon style | 16px stroke; brand = jade geometric cat |
 | Primary metaphor | Laboratory instrument, adaptive content |
 
 ---
