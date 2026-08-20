@@ -30,17 +30,13 @@
 	class="flex w-56 shrink-0 flex-col border-r border-line bg-panel"
 	aria-label="Schema objects"
 >
-	<div
-		class="flex h-control shrink-0 items-center justify-between gap-2 border-b border-line px-3"
-	>
-		<p class="text-label font-semibold tracking-wider text-fg-muted uppercase">
+	<div class="shrink-0 border-b border-line p-2" bind:this={searchWrap}>
+		<p
+			class="text-label font-semibold tracking-wider text-fg-muted uppercase pb-1"
+		>
 			{nodeLabel}s
 		</p>
-		<span class="font-mono text-micro text-fg-muted">
-			{navNodes.length}{tableQuery.trim() ? `/${totalCount}` : ''}
-		</span>
-	</div>
-	<div class="shrink-0 border-b border-line p-2" bind:this={searchWrap}>
+
 		<Input
 			bind:value={tableQuery}
 			inputSize="sm"
@@ -61,7 +57,9 @@
 					)}
 					onclick={() => onfocus(node.id)}
 				>
-					<span class="min-w-0 truncate font-mono text-caption">{node.name}</span>
+					<span class="min-w-0 truncate font-mono text-caption"
+						>{node.name}</span
+					>
 					<span class="shrink-0 font-mono text-micro text-fg-muted"
 						>{node.columns.length}</span
 					>

@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { Badge, Button, IconButton, Input } from '$lib/components/core'
+	import { Button, IconButton, Input, StatusBar } from '$lib/components/core'
+	import { cn } from '$lib/utils/cn'
 
 	interface Props {
-		embedded: boolean
 		diagramName: string
-		title: string
 		dirty: boolean
 		readOnly: boolean
 		entityWord: string
@@ -22,11 +21,13 @@
 		canZoomOut: boolean
 		canZoomIn: boolean
 		zoomLabel: string
+		refreshing?: boolean
+		toolMsg: string | null
 		onAutoLayout: () => void
+		onRefresh?: () => void
 		onZoomOut: () => void
 		onZoomIn: () => void
 		onResetZoom: () => void
-		onFitZoom: () => void
 		onToggleGrid: () => void
 		onToggleDbmlEditor: () => void
 		onToggleDbml: () => void
@@ -35,9 +36,7 @@
 	}
 
 	let {
-		embedded,
 		diagramName = $bindable(''),
-		title,
 		dirty,
 		readOnly,
 		entityWord,
@@ -55,11 +54,13 @@
 		canZoomOut,
 		canZoomIn,
 		zoomLabel,
+		refreshing = false,
+		toolMsg,
 		onAutoLayout,
+		onRefresh,
 		onZoomOut,
 		onZoomIn,
 		onResetZoom,
-		onFitZoom,
 		onToggleGrid,
 		onToggleDbmlEditor,
 		onToggleDbml,
@@ -68,66 +69,52 @@
 	}: Props = $props()
 </script>
 
-<div
-	class="flex h-topbar shrink-0 items-center gap-3 border-b border-line bg-panel px-3"
->
-	<div class="flex min-w-0 shrink-0 items-center gap-2">
-		<span
-			class="max-w-48 truncate text-body font-semibold text-fg sm:max-w-[18rem]"
-		>
-			{embedded ? diagramName || 'Live schema' : `ER · ${title}`}
-		</span>
-		{#if embedded}
-			<Badge tone="info" size="sm">Live</Badge>
-		{/if}
-		{#if dirty}
-			<Badge tone="warning" size="sm">Unsaved</Badge>
-		{/if}
+<StatusBar ariaLabel="ER diagram status">
+	{#snippet left()}
 		{#if hasDiagram}
-			<Badge tone="neutral" size="sm">
+			<span class="truncate font-mono tabular-nums">
 				{nodeCount}
 				{entityWord}{nodeCount === 1 ? '' : 's'}
 				{#if edgeCount > 0}
 					· {edgeCount} link{edgeCount === 1 ? '' : 's'}
 				{/if}
-			</Badge>
+			</span>
+		{:else}
+			<span>No diagram</span>
 		{/if}
 		{#if selectionCount > 0}
-			<Badge tone="neutral" size="sm">{selectionCount} selected</Badge>
+			<span class="shrink-0 text-fg-muted">{selectionCount} selected</span>
 		{/if}
 		{#if arrowTool}
-			<Badge tone="accent" size="sm">
+			<span class="shrink-0 text-accent">
 				{arrowTool === 'broken' ? 'Broken arrow' : 'Normal arrow'}
 				{#if linkFrom}
 					· pick target
 				{/if}
-			</Badge>
+			</span>
 		{/if}
-	</div>
-
-	{#if !readOnly}
-		<div class="min-w-32 flex-1">
+		{#if dirty && !readOnly}
+			<span
+				class="shrink-0 rounded-sm border border-warning/45 bg-warning/15 px-1 py-px text-micro font-medium text-warning"
+			>
+				Unsaved
+			</span>
+		{/if}
+		{#if !readOnly}
 			<Input
 				bind:value={diagramName}
-				class="w-full"
+				class="max-w-40"
 				inputSize="sm"
 				aria-label="Diagram name"
 			/>
-		</div>
-	{:else}
-		<div class="min-w-0 flex-1"></div>
-	{/if}
-
-	<div class="flex shrink-0 items-center gap-2">
-		<Button
-			variant="secondary"
-			size="sm"
-			onclick={onAutoLayout}
-			disabled={!hasNodes}
-		>
-			Auto-layout
-		</Button>
-		<div class="flex items-center gap-1">
+		{/if}
+		{#if toolMsg}
+			<span class="min-w-0 truncate text-fg-muted" role="status">{toolMsg}</span
+			>
+		{/if}
+	{/snippet}
+	{#snippet center()}
+		<div class="flex items-center gap-0.5">
 			<IconButton
 				label="Zoom out"
 				size="sm"
@@ -139,7 +126,7 @@
 			</IconButton>
 			<button
 				type="button"
-				class="h-control-sm rounded-md border border-line bg-input px-2 font-mono text-caption text-fg hover:border-line-strong"
+				class="h-control-sm rounded-md border border-line bg-input px-1.5 font-mono text-caption text-fg hover:border-line-strong"
 				onclick={onResetZoom}
 				title="Reset zoom to 100%"
 				aria-label="Reset zoom to 100%"
@@ -155,23 +142,73 @@
 			>
 				+
 			</IconButton>
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={onFitZoom}
-				disabled={!hasNodes}
-			>
-				Fit
-			</Button>
 		</div>
+	{/snippet}
+	{#snippet right()}
 		<Button
-			variant={showGrid ? 'secondary' : 'ghost'}
+			variant="ghost"
 			size="sm"
-			onclick={onToggleGrid}
-			aria-pressed={showGrid}
+			onclick={onAutoLayout}
+			disabled={!hasNodes}
 		>
-			{showGrid ? 'Grid on' : 'Grid'}
+			Auto-layout
 		</Button>
+		{#if onRefresh}
+			<IconButton
+				label={refreshing ? 'Refreshing diagram' : 'Refresh diagram'}
+				size="sm"
+				variant="ghost"
+				onclick={onRefresh}
+				disabled={refreshing}
+				aria-busy={refreshing}
+				class={refreshing ? 'opacity-45' : ''}
+			>
+				<svg
+					class={cn('size-3.5', refreshing && 'animate-spin')}
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+				>
+					<path
+						d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+					/>
+					<path
+						d="M13.5 2.5v3.2h-3.2"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</IconButton>
+		{/if}
+		<IconButton
+			label={showGrid ? 'Hide grid' : 'Show grid'}
+			size="sm"
+			variant="ghost"
+			active={showGrid}
+			onclick={onToggleGrid}
+		>
+			<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+				<rect
+					x="2"
+					y="2"
+					width="12"
+					height="12"
+					rx="1.2"
+					stroke="currentColor"
+					stroke-width="1.3"
+				/>
+				<path
+					d="M2 6.5h12M2 10.5h12M6.5 2v12M10.5 2v12"
+					stroke="currentColor"
+					stroke-width="1.3"
+				/>
+			</svg>
+		</IconButton>
 		{#if !readOnly}
 			<Button
 				variant={dbmlSourceMode ? 'secondary' : 'ghost'}
@@ -193,12 +230,11 @@
 			</Button>
 		{/if}
 		{#if !readOnly}
-			<Button variant="secondary" size="sm" onclick={onLoadLatest}
-				>Load last</Button
+			<Button variant="ghost" size="sm" onclick={onLoadLatest}>Load last</Button
 			>
 			<Button variant="primary" size="sm" onclick={onSave} disabled={saving}>
 				{saving ? 'Saving…' : 'Save'}
 			</Button>
 		{/if}
-	</div>
-</div>
+	{/snippet}
+</StatusBar>

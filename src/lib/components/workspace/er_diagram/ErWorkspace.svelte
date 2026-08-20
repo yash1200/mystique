@@ -9,7 +9,7 @@
 		type ErDiagramRecord,
 	} from '$lib/api/diagrams'
 	import { isTauri } from '$lib/api/tauri'
-	import { ContextMenu, StatusBar } from '$lib/components/core'
+	import { ContextMenu } from '$lib/components/core'
 	import type {
 		DataFamily,
 		ErColumn,
@@ -35,7 +35,7 @@
 	import ErDbmlEditor from './ErDbmlEditor.svelte'
 	import ErDbmlSnapshot from './ErDbmlSnapshot.svelte'
 	import ErObjectRail from './ErObjectRail.svelte'
-	import ErToolbar from './ErToolbar.svelte'
+	import ErStatusBar from './ErStatusBar.svelte'
 	import ErToolsPanel from './ErToolsPanel.svelte'
 	import {
 		ER_HEADER_H_BASE,
@@ -68,8 +68,9 @@
 		initialName?: string
 		/** Workspace embed: live schema (read-only chrome). */
 		embedded?: boolean
-		/** Optional note shown in the toolbar (e.g. "4 tables · 3 relationships"). */
-		statusNote?: string | null
+		/** Live schema: reload tables / FKs from the database. */
+		onrefresh?: () => void
+		refreshing?: boolean
 	}
 
 	let {
@@ -77,7 +78,8 @@
 		initialDiagram = null,
 		initialName = '',
 		embedded = true,
-		statusNote = null,
+		onrefresh,
+		refreshing = false,
 	}: Props = $props()
 
 	let uiScale = $state(typeof document !== 'undefined' ? currentUiScale() : 1)
@@ -249,11 +251,7 @@
 				(embedded
 					? 'Live schema diagram'
 					: `Untitled ${FAMILY_META[f].short} diagram`)
-			toolMsg =
-				statusNote ||
-				(embedded
-					? 'Live schema · drag to rearrange · Auto-layout to reset.'
-					: 'Live schema loaded.')
+			toolMsg = null
 		} else {
 			diagram = emptyDiagram(f)
 			diagramName = nameHint || `Untitled ${FAMILY_META[f].short} diagram`
@@ -306,7 +304,8 @@
 	}
 
 	function markDirty(opts?: { structure?: boolean }) {
-		dirty = true
+		// Live workspace ER is a view of the catalog — positions are not persisted.
+		if (!readOnly) dirty = true
 		if (opts?.structure !== false) invalidateDbml()
 	}
 
@@ -362,7 +361,7 @@
 		ctxMenu = null
 		dragWaypoint = null
 		pruneSelectionToDiagram()
-		dirty = true
+		markDirty()
 		historyLocked = false
 		toolMsg = 'Undid last change.'
 	}
@@ -383,7 +382,7 @@
 		ctxMenu = null
 		dragWaypoint = null
 		pruneSelectionToDiagram()
-		dirty = true
+		markDirty()
 		historyLocked = false
 		toolMsg = 'Redid last change.'
 	}
@@ -446,22 +445,6 @@
 	function resetZoom() {
 		void setViewZoom(1)
 		toolMsg = 'Zoom 100%.'
-	}
-
-	async function fitZoom() {
-		if (!canvasEl || !diagram?.nodes.length) {
-			void setViewZoom(1)
-			return
-		}
-		const rect = canvasEl.getBoundingClientRect()
-		const pad = ER_GRID
-		const sx = (rect.width - pad * 2) / canvasBounds.width
-		const sy = (rect.height - pad * 2) / canvasBounds.height
-		const next = clampErZoom(Math.min(sx, sy, ER_ZOOM_MAX))
-		viewZoom = next
-		await tick()
-		canvasEl.scrollTo({ left: 0, top: 0 })
-		toolMsg = `Fit · ${Math.round(next * 100)}%.`
 	}
 
 	$effect(() => {
@@ -1400,8 +1383,8 @@
 		if (!readOnly) markDirty()
 		toolMsg =
 			diagram.edges.length > 0
-				? `Auto-layout · parents left, children right · ${diagram.nodes.length} ${entityWord}s.`
-				: `Auto-layout · packed grid · ${diagram.nodes.length} ${entityWord}s.`
+				? 'Auto-layout · parents left, children right.'
+				: 'Auto-layout · packed grid.'
 		requestAnimationFrame(() => {
 			canvasEl?.scrollTo({ left: 0, top: 0 })
 		})
@@ -1560,39 +1543,6 @@
 />
 
 <div class="flex h-full min-h-0 flex-col">
-	<ErToolbar
-		{embedded}
-		bind:diagramName
-		title={meta.title}
-		{dirty}
-		{readOnly}
-		{entityWord}
-		hasDiagram={!!diagram}
-		nodeCount={diagram?.nodes.length ?? 0}
-		edgeCount={diagram?.edges.length ?? 0}
-		{selectionCount}
-		{arrowTool}
-		linkFrom={!!linkFrom}
-		{hasNodes}
-		{showGrid}
-		{dbmlSourceMode}
-		{showDbml}
-		{saving}
-		{canZoomOut}
-		{canZoomIn}
-		{zoomLabel}
-		onAutoLayout={autoLayout}
-		onZoomOut={zoomOut}
-		onZoomIn={zoomIn}
-		onResetZoom={resetZoom}
-		onFitZoom={() => void fitZoom()}
-		onToggleGrid={toggleGrid}
-		onToggleDbmlEditor={toggleDbmlSourceEditor}
-		onToggleDbml={toggleDbml}
-		onLoadLatest={() => void handleLoadLatest()}
-		onSave={() => void handleSave()}
-	/>
-
 	<div class="flex min-h-0 flex-1">
 		{#if !readOnly}
 			<aside
@@ -1719,36 +1669,38 @@
 		{/if}
 	</div>
 
-	<StatusBar ariaLabel="ER diagram status">
-		{#snippet left()}
-			{#if diagram}
-				<span>
-					{diagram.nodes.length}
-					{entityWord}{diagram.nodes.length === 1 ? '' : 's'}
-					{#if diagram.edges.length > 0}
-						· {diagram.edges.length} link{diagram.edges.length === 1 ? '' : 's'}
-					{/if}
-				</span>
-			{:else}
-				<span>No diagram</span>
-			{/if}
-			{#if statusNote}
-				<span class="text-fg-muted">· {statusNote}</span>
-			{/if}
-		{/snippet}
-		{#snippet center()}
-			{#if toolMsg}
-				<span class="truncate" role="status">{toolMsg}</span>
-			{/if}
-		{/snippet}
-		{#snippet right()}
-			<span class="text-fg-muted">
-				{readOnly
-					? '/ find · Ctrl+scroll zoom · Shift+Ctrl+L layout'
-					: 'Ctrl+Z undo · / find · Ctrl+scroll zoom'}
-			</span>
-		{/snippet}
-	</StatusBar>
+	<ErStatusBar
+		bind:diagramName
+		{dirty}
+		{readOnly}
+		{entityWord}
+		hasDiagram={!!diagram}
+		nodeCount={diagram?.nodes.length ?? 0}
+		edgeCount={diagram?.edges.length ?? 0}
+		{selectionCount}
+		{arrowTool}
+		linkFrom={!!linkFrom}
+		{hasNodes}
+		{showGrid}
+		{dbmlSourceMode}
+		{showDbml}
+		{saving}
+		{canZoomOut}
+		{canZoomIn}
+		{zoomLabel}
+		{refreshing}
+		{toolMsg}
+		onAutoLayout={autoLayout}
+		onRefresh={onrefresh}
+		onZoomOut={zoomOut}
+		onZoomIn={zoomIn}
+		onResetZoom={resetZoom}
+		onToggleGrid={toggleGrid}
+		onToggleDbmlEditor={toggleDbmlSourceEditor}
+		onToggleDbml={toggleDbml}
+		onLoadLatest={() => void handleLoadLatest()}
+		onSave={() => void handleSave()}
+	/>
 </div>
 
 {#if ctxMenu && !readOnly}

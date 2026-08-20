@@ -1244,11 +1244,14 @@
 	}
 
 	/** Open live ER / model diagram for the currently selected database. */
-	async function openModelDiagram(force = false) {
+	async function openModelDiagram(
+		force = false,
+		databaseOverride?: string | null,
+	) {
 		if (!activeSession || !activeId) return
 		sideMode = 'explorer'
 		const engine = String(activeSession.profile.engine)
-		const database = currentDatabaseName || ''
+		const database = (databaseOverride ?? currentDatabaseName ?? '').trim()
 		const title = modelTabTitle(
 			resolveCapabilities(engine, activeSession.capabilities),
 			database,
@@ -1257,7 +1260,7 @@
 		const key = modelCacheKey(activeId, database)
 		const alreadyOpen =
 			activeTab?.kind === 'model' &&
-			(activeTab.modelDatabase ?? '') === (database.trim() || '')
+			(activeTab.modelDatabase ?? '') === database
 		workspaceSession.openModel(activeId, database, title)
 
 		// Reuse cache when switching back to the tab; force rebuild when user
@@ -1341,6 +1344,24 @@
 		if (!activeTab || activeTab.kind !== 'model' || !activeId) return null
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
 		return liveModels[modelCacheKey(activeId, db)] ?? null
+	})
+
+	// Rebuild when a model tab is focused without a cached diagram
+	// (reconnect / app reopen restores the tab but liveModels is empty).
+	$effect(() => {
+		if (
+			!activeId ||
+			!activeSession ||
+			!activeTab ||
+			activeTab.kind !== 'model' ||
+			modelLoading ||
+			modelError
+		) {
+			return
+		}
+		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
+		if (liveModels[modelCacheKey(activeId, db)]?.diagram) return
+		void openModelDiagram(true, db)
 	})
 
 	async function refreshDatabases() {

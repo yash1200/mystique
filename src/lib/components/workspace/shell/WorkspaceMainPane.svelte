@@ -190,8 +190,9 @@
 								)}
 							initialDiagram={activeModel.diagram}
 							initialName={activeModel.title}
-							statusNote={activeModel.summary}
 							embedded={true}
+							onrefresh={onopenmodelretry}
+							refreshing={modelLoading}
 						/>
 					{/key}
 				{:else}
