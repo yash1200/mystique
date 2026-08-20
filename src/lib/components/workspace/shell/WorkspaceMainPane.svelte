@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ObjectStructure, TablePreviewFilter } from '$lib/api/engines'
 	import type { QueryHistoryItem } from '$lib/api/history'
-	import { EmptyState } from '$lib/components/ui'
+	import { EmptyState } from '$lib/components/core'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import { colorHex } from '$lib/types/connection'
@@ -13,7 +13,7 @@
 		WorkspaceTab,
 	} from '$lib/types/workspace'
 	import DataGrid from '../DataGrid.svelte'
-	import ErWorkspace from '../ErWorkspace.svelte'
+	import ErWorkspace from '../er_diagram/ErWorkspace.svelte'
 	import QueryCanvas from '../QueryCanvas.svelte'
 	import RowInspector from '../RowInspector.svelte'
 	import type { SideNavMode } from '../SessionsRail.svelte'

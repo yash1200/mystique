@@ -4,8 +4,8 @@
 	 * Highlighting is frontend-only — live as you type, no backend.
 	 */
 	import type { CatalogColumnRow } from '$lib/api/engines'
-	import { Button, Input } from '$lib/components/ui'
-	import { watchHtmlAttr } from '$lib/utils/appPrefs'
+	import { Button, Input } from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { formatQuery } from '$lib/utils/formatQuery'
 	import {
 		mongoCompletionSource,
@@ -84,8 +84,7 @@
 	let themeCompartment = new Compartment()
 
 	function themeIsDark(): boolean {
-		if (typeof document === 'undefined') return true
-		return document.documentElement.dataset.theme !== 'light'
+		return appPrefs.resolvedTheme === 'dark'
 	}
 	/** Skip echo when we push parent → editor. */
 	let applyingExternal = false
@@ -253,21 +252,19 @@
 			parent: hostEl,
 		})
 
-		const unwatchTheme = watchHtmlAttr('data-theme', () => {
-			const v = view
-			if (!v) return
-			v.dispatch({
-				effects: themeCompartment.reconfigure(
-					createMystiqueEditorTheme(themeIsDark()),
-				),
-			})
-		})
-
 		return () => {
-			unwatchTheme()
 			view?.destroy()
 			view = null
 		}
+	})
+
+	$effect(() => {
+		const dark = appPrefs.resolvedTheme === 'dark'
+		const v = view
+		if (!v) return
+		v.dispatch({
+			effects: themeCompartment.reconfigure(createMystiqueEditorTheme(dark)),
+		})
 	})
 
 	// Parent draft / history → editor (never while user is typing in the CM DOM).

@@ -11,7 +11,7 @@
 		draftFromProfile,
 		pluginConfigForSession,
 	} from '$lib/types/connection'
-	import { writeLastConnectionId } from '$lib/utils/appPrefs'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { onMount } from 'svelte'
 
 	let ready = $state(false)
@@ -36,7 +36,7 @@
 		)
 		if (existing) {
 			workspaceSession.setActiveConnection(connectionId)
-			writeLastConnectionId(connectionId)
+			appPrefs.setLastConnectionId(connectionId)
 			// Ensure live engine session if missing (e.g. soft reload).
 			if (isTauri() && !existing.engineSessionId) {
 				try {
@@ -101,7 +101,7 @@
 					return
 				}
 			}
-			writeLastConnectionId(connectionId)
+			appPrefs.setLastConnectionId(connectionId)
 			workspaceSession.connect(
 				{ ...profile, status: 'connected' },
 				engineSessionId,

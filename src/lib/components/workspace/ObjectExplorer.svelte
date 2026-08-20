@@ -4,10 +4,11 @@
 		ContextMenu,
 		IconButton,
 		Input,
+		Modal,
 		Select,
 		StatusBar,
 		type ContextMenuItem,
-	} from '$lib/components/ui'
+	} from '$lib/components/core'
 	import {
 		defaultCapabilitiesForEngine,
 		presentationFromCaps,
@@ -15,7 +16,6 @@
 	} from '$lib/types/engineCaps'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
-	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import CreateDatabaseForm from './explorer/CreateDatabaseForm.svelte'
 	import ObjectTree from './explorer/ObjectTree.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
@@ -857,51 +857,30 @@
 	}}
 />
 
-{#if confirmPrompt}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center p-4"
-		role="presentation"
-		onkeydown={(e) => {
-			if (e.key === 'Escape') confirmPrompt = null
-		}}
-	>
-		<button
-			type="button"
-			class="absolute inset-0 border-none bg-black/45"
-			aria-label="Dismiss"
-			transition:overlayFade
+<Modal
+	open={!!confirmPrompt}
+	onclose={() => {
+		confirmPrompt = null
+	}}
+	title={confirmPrompt
+		? `${confirmPrompt.action === 'drop' ? 'Drop' : 'Truncate'} ${noun}`
+		: undefined}
+	description={confirmPrompt
+		? confirmPrompt.action === 'drop'
+			? `Drop “${confirmPrompt.table.name}”? This runs on the database and cannot be undone.`
+			: `Truncate “${confirmPrompt.table.name}”? This deletes all rows on the database and cannot be undone.`
+		: undefined}
+>
+	{#snippet footer()}
+		<Button
+			variant="ghost"
+			size="sm"
 			onclick={() => {
 				confirmPrompt = null
-			}}
-		></button>
-		<div
-			class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
-			transition:modalPanel
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="table-confirm-title"
+			}}>Cancel</Button
 		>
-			<h2 id="table-confirm-title" class="m-0 text-body font-semibold text-fg">
-				{confirmPrompt.action === 'drop' ? 'Drop' : 'Truncate'}
-				{noun}
-			</h2>
-			<p class="mt-2 mb-0 text-label leading-relaxed text-fg-secondary">
-				{confirmPrompt.action === 'drop'
-					? `Drop “${confirmPrompt.table.name}”? This runs on the database and cannot be undone.`
-					: `Truncate “${confirmPrompt.table.name}”? This deletes all rows on the database and cannot be undone.`}
-			</p>
-			<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => {
-						confirmPrompt = null
-					}}>Cancel</Button
-				>
-				<Button variant="danger" size="sm" onclick={confirmDanger}>
-					{confirmPrompt.action === 'drop' ? 'Drop' : 'Truncate'}
-				</Button>
-			</div>
-		</div>
-	</div>
-{/if}
+		<Button variant="danger" size="sm" onclick={confirmDanger}>
+			{confirmPrompt?.action === 'drop' ? 'Drop' : 'Truncate'}
+		</Button>
+	{/snippet}
+</Modal>

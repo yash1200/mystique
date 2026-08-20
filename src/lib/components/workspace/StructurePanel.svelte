@@ -12,7 +12,7 @@
 		Input,
 		Pill,
 		StatusBar,
-	} from '$lib/components/ui'
+	} from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 	import { copyTextToClipboard } from '$lib/utils/exportTable'
 
@@ -175,7 +175,9 @@
 	function sectionAsTsv(sec: StructureSection): string {
 		const lines = [sec.columns.join('\t')]
 		for (const row of sec.rows) {
-			lines.push(row.map((c) => c.replace(/\t/g, ' ').replace(/\n/g, ' ')).join('\t'))
+			lines.push(
+				row.map((c) => c.replace(/\t/g, ' ').replace(/\n/g, ' ')).join('\t'),
+			)
 		}
 		return lines.join('\n')
 	}
@@ -226,7 +228,9 @@
 						>
 							<div class="h-3 w-24 animate-pulse rounded-sm bg-input"></div>
 							<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
-							<div class="h-3 flex-1 animate-pulse rounded-sm bg-input/50"></div>
+							<div
+								class="h-3 flex-1 animate-pulse rounded-sm bg-input/50"
+							></div>
 						</div>
 					{/each}
 				</div>
@@ -252,9 +256,7 @@
 	{:else if structure}
 		<!-- Identity header -->
 		<header class="relative shrink-0 border-b border-line bg-panel">
-			<span
-				class="absolute inset-y-0 left-0 w-0.5 bg-conn"
-				aria-hidden="true"
+			<span class="absolute inset-y-0 left-0 w-0.5 bg-conn" aria-hidden="true"
 			></span>
 			<div class="flex items-start gap-3 px-4 py-3 pl-4">
 				<div class="min-w-0 flex-1">
@@ -280,7 +282,8 @@
 							<span aria-hidden="true" class="text-fg-muted">·</span>
 						{/if}
 						<span class="font-mono tabular-nums">
-							{structure.sections.length} section{structure.sections.length === 1
+							{structure.sections.length} section{structure.sections.length ===
+							1
 								? ''
 								: 's'}
 						</span>

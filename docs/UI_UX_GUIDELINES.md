@@ -152,9 +152,9 @@ Avoid heavy skeuomorphism. Prefer **1px borders** and restrained shadows.
 
 ### 2.7 Theme toggle UX
 
-- Location: **Settings** (`AppSettingsPopover`) — home sidebar footer **and** workspace sessions-rail footer. Not a home titlebar.
+- Location: **Settings** (`SettingsModal`) — home sidebar footer **and** workspace sessions-rail footer. Not a home titlebar.
 - Settings also expose **density** (compact / comfortable), **UI scale**, and **Open row details on click** (default on; off = Show details in the row menu). Home always opens on **New connection**; pick a saved connection from the sidebar.
-- Persistence: `src/lib/utils/appPrefs.ts` (localStorage). Applied at boot in `+layout.svelte` via `applyStoredAppearance()`.
+- Persistence: `src/lib/stores/app-prefs.svelte.ts` (localStorage). Applied at boot in `+layout.svelte` via `appPrefs.apply()`.
 - Icons: sun / moon / monitor (system).
 - Switching themes must **not** remount the whole workspace (preserve tabs, scroll, selection). CodeMirror reconfigures via `data-theme` observer.
 - Connection colors remain the same hue in both themes; only **alpha / surface mix** changes (see §3).
@@ -602,7 +602,7 @@ Single source: `src/lib/styles/tokens.css` (or `.scss`) defining:
 ### 12.4 Appearance prefs
 
 ```ts
-// src/lib/utils/appPrefs.ts
+// src/lib/stores/app-prefs.svelte.ts
 type ThemePref = "light" | "dark" | "system";
 type DensityPref = "compact" | "comfortable";
 
@@ -615,7 +615,7 @@ applyStoredAppearance(); // +layout onMount
 
 - No raw hex in `.svelte` files except connection palette data.
 - Prefer CSS variables for hover/active.
-- Shared primitives under `src/lib/components/ui/` (`Button`, `Input`, `StatusBar`, `Pager`, `AppSettingsPopover`, …).
+- Shared primitives under `src/lib/components/core/` (`Button`, `Input`, `StatusBar`, `Pager`, …). Settings lives in `src/lib/components/home/settings/`.
 - Feature chrome under `src/lib/components/home/` and `src/lib/components/workspace/`.
 
 ### 12.6 Checklist before merging UI
@@ -646,7 +646,7 @@ applyStoredAppearance(); // +layout onMount
 | Atmosphere | Subtle grain overlay (`--grain-opacity`); connection-tinted wash |
 | Default density | Compact |
 | Grid row | 28px compact / 32px comfortable |
-| Settings | `AppSettingsPopover` on home + workspace |
+| Settings | `SettingsModal` on home + workspace |
 | Icon style | 16px stroke; brand = jade geometric cat |
 | Primary metaphor | Laboratory instrument, adaptive content |
 
@@ -660,7 +660,7 @@ applyStoredAppearance(); // +layout onMount
 4. **Command palette:** deferred (Phase 2).  
 5. **High-contrast theme:** deferred; light/dark + density cover the current need.  
 6. **Page size:** fixed 100; no dropdown.  
-7. **Appearance store:** `appPrefs.ts` (localStorage), not a Svelte store.
+7. **Appearance store:** `src/lib/stores/app-prefs.svelte.ts` (reactive + localStorage).
 
 ---
 

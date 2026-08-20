@@ -29,9 +29,8 @@ export async function setAppTitle(
 	try {
 		// Prefer webview window API (Tauri 2); fall back to window API.
 		try {
-			const { getCurrentWebviewWindow } = await import(
-				'@tauri-apps/api/webviewWindow'
-			)
+			const { getCurrentWebviewWindow } =
+				await import('@tauri-apps/api/webviewWindow')
 			if (gen !== titleGen) return title
 			await getCurrentWebviewWindow().setTitle(title)
 			return title

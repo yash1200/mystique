@@ -83,7 +83,10 @@ export function modalPanel(
 /**
  * Dropdown, select menu, context menu. Scales out of its trigger.
  */
-export function popover(node: Element, params?: MotionParams): TransitionConfig {
+export function popover(
+	node: Element,
+	params?: MotionParams,
+): TransitionConfig {
 	const reduce = reducedMotion()
 	const start = params?.start ?? 0.95
 	if (params?.origin && node instanceof HTMLElement) {

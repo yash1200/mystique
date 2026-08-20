@@ -5,6 +5,51 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "./tauri";
 
+/** History row as shown in the sidebar list. */
+export type QueryHistoryEntry = {
+	id: string
+	sql: string
+	ranAt: string
+	durationMs: number
+	status: 'success' | 'error'
+	rowCount?: number
+	error?: string
+	connectionId?: string
+	connectionName?: string
+	engine?: string
+	language?: string
+}
+
+export function historyItemToEntry(
+	item: {
+		id: string
+		connectionId?: string | null
+		engine?: string | null
+		body: string
+		language?: string | null
+		success: boolean
+		rowCount?: number | null
+		durationMs?: number | null
+		errorMessage?: string | null
+		ranAt: string
+	},
+	connectionName?: string,
+): QueryHistoryEntry {
+	return {
+		id: item.id,
+		sql: item.body,
+		ranAt: item.ranAt,
+		durationMs: item.durationMs ?? 0,
+		status: item.success ? 'success' : 'error',
+		rowCount: item.rowCount ?? undefined,
+		error: item.errorMessage ?? undefined,
+		connectionId: item.connectionId ?? undefined,
+		connectionName,
+		engine: item.engine ?? undefined,
+		language: item.language ?? undefined,
+	}
+}
+
 export interface QueryHistoryItem {
   id: string;
   connectionId?: string | null;

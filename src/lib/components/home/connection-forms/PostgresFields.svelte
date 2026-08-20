@@ -6,7 +6,7 @@
 		FormGrid,
 		Input,
 		PasswordInput,
-	} from '$lib/components/ui'
+	} from '$lib/components/core'
 
 	interface Props {
 		host?: string

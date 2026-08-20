@@ -16,7 +16,7 @@ This document is the **code contract**. Every UI class must come from this langu
 2. **Semantic over raw** — Prefer `text-body text-fg-secondary` over `text-[13px] text-[#9aa6bd]`.
 3. **One theme map** — Light/dark swap CSS variables; components never pair `dark:` / `light:` colors.
 4. **Dense by default** — Body UI is 13px (`text-body`); use larger steps sparingly.
-5. **Primitives first** — Build screens from `$lib/components/ui/*`; don’t restyle buttons per screen.
+5. **Primitives first** — Build screens from `$lib/components/core`; don’t restyle buttons per screen.
 6. **No magic numbers** — If a value isn’t in this doc, add it to the language first, then use it.
 
 ### Forbidden
@@ -54,11 +54,11 @@ Components          ← semantic classes only
 | ----- | ---- | -------------- |
 | Values | `src/lib/styles/tokens.css` | Hex / rgba for light & dark |
 | Bridge | `src/app.css` (`@theme inline`) | Map tokens → utilities |
-| Primitives | `src/lib/components/ui/*` | Encode variants with language classes |
-| Features | `src/lib/components/{home,…}/*` | Compose primitives + layout |
+| Primitives | `src/lib/components/core/*` | Encode variants with language classes |
+| Features | `src/lib/components/{home,workspace}/*` | Compose primitives + page chrome |
 
 Theme switch = change `data-theme`. **No component rewrites.**  
-Density switch = change `data-density`. Appearance prefs live in `src/lib/utils/appPrefs.ts` and apply at boot (`applyStoredAppearance`).
+Density switch = change `data-density`. Appearance prefs live in `src/lib/stores/app-prefs.svelte.ts` and apply at boot (`appPrefs.apply()`).
 
 ---
 
@@ -181,7 +181,7 @@ Do not reuse `--accent` or connection hues for syntax. Reconfigure the editor th
 | `text-display` | 22px | 1.25 | Page / connection titles |
 
 **Default:** `body` uses `text-body`. Do not use Tailwind’s default `text-xs`…`text-xl` for product UI.  
-**Density:** `data-density="compact"` is default; `comfortable` loosens `--row-height`, `--sidebar-width`, and `--grid-row-height` (28px → 32px grid rows). Toggle lives in **Settings** (`AppSettings` / `AppSettingsPopover`).
+**Density:** `data-density="compact"` is default; `comfortable` loosens `--row-height`, `--sidebar-width`, and `--grid-row-height` (28px → 32px grid rows). Toggle lives in **Settings** (`AppearanceSettings` / `SettingsModal`).
 
 ### 4.3 Weight scale (closed set)
 
@@ -244,6 +244,8 @@ Layout widths:
 | `max-w-panel-md` | Forms (~720px) |
 | `max-w-panel-lg` | Detail (~880px) |
 | `max-w-prose-ui` | Descriptions (~52ch) |
+| `h-modal` | Tall dialog fill (`min(36rem, 100vh − 2rem)`) |
+| `max-h-modal-sm` · `md` · `lg` | Dialog max heights (32 / 40 / 44rem) |
 
 ---
 
@@ -339,11 +341,11 @@ Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.
 | Empty | `EmptyState` | `text-title` + `text-body` + next action; parent centers it |
 | Status footer | `StatusBar` | Three zones: left meta · center pager · right actions; may wrap (`min-h-statusbar`) |
 | Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
-| Settings | `AppSettings` | Theme, density, UI scale, open row details on click |
-| Settings trigger | `AppSettingsPopover` | Gear + panel (home sidebar + workspace rail) |
+| Settings | `SettingsModal` | Gear + modal; panes in `home/settings` |
 | Brand | `BrandMark` | Jade cat mark — identity only in the workspace rail (not a home button) |
 | Shortcut | `Kbd` | Keyboard chips (`⌘T`) |
 | Alert | `Alert` | `info` uses `--status-info`, not accent |
+| Modal | `Modal` | Overlay + panel. `layout`: inset (confirm/form) · chrome (header/body/footer) · bare (custom shell). `size`: sm · md · lg · xl. `height`: auto · fill · sm · md · lg |
 
 **Variants customize look; `class` only for layout** (`w-full`, `col-span-full`, `mt-3`).
 

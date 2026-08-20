@@ -1,11 +1,5 @@
 <script lang="ts">
-	import {
-		Button,
-		ContentPanel,
-		EngineBadge,
-		Pill,
-		StatusDot,
-	} from '$lib/components/ui'
+	import { Button, ContentPanel, Pill, StatusDot } from '$lib/components/core'
 	import type { ConnectionProfile } from '$lib/types/connection'
 	import {
 		colorHex,
@@ -20,6 +14,7 @@
 		defaultCapabilitiesForEngine,
 	} from '$lib/types/engineCaps'
 	import { cn } from '$lib/utils/cn'
+	import EngineBadge from './EngineBadge.svelte'
 
 	interface Props {
 		connection: ConnectionProfile

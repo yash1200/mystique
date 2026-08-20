@@ -55,7 +55,11 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		id: 'app',
 		title: 'App',
 		items: [
-			{ id: 'reset', label: 'Close connections and return home', keys: ['mod', 'shift', 'R'] },
+			{
+				id: 'reset',
+				label: 'Close connections and return home',
+				keys: ['mod', 'shift', 'R'],
+			},
 			{ id: 'zoom-in', label: 'Increase UI scale', keys: ['mod', '+'] },
 			{ id: 'zoom-out', label: 'Decrease UI scale', keys: ['mod', '−'] },
 			{ id: 'zoom-reset', label: 'Reset UI scale', keys: ['mod', '0'] },

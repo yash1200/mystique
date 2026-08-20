@@ -32,7 +32,7 @@ This design adds an **opt-in right-hand chat pane on query tabs**. The in-app ag
 | Settings | `AppSettingsPopover` sections `'appearance' \| 'mcp'`; `mcp.enabled` | `'ai'` section, provider, model, key |
 | Secrets | Connection passwords are plaintext in `connections.secret_ref` (“keychain later”) | Real keychain for AI keys |
 | SQLite | Migrations `001`–`003`; `app_settings` KV | Chat / run / tool-audit tables |
-| FE prefs | Explorer width in `src/lib/utils/appPrefs.ts` | Chat pane width / collapsed |
+| FE prefs | Explorer width in `src/lib/stores/app-prefs.svelte.ts` | Chat pane width / collapsed |
 | IPC | `get_setting` / `set_setting`; no agent commands | Chat + LLM + keychain IPC |
 
 `get_schema_dbml` already builds live DBML from catalog columns + FKs (`application/dbml.rs`), capped at 200 tables, no comments/indexes/defaults, and **never** returns host/password/URI. `execute_readonly_query` already forces `QueryMode::Read` + `profile_read_only: true`, `AGENT_DEFAULT_ROWS = 200`, `AGENT_MAX_ROWS = 2_000`, 30s timeout.
@@ -335,15 +335,15 @@ src-tauri/src/ipc/agent.rs
 src-tauri/src/lib.rs               # register commands + AgentRuntime state
 
 src/lib/api/agent.ts
-src/lib/components/ui/AppSettingsAi.svelte
-src/lib/components/ui/AppSettingsPopover.svelte   # section 'ai'
+src/lib/components/home/settings/AppSettingsAi.svelte
+src/lib/components/home/settings/SettingsModal.svelte   # section 'ai'
 src/lib/components/workspace/agent/
   AgentChatPane.svelte
   AgentThreadList.svelte
   AgentMessageList.svelte
   AgentComposer.svelte
   AgentToolChip.svelte
-src/lib/utils/appPrefs.ts          # width + collapsed
+src/lib/stores/app-prefs.svelte.ts          # width + collapsed
 src/lib/components/workspace/shell/WorkspaceMainPane.svelte
 ```
 
@@ -1368,7 +1368,7 @@ No further questions block PR 1. A-4 is implemented, not left open.
 - Agent tools — `crates/mystique-core/src/application/agent_tools.rs`
 - DBML builder — `crates/mystique-core/src/application/dbml.rs`
 - MCP adapter (do not call from in-app) — `crates/mystique-mcp/src/lib.rs`, `src/server.rs`
-- MCP settings — `src/lib/components/ui/AppSettingsPopover.svelte`, `crates/mystique-mcp/src/service.rs` (`mcp.enabled`)
+- MCP settings — `src/lib/components/home/settings/McpSettings.svelte`, `crates/mystique-mcp/src/service.rs` (`mcp.enabled`)
 - Query tab — `src/lib/components/workspace/shell/WorkspaceMainPane.svelte`, `QueryCanvas.svelte`
 - Drafts — `src/lib/stores/workspace-session.svelte.ts` `setQueryDraft` / `queryDrafts`
 - Inspector layout to mirror — `RowInspector.svelte` (`w-72`)
@@ -1402,8 +1402,8 @@ Incremental, each PR independently reviewable and mergeable. **Start at PR 1 ∥
 - `src/lib/data/agentModels.ts` — **hardcoded** provider → model lists (same SKUs as later `models.rs`)
 - `src/lib/api/agent.ts` — `AiSettingsView` + invokes only
 - `src/lib/stores/app-settings.svelte.ts` — `openAppSettings(section)`
-- `src/lib/components/ui/AppSettingsAi.svelte` — master `ai.enabled`, `agent.enabled`, provider, model `<Select>` from `agentModels.ts`, key, `keySource` caption
-- `src/lib/components/ui/AppSettingsPopover.svelte` — section `'ai'`; subscribe to the store
+- `src/lib/components/home/settings/AppSettingsAi.svelte` — master `ai.enabled`, `agent.enabled`, provider, model `<Select>` from `agentModels.ts`, key, `keySource` caption
+- `src/lib/components/home/settings/SettingsModal.svelte` — section `'ai'`; subscribe to the store
 - Tests: secret store round-trip (ignore if no keychain); settings serialize; URL validation
 
 **Change:** Persist `ai.enabled` / `agent.enabled` / `ai.provider` / `ai.baseUrl` / models in `app_settings`. **Grandfather** missing `ai.enabled` when `mcp.enabled` is already true. `set_mcp_enabled(true)` requires master on. Keys in keychain. Settings UI works **without** `list_agent_models`. No LLM calls. `get_ai_settings` never returns the key.
@@ -1491,7 +1491,7 @@ Incremental, each PR independently reviewable and mergeable. **Start at PR 1 ∥
 
 - `src/lib/components/workspace/agent/AgentChatPane.svelte` — chrome, collapse, resize
 - `src/lib/components/workspace/shell/WorkspaceMainPane.svelte` — wrap `QueryCanvas` in `min-w-0 flex-1` **div** (no `class` prop)
-- `src/lib/utils/appPrefs.ts` — width + collapsed
+- `src/lib/stores/app-prefs.svelte.ts` — width + collapsed
 - `src/lib/data/appShortcuts.ts` + `KeyboardShortcutsModal` — `⌘⇧L` **focus composer**
 - Disabled empty state → `openAppSettings('ai')`
 

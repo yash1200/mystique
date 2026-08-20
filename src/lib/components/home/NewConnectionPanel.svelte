@@ -3,9 +3,7 @@
 		Alert,
 		Badge,
 		Button,
-		ColorSwatchGroup,
 		ContentPanel,
-		EngineBadge,
 		Field,
 		FormGrid,
 		Inline,
@@ -14,7 +12,9 @@
 		Select,
 		Stack,
 		Textarea,
-	} from '$lib/components/ui'
+	} from '$lib/components/core'
+	import ColorSwatchGroup from './ColorSwatchGroup.svelte'
+	import EngineBadge from './EngineBadge.svelte'
 	import {
 		CONNECTION_COLORS,
 		ENGINE_OPTIONS,

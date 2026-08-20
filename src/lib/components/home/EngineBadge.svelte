@@ -1,14 +1,27 @@
-<!-- Re-export path for existing home imports; prefer `$lib/components/ui/EngineBadge`. -->
 <script lang="ts">
-  import type { EngineId } from "$lib/types/connection";
-  import UiEngineBadge from "$lib/components/ui/EngineBadge.svelte";
+	import { Badge } from '$lib/components/core'
+	import type { EngineId } from '$lib/types/connection'
+	import { engineLabel } from '$lib/types/connection'
 
-  interface Props {
-    engine: EngineId;
-    size?: "sm" | "md";
-  }
+	interface Props {
+		engine: EngineId
+		size?: 'sm' | 'md'
+	}
 
-  let { engine, size = "sm" }: Props = $props();
+	let { engine, size = 'sm' }: Props = $props()
+
+	const mark = $derived(
+		(
+			{
+				postgres: 'Pg',
+				sqlite: 'SQL',
+				mongodb: 'Mo',
+				mysql: 'My',
+			} as Record<string, string>
+		)[String(engine)] ?? String(engine).slice(0, 2).toUpperCase(),
+	)
 </script>
 
-<UiEngineBadge {engine} {size} />
+<span title={engineLabel(engine)} aria-label={engineLabel(engine)}>
+	<Badge {size}>{mark}</Badge>
+</span>

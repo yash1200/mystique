@@ -287,6 +287,22 @@
 	min-height: var(--row-height);
 }
 
+@utility h-modal {
+	height: min(36rem, calc(100vh - 2rem));
+}
+
+@utility max-h-modal-sm {
+	max-height: min(32rem, 80vh);
+}
+
+@utility max-h-modal-md {
+	max-height: min(40rem, 88vh);
+}
+
+@utility max-h-modal-lg {
+	max-height: min(44rem, 92vh);
+}
+
 /* Keep overflow scroll, hide the track so it cannot steal clicks. */
 @utility scrollbar-none {
 	scrollbar-width: none;

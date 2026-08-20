@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { IconButton, Input, Select } from '$lib/components/ui'
+	import { IconButton, Input, Select } from '$lib/components/core'
 	import {
 		type FilterMode,
 		type FilterOp,

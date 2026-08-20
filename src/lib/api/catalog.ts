@@ -1,6 +1,5 @@
 /**
  * Live object explorer catalog — loaded from the engine session (Tauri).
- * Falls back is handled by the caller (mock catalog) when not available.
  */
 import type {
 	CatalogObjectKind,
@@ -17,9 +16,6 @@ import {
 } from './engines'
 
 const MONGO_SYSTEM_DBS = new Set(['admin', 'local', 'config'])
-
-/** Known FE-only mock database names (never come from a real Mongo server seed). */
-const MONGO_MOCK_DB_NAMES = new Set(['app', 'analytics'])
 
 function emptyLeaf(
 	database: string,
@@ -55,29 +51,6 @@ export function preferDatabase(
 			: new Set(systemNames)
 	const nonSystem = names.filter((n) => !skip.has(n))
 	return nonSystem[0] ?? names[0] ?? ''
-}
-
-/**
- * True when the explorer is still showing FE mock shells (pre-live-catalog era).
- * Used to force a live reload for old workspace sessions.
- */
-export function isMockCatalog(
-	engine: string,
-	list: DatabaseMeta[] | undefined | null,
-): boolean {
-	if (!list || list.length === 0) return false
-	const e = engine.toLowerCase()
-	if (e === 'mongodb') {
-		const names = new Set(list.map((d) => d.name))
-		// Classic mock: app + analytics (+ admin)
-		if (names.has('app') && names.has('analytics')) return true
-		// No real user DBs from Docker seed / only mock leaves
-		const user = list.filter((d) => !MONGO_SYSTEM_DBS.has(d.name))
-		if (user.length > 0 && user.every((d) => MONGO_MOCK_DB_NAMES.has(d.name))) {
-			return true
-		}
-	}
-	return false
 }
 
 /**

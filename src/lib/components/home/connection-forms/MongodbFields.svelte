@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Card, Checkbox, Field, Input } from '$lib/components/ui'
+	import { Card, Checkbox, Field, Input } from '$lib/components/core'
 
 	interface Props {
 		uri?: string

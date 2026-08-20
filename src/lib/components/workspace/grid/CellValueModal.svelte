@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { Button, Kbd, Textarea } from '$lib/components/ui'
+	import { Button, Kbd, Modal, Textarea } from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
-	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import { onMount, untrack } from 'svelte'
 	import {
 		CELL_VIEW_MODES,
@@ -78,12 +77,6 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
-			e.preventDefault()
-			e.stopPropagation()
-			onclose()
-			return
-		}
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			e.preventDefault()
 			e.stopPropagation()
@@ -98,24 +91,17 @@
 	})
 </script>
 
-<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-	<button
-		type="button"
-		class="absolute inset-0 border-none bg-app/70"
-		aria-label="Dismiss"
-		transition:overlayFade|global
-		onclick={onclose}
-	></button>
-	<div
-		class="relative z-10 flex max-h-[min(40rem,88vh)] w-full max-w-panel-lg flex-col overflow-hidden rounded-xl border border-line bg-elevated shadow-md"
-		transition:modalPanel|global
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="cell-value-title"
-	>
-		<header
-			class="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3"
-		>
+<Modal
+	open
+	{onclose}
+	layout="chrome"
+	size="lg"
+	height="md"
+	closeButton={false}
+	labelledby="cell-value-title"
+>
+	{#snippet header()}
+		<div class="flex min-w-0 items-start justify-between gap-3">
 			<div class="min-w-0">
 				<h2
 					id="cell-value-title"
@@ -150,59 +136,56 @@
 					</button>
 				{/each}
 			</div>
-		</header>
+		</div>
+	{/snippet}
 
-		<div bind:this={editorWrap} class="flex min-h-0 flex-1 flex-col gap-2 p-3">
-			{#if mode === 'html'}
-				<div
-					class="grid min-h-0 flex-1 grid-rows-2 gap-2 md:grid-cols-2 md:grid-rows-1"
-				>
-					<label class="flex min-h-0 min-w-0 flex-col gap-1">
-						<span class="text-caption font-medium text-fg-secondary"
-							>Source</span
-						>
-						<Textarea
-							bind:value={text}
-							spellcheck={false}
-							autofocus
-							class="min-h-40 flex-1 resize-none font-mono text-label leading-relaxed"
-						/>
-					</label>
-					<div class="flex min-h-0 min-w-0 flex-col gap-1">
-						<span class="text-caption font-medium text-fg-secondary"
-							>Preview</span
-						>
-						<div
-							class="min-h-40 flex-1 overflow-hidden rounded-md border border-line bg-app"
-						>
-							<iframe
-								title="HTML preview"
-								sandbox=""
-								srcdoc={text}
-								class="h-full min-h-40 w-full border-0 bg-app"
-							></iframe>
-						</div>
+	<div bind:this={editorWrap} class="flex min-h-0 flex-1 flex-col gap-2 p-3">
+		{#if mode === 'html'}
+			<div
+				class="grid min-h-0 flex-1 grid-rows-2 gap-2 md:grid-cols-2 md:grid-rows-1"
+			>
+				<label class="flex min-h-0 min-w-0 flex-col gap-1">
+					<span class="text-caption font-medium text-fg-secondary">Source</span>
+					<Textarea
+						bind:value={text}
+						spellcheck={false}
+						autofocus
+						class="min-h-40 flex-1 resize-none font-mono text-label leading-relaxed"
+					/>
+				</label>
+				<div class="flex min-h-0 min-w-0 flex-col gap-1">
+					<span class="text-caption font-medium text-fg-secondary">Preview</span
+					>
+					<div
+						class="min-h-40 flex-1 overflow-hidden rounded-md border border-line bg-app"
+					>
+						<iframe
+							title="HTML preview"
+							sandbox=""
+							srcdoc={text}
+							class="h-full min-h-40 w-full border-0 bg-app"
+						></iframe>
 					</div>
 				</div>
-			{:else}
-				<Textarea
-					bind:value={text}
-					spellcheck={false}
-					autofocus
-					class={cn(
-						'min-h-64 flex-1 resize-none font-mono text-label leading-relaxed',
-						mode === 'json' && jsonError && 'border-danger/50',
-					)}
-				/>
-			{/if}
-			{#if jsonError}
-				<p class="mb-0 text-caption text-danger">{jsonError}</p>
-			{/if}
-		</div>
+			</div>
+		{:else}
+			<Textarea
+				bind:value={text}
+				spellcheck={false}
+				autofocus
+				class={cn(
+					'min-h-64 flex-1 resize-none font-mono text-label leading-relaxed',
+					mode === 'json' && jsonError && 'border-danger/50',
+				)}
+			/>
+		{/if}
+		{#if jsonError}
+			<p class="mb-0 text-caption text-danger">{jsonError}</p>
+		{/if}
+	</div>
 
-		<footer
-			class="flex shrink-0 items-center justify-between gap-2 border-t border-line px-4 py-2.5"
-		>
+	{#snippet footer()}
+		<div class="flex w-full items-center justify-between gap-2">
 			<p class="m-0 flex items-center gap-1.5 text-caption text-fg-muted">
 				<Kbd>⌘</Kbd><Kbd>↵</Kbd>
 				<span>apply</span>
@@ -231,6 +214,6 @@
 					Apply
 				</Button>
 			</div>
-		</footer>
-	</div>
-</div>
+		</div>
+	{/snippet}
+</Modal>

@@ -1,13 +1,12 @@
 <script lang="ts">
-	import type { QueryHistoryEntry, SavedQuery } from '$lib/data/mock-queries'
+	import type { QueryHistoryEntry } from '$lib/api/history'
+	import type { SavedQueryListItem } from '$lib/api/queries'
+	import {
+		appPrefs,
+		EXPLORER_PANEL_WIDTH_DEFAULT,
+	} from '$lib/stores/app-prefs.svelte'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
-	import {
-		clampExplorerPanelWidth,
-		EXPLORER_PANEL_WIDTH_DEFAULT,
-		readExplorerPanelWidth,
-		writeExplorerPanelWidth,
-	} from '$lib/utils/appPrefs'
 	import { cn } from '$lib/utils/cn'
 	import ObjectExplorer from '../ObjectExplorer.svelte'
 	import QueryListPanel from '../QueryListPanel.svelte'
@@ -22,7 +21,7 @@
 		refreshing: boolean
 		modelLoading: boolean
 		queryHistory: QueryHistoryEntry[]
-		savedQueries: SavedQuery[]
+		savedQueries: SavedQueryListItem[]
 		selectedQueryId: string | null
 		selectedHistoryId: string | null
 		onselectquery: (id: string) => void
@@ -88,12 +87,11 @@
 		onsavedaction,
 	}: Props = $props()
 
-	let widthPx = $state(readExplorerPanelWidth())
 	let dragging = $state(false)
+	const widthPx = $derived(appPrefs.explorerPanelWidth)
 
 	function setWidth(next: number, persist = false) {
-		widthPx = clampExplorerPanelWidth(next)
-		if (persist) writeExplorerPanelWidth(widthPx)
+		appPrefs.setExplorerPanelWidth(next, persist)
 	}
 
 	function onResizePointerDown(e: PointerEvent) {
@@ -122,7 +120,7 @@
 			target.removeEventListener('pointermove', onMove)
 			target.removeEventListener('pointerup', onUp)
 			target.removeEventListener('pointercancel', onUp)
-			writeExplorerPanelWidth(widthPx)
+			appPrefs.setExplorerPanelWidth(widthPx, true)
 		}
 		target.addEventListener('pointermove', onMove)
 		target.addEventListener('pointerup', onUp)

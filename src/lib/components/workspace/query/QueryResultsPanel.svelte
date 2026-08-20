@@ -1,9 +1,14 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { Badge, Button, Pager, StatusBar } from "$lib/components/ui";
+  import {
+    Badge,
+    Button,
+    ContextMenu,
+    Pager,
+    StatusBar,
+    type ContextMenuItem,
+  } from "$lib/components/core";
   import type { QueryResult } from "$lib/api/engines";
   import { cn } from "$lib/utils/cn";
-  import { popover } from "$lib/utils/motion";
   import type { RunState } from "./types";
   import QueryResultsGrid from "./QueryResultsGrid.svelte";
 
@@ -52,10 +57,17 @@
     onrefresh,
   }: Props = $props();
 
-  let menuOpen = $state(false);
-  let menuRoot = $state<HTMLDivElement | null>(null);
-  let downloadBtnEl = $state<HTMLElement | null>(null);
-  let menuStyle = $state("");
+  let menu = $state<{ x: number; y: number } | null>(null);
+
+  const exportItems: ContextMenuItem[] = [
+    { id: "dl-label", label: "Download", heading: true },
+    { id: "download-csv", label: "CSV" },
+    { id: "download-json", label: "JSON" },
+    { id: "download-excel", label: "Excel" },
+    { id: "copy-label", label: "Copy", heading: true, separatorBefore: true },
+    { id: "copy-csv", label: "Copy as CSV" },
+    { id: "copy-json", label: "Copy as JSON" },
+  ];
 
   const statusText = $derived.by(() => {
     if (runState.status === "idle") return "No query run yet";
@@ -106,64 +118,30 @@
     return `${m}m ${s}s`;
   }
 
-  function updateMenuPosition() {
-    const anchor = downloadBtnEl ?? menuRoot;
-    if (!anchor) return;
-    const rect = anchor.getBoundingClientRect();
-    const gap = 4;
-    // Status bar sits at the bottom — open upward with fixed coords so
-    // footer overflow / stacking contexts cannot clip the menu.
-    const right = Math.max(8, Math.round(window.innerWidth - rect.right));
-    const bottom = Math.max(8, Math.round(window.innerHeight - rect.top + gap));
-    menuStyle = [
-      "position:fixed",
-      `right:${right}px`,
-      `bottom:${bottom}px`,
-      "z-index:80",
-      "min-width:11rem",
-    ].join(";");
-  }
-
   function toggleMenu(e?: MouseEvent) {
     if (!canExport || exporting !== null || refreshing) return;
-    if (menuOpen) {
-      menuOpen = false;
+    if (menu) {
+      menu = null;
       return;
     }
     const t = e?.currentTarget;
-    if (t instanceof HTMLElement) downloadBtnEl = t;
-    updateMenuPosition();
-    menuOpen = true;
+    if (!(t instanceof HTMLElement)) return;
+    const rect = t.getBoundingClientRect();
+    menu = { x: rect.right, y: rect.top };
   }
 
-  function pick(action: ResultExportAction) {
-    menuOpen = false;
-    onexport(action);
+  function onMenuPick(action: string) {
+    menu = null;
+    if (
+      action === "download-csv" ||
+      action === "download-json" ||
+      action === "download-excel" ||
+      action === "copy-csv" ||
+      action === "copy-json"
+    ) {
+      onexport(action);
+    }
   }
-
-  onMount(() => {
-    const onDoc = (e: PointerEvent) => {
-      if (!menuOpen || !menuRoot) return;
-      if (e.target instanceof Node && menuRoot.contains(e.target)) return;
-      menuOpen = false;
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") menuOpen = false;
-    };
-    const onReposition = () => {
-      if (menuOpen) updateMenuPosition();
-    };
-    document.addEventListener("pointerdown", onDoc, true);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onReposition);
-    window.addEventListener("scroll", onReposition, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDoc, true);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onReposition);
-      window.removeEventListener("scroll", onReposition, true);
-    };
-  });
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
@@ -247,79 +225,27 @@
       />
     {/snippet}
     {#snippet right()}
-      <div class="relative" bind:this={menuRoot}>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!canExport || exporting !== null || refreshing}
-          onclick={(e) => toggleMenu(e)}
-          title="Download or copy results"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-        >
-          {exporting ? "…" : "Download"}
-        </Button>
-        {#if menuOpen && canExport}
-          <div
-            class="rounded-md border border-line bg-elevated py-1 shadow-md"
-            style={menuStyle}
-            transition:popover={{ origin: "bottom right" }}
-            role="menu"
-          >
-            <p
-              class="px-2.5 py-1 text-micro font-semibold tracking-wide text-fg-muted uppercase"
-            >
-              Download
-            </p>
-            <button
-              type="button"
-              role="menuitem"
-              class="flex w-full cursor-pointer border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
-              onclick={() => pick("download-csv")}
-            >
-              CSV
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="flex w-full cursor-pointer border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
-              onclick={() => pick("download-json")}
-            >
-              JSON
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="flex w-full cursor-pointer border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
-              onclick={() => pick("download-excel")}
-            >
-              Excel
-            </button>
-            <div class="my-1 border-t border-line"></div>
-            <p
-              class="px-2.5 py-1 text-micro font-semibold tracking-wide text-fg-muted uppercase"
-            >
-              Copy
-            </p>
-            <button
-              type="button"
-              role="menuitem"
-              class="flex w-full cursor-pointer border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
-              onclick={() => pick("copy-csv")}
-            >
-              Copy as CSV
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="flex w-full cursor-pointer border-none bg-transparent px-2.5 py-1.5 text-left text-label text-fg hover:bg-hover"
-              onclick={() => pick("copy-json")}
-            >
-              Copy as JSON
-            </button>
-          </div>
-        {/if}
-      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={!canExport || exporting !== null || refreshing}
+        onclick={(e) => toggleMenu(e)}
+        title="Download or copy results"
+        aria-haspopup="menu"
+        aria-expanded={menu != null}
+      >
+        {exporting ? "…" : "Download"}
+      </Button>
+      {#if menu}
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={exportItems}
+          ariaLabel="Download or copy results"
+          onpick={onMenuPick}
+          onclose={() => (menu = null)}
+        />
+      {/if}
       <Button
         variant="ghost"
         size="sm"

@@ -4,9 +4,9 @@
 		TablePreviewSortDir,
 	} from '$lib/api/engines'
 	import { persistTableEdits } from '$lib/api/tablePersist'
-	import { ContextMenu, type ContextMenuItem } from '$lib/components/ui'
+	import { ContextMenu, type ContextMenuItem } from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import type { ColumnReference, TableMeta } from '$lib/types/workspace'
-	import { readInspectOnRowClick } from '$lib/utils/appPrefs'
 	import {
 		selectDraftToValue,
 		usesSelectEditor,
@@ -905,7 +905,7 @@
 
 	function shouldOpenInspector(): boolean {
 		// Pref default on. If the panel is already open, always follow the row.
-		return readInspectOnRowClick() || selectedRowIndex != null
+		return appPrefs.inspectOnRowClick || selectedRowIndex != null
 	}
 
 	function selectCell(row: number, col: string) {

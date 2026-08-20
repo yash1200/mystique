@@ -168,8 +168,7 @@ function validateMongo(text: string, mode: QueryMode): FePolicyResult {
 			return {
 				ok: false,
 				code: 'read_only',
-				message:
-					'Write operation blocked. This connection is read-only.',
+				message: 'Write operation blocked. This connection is read-only.',
 			}
 		}
 		return {

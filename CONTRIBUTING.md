@@ -87,7 +87,7 @@ chore/<short-name>
 | ---- | ----------- |
 | Backend | Plugin SPI in `mystique-connector-api`; drivers only in plugin crates |
 | Query safety | Per-engine policy; default read; write opt-in; DELETE blocked for now |
-| Frontend | Compose `$lib/components/ui/*`; design tokens only (no ad-hoc hex) |
+| Frontend | Compose `$lib/components/core/*`; design tokens only (no ad-hoc hex) |
 | Secrets | Never commit credentials, tokens, or real connection passwords |
 | Docs | Update PRD/architecture/kanban when product behavior changes |
 

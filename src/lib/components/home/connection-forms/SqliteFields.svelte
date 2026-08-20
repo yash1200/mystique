@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Card, Checkbox, Field, Input } from '$lib/components/ui'
+	import { Button, Card, Checkbox, Field, Input } from '$lib/components/core'
 	import { pickSqliteDatabasePath } from '$lib/utils/pickSqliteFile'
 
 	interface Props {

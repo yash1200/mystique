@@ -7,11 +7,7 @@
     applyPreferredUiScale,
     writeScalePreference,
   } from "$lib/utils/uiScale";
-  import {
-    applyStoredAppearance,
-    readThemePref,
-    applyThemePref,
-  } from "$lib/utils/appPrefs";
+  import { appPrefs } from "$lib/stores/app-prefs.svelte";
   import { setAppTitle } from "$lib/utils/appTitle";
   import { resetAppToHome } from "$lib/utils/resetApp";
 
@@ -30,15 +26,10 @@
   }
 
   onMount(() => {
-    applyStoredAppearance();
+    appPrefs.apply();
+    const unwatchScheme = appPrefs.watchSystemTheme();
     applyPreferredUiScale();
     void setAppTitle();
-
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onScheme = () => {
-      if (readThemePref() === "system") applyThemePref("system");
-    };
-    mq.addEventListener("change", onScheme);
 
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -79,7 +70,7 @@
 
     return () => {
       cancelled = true;
-      mq.removeEventListener("change", onScheme);
+      unwatchScheme();
       window.removeEventListener("keydown", onKey, true);
       for (const u of unsubs) u();
     };

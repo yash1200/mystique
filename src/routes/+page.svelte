@@ -8,10 +8,10 @@
 		touchProfileConnected,
 	} from '$lib/api/profiles'
 	import { isTauri } from '$lib/api/tauri'
+	import { Button, EmptyState, Modal, Toast } from '$lib/components/core'
 	import ConnectionDetail from '$lib/components/home/ConnectionDetail.svelte'
 	import ConnectionSidebar from '$lib/components/home/ConnectionSidebar.svelte'
 	import NewConnectionPanel from '$lib/components/home/NewConnectionPanel.svelte'
-	import { Button, EmptyState, Toast } from '$lib/components/ui'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type {
 		ConnectionFormDraft,
@@ -23,8 +23,7 @@
 		pluginConfigFromDraft,
 		saveInputFromDraft,
 	} from '$lib/types/connection'
-	import { writeLastConnectionId } from '$lib/utils/appPrefs'
-	import { modalPanel, overlayFade } from '$lib/utils/motion'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { setAppTitle } from '$lib/utils/appTitle'
 	import { onMount } from 'svelte'
 
@@ -42,6 +41,7 @@
 	/** Remount the create form to reset fields (Home / New / Cancel). */
 	let createFormKey = $state(0)
 	let loading = $state(true)
+	let listRefreshing = $state(false)
 	let saving = $state(false)
 	let testing = $state(false)
 	let connectingId = $state<string | null>(null)
@@ -90,12 +90,24 @@
 		}
 	}
 
+	async function refreshConnections() {
+		if (listRefreshing) return
+		listRefreshing = true
+		try {
+			await refreshList()
+		} catch (err) {
+			showToast('danger', err instanceof Error ? err.message : String(err))
+		} finally {
+			listRefreshing = false
+		}
+	}
+
 	function selectConnection(id: string) {
 		creating = false
 		editing = false
 		testResult = null
 		selectedId = id
-		writeLastConnectionId(id)
+		appPrefs.setLastConnectionId(id)
 	}
 
 	function startCreate() {
@@ -424,6 +436,8 @@
 		onselect={selectConnection}
 		onnew={startCreate}
 		onconnect={connectById}
+		onrefresh={refreshConnections}
+		refreshing={listRefreshing}
 	/>
 
 	<main class="h-full min-w-0 flex-1 overflow-auto bg-app-wash">
@@ -474,49 +488,28 @@
 		{/if}
 	</main>
 
-	{#if pendingDelete}
-		<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-			<button
-				type="button"
-				class="absolute inset-0 border-none bg-app/70"
-				aria-label="Dismiss delete dialog"
-				transition:overlayFade
-				onclick={cancelPendingDelete}
+	<Modal
+		open={!!pendingDelete}
+		onclose={cancelPendingDelete}
+		title="Delete connection?"
+		description={pendingDelete
+			? `Delete “${pendingDelete.name}”? Saved queries for this connection will also be removed. This cannot be undone.`
+			: undefined}
+		dismissible={!deleting}
+	>
+		{#snippet footer()}
+			<Button variant="ghost" onclick={cancelPendingDelete} disabled={deleting}>
+				Cancel
+			</Button>
+			<Button
+				variant="danger"
+				onclick={confirmDeleteSelected}
 				disabled={deleting}
-			></button>
-			<div
-				class="relative z-10 w-full max-w-md rounded-xl border border-line bg-elevated p-5 shadow-md"
-				transition:modalPanel
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="delete-conn-title"
 			>
-				<h2 id="delete-conn-title" class="m-0 text-title font-semibold text-fg">
-					Delete connection?
-				</h2>
-				<p class="mt-2 text-body text-fg-secondary">
-					Delete “{pendingDelete.name}”? Saved queries for this connection will
-					also be removed. This cannot be undone.
-				</p>
-				<div class="mt-5 flex justify-end gap-2">
-					<Button
-						variant="ghost"
-						onclick={cancelPendingDelete}
-						disabled={deleting}
-					>
-						Cancel
-					</Button>
-					<Button
-						variant="danger"
-						onclick={confirmDeleteSelected}
-						disabled={deleting}
-					>
-						{deleting ? 'Deleting…' : 'Delete'}
-					</Button>
-				</div>
-			</div>
-		</div>
-	{/if}
+				{deleting ? 'Deleting…' : 'Delete'}
+			</Button>
+		{/snippet}
+	</Modal>
 
 	{#if toast}
 		{#key toast.kind + toast.message}

@@ -15,7 +15,7 @@ import type {
   ErEdge,
   ErNode,
 } from "$lib/types/er";
-import { layoutErNodes } from "$lib/utils/erLayout";
+import { layoutErNodes } from "$lib/components/workspace/er_diagram/erLayout";
 import {
   defaultCapabilitiesForEngine,
   familyFromCaps,

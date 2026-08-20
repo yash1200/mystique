@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { Button, Input, Select } from '$lib/components/ui'
-	import { modalPanel, overlayFade } from '$lib/utils/motion'
+	import { Button, Input, Modal, Select } from '$lib/components/core'
 
 	interface Props {
 		open: boolean
@@ -57,97 +56,75 @@
 	}
 </script>
 
-{#if open}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center p-4"
-		role="presentation"
-		onkeydown={(e) => {
-			if (e.key === 'Escape' && !busy) oncancel()
-			if (e.key === 'Enter' && !busy) submit()
-		}}
-	>
-		<button
-			type="button"
-			class="absolute inset-0 border-none bg-black/45"
-			aria-label="Dismiss"
-			transition:overlayFade
-			onclick={() => {
-				if (!busy) oncancel()
-			}}
-		></button>
-		<div
-			class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
-			transition:modalPanel
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="create-catalog-title"
-		>
-			<h2 id="create-catalog-title" class="m-0 text-body font-semibold text-fg">
-				{title}
-			</h2>
-			<p class="mt-1.5 mb-3 text-label text-fg-muted">
-				{description}
-			</p>
-
-			{#if showGroup && groupOptions.length > 0}
-				<label
-					class="mb-1 block text-caption font-medium text-fg-secondary"
-					for="create-catalog-group"
-				>
-					{groupLabel}
-				</label>
-				<div class="mb-3">
-					<Select
-						id="create-catalog-group"
-						value={groupValue}
-						options={groupOptions}
-						inputSize="sm"
-						disabled={busy}
-						onchange={(v) => {
-							groupValue = v
-						}}
-					/>
-				</div>
-			{/if}
-
+<Modal
+	{open}
+	onclose={oncancel}
+	{title}
+	{description}
+	dismissible={!busy}
+	onkeydown={(e) => {
+		if (e.key === 'Enter' && !busy) submit()
+	}}
+>
+	<div class="mt-3">
+		{#if showGroup && groupOptions.length > 0}
 			<label
-				class="block text-caption font-medium text-fg-secondary"
-				for="create-catalog-name"
+				class="mb-1 block text-caption font-medium text-fg-secondary"
+				for="create-catalog-group"
 			>
-				{nameLabel}
+				{groupLabel}
 			</label>
-			<div class="mt-1">
-				<Input
-					id="create-catalog-name"
-					bind:value
-					placeholder={namePlaceholder}
+			<div class="mb-3">
+				<Select
+					id="create-catalog-group"
+					value={groupValue}
+					options={groupOptions}
 					inputSize="sm"
-					autocomplete="off"
 					disabled={busy}
-					autofocus
-					class="font-mono"
+					onchange={(v) => {
+						groupValue = v
+					}}
 				/>
 			</div>
+		{/if}
 
-			{#if error}
-				<p class="mt-2 mb-0 text-caption text-danger" role="alert">
-					{error}
-				</p>
-			{/if}
-
-			<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
-				<Button variant="ghost" size="sm" disabled={busy} onclick={oncancel}>
-					Cancel
-				</Button>
-				<Button
-					variant="primary"
-					size="sm"
-					disabled={busy || !value.trim()}
-					onclick={submit}
-				>
-					{confirmLabel}
-				</Button>
-			</div>
+		<label
+			class="block text-caption font-medium text-fg-secondary"
+			for="create-catalog-name"
+		>
+			{nameLabel}
+		</label>
+		<div class="mt-1">
+			<Input
+				id="create-catalog-name"
+				bind:value
+				placeholder={namePlaceholder}
+				inputSize="sm"
+				autocomplete="off"
+				disabled={busy}
+				autofocus
+				class="font-mono"
+			/>
 		</div>
+
+		{#if error}
+			<p class="mt-2 mb-0 text-caption text-danger" role="alert">
+				{error}
+			</p>
+		{/if}
 	</div>
-{/if}
+
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" disabled={busy} onclick={oncancel}>
+			Cancel
+		</Button>
+		<Button
+			variant="primary"
+			size="sm"
+			disabled={busy || !value.trim()}
+			onclick={submit}
+		>
+			{confirmLabel}
+		</Button>
+	{/snippet}
+</Modal>

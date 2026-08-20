@@ -117,9 +117,7 @@
 		}
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
-	const effectiveMode = $derived<QueryMode>(
-		profileReadOnly ? 'read' : 'write',
-	)
+	const effectiveMode = $derived<QueryMode>(profileReadOnly ? 'read' : 'write')
 
 	const lineCount = $derived.by(() => {
 		if (!localText) return 1

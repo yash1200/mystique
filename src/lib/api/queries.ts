@@ -121,14 +121,17 @@ export async function deleteSavedQuery(id: string): Promise<void> {
   await invoke("delete_saved_query", { id });
 }
 
-/** Map BE SavedQuery → list panel shape. */
-export function toListSavedQuery(q: SavedQuery): {
+/** Saved query as shown in the sidebar list (body mapped to `sql`). */
+export type SavedQueryListItem = {
   id: string;
   name: string;
   sql: string;
   updatedAt: string;
   connectionId?: string;
-} {
+};
+
+/** Map BE SavedQuery → list panel shape. */
+export function toListSavedQuery(q: SavedQuery): SavedQueryListItem {
   return {
     id: q.id,
     name: q.name,

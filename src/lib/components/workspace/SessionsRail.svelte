@@ -1,10 +1,6 @@
 <script lang="ts">
-	import {
-		AppSettingsPopover,
-		BrandMark,
-		ContextMenu,
-		type ContextMenuItem,
-	} from '$lib/components/ui'
+	import { ContextMenu, type ContextMenuItem } from '$lib/components/core'
+	import { BrandMark, SettingsModal } from '$lib/components/home'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import {
 		colorHex,
@@ -13,6 +9,7 @@
 	} from '$lib/types/connection'
 	import { cn } from '$lib/utils/cn'
 	import { resetAppToHome } from '$lib/utils/resetApp'
+	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 	import LeaveWorkspaceModal from './LeaveWorkspaceModal.svelte'
 
 	export type SideNavMode = 'explorer' | 'saved-queries' | 'history'
@@ -42,6 +39,7 @@
 	}: Props = $props()
 
 	let menu = $state<{ id: string; x: number; y: number } | null>(null)
+	let infoId = $state<string | null>(null)
 	let leaveOpen = $state(false)
 	let leaveBusy = $state(false)
 
@@ -77,6 +75,7 @@
 			label: menuSession?.profile.name ?? 'Connection',
 			disabled: true,
 		},
+		{ id: 'info', label: 'Show info' },
 		{ id: 'refresh', label: 'Refresh catalog' },
 		{ id: 'new-query', label: 'New query' },
 		{
@@ -87,10 +86,17 @@
 		},
 	])
 
+	const infoProfile = $derived(
+		infoId
+			? (sessions.find((s) => s.profile.id === infoId)?.profile ?? null)
+			: null,
+	)
+
 	function onMenuPick(action: string) {
 		const id = menu?.id
 		menu = null
 		if (!id) return
+		if (action === 'info') infoId = id
 		if (action === 'refresh') onrefresh(id)
 		if (action === 'new-query') onnewquery(id)
 		if (action === 'disconnect') ondisconnect(id)
@@ -271,7 +277,7 @@
 		class="flex min-h-statusbar w-full shrink-0 flex-col items-center justify-center gap-1 border-t border-line bg-elevated py-1.5"
 		title="{sessions.length} session{sessions.length === 1 ? '' : 's'}"
 	>
-		<AppSettingsPopover placement="right-end" buttonSize="sm" />
+		<SettingsModal buttonSize="sm" />
 		<span class="font-mono text-caption tabular-nums text-fg-muted">
 			{sessions.length}
 		</span>
@@ -288,6 +294,12 @@
 		onclose={() => (menu = null)}
 	/>
 {/if}
+
+<ConnectionInfoModal
+	open={infoProfile != null}
+	profile={infoProfile}
+	onclose={() => (infoId = null)}
+/>
 
 <LeaveWorkspaceModal
 	open={leaveOpen}

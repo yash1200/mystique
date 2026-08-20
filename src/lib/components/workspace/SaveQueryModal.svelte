@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { Button, Input } from '$lib/components/ui'
-	import { modalPanel, overlayFade } from '$lib/utils/motion'
+	import { Button, Input, Modal } from '$lib/components/core'
 
 	interface Props {
 		open: boolean
@@ -41,72 +40,48 @@
 	}
 </script>
 
-{#if open}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center p-4"
-		role="presentation"
-		onkeydown={(e) => {
-			if (e.key === 'Escape' && !busy) oncancel()
-			if (e.key === 'Enter' && !busy) submit()
-		}}
+<Modal
+	{open}
+	onclose={oncancel}
+	{title}
+	{description}
+	dismissible={!busy}
+	onkeydown={(e) => {
+		if (e.key === 'Enter' && !busy) submit()
+	}}
+>
+	<label
+		class="mt-3 block text-caption font-medium text-fg-secondary"
+		for="save-query-name"
 	>
-		<button
-			type="button"
-			class="absolute inset-0 border-none bg-black/45"
-			aria-label="Dismiss"
-			transition:overlayFade
-			onclick={() => {
-				if (!busy) oncancel()
-			}}
-		></button>
-		<div
-			class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
-			transition:modalPanel
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="save-query-title"
-		>
-			<h2 id="save-query-title" class="m-0 text-body font-semibold text-fg">
-				{title}
-			</h2>
-			<p class="mt-1.5 mb-3 text-label text-fg-muted">
-				{description}
-			</p>
-
-			<label
-				class="block text-caption font-medium text-fg-secondary"
-				for="save-query-name"
-			>
-				Name
-			</label>
-			<div class="mt-1">
-				<Input
-					id="save-query-name"
-					bind:value={name}
-					inputSize="sm"
-					disabled={busy}
-					placeholder="e.g. Active users"
-					autofocus
-				/>
-			</div>
-
-			{#if error}
-				<p class="mt-2 mb-0 text-caption text-danger" role="alert">{error}</p>
-			{/if}
-
-			<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
-				<Button variant="ghost" size="sm" disabled={busy} onclick={oncancel}>
-					Cancel
-				</Button>
-				<Button
-					variant="primary"
-					size="sm"
-					disabled={busy || !name.trim()}
-					onclick={submit}
-				>
-					{busy ? 'Saving…' : confirmLabel}
-				</Button>
-			</div>
-		</div>
+		Name
+	</label>
+	<div class="mt-1">
+		<Input
+			id="save-query-name"
+			bind:value={name}
+			inputSize="sm"
+			disabled={busy}
+			placeholder="e.g. Active users"
+			autofocus
+		/>
 	</div>
-{/if}
+
+	{#if error}
+		<p class="mt-2 mb-0 text-caption text-danger" role="alert">{error}</p>
+	{/if}
+
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" disabled={busy} onclick={oncancel}>
+			Cancel
+		</Button>
+		<Button
+			variant="primary"
+			size="sm"
+			disabled={busy || !name.trim()}
+			onclick={submit}
+		>
+			{busy ? 'Saving…' : confirmLabel}
+		</Button>
+	{/snippet}
+</Modal>

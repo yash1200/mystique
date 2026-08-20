@@ -72,7 +72,5 @@ export function validateDraftForSave(
 }
 
 export function namePlaceholder(engine: EngineId): string {
-	return (
-		defaultCapabilitiesForEngine(engine).nameExample || 'e.g. local-pg'
-	)
+	return defaultCapabilitiesForEngine(engine).nameExample || 'e.g. local-pg'
 }

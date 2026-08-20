@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Draggable } from '$lib/components/ui'
+	import { Draggable } from '$lib/components/core'
 	import type { WorkspaceTab } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
 	import { flip } from 'svelte/animate'
@@ -66,14 +66,14 @@
 	scrollRoot={tablistEl}
 	previewClass={production ? 'bg-warning/[0.08]' : ''}
 	onpickup={onactivate}
-	onreorder={onreorder}
+	{onreorder}
 >
 	{#snippet children(drag)}
 		<div
 			bind:this={tablistEl}
 			class={cn(
 				'scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto overscroll-x-contain border-b border-line bg-panel',
-				production && 'bg-warning/[0.06]',
+				production && 'bg-warning/6',
 				drag.draggingId && 'cursor-grabbing select-none',
 			)}
 			style={connectionColor

@@ -1,30 +1,13 @@
 <script lang="ts">
-	import {
-		applyDensityPref,
-		applyThemePref,
-		readDensityPref,
-		readInspectOnRowClick,
-		readThemePref,
-		writeDensityPref,
-		writeInspectOnRowClick,
-		writeThemePref,
-		type DensityPref,
-		type ThemePref,
-	} from '$lib/utils/appPrefs'
+	import { Checkbox, Field, Select, ThemeToggle } from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import {
 		applyUiScale,
 		currentUiScale,
 		writeScalePreference,
 	} from '$lib/utils/uiScale'
-	import Checkbox from './Checkbox.svelte'
-	import Field from './Field.svelte'
-	import Select from './Select.svelte'
-	import ThemeToggle from './ThemeToggle.svelte'
 
-	let theme = $state<ThemePref>(readThemePref())
-	let density = $state<DensityPref>(readDensityPref())
 	let scale = $state(String(currentUiScale()))
-	let inspectOnClick = $state(readInspectOnRowClick())
 
 	const densityOptions = [
 		{ value: 'compact', label: 'Compact' },
@@ -38,17 +21,8 @@
 		{ value: '1.5', label: '150%' },
 	]
 
-	function onTheme(pref: ThemePref) {
-		theme = pref
-		writeThemePref(pref)
-		applyThemePref(pref)
-	}
-
 	function onDensity(v: string) {
-		const next = v === 'comfortable' ? 'comfortable' : 'compact'
-		density = next
-		writeDensityPref(next)
-		applyDensityPref(next)
+		appPrefs.setDensity(v === 'comfortable' ? 'comfortable' : 'compact')
 	}
 
 	function onScale(v: string) {
@@ -58,21 +32,18 @@
 		writeScalePreference(n)
 		applyUiScale(n)
 	}
-
-	function onInspectOnClick(e: Event) {
-		const on = (e.currentTarget as HTMLInputElement).checked
-		inspectOnClick = on
-		writeInspectOnRowClick(on)
-	}
 </script>
 
 <div class="flex flex-col gap-3">
 	<Field label="Theme">
-		<ThemeToggle preference={theme} onchange={onTheme} />
+		<ThemeToggle
+			preference={appPrefs.theme}
+			onchange={(pref) => appPrefs.setTheme(pref)}
+		/>
 	</Field>
 	<Field label="Density">
 		<Select
-			value={density}
+			value={appPrefs.density}
 			options={densityOptions}
 			inputSize="sm"
 			onchange={onDensity}
@@ -88,9 +59,12 @@
 	</Field>
 	<Field label="Row details">
 		<Checkbox
-			checked={inspectOnClick}
+			checked={appPrefs.inspectOnRowClick}
 			label="Open on row click"
-			onchange={onInspectOnClick}
+			onchange={(e) => {
+				const on = (e.currentTarget as HTMLInputElement).checked
+				appPrefs.setInspectOnRowClick(on)
+			}}
 		/>
 		<p class="mt-1 mb-0 text-caption text-fg-muted">
 			Off: open from the row menu (Show details).

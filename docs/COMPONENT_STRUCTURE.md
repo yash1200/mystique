@@ -10,23 +10,21 @@ src/lib/
 ├── types/                     # Shared TS models
 ├── data/                      # Mock / fixtures (UI-only for now)
 └── components/
-    ├── ui/                    # Design system primitives (generic)
-    │   ├── index.ts           # Barrel export
-    │   ├── README.md
-    │   ├── Button.svelte
-    │   ├── StatusBar.svelte
-    │   ├── Pager.svelte
-    │   ├── AppSettings.svelte
-    │   ├── AppSettingsPopover.svelte
-    │   └── …
-    ├── home/                  # Home / connections feature
-    └── workspace/             # Connected studio (grid, query, ER, explorer)
+    ├── core/                  # Design-system primitives (Button, Modal, Input, …)
+    ├── home/                  # Home / connections + app chrome (settings, brand)
+    └── workspace/             # Connected studio
+        ├── er_diagram/        # ER / model canvas, DBML, layout
+        ├── explorer/
+        ├── grid/
+        ├── query/
+        └── shell/
 ```
 
 | Layer | May know about | Must not |
 | ----- | -------------- | -------- |
-| `ui/*` | Variants, tokens, a11y, layout primitives | Postgres, connection save flow, routes |
-| `home/*` (feature) | Connection profiles, engines | Re-implement button/input styles |
+| `core/*` | Variants, tokens, a11y, layout primitives | Product domain (engines, MCP, shortcuts) |
+| `home/*` | Connection profiles, engines, app settings | Re-implement button/input styles |
+| `workspace/*` | Live sessions, tabs, catalog | Re-implement button/input styles |
 | `routes/*` | Wire stores + feature components | Deep visual styling |
 
 ## Styling
@@ -45,12 +43,13 @@ src/lib/
 3. **`$bindable` for form values** — parent owns state; primitives stay controlled/bindable.
 4. **Spread HTML attrs** — primitives forward `...rest` for `id`, `aria-*`, `data-*`.
 5. **Tokens only** — no hard-coded theme hex in components (connection color props are the exception).
-6. **New feature folder** when a domain grows (`workspace/`, `query/`) — still compose `ui/*`.
+6. **New feature folder** when a domain grows (`workspace/`, `query/`) — still compose `core/*`.
 
 ## Import style
 
 ```ts
-import { Button, Field, Input, Select } from "$lib/components/ui";
+import { Button, Field, Input, Select } from "$lib/components/core";
+import { SettingsModal, BrandMark } from "$lib/components/home";
 import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
 ```
 
@@ -58,8 +57,9 @@ import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
 
 | Need | Where |
 | ---- | ----- |
-| New visual control used in 2+ places | `components/ui` |
-| Connection-specific widget | `components/home` |
+| New visual control used in 2+ places | `components/core` |
+| Home / connections / app chrome (settings, shortcuts, brand) | `components/home` (`home/settings` for the settings modal) |
+| Workspace studio widget | `components/workspace` |
 | Page layout / state wiring | `routes` |
 
 See also: [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md).

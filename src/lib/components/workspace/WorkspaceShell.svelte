@@ -2,7 +2,6 @@
 	import { goto } from '$app/navigation'
 	import { resolve } from '$app/paths'
 	import {
-		isMockCatalog,
 		loadLiveCatalog,
 		loadTablePreview,
 		mergeCatalogKeepCached,
@@ -28,8 +27,10 @@
 		type TablePreviewSort,
 	} from '$lib/api/engines'
 	import {
+		historyItemToEntry,
 		listQueryHistory,
 		listRecentQueryHistory,
+		type QueryHistoryEntry,
 		type QueryHistoryItem,
 	} from '$lib/api/history'
 	import { loadLiveErDiagram } from '$lib/api/liveEr'
@@ -39,14 +40,10 @@
 		listSavedQueries,
 		saveQuery,
 		toListSavedQuery,
+		type SavedQueryListItem,
 	} from '$lib/api/queries'
 	import { isTauri } from '$lib/api/tauri'
-	import {
-		historyItemToEntry,
-		type QueryHistoryEntry,
-		type SavedQuery,
-	} from '$lib/data/mock-queries'
-	import { mockCatalogForEngine } from '$lib/data/mock-workspace'
+	import { Button, Modal } from '$lib/components/core'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import {
 		colorHex,
@@ -62,7 +59,6 @@
 		TableMeta,
 	} from '$lib/types/workspace'
 	import { setAppTitle } from '$lib/utils/appTitle'
-	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
 	import { onDestroy, onMount } from 'svelte'
 	import ExportDataModal, {
@@ -135,7 +131,7 @@
 	/** Monotonic token so overlapping history fetches don't clobber newer data. */
 	let historyFetchGen = 0
 	/** Saved queries for the active connection (from app SQLite). */
-	let savedQueries = $state<SavedQuery[]>([])
+	let savedQueries = $state<SavedQueryListItem[]>([])
 	let querySaving = $state(false)
 
 	/** Live ER / model diagrams keyed by connectionId::database */
@@ -233,10 +229,8 @@
 		includeObjects = true,
 	) {
 		const existing = catalogs[connectionId]
-		const mockStuck = isMockCatalog(engine, existing)
 		if (
 			!force &&
-			!mockStuck &&
 			liveCatalogKey[connectionId] === engineSessionId &&
 			existing &&
 			existing.length > 0
@@ -314,11 +308,7 @@
 			} else {
 				catalogError = e instanceof Error ? e.message : String(e)
 			}
-			// Do not leave mock data sitting as if it were live for Tauri sessions.
-			if (
-				!catalogs[connectionId] ||
-				isMockCatalog(engine, catalogs[connectionId])
-			) {
+			if (!catalogs[connectionId]) {
 				catalogs = {
 					...catalogs,
 					[connectionId]: [],
@@ -339,28 +329,7 @@
 		const preferred = sessionDatabase(id, session.profile)
 
 		// Catalog only — do not auto-open a Query tab (empty workspace is intentional).
-		if (!isTauri()) {
-			// Browser preview only.
-			if (!catalogs[id]) {
-				catalogs = {
-					...catalogs,
-					[id]: structuredClone(mockCatalogForEngine(engine)),
-				}
-			}
-			const list = catalogs[id] ?? []
-			if (list.length > 0 && !selectedDb[id]) {
-				selectedDb = {
-					...selectedDb,
-					[id]:
-						preferDatabase(
-							list.map((d) => d.name),
-							preferred,
-							systemDbNames(engine, id),
-						) || list[0].name,
-				}
-			}
-			return
-		}
+		if (!isTauri()) return
 
 		// Live Tauri: ensure engine session + live catalog (including old connections).
 		void (async () => {
@@ -398,18 +367,7 @@
 			return null
 		}
 		const cat = catalogs[activeTab.connectionId]
-		if (!cat) {
-			const session = sessions.find(
-				(s) => s.profile.id === activeTab.connectionId,
-			)
-			if (!session) return null
-			const list = mockCatalogForEngine(String(session.profile.engine))
-			for (const d of list) {
-				const t = d.tables.find((x) => x.id === activeTab.tableId)
-				if (t) return t
-			}
-			return null
-		}
+		if (!cat) return null
 		for (const d of cat) {
 			const t = d.tables.find((x) => x.id === activeTab.tableId)
 			if (t) return t
@@ -1390,20 +1348,7 @@
 		const engine = String(activeSession.profile.engine)
 		const preferred = sessionDatabase(activeId, activeSession.profile)
 
-		if (!isTauri()) {
-			refreshing = true
-			await new Promise((r) => setTimeout(r, 200))
-			const base = structuredClone(mockCatalogForEngine(engine))
-			catalogs = {
-				...catalogs,
-				[activeId]: mergeCatalogKeepCached(catalogs[activeId], base),
-			}
-			if (!base.some((d) => d.name === selectedDb[activeId])) {
-				selectedDb = { ...selectedDb, [activeId]: base[0]?.name ?? '' }
-			}
-			refreshing = false
-			return
-		}
+		if (!isTauri()) return
 
 		refreshing = true
 		catalogError = null
@@ -1427,17 +1372,7 @@
 		const db =
 			currentDatabaseName || sessionDatabase(activeId, activeSession.profile)
 
-		if (!isTauri()) {
-			refreshingTables = true
-			await new Promise((r) => setTimeout(r, 200))
-			const base = structuredClone(mockCatalogForEngine(engine))
-			catalogs = {
-				...catalogs,
-				[activeId]: mergeCatalogKeepCached(catalogs[activeId], base),
-			}
-			refreshingTables = false
-			return
-		}
+		if (!isTauri()) return
 
 		refreshingTables = true
 		catalogError = null
@@ -2117,65 +2052,37 @@
 		}}
 	/>
 
-	{#if deleteModalOpen}
-		<div
-			class="fixed inset-0 z-50 flex items-center justify-center p-4"
-			role="presentation"
-			onkeydown={(e) => {
-				if (e.key === 'Escape' && !deleteBusy) {
+	<Modal
+		open={deleteModalOpen}
+		onclose={() => {
+			if (deleteBusy) return
+			deleteModalOpen = false
+			deleteQueryId = null
+		}}
+		title="Delete query"
+		description="Delete “{deleteQueryName}”? This cannot be undone. Open tabs linked to this query will be closed."
+		dismissible={!deleteBusy}
+	>
+		{#snippet footer()}
+			<Button
+				variant="ghost"
+				size="sm"
+				disabled={deleteBusy}
+				onclick={() => {
 					deleteModalOpen = false
 					deleteQueryId = null
-				}
-			}}
-		>
-			<button
-				type="button"
-				class="absolute inset-0 border-none bg-black/45"
-				aria-label="Dismiss"
-				transition:overlayFade
-				onclick={() => {
-					if (!deleteBusy) {
-						deleteModalOpen = false
-						deleteQueryId = null
-					}
 				}}
-			></button>
-			<div
-				class="relative z-10 w-full max-w-md rounded-lg border border-line bg-elevated p-4 shadow-lg"
-				transition:modalPanel
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="delete-query-title"
 			>
-				<h2 id="delete-query-title" class="m-0 text-body font-semibold text-fg">
-					Delete query
-				</h2>
-				<p class="mt-2 mb-0 text-label leading-relaxed text-fg-secondary">
-					Delete “{deleteQueryName}”? This cannot be undone. Open tabs linked to
-					this query will be closed.
-				</p>
-				<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
-					<button
-						type="button"
-						class="inline-flex h-control-sm items-center rounded-md border border-line bg-transparent px-2.5 text-label text-fg hover:bg-hover"
-						disabled={deleteBusy}
-						onclick={() => {
-							deleteModalOpen = false
-							deleteQueryId = null
-						}}
-					>
-						Cancel
-					</button>
-					<button
-						type="button"
-						class="inline-flex h-control-sm items-center rounded-md border border-danger/40 bg-danger/15 px-2.5 text-label font-medium text-danger hover:bg-danger/25"
-						disabled={deleteBusy}
-						onclick={() => void confirmDeleteSavedQuery()}
-					>
-						{deleteBusy ? 'Deleting…' : 'Delete'}
-					</button>
-				</div>
-			</div>
-		</div>
-	{/if}
+				Cancel
+			</Button>
+			<Button
+				variant="danger"
+				size="sm"
+				disabled={deleteBusy}
+				onclick={() => void confirmDeleteSavedQuery()}
+			>
+				{deleteBusy ? 'Deleting…' : 'Delete'}
+			</Button>
+		{/snippet}
+	</Modal>
 </div>
