@@ -342,7 +342,7 @@ Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.
 | Status footer | `StatusBar` | Three zones: left meta · center pager · right actions; may wrap (`min-h-statusbar`) |
 | Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
 | Settings | `SettingsModal` | Gear + modal; panes in `home/settings` |
-| Brand | `BrandMark` | Jade cat mark — identity only in the workspace rail (not a home button) |
+| Brand | `BrandMark` | Ink-tile dog mark — identity in the home sidebar and workspace rail |
 | Shortcut | `Kbd` | Keyboard chips (`⌘T`) |
 | Alert | `Alert` | `info` uses `--status-info`, not accent |
 | Modal | `Modal` | Overlay + panel. `layout`: inset (confirm/form) · chrome (header/body/footer) · bare (custom shell). `size`: sm · md · lg · xl. `height`: auto · fill · sm · md · lg |

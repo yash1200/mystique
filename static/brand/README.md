@@ -1,18 +1,21 @@
 # Mystique DB logo
 
-**Mark:** a sitting cat (front view, tail curled beside its paws) on a jade tile.  
-**Metaphor:** Mystique — watchful, a little mysterious. Chrome stays quiet; the cat is the signal.  
-**Signal color:** jade `#2FBF96` (dark) / `#0E7A60` (light) on warm ink `#131210`.
+**Mark:** a smiling dog face (closed happy eyes, floppy ears) on a warm-ink tile.  
+**Metaphor:** Mystique — friendly, a little mysterious. Chrome stays quiet; the dog is the signal.  
+**Tile:** warm ink `#131210`. **Face:** mint `#DAE7DE`. **Features:** sage `#345453`.  
+**Signal color** (chrome, not the mark tile): jade `#2FBF96` (dark) / `#0E7A60` (light).
 
 ## Files
 
-| File | Use |
-| --- | --- |
-| `mystique-mark.svg` | Primary badge (jade tile + sitting cat). README, reference. |
-| `mystique-app-icon.svg` | 1024 master for macOS / Windows / Linux icons. |
-| `mystique-app-icon.png` | Raster of the master; input to `yarn tauri icon`. |
+| File                      | Use                                                           |
+| ------------------------- | ------------------------------------------------------------- |
+| `mystique-dog.svg`        | Dog only (no tile). Converted from the source raster.         |
+| `mystique-dog-source.png` | Original raster of the face.                                  |
+| `mystique-mark.svg`       | Primary badge (ink tile + dog). README, `BrandMark`, favicon. |
+| `mystique-app-icon.svg`   | 1024 master for macOS / Windows / Linux icons.                |
+| `mystique-app-icon.png`   | Raster of the master; input to `yarn tauri icon`.             |
 
-In-app chrome uses the inline SVG in `BrandMark.svelte` (same cat path). Do not re-draw the mark.
+In-app chrome uses `BrandMark.svelte` → `/brand/mystique-mark.svg`. Do not re-draw the mark.
 
 ## Clear space
 
@@ -31,8 +34,8 @@ Keep an empty margin of at least **¼ the mark height** on every side. Do not cr
 
 ## Do not
 
-- Stretch or rotate the cat
-- Redraw the cat as a cartoon mascot or add extra highlights
+- Stretch or rotate the dog
+- Redraw the dog or add extra highlights
 - Put the mark on a busy photograph without a solid field
 - Use purple, Inter, or a generic “AI SaaS” treatment
 
