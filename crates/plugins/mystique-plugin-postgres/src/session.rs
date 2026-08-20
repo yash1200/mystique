@@ -1228,7 +1228,7 @@ impl ConnectorSession for PostgresSession {
                 ]
             })
             .collect();
-        let mut indexes_sec = StructureSection::table(
+        let indexes_sec = StructureSection::table(
             "indexes",
             "Indexes",
             vec![
@@ -1279,7 +1279,7 @@ impl ConnectorSession for PostgresSession {
                 ]
             })
             .collect();
-        let mut fks_sec = StructureSection::table(
+        let fks_sec = StructureSection::table(
             "foreign_keys",
             "Foreign keys",
             vec![
@@ -1330,7 +1330,7 @@ impl ConnectorSession for PostgresSession {
                 ]
             })
             .collect();
-        let mut refs_sec = StructureSection::table(
+        let refs_sec = StructureSection::table(
             "referenced_by",
             "Referenced by",
             vec![
@@ -1371,7 +1371,7 @@ impl ConnectorSession for PostgresSession {
                 ]
             })
             .collect();
-        let mut triggers_sec = StructureSection::table(
+        let triggers_sec = StructureSection::table(
             "triggers",
             "Triggers",
             vec![
@@ -1407,7 +1407,7 @@ impl ConnectorSession for PostgresSession {
             .iter()
             .map(|r| vec![r.get::<_, String>(0), r.get::<_, String>(1)])
             .collect();
-        let mut checks_sec = StructureSection::table(
+        let checks_sec = StructureSection::table(
             "checks",
             "Check constraints",
             vec!["Name".into(), "Clause".into()],

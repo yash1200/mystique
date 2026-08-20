@@ -863,7 +863,7 @@ impl ConnectorSession for SqliteSession {
                 .map_err(|e| ConnectorError::Query(e.to_string()))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let mut columns_sec = StructureSection::table(
+            let columns_sec = StructureSection::table(
                 "columns",
                 "Columns",
                 vec![
@@ -916,7 +916,7 @@ impl ConnectorSession for SqliteSession {
                     },
                 ]);
             }
-            let mut indexes_sec = StructureSection::table(
+            let indexes_sec = StructureSection::table(
                 "indexes",
                 "Indexes",
                 vec![
@@ -944,7 +944,7 @@ impl ConnectorSession for SqliteSession {
                 .map_err(|e| ConnectorError::Query(e.to_string()))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let mut fks_sec = StructureSection::table(
+            let fks_sec = StructureSection::table(
                 "foreign_keys",
                 "Foreign keys",
                 vec![
@@ -974,7 +974,7 @@ impl ConnectorSession for SqliteSession {
                 .map_err(|e| ConnectorError::Query(e.to_string()))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let mut triggers_sec = StructureSection::table(
+            let triggers_sec = StructureSection::table(
                 "triggers",
                 "Triggers",
                 vec!["Name".into(), "Definition".into()],

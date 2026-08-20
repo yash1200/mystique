@@ -869,7 +869,7 @@ impl ConnectorSession for MongoSession {
                 ]
             })
             .collect();
-        let mut fields_sec = StructureSection::table(
+        let fields_sec = StructureSection::table(
             "fields",
             "Fields",
             vec![
@@ -915,7 +915,7 @@ impl ConnectorSession for MongoSession {
                 cell_bool(sparse),
             ]);
         }
-        let mut indexes_sec = StructureSection::table(
+        let indexes_sec = StructureSection::table(
             "indexes",
             "Indexes",
             vec![
@@ -962,7 +962,7 @@ impl ConnectorSession for MongoSession {
                 validation_rows.push(vec!["capped".into(), cell_bool(capped)]);
             }
         }
-        let mut options_sec = StructureSection::table(
+        let options_sec = StructureSection::table(
             "options",
             "Collection options",
             vec!["Property".into(), "Value".into()],

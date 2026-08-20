@@ -1013,7 +1013,7 @@ impl ConnectorSession for MysqlSession {
                 ]
             })
             .collect();
-        let mut columns_sec = StructureSection::table(
+        let columns_sec = StructureSection::table(
             "columns",
             "Columns",
             vec![
@@ -1062,7 +1062,7 @@ impl ConnectorSession for MysqlSession {
             .into_iter()
             .map(|(name, col, unique, seq, itype)| vec![name, col, unique, seq.to_string(), itype])
             .collect();
-        let mut indexes_sec = StructureSection::table(
+        let indexes_sec = StructureSection::table(
             "indexes",
             "Indexes",
             vec![
@@ -1116,7 +1116,7 @@ impl ConnectorSession for MysqlSession {
                 vec![c, col, format!("{rschema}.{rtable}"), rcol]
             })
             .collect();
-        let mut fks_sec = StructureSection::table(
+        let fks_sec = StructureSection::table(
             "foreign_keys",
             "Foreign keys",
             vec![
@@ -1153,7 +1153,7 @@ impl ConnectorSession for MysqlSession {
             .into_iter()
             .map(|(c, tschema, tname, col)| vec![c, format!("{tschema}.{tname}"), col])
             .collect();
-        let mut refs_sec = StructureSection::table(
+        let refs_sec = StructureSection::table(
             "referenced_by",
             "Referenced by",
             vec![
@@ -1187,7 +1187,7 @@ impl ConnectorSession for MysqlSession {
             .into_iter()
             .map(|(n, t, e, a)| vec![n, t, e, a])
             .collect();
-        let mut triggers_sec = StructureSection::table(
+        let triggers_sec = StructureSection::table(
             "triggers",
             "Triggers",
             vec![
