@@ -14,6 +14,10 @@
 		table: TableMeta
 		pageEntries: { row: Record<string, unknown>; index: number }[]
 		selectedRowIndex: number | null
+		/** Extra rows in a Shift/⌘ full-row multi-selection. */
+		isRowSelected?: (row: number) => boolean
+		/** Cells in a Shift/⌘ cell multi-selection. */
+		isCellSelected?: (row: number, col: string) => boolean
 		/** Spreadsheet-style focused cell (absolute row index). */
 		selectedCell: CellRef | null
 		originals: Record<string, unknown>[]
@@ -27,8 +31,8 @@
 		isNewRow?: (row: number) => boolean
 		/** Rows marked for delete — still visible until Save. */
 		isDeletedRow?: (row: number) => boolean
-		onSelectCell: (row: number, col: string) => void
-		onSelectRow: (row: number) => void
+		onSelectCell: (row: number, col: string, e?: MouseEvent) => void
+		onSelectRow: (row: number, e?: MouseEvent) => void
 		onStartEdit: (row: number, col: string, e?: MouseEvent) => void
 		onInputKeydown: (e: KeyboardEvent) => void
 		onCommitEdit: () => void
@@ -47,6 +51,8 @@
 		table,
 		pageEntries,
 		selectedRowIndex,
+		isRowSelected = () => false,
+		isCellSelected = () => false,
 		selectedCell,
 		originals,
 		editing,
@@ -182,7 +188,7 @@
 			{#each pageEntries as entry (entry.index)}
 				{@const i = entry.index}
 				{@const row = entry.row}
-				{@const rowSelected = selectedRowIndex === i}
+				{@const rowSelected = selectedRowIndex === i || isRowSelected(i)}
 				{@const stripe = i % 2 === 1}
 				{@const isNew = isNewRow(i)}
 				{@const isDeleted = isDeletedRow(i)}
@@ -190,14 +196,10 @@
 					class={cn(
 						'border-b border-line/70 transition-colors',
 						isDeleted && 'bg-danger/15',
-						isDeleted && rowSelected && !selectedCell && 'bg-danger/25',
+						isDeleted && rowSelected && 'bg-danger/25',
 						!isDeleted && isNew && 'bg-info/12',
-						!isDeleted && isNew && rowSelected && !selectedCell && 'bg-info/22',
-						!isDeleted &&
-							!isNew &&
-							rowSelected &&
-							!selectedCell &&
-							'bg-selected',
+						!isDeleted && isNew && rowSelected && 'bg-info/22',
+						!isDeleted && !isNew && rowSelected && 'bg-selected',
 						!isDeleted && !isNew && !rowSelected && stripe && 'bg-panel',
 						!isDeleted && !isNew && !rowSelected && !stripe && 'bg-transparent',
 					)}
@@ -219,12 +221,11 @@
 								: undefined}
 						onclick={(e) => {
 							e.stopPropagation()
-							onSelectRow(i)
+							onSelectRow(i, e)
 						}}
 						oncontextmenu={(e) => {
 							e.preventDefault()
 							e.stopPropagation()
-							onSelectRow(i)
 							onRowMenu?.(i, e)
 						}}
 					>
@@ -242,6 +243,7 @@
 						{@const isEditing = editing?.row === i && editing.col === col.name}
 						{@const isFocused =
 							selectedCell?.row === i && selectedCell.col === col.name}
+						{@const cellSelected = isCellSelected(i, col.name)}
 						<td
 							data-grid-cell
 							data-row={i}
@@ -252,16 +254,24 @@
 								dirty &&
 									!isDeleted &&
 									!isEditing &&
+									!cellSelected &&
+									!isFocused &&
 									'bg-warning/15 ring-1 ring-inset ring-warning/40',
 								isEditing && 'bg-input ring-2 ring-inset ring-accent',
 								isFocused &&
 									!isEditing &&
 									!isDeleted &&
 									'bg-selected ring-2 ring-inset ring-accent',
+								cellSelected &&
+									!isFocused &&
+									!isEditing &&
+									!isDeleted &&
+									'bg-selected',
 								!isFocused &&
 									!isEditing &&
 									!dirty &&
 									!isDeleted &&
+									!cellSelected &&
 									'hover:bg-hover',
 							)}
 							title={isEditing
@@ -271,13 +281,12 @@
 									: cellText(raw)}
 							onclick={(e) => {
 								e.stopPropagation()
-								onSelectCell(i, col.name)
+								onSelectCell(i, col.name, e)
 							}}
 							ondblclick={(e) => onStartEdit(i, col.name, e)}
 							oncontextmenu={(e) => {
 								e.preventDefault()
 								e.stopPropagation()
-								onSelectCell(i, col.name)
 								onCellMenu?.(i, col.name, e)
 							}}
 						>

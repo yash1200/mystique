@@ -49,6 +49,8 @@
 		onbaselinechange?: () => void
 		/** Notify parent when unsaved edit count changes (for tab dirty indicator). */
 		ondirtychange?: (dirty: boolean) => void
+		/** Last saved row snapshots — bound so the inspector can mark dirty fields. */
+		originals?: Record<string, unknown>[]
 		engine?: string
 		sessionId?: string | null
 		profileReadOnly?: boolean
@@ -84,6 +86,7 @@
 		rowSyncTick = 0,
 		onbaselinechange,
 		ondirtychange,
+		originals = $bindable<Record<string, unknown>[]>([]),
 		engine = '',
 		sessionId = null,
 		profileReadOnly = false,
@@ -98,7 +101,6 @@
 
 	let seed = $state<Record<string, unknown>[]>([])
 	let rows = $state<Record<string, unknown>[]>([])
-	let originals = $state<Record<string, unknown>[]>([])
 	let dirtyKeys = $state<Set<string>>(new Set())
 	/** Absolute indices of rows added locally (not yet saved). */
 	let newRowIndices = $state<Set<number>>(new Set())
@@ -116,6 +118,15 @@
 	let selectedCell = $state<CellRef | null>(null)
 	/** Local row highlight — inspector only opens via Show details. */
 	let highlightRow = $state<number | null>(null)
+	/** Full-row multi-select (row-number clicks). */
+	let selectedRows = $state<Set<number>>(new Set())
+	/** Shift-range starts here (row mode). */
+	let selectionAnchor = $state<number | null>(null)
+	/** Cell multi-select (`row::col`). Independent of full-row mode. */
+	let selectedCells = $state<Set<string>>(new Set())
+	/** Shift-range starts here (cell mode). */
+	let cellAnchor = $state<CellRef | null>(null)
+	let selKind = $state<'none' | 'rows' | 'cells'>('none')
 	let draft = $state('')
 	let inputEl = $state<HTMLInputElement | HTMLSelectElement | null>(null)
 	let gridShellEl = $state<HTMLDivElement | null>(null)
@@ -361,12 +372,10 @@
 	function loadFromTable(resetBaseline: boolean) {
 		const cloned = table.rows.map((r) => ({ ...r }))
 		rows = cloned.map((r) => ({ ...r }))
-		// First preview often arrives after mount with an empty baseline.
-		// If the user has no local edits, take incoming rows as the new baseline
-		// so non-null cells are not marked dirty.
-		const hasLocalEdits =
-			dirtyKeys.size > 0 || newRowIndices.size > 0 || deletedIndices.size > 0
-		if (resetBaseline || !hasLocalEdits || originals.length === 0) {
+		// Only adopt incoming rows as the saved baseline after load / save /
+		// reset. Inspector (and other in-memory) writes reuse this path with
+		// resetBaseline=false — those must stay dirty until the user saves.
+		if (resetBaseline || originals.length === 0) {
 			seed = cloned.map((r) => ({ ...r }))
 			originals = cloned.map((r) => ({ ...r }))
 			dirtyKeys = new Set()
@@ -378,6 +387,14 @@
 		editing = null
 		draft = ''
 		loadedTableId = table.id
+		if (resetBaseline) {
+			selectedRows = new Set()
+			selectionAnchor = null
+			selectedCells = new Set()
+			cellAnchor = null
+			selKind = 'none'
+			highlightRow = null
+		}
 	}
 
 	function blankRow(): Record<string, unknown> {
@@ -414,6 +431,19 @@
 		if (highlightRow != null) {
 			highlightRow = highlightRow + 1
 		}
+		selectedRows = new Set([...selectedRows].map((i) => i + 1))
+		if (selectionAnchor != null) selectionAnchor = selectionAnchor + 1
+		const nextCells = new Set<string>()
+		for (const key of selectedCells) {
+			const sep = key.indexOf('::')
+			if (sep < 0) continue
+			const i = Number(key.slice(0, sep))
+			const col = key.slice(sep + 2)
+			if (Number.isFinite(i)) nextCells.add(selCellKey(i + 1, col))
+		}
+		selectedCells = nextCells
+		if (cellAnchor)
+			cellAnchor = { row: cellAnchor.row + 1, col: cellAnchor.col }
 	}
 
 	/**
@@ -457,12 +487,12 @@
 	}
 
 	function cloneFocusedRow() {
-		const row = selectedCell?.row ?? highlightRow ?? selectedRowIndex
-		if (row == null) {
+		const targets = actionRows()
+		if (targets.length === 0) {
 			flashStatus('Select a row to clone')
 			return
 		}
-		cloneRow(row)
+		cloneRows(targets)
 	}
 
 	function flashStatus(msg: string, ms = 1600) {
@@ -472,53 +502,304 @@
 		}, ms)
 	}
 
-	function rowExportPayload(index: number) {
-		const row = rows[index]
+	function selectedRowList(): number[] {
+		return [...selectedRows].sort((a, b) => a - b)
+	}
+
+	function selCellKey(row: number, col: string): string {
+		return `${row}::${col}`
+	}
+
+	function rowsFromSelectedCells(): number[] {
+		const next = new Set<number>()
+		for (const key of selectedCells) {
+			const sep = key.indexOf('::')
+			if (sep < 0) continue
+			const i = Number(key.slice(0, sep))
+			if (Number.isFinite(i)) next.add(i)
+		}
+		return [...next].sort((a, b) => a - b)
+	}
+
+	function actionRows(): number[] {
+		if (selKind === 'rows' && selectedRows.size > 0) return selectedRowList()
+		if (selKind === 'cells' && selectedCells.size > 0) {
+			return rowsFromSelectedCells()
+		}
+		if (highlightRow != null) return [highlightRow]
+		if (selectedCell) return [selectedCell.row]
+		if (selectedRowIndex != null) return [selectedRowIndex]
+		return []
+	}
+
+	function actionCells(): { row: number; col: string }[] {
+		if (selKind === 'cells' && selectedCells.size > 0) {
+			const out: { row: number; col: string }[] = []
+			for (const key of selectedCells) {
+				const sep = key.indexOf('::')
+				if (sep < 0) continue
+				const row = Number(key.slice(0, sep))
+				const col = key.slice(sep + 2)
+				if (Number.isFinite(row) && col) out.push({ row, col })
+			}
+			return out
+		}
+		if (selKind === 'rows' && selectedRows.size > 0) {
+			const cols = colNames()
+			const out: { row: number; col: string }[] = []
+			for (const row of selectedRowList()) {
+				for (const col of cols) out.push({ row, col })
+			}
+			return out
+		}
+		if (selectedCell) return [{ row: selectedCell.row, col: selectedCell.col }]
+		return []
+	}
+
+	function setCellsNull(cells: { row: number; col: string }[]) {
+		if (profileReadOnly) {
+			flashStatus('Connection is read-only')
+			return
+		}
+		if (editing) commitEdit()
+		let n = 0
+		for (const { row, col } of cells) {
+			if (deletedIndices.has(row)) continue
+			const cur = rows[row]?.[col]
+			if (cur === null || cur === undefined) continue
+			applyCellValue(row, col, 'NULL')
+			n += 1
+		}
+		if (n === 0) return
+		flashStatus(n === 1 ? 'Set to NULL' : `Set ${n} cells to NULL`)
+	}
+
+	function targetRows(primary: number): number[] {
+		const all = actionRows()
+		if (all.includes(primary) && all.length > 1) return all
+		return [primary]
+	}
+
+	function clearCellSelection() {
+		selectedCells = new Set()
+		cellAnchor = null
+	}
+
+	function clearRowSelection() {
+		selectedRows = new Set()
+		selectionAnchor = null
+	}
+
+	function setExclusiveRow(row: number) {
+		selKind = 'rows'
+		clearCellSelection()
+		selectedCell = null
+		selectedRows = new Set([row])
+		selectionAnchor = row
+		highlightRow = row
+	}
+
+	function toggleRow(row: number) {
+		selKind = 'rows'
+		clearCellSelection()
+		selectedCell = null
+		const next = new Set(selectedRows)
+		if (next.has(row)) next.delete(row)
+		else next.add(row)
+		if (next.size === 0) next.add(row)
+		selectedRows = next
+		selectionAnchor = row
+		highlightRow = row
+	}
+
+	function selectRowRange(to: number) {
+		selKind = 'rows'
+		clearCellSelection()
+		selectedCell = null
+		const from = selectionAnchor ?? highlightRow ?? to
+		const lo = Math.min(from, to)
+		const hi = Math.max(from, to)
+		const next = new Set<number>()
+		for (let i = lo; i <= hi; i++) next.add(i)
+		selectedRows = next
+		highlightRow = to
+	}
+
+	function applyRowPointer(row: number, e?: MouseEvent) {
+		const mod = !!(e && (e.metaKey || e.ctrlKey))
+		const shift = !!(e && e.shiftKey)
+		if (shift) selectRowRange(row)
+		else if (mod) toggleRow(row)
+		else setExclusiveRow(row)
+	}
+
+	function setExclusiveCell(row: number, col: string) {
+		selKind = 'cells'
+		clearRowSelection()
+		selectedCell = { row, col }
+		cellAnchor = { row, col }
+		selectedCells = new Set([selCellKey(row, col)])
+		highlightRow = row
+	}
+
+	function toggleCell(row: number, col: string) {
+		selKind = 'cells'
+		clearRowSelection()
+		const key = selCellKey(row, col)
+		const next = new Set(selectedCells)
+		if (next.has(key)) next.delete(key)
+		else next.add(key)
+		if (next.size === 0) next.add(key)
+		selectedCells = next
+		selectedCell = { row, col }
+		cellAnchor = { row, col }
+		highlightRow = row
+	}
+
+	function selectCellRect(toRow: number, toCol: string) {
+		selKind = 'cells'
+		clearRowSelection()
+		const cols = colNames()
+		const from = cellAnchor ?? selectedCell ?? { row: toRow, col: toCol }
+		const fromC = cols.indexOf(from.col)
+		const toC = cols.indexOf(toCol)
+		const r0 = Math.min(from.row, toRow)
+		const r1 = Math.max(from.row, toRow)
+		const c0 = Math.min(fromC < 0 ? 0 : fromC, toC < 0 ? 0 : toC)
+		const c1 = Math.max(fromC < 0 ? 0 : fromC, toC < 0 ? 0 : toC)
+		const next = new Set<string>()
+		for (let r = r0; r <= r1; r++) {
+			for (let c = c0; c <= c1; c++) {
+				const name = cols[c]
+				if (name) next.add(selCellKey(r, name))
+			}
+		}
+		selectedCells = next
+		selectedCell = { row: toRow, col: toCol }
+		highlightRow = toRow
+	}
+
+	function applyCellPointer(row: number, col: string, e?: MouseEvent) {
+		const mod = !!(e && (e.metaKey || e.ctrlKey))
+		const shift = !!(e && e.shiftKey)
+		if (shift) selectCellRect(row, col)
+		else if (mod) toggleCell(row, col)
+		else setExclusiveCell(row, col)
+	}
+
+	function cellSelectionPayload(): {
+		columns: { name: string }[]
+		cells: unknown[][]
+		count: number
+	} | null {
+		if (selKind !== 'cells' || selectedCells.size === 0) return null
+		const cols = colNames()
+		const parsed: { row: number; ci: number }[] = []
+		for (const key of selectedCells) {
+			const sep = key.indexOf('::')
+			if (sep < 0) continue
+			const row = Number(key.slice(0, sep))
+			const col = key.slice(sep + 2)
+			const ci = cols.indexOf(col)
+			if (!Number.isFinite(row) || ci < 0) continue
+			parsed.push({ row, ci })
+		}
+		if (parsed.length === 0) return null
+		const rowIdx = [...new Set(parsed.map((p) => p.row))].sort((a, b) => a - b)
+		const colIdx = [...new Set(parsed.map((p) => p.ci))].sort((a, b) => a - b)
+		const columns = colIdx.map((i) => ({ name: cols[i]! }))
+		const cells = rowIdx.map((r) =>
+			colIdx.map((c) => {
+				const name = cols[c]!
+				return selectedCells.has(selCellKey(r, name))
+					? (rows[r]?.[name] ?? '')
+					: ''
+			}),
+		)
+		return { columns, cells, count: parsed.length }
+	}
+
+	function rowExportPayload(indices: number[]) {
 		const columns = table.columns.map((c) => ({ name: c.name }))
-		const objects = row ? [row] : []
+		const objects = indices
+			.map((i) => rows[i])
+			.filter((r): r is Record<string, unknown> => !!r)
 		const cells = objectsToRows(columns, objects)
-		return { columns, cells, row }
+		return { columns, cells, count: objects.length }
 	}
 
 	async function copyRowAs(
-		index: number,
+		indices: number[],
 		kind: 'copy' | 'csv' | 'markdown' | 'json',
 	) {
-		const { columns, cells, row } = rowExportPayload(index)
-		if (!row) return
+		const { columns, cells, count } = rowExportPayload(indices)
+		if (count === 0) return
 		let text = ''
 		let okMsg = 'Copied'
+		const n = count === 1 ? 'row' : `${count} rows`
 		switch (kind) {
 			case 'copy':
 				text = buildTsv(columns, cells)
-				okMsg = 'Row copied'
+				okMsg = count === 1 ? 'Row copied' : `${count} rows copied`
 				break
 			case 'csv':
 				text = buildCsv(columns, cells)
-				okMsg = 'Copied as CSV'
+				okMsg = `Copied ${n} as CSV`
 				break
 			case 'markdown':
 				text = buildMarkdown(columns, cells)
-				okMsg = 'Copied as Markdown'
+				okMsg = `Copied ${n} as Markdown`
 				break
 			case 'json':
 				text = buildJson(columns, cells, true)
-				okMsg = 'Copied as JSON'
+				okMsg = `Copied ${n} as JSON`
 				break
 		}
 		const res = await copyTextToClipboard(text)
 		flashStatus(res.ok ? okMsg : res.cancelled ? 'Copy cancelled' : res.error)
 	}
 
-	function cloneRow(index: number) {
-		if (profileReadOnly) {
-			flashStatus('Connection is read-only')
-			return
+	async function copySelection(
+		kind: 'copy' | 'csv' | 'markdown' | 'json',
+		fallbackRows?: number[],
+	) {
+		if (selKind === 'cells' && selectedCells.size > 1) {
+			const payload = cellSelectionPayload()
+			if (payload) {
+				let text = ''
+				let okMsg = 'Copied'
+				const n = payload.count === 1 ? 'cell' : `${payload.count} cells`
+				switch (kind) {
+					case 'copy':
+						text = buildTsv(payload.columns, payload.cells)
+						okMsg = `${payload.count} cells copied`
+						break
+					case 'csv':
+						text = buildCsv(payload.columns, payload.cells)
+						okMsg = `Copied ${n} as CSV`
+						break
+					case 'markdown':
+						text = buildMarkdown(payload.columns, payload.cells)
+						okMsg = `Copied ${n} as Markdown`
+						break
+					case 'json':
+						text = buildJson(payload.columns, payload.cells, true)
+						okMsg = `Copied ${n} as JSON`
+						break
+				}
+				const res = await copyTextToClipboard(text)
+				flashStatus(
+					res.ok ? okMsg : res.cancelled ? 'Copy cancelled' : res.error,
+				)
+				return
+			}
 		}
-		if (editing) commitEdit()
+		await copyRowAs(fallbackRows ?? actionRows(), kind)
+	}
+
+	function snapshotClone(index: number): Record<string, unknown> | null {
 		const src = rows[index]
-		if (!src) return
-		// Snapshot before prepend shifts indices.
+		if (!src) return null
 		const row: Record<string, unknown> = { ...src }
 		for (const col of table.columns) {
 			if (
@@ -530,8 +811,32 @@
 				row[col.name] = null
 			}
 		}
-		insertLocalRowAtTop(row)
-		flashStatus('Row cloned — save to insert')
+		return row
+	}
+
+	function cloneRows(indices: number[]) {
+		if (profileReadOnly) {
+			flashStatus('Connection is read-only')
+			return
+		}
+		if (editing) commitEdit()
+		const snaps = [...new Set(indices)]
+			.sort((a, b) => a - b)
+			.map((i) => snapshotClone(i))
+			.filter((r): r is Record<string, unknown> => !!r)
+		if (snaps.length === 0) return
+		for (let i = snaps.length - 1; i >= 0; i--) {
+			insertLocalRowAtTop(snaps[i]!)
+		}
+		flashStatus(
+			snaps.length === 1
+				? 'Row cloned — save to insert'
+				: `${snaps.length} rows cloned — save to insert`,
+		)
+	}
+
+	function cloneRow(index: number) {
+		cloneRows([index])
 	}
 
 	function remapAfterRemove(index: number, i: number): number | null {
@@ -586,11 +891,83 @@
 		else if (highlightRow != null && highlightRow > index) {
 			highlightRow = highlightRow - 1
 		}
+
+		const nextSel = new Set<number>()
+		for (const i of selectedRows) {
+			const mapped = remapAfterRemove(index, i)
+			if (mapped != null) nextSel.add(mapped)
+		}
+		selectedRows = nextSel
+		if (selectionAnchor === index) selectionAnchor = highlightRow
+		else if (selectionAnchor != null && selectionAnchor > index) {
+			selectionAnchor = selectionAnchor - 1
+		}
+
+		const nextCells = new Set<string>()
+		for (const key of selectedCells) {
+			const sep = key.indexOf('::')
+			if (sep < 0) continue
+			const i = Number(key.slice(0, sep))
+			const col = key.slice(sep + 2)
+			if (!Number.isFinite(i)) continue
+			const mapped = remapAfterRemove(index, i)
+			if (mapped != null) nextCells.add(selCellKey(mapped, col))
+		}
+		selectedCells = nextCells
+		if (cellAnchor?.row === index) cellAnchor = selectedCell
+		else if (cellAnchor && cellAnchor.row > index) {
+			cellAnchor = { row: cellAnchor.row - 1, col: cellAnchor.col }
+		}
 	}
 
-	function deleteRow(index: number) {
+	function deleteRows(indices: number[]) {
+		const unique = [...new Set(indices)].sort((a, b) => b - a)
+		if (unique.length === 0) return
+		let removed = 0
+		let marked = 0
+		for (const i of unique) {
+			const beforeDel = deletedIndices.size
+			const beforeRows = rows.length
+			deleteRow(i, true)
+			if (rows.length < beforeRows) removed += 1
+			else if (deletedIndices.size > beforeDel) marked += 1
+		}
+		if (removed && marked) {
+			flashStatus(
+				`${removed} unsaved removed · ${marked} marked for delete — save to apply`,
+			)
+		} else if (removed) {
+			flashStatus(
+				removed === 1
+					? 'Unsaved row removed'
+					: `${removed} unsaved rows removed`,
+			)
+		} else if (marked) {
+			flashStatus(
+				marked === 1
+					? 'Marked for delete — save to apply'
+					: `${marked} rows marked for delete — save to apply`,
+			)
+		}
+	}
+
+	function undeleteRows(indices: number[]) {
+		const next = new Set(deletedIndices)
+		let n = 0
+		for (const i of indices) {
+			if (next.has(i)) {
+				next.delete(i)
+				n += 1
+			}
+		}
+		if (n === 0) return
+		deletedIndices = next
+		flashStatus(n === 1 ? 'Delete undone' : `${n} deletes undone`)
+	}
+
+	function deleteRow(index: number, quiet = false) {
 		if (profileReadOnly) {
-			flashStatus('Connection is read-only')
+			if (!quiet) flashStatus('Connection is read-only')
 			return
 		}
 		if (editing) commitEdit()
@@ -601,7 +978,7 @@
 		// blocks Save (dirtyCount treats new+deleted as a no-op).
 		if (newRowIndices.has(index)) {
 			removeLocalRow(index)
-			flashStatus('Unsaved row removed')
+			if (!quiet) flashStatus('Unsaved row removed')
 			return
 		}
 
@@ -609,7 +986,7 @@
 			(c) => c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
 		)
 		if (!hasPk) {
-			flashStatus('Cannot delete: table has no primary key')
+			if (!quiet) flashStatus('Cannot delete: table has no primary key')
 			return
 		}
 
@@ -619,7 +996,7 @@
 			draft = ''
 		}
 		if (selectedCell?.row === index) selectedCell = null
-		flashStatus('Marked for delete — save to apply')
+		if (!quiet) flashStatus('Marked for delete — save to apply')
 	}
 
 	function undeleteRow(index: number) {
@@ -630,45 +1007,74 @@
 
 	const rowMenuItems = $derived.by((): ContextMenuItem[] => {
 		const ro = profileReadOnly
-		const pending = rowMenu != null && deletedIndices.has(rowMenu.row)
-		return [
-			{ id: 'copy', label: 'Copy' },
-			{ id: 'csv', label: 'Copy as CSV' },
-			{ id: 'markdown', label: 'Copy as Markdown' },
-			{ id: 'json', label: 'Copy as JSON' },
+		const primary = rowMenu?.row
+		const targets =
+			primary != null && selectedRows.has(primary) && selectedRows.size > 1
+				? selectedRowList()
+				: primary != null
+					? [primary]
+					: []
+		const n = targets.length
+		const pendingAll = n > 0 && targets.every((i) => deletedIndices.has(i))
+		const pendingAny = targets.some((i) => deletedIndices.has(i))
+		const liveAny = targets.some((i) => !deletedIndices.has(i))
+		const many = n > 1
+		const items: ContextMenuItem[] = [
+			{ id: 'copy', label: many ? `Copy ${n} rows` : 'Copy' },
+			{ id: 'csv', label: many ? `Copy ${n} as CSV` : 'Copy as CSV' },
+			{
+				id: 'markdown',
+				label: many ? `Copy ${n} as Markdown` : 'Copy as Markdown',
+			},
+			{ id: 'json', label: many ? `Copy ${n} as JSON` : 'Copy as JSON' },
 			{
 				id: 'clone',
-				label: 'Clone row',
+				label: many ? `Clone ${n} rows` : 'Clone row',
 				shortcut: '⌘/Ctrl+D',
-				disabled: ro || pending,
-				separatorBefore: true,
-			},
-			pending
-				? { id: 'undelete', label: 'Undo delete', disabled: ro }
-				: {
-						id: 'delete',
-						label: 'Delete row',
-						shortcut: '⌘/Ctrl+Delete',
-						danger: true,
-						disabled: ro,
-					},
-			{
-				id: 'details',
-				label: 'Show details',
+				disabled: ro || pendingAll,
 				separatorBefore: true,
 			},
 		]
+		if (liveAny) {
+			items.push({
+				id: 'delete',
+				label: many ? `Delete ${n} rows` : 'Delete row',
+				shortcut: '⌘/Ctrl+Delete',
+				danger: true,
+				disabled: ro,
+			})
+		}
+		if (pendingAny) {
+			items.push({
+				id: 'undelete',
+				label: many ? 'Undo delete on selected' : 'Undo delete',
+				disabled: ro,
+			})
+		}
+		items.push({
+			id: 'details',
+			label: 'Show details',
+			separatorBefore: true,
+			disabled: many,
+		})
+		return items
 	})
 
 	function openRowMenu(row: number, e: MouseEvent) {
 		cellMenu = null
+		if (selKind !== 'rows' || !selectedRows.has(row)) setExclusiveRow(row)
+		else highlightRow = row
 		rowMenu = { row, x: e.clientX, y: e.clientY }
 	}
 
 	function openCellMenu(row: number, col: string, e: MouseEvent) {
 		rowMenu = null
-		selectedCell = { row, col }
-		highlightRow = row
+		if (selKind !== 'cells' || !selectedCells.has(selCellKey(row, col))) {
+			setExclusiveCell(row, col)
+		} else {
+			selectedCell = { row, col }
+			highlightRow = row
+		}
 		cellMenu = { row, col, x: e.clientX, y: e.clientY }
 	}
 
@@ -676,16 +1082,18 @@
 		const row = rowMenu?.row
 		rowMenu = null
 		if (row == null) return
+		const targets = targetRows(row)
 		if (id === 'copy' || id === 'csv' || id === 'markdown' || id === 'json') {
-			void copyRowAs(row, id)
+			void copySelection(id, targets)
 			return
 		}
 		if (id === 'clone') {
-			cloneRow(row)
+			cloneRows(targets)
 			return
 		}
-		if (id === 'delete') deleteRow(row)
-		if (id === 'undelete') undeleteRow(row)
+		if (id === 'delete')
+			deleteRows(targets.filter((i) => !deletedIndices.has(i)))
+		if (id === 'undelete') undeleteRows(targets)
 		if (id === 'details') {
 			highlightRow = row
 			onselectrow(row)
@@ -696,31 +1104,41 @@
 		const ctx = cellMenu
 		if (!ctx) return []
 		const ro = profileReadOnly
+		const targets = targetRows(ctx.row)
+		const many = targets.length > 1
 		const pending = deletedIndices.has(ctx.row)
-		const isNull =
-			rows[ctx.row]?.[ctx.col] === null ||
-			rows[ctx.row]?.[ctx.col] === undefined
-		return [
+		const pendingAll = targets.every((i) => deletedIndices.has(i))
+		const pendingAny = targets.some((i) => deletedIndices.has(i))
+		const liveAny = targets.some((i) => !deletedIndices.has(i))
+		const action = actionCells()
+		const cellCount = action.length
+		const allNull =
+			cellCount > 0 &&
+			action.every((c) => {
+				const v = rows[c.row]?.[c.col]
+				return v === null || v === undefined
+			})
+		const items: ContextMenuItem[] = [
 			{
 				id: 'edit-modal',
 				label: 'Edit Modal',
 				shortcut: '⇧Enter',
-				disabled: ro || pending,
+				disabled: ro || pending || cellCount > 1,
 			},
 			{
 				id: 'set-null',
-				label: 'Set NULL',
+				label: cellCount > 1 ? `Set NULL in ${cellCount} cells` : 'Set NULL',
 				shortcut: 'Delete',
-				disabled: ro || pending || isNull,
+				disabled: ro || pending || allNull,
 			},
 			{
 				id: 'copy',
-				label: 'Copy',
+				label: cellCount > 1 ? `Copy ${cellCount} cells` : 'Copy',
 				separatorBefore: true,
 			},
 			{
 				id: 'paste',
-				label: 'Paste',
+				label: cellCount > 1 ? `Paste into ${cellCount} cells` : 'Paste',
 				disabled: ro || pending,
 			},
 			{
@@ -729,26 +1147,35 @@
 			},
 			{
 				id: 'clone',
-				label: 'Clone row',
+				label: many ? `Clone ${targets.length} rows` : 'Clone row',
 				shortcut: '⌘/Ctrl+D',
-				disabled: ro || pending,
-				separatorBefore: true,
-			},
-			pending
-				? { id: 'undelete', label: 'Undo delete', disabled: ro }
-				: {
-						id: 'delete',
-						label: 'Delete row',
-						shortcut: '⌘/Ctrl+Delete',
-						danger: true,
-						disabled: ro,
-					},
-			{
-				id: 'details',
-				label: 'Show details',
+				disabled: ro || pendingAll,
 				separatorBefore: true,
 			},
 		]
+		if (liveAny) {
+			items.push({
+				id: 'delete',
+				label: many ? `Delete ${targets.length} rows` : 'Delete row',
+				shortcut: '⌘/Ctrl+Delete',
+				danger: true,
+				disabled: ro,
+			})
+		}
+		if (pendingAny) {
+			items.push({
+				id: 'undelete',
+				label: many ? 'Undo delete on selected' : 'Undo delete',
+				disabled: ro,
+			})
+		}
+		items.push({
+			id: 'details',
+			label: 'Show details',
+			separatorBefore: true,
+			disabled: many,
+		})
+		return items
 	})
 
 	async function onCellMenuPick(id: string) {
@@ -764,23 +1191,12 @@
 			return
 		}
 		if (id === 'set-null') {
-			if (profileReadOnly) {
-				flashStatus('Connection is read-only')
-				return
-			}
-			if (deletedIndices.has(row)) {
-				flashStatus('Row is marked for delete — undo delete to edit')
-				return
-			}
-			if (editing) commitEdit()
-			applyCellValue(row, col, 'NULL')
-			flashStatus('Set to NULL')
+			setCellsNull(actionCells())
 			return
 		}
 		if (id === 'copy') {
-			// Ensure selection matches the menu cell for copySelectedCell.
-			selectedCell = { row, col }
-			copySelectedCell()
+			if (actionCells().length > 1) void copySelection('copy')
+			else copySelectedCell()
 			return
 		}
 		if (id === 'paste') {
@@ -788,12 +1204,7 @@
 				flashStatus('Connection is read-only')
 				return
 			}
-			if (deletedIndices.has(row)) {
-				flashStatus('Row is marked for delete — undo delete to edit')
-				return
-			}
 			if (editing) commitEdit()
-			selectedCell = { row, col }
 			try {
 				const text = await navigator.clipboard.readText()
 				pasteIntoGrid(text)
@@ -808,15 +1219,15 @@
 			return
 		}
 		if (id === 'clone') {
-			cloneRow(row)
+			cloneRows(targetRows(row))
 			return
 		}
 		if (id === 'delete') {
-			deleteRow(row)
+			deleteRows(targetRows(row).filter((i) => !deletedIndices.has(i)))
 			return
 		}
 		if (id === 'undelete') {
-			undeleteRow(row)
+			undeleteRows(targetRows(row))
 			return
 		}
 		if (id === 'details') {
@@ -908,22 +1319,21 @@
 		return appPrefs.inspectOnRowClick || selectedRowIndex != null
 	}
 
-	function selectCell(row: number, col: string) {
+	function selectCell(row: number, col: string, e?: MouseEvent) {
 		if (editing) {
 			if (editing.row === row && editing.col === col) return
 			commitEdit()
 		}
-		selectedCell = { row, col }
-		highlightRow = row
+		applyCellPointer(row, col, e)
 		if (shouldOpenInspector()) onselectrow(row)
 		focusGridShell()
 		scrollCellIntoView(row, col)
 	}
 
-	function selectRowOnly(row: number) {
+	function selectRowOnly(row: number, e?: MouseEvent) {
 		if (editing) commitEdit()
+		applyRowPointer(row, e)
 		selectedCell = null
-		highlightRow = row
 		if (shouldOpenInspector()) onselectrow(row)
 		focusGridShell()
 	}
@@ -947,11 +1357,15 @@
 		if (col) scrollCellIntoView(absoluteRow, col)
 	}
 
-	function moveSelection(dRow: number, dCol: number) {
+	function moveSelection(dRow: number, dCol: number, extend = false) {
 		const cols = colNames()
 		if (cols.length === 0 || pageEntries.length === 0) return
 
-		let row = selectedCell?.row ?? pageEntries[0]!.index
+		let row =
+			selectedCell?.row ??
+			highlightRow ??
+			selectionAnchor ??
+			pageEntries[0]!.index
 		let colIdx = selectedCell ? Math.max(0, cols.indexOf(selectedCell.col)) : 0
 
 		// Map absolute row → position in the current engine page
@@ -964,8 +1378,20 @@
 		const nextAbs = pageEntries[filterIdx]!.index
 		const nextCol = cols[colIdx]!
 		ensureRowVisible(nextAbs)
-		selectedCell = { row: nextAbs, col: nextCol }
 		highlightRow = nextAbs
+		if (selKind === 'rows' || !selectedCell) {
+			if (dCol !== 0 && !extend) {
+				setExclusiveCell(nextAbs, nextCol)
+			} else if (!extend) {
+				setExclusiveRow(nextAbs)
+			} else {
+				selectRowRange(nextAbs)
+			}
+		} else if (!extend) {
+			setExclusiveCell(nextAbs, nextCol)
+		} else {
+			selectCellRect(nextAbs, nextCol)
+		}
 		// Keep the row details panel in sync (same path as click selection).
 		if (shouldOpenInspector()) onselectrow(nextAbs)
 		// Wait a frame for page change DOM
@@ -1126,25 +1552,52 @@
 	}
 
 	function pasteIntoGrid(text: string) {
-		if (!selectedCell) return
 		const cols = colNames()
 		if (cols.length === 0) return
 
-		const startColIdx = cols.indexOf(selectedCell.col)
-		if (startColIdx < 0) return
-
-		// Normalize line endings; support TSV multi-cell paste from sheets
 		const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
-		// Drop trailing empty line from Excel
 		if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
 		if (lines.length === 0) return
 
-		let filterIdx = pageEntries.findIndex((e) => e.index === selectedCell!.row)
+		const parsed = lines.map((line) => line.split('\t'))
+		const isScalar = parsed.length === 1 && parsed[0]!.length === 1
+		const targets = actionCells().filter((c) => !deletedIndices.has(c.row))
+
+		// One clipboard value → fill every selected cell (or the focused cell).
+		if (isScalar && targets.length > 0) {
+			const value = parsed[0]![0] ?? ''
+			for (const { row, col } of targets) {
+				applyCellValue(row, col, value)
+			}
+			const n = targets.length
+			flashStatus(n === 1 ? 'Pasted 1 cell' : `Pasted into ${n} cells`)
+			return
+		}
+
+		const start =
+			(targets.length
+				? targets.reduce((best, c) => {
+						if (c.row < best.row) return c
+						if (
+							c.row === best.row &&
+							cols.indexOf(c.col) < cols.indexOf(best.col)
+						) {
+							return c
+						}
+						return best
+					})
+				: null) ??
+			(selectedCell ? { row: selectedCell.row, col: selectedCell.col } : null)
+		if (!start) return
+		const startColIdx = cols.indexOf(start.col)
+		if (startColIdx < 0) return
+
+		let filterIdx = pageEntries.findIndex((e) => e.index === start.row)
 		if (filterIdx < 0) filterIdx = 0
 
 		let changed = 0
-		for (let r = 0; r < lines.length; r++) {
-			const cells = lines[r]!.split('\t')
+		for (let r = 0; r < parsed.length; r++) {
+			const cells = parsed[r]!
 			const entry = pageEntries[filterIdx + r]
 			if (!entry) break
 			const absRow = entry.index
@@ -1157,10 +1610,7 @@
 			}
 		}
 
-		statusMsg = changed === 1 ? 'Pasted 1 cell' : `Pasted ${changed} cells`
-		setTimeout(() => {
-			if (statusMsg?.startsWith('Pasted')) statusMsg = null
-		}, 1500)
+		flashStatus(changed === 1 ? 'Pasted 1 cell' : `Pasted ${changed} cells`)
 	}
 
 	function onGridKeydown(e: KeyboardEvent) {
@@ -1208,7 +1658,13 @@
 
 		if (mod && (e.key === 'c' || e.key === 'C')) {
 			e.preventDefault()
-			copySelectedCell()
+			if (selKind === 'cells' && selectedCells.size > 1) {
+				void copySelection('copy')
+			} else if (selKind === 'rows' && selectedRows.size > 1) {
+				void copyRowAs(selectedRowList(), 'copy')
+			} else {
+				copySelectedCell()
+			}
 			return
 		}
 		// Ctrl/Cmd+V: let the `paste` event handle (has clipboardData).
@@ -1236,63 +1692,83 @@
 			!e.shiftKey &&
 			(e.key === 'Delete' || e.key === 'Backspace')
 		) {
-			const row = selectedCell?.row ?? highlightRow ?? selectedRowIndex
-			if (row != null) {
+			const targets = actionRows()
+			if (targets.length > 0) {
 				e.preventDefault()
-				if (deletedIndices.has(row)) undeleteRow(row)
-				else deleteRow(row)
+				const pending = targets.filter((i) => deletedIndices.has(i))
+				const live = targets.filter((i) => !deletedIndices.has(i))
+				if (live.length) deleteRows(live)
+				else if (pending.length) undeleteRows(pending)
 				return
 			}
 		}
 
-		// Delete / Backspace (no mod) — set focused cell to NULL.
+		// Delete / Backspace (no mod) — set selected cell(s) to NULL.
 		if (
 			(e.key === 'Delete' || e.key === 'Backspace') &&
 			!mod &&
 			!e.altKey &&
-			selectedCell
+			actionCells().length > 0
 		) {
 			e.preventDefault()
-			const { row, col } = selectedCell
-			if (profileReadOnly) {
-				flashStatus('Connection is read-only')
-				return
-			}
-			if (deletedIndices.has(row)) {
-				flashStatus('Row is marked for delete — undo delete to edit')
-				return
-			}
-			const cur = rows[row]?.[col]
-			if (cur === null || cur === undefined) return
-			applyCellValue(row, col, 'NULL')
-			flashStatus('Set to NULL')
+			setCellsNull(actionCells())
 			return
 		}
 
 		if (e.key === 'Escape') {
 			e.preventDefault()
+			if (selKind === 'cells' && selectedCells.size > 1 && selectedCell) {
+				setExclusiveCell(selectedCell.row, selectedCell.col)
+				return
+			}
+			if (selKind === 'rows' && selectedRows.size > 1 && highlightRow != null) {
+				setExclusiveRow(highlightRow)
+				return
+			}
+			if (selectedCell) {
+				selectedCell = null
+				clearCellSelection()
+				selKind = 'none'
+				return
+			}
+			return
+		}
+
+		if (mod && !e.altKey && (e.key === 'a' || e.key === 'A')) {
+			e.preventDefault()
+			selKind = 'rows'
+			clearCellSelection()
 			selectedCell = null
+			selectedRows = new Set(pageEntries.map((e) => e.index))
+			if (selectedRows.size > 0 && selectionAnchor == null) {
+				selectionAnchor = pageEntries[0]!.index
+			}
+			flashStatus(
+				selectedRows.size === 1
+					? '1 row selected'
+					: `${selectedRows.size} rows selected`,
+			)
 			return
 		}
 
 		if (e.key === 'ArrowUp') {
 			e.preventDefault()
-			moveSelection(-1, 0)
+			moveSelection(-1, 0, e.shiftKey)
 			return
 		}
 		if (e.key === 'ArrowDown') {
 			e.preventDefault()
-			moveSelection(1, 0)
+			moveSelection(1, 0, e.shiftKey)
 			return
 		}
 		if (e.key === 'ArrowLeft') {
 			e.preventDefault()
-			moveSelection(0, -1)
+			moveSelection(0, -1, e.shiftKey)
 			return
 		}
 		if (e.key === 'ArrowRight') {
 			e.preventDefault()
-			moveSelection(0, 1)
+			moveSelection(0, 1, e.shiftKey)
 			return
 		}
 		if (e.key === 'Tab') {
@@ -1318,6 +1794,16 @@
 
 	function onGridCopy(e: ClipboardEvent) {
 		if (editing) return
+		if (selKind === 'cells' && selectedCells.size > 1) {
+			e.preventDefault()
+			void copySelection('copy')
+			return
+		}
+		if (selKind === 'rows' && selectedRows.size > 1) {
+			e.preventDefault()
+			void copyRowAs(selectedRowList(), 'copy')
+			return
+		}
 		copySelectedCell(e)
 	}
 
@@ -1333,6 +1819,11 @@
 	$effect(() => {
 		void table.id
 		selectedCell = null
+		selectedRows = new Set()
+		selectionAnchor = null
+		selectedCells = new Set()
+		cellAnchor = null
+		selKind = 'none'
 	})
 
 	async function goToPage(nextPage: number) {
@@ -1573,7 +2064,12 @@
 		<GridTable
 			{table}
 			{pageEntries}
-			selectedRowIndex={highlightRow ?? selectedRowIndex}
+			selectedRowIndex={selKind === 'rows'
+				? (highlightRow ?? selectedRowIndex)
+				: null}
+			isRowSelected={(row) => selKind === 'rows' && selectedRows.has(row)}
+			isCellSelected={(row, col) =>
+				selKind === 'cells' && selectedCells.has(selCellKey(row, col))}
 			{selectedCell}
 			{originals}
 			{editing}

@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { Draggable } from '$lib/components/core'
+	import {
+		ContextMenu,
+		Draggable,
+		type ContextMenuItem,
+	} from '$lib/components/core'
 	import type { WorkspaceTab } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
+	import { tick } from 'svelte'
 	import { flip } from 'svelte/animate'
 
 	interface Props {
@@ -12,6 +17,8 @@
 		/** Only tabs for the active connection (parent filters). */
 		onactivate: (id: string) => void
 		onclose: (id: string) => void
+		/** Close several tabs in order (parent handles dirty prompts). */
+		onclosemany?: (ids: string[]) => void
 		/** Open / focus Query canvas for this connection. */
 		onopenquery?: () => void
 		/** Insert `movedId` before `beforeId`, or at the end when `beforeId` is null. */
@@ -25,6 +32,7 @@
 		production = false,
 		onactivate,
 		onclose,
+		onclosemany,
 		onopenquery,
 		onreorder,
 	}: Props = $props()
@@ -37,11 +45,129 @@
 
 	let tablistEl = $state<HTMLDivElement | undefined>(undefined)
 
+	$effect(() => {
+		const id = activeTabId
+		const root = tablistEl
+		if (!id || !root) return
+		void tick().then(() => {
+			requestAnimationFrame(() => {
+				const el = root.querySelector(`[data-drag-id="${CSS.escape(id)}"]`)
+				if (!(el instanceof HTMLElement)) return
+				el.scrollIntoView({
+					inline: 'nearest',
+					block: 'nearest',
+					behavior: 'auto',
+				})
+			})
+		})
+	})
+
 	const tabIds = $derived(tabs.map((t) => t.id))
 	const canReorder = $derived(!!onreorder && tabs.length > 1)
 
 	function tabById(id: string): WorkspaceTab | undefined {
 		return tabs.find((t) => t.id === id)
+	}
+
+	let ctxMenu = $state<{
+		clientX: number
+		clientY: number
+		tabId: string
+	} | null>(null)
+
+	const ctxTab = $derived(
+		ctxMenu ? (tabs.find((t) => t.id === ctxMenu!.tabId) ?? null) : null,
+	)
+	const ctxIndex = $derived(
+		ctxMenu ? tabs.findIndex((t) => t.id === ctxMenu!.tabId) : -1,
+	)
+
+	const ctxMenuItems = $derived.by((): ContextMenuItem[] => {
+		if (!ctxMenu || ctxIndex < 0) return []
+		const last = tabs.length - 1
+		return [
+			{ id: 'close', label: 'Close' },
+			{
+				id: 'close-others',
+				label: 'Close others',
+				disabled: tabs.length < 2,
+			},
+			{ id: 'close-all', label: 'Close all' },
+			{
+				id: 'close-right',
+				label: 'Close tabs to the right',
+				disabled: ctxIndex < 0 || ctxIndex >= last,
+			},
+			{
+				id: 'close-left',
+				label: 'Close tabs to the left',
+				disabled: ctxIndex <= 0,
+			},
+			{
+				id: 'copy-name',
+				label: 'Copy entity name',
+				separatorBefore: true,
+				disabled: !ctxTab || !entityName(ctxTab),
+			},
+		]
+	})
+
+	function entityName(tab: WorkspaceTab): string {
+		if (tab.kind === 'table' || tab.kind === 'structure') {
+			const fromId = tab.tableId?.split('.').pop()?.trim()
+			if (fromId) return fromId
+			return tab.title.replace(/^Structure\s*·\s*/, '').trim()
+		}
+		if (tab.kind === 'model') {
+			return (tab.modelDatabase || tab.title).trim()
+		}
+		return tab.title.trim()
+	}
+
+	function closeMany(ids: string[]) {
+		if (!ids.length) return
+		if (onclosemany) onclosemany(ids)
+		else ids.forEach((id) => onclose(id))
+	}
+
+	function onCtxPick(id: string) {
+		const ctx = ctxMenu
+		ctxMenu = null
+		if (!ctx) return
+		const index = tabs.findIndex((t) => t.id === ctx.tabId)
+		if (index < 0) return
+		const tab = tabs[index]!
+		if (id === 'close') {
+			onclose(tab.id)
+			return
+		}
+		if (id === 'close-others') {
+			closeMany(tabs.filter((t) => t.id !== tab.id).map((t) => t.id))
+			return
+		}
+		if (id === 'close-all') {
+			closeMany(tabs.map((t) => t.id))
+			return
+		}
+		if (id === 'close-right') {
+			closeMany(tabs.slice(index + 1).map((t) => t.id))
+			return
+		}
+		if (id === 'close-left') {
+			closeMany(tabs.slice(0, index).map((t) => t.id))
+			return
+		}
+		if (id === 'copy-name') {
+			const name = entityName(tab)
+			if (!name) return
+			void navigator.clipboard.writeText(name).catch(() => {})
+		}
+	}
+
+	function onTabContextMenu(tabId: string, e: MouseEvent) {
+		e.preventDefault()
+		e.stopPropagation()
+		ctxMenu = { clientX: e.clientX, clientY: e.clientY, tabId }
 	}
 </script>
 
@@ -107,6 +233,7 @@
 					)}
 					role="presentation"
 					onpointerdown={(e) => drag.start(e, tab.id)}
+					oncontextmenu={(e) => onTabContextMenu(tab.id, e)}
 				>
 					{#if connectionColor}
 						<span
@@ -226,3 +353,14 @@
 		{/if}
 	{/snippet}
 </Draggable>
+
+{#if ctxMenu}
+	<ContextMenu
+		x={ctxMenu.clientX}
+		y={ctxMenu.clientY}
+		items={ctxMenuItems}
+		ariaLabel="Tab actions"
+		onpick={onCtxPick}
+		onclose={() => (ctxMenu = null)}
+	/>
+{/if}

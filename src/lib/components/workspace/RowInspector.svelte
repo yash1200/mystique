@@ -15,10 +15,12 @@
 		columns: ColumnDef[]
 		row: Record<string, unknown>
 		rowIndex: number
+		/** Last saved values for this row (grid originals). */
+		savedRow?: Record<string, unknown> | null
 		onclose: () => void
 		/** Commit a field edit (parsed value). */
 		onchange?: (column: string, value: unknown) => void
-		/** Bumps on grid save / reset / refresh so dirty baseline re-captures. */
+		/** Bumps on grid save / reset / refresh so drafts re-sync. */
 		baselineEpoch?: number
 	}
 
@@ -27,6 +29,7 @@
 		columns,
 		row,
 		rowIndex,
+		savedRow = null,
 		onclose,
 		onchange,
 		baselineEpoch = 0,
@@ -43,11 +46,11 @@
 	}
 
 	const seeded = seedFromRow()
-	/** Values at last baseline (selection open or after save/reset). */
-	let baseline = $state<Record<string, unknown>>(seeded.nextBaseline)
 	/** String drafts shown in inputs. */
 	let drafts = $state<Record<string, string>>(seeded.nextDrafts)
 	let focusedCol = $state<string | null>(null)
+
+	const saved = $derived(savedRow ?? row)
 
 	function formatForEdit(col: ColumnDef, value: unknown): string {
 		if (usesSelectEditor(col, value)) return valueToSelectDraft(value)
@@ -117,20 +120,19 @@
 		return formatForEdit(col, value).length > 64
 	}
 
-	function captureBaselineFromRow() {
-		const { nextBaseline, nextDrafts } = seedFromRow()
-		baseline = nextBaseline
-		drafts = nextDrafts
+	function syncDraftsFromRow() {
+		drafts = seedFromRow().nextDrafts
 		focusedCol = null
 	}
 
-	// New row / table, or save-baseline epoch → reset drafts & baseline
+	// New row / table, or save/reset → refresh drafts from the live row.
+	// Do not treat the current (possibly dirty) row as the saved baseline.
 	let lastBaselineKey = $state('')
 	$effect(() => {
 		const key = `${tableTitle}::${rowIndex}::${baselineEpoch}`
 		if (key === lastBaselineKey) return
 		lastBaselineKey = key
-		captureBaselineFromRow()
+		syncDraftsFromRow()
 	})
 
 	// Sync drafts from row when grid edits land (skip while typing)
@@ -153,8 +155,16 @@
 	function isDirty(colName: string): boolean {
 		const col = columns.find((c) => c.name === colName)
 		if (!col) return false
-		return (drafts[colName] ?? '') !== formatForEdit(col, baseline[colName])
+		return (drafts[colName] ?? '') !== formatForEdit(col, saved[colName])
 	}
+
+	const dirtyCols = $derived.by(() => {
+		const next = new Set<string>()
+		for (const col of columns) {
+			if (isDirty(col.name)) next.add(col.name)
+		}
+		return next
+	})
 
 	function commitField(colName: string) {
 		const col = columns.find((c) => c.name === colName)
@@ -199,9 +209,7 @@
 		}
 	}
 
-	const dirtyCount = $derived(
-		columns.reduce((n, c) => n + (isDirty(c.name) ? 1 : 0), 0),
-	)
+	const dirtyCount = $derived(dirtyCols.size)
 </script>
 
 <aside
@@ -247,7 +255,7 @@
 		<div class="flex flex-col gap-1.5">
 			{#each columns as col (col.name)}
 				{@const raw = row[col.name]}
-				{@const dirty = isDirty(col.name)}
+				{@const dirty = dirtyCols.has(col.name)}
 				{@const multiline = useTextarea(col, raw)}
 				{@const focused = focusedCol === col.name}
 				<label

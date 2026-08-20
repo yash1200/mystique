@@ -62,6 +62,8 @@
 		querysaving?: boolean
 		/** Close request (may prompt if dirty). */
 		onclosetab?: (id: string) => void
+		/** Close several tabs in order (dirty prompts stay sequential). */
+		onclosemany?: (ids: string[]) => void
 		onreloadtable?: (opts?: {
 			offset?: number
 			filters?: TablePreviewFilter[]
@@ -107,6 +109,7 @@
 		onsavequery,
 		querysaving = false,
 		onclosetab,
+		onclosemany,
 		onreloadtable,
 		onreconnect,
 		seedFilters = null,
@@ -114,6 +117,8 @@
 		seedSort = null,
 		onopenreference,
 	}: Props = $props()
+
+	let gridOriginals = $state<Record<string, unknown>[]>([])
 </script>
 
 <main class="flex min-w-0 flex-1 flex-col">
@@ -129,6 +134,12 @@
 			onactivate={(id) => workspaceSession.setActiveTab(id)}
 			onclose={(id) =>
 				onclosetab ? onclosetab(id) : workspaceSession.closeTab(id)}
+			onclosemany={(ids) =>
+				onclosemany
+					? onclosemany(ids)
+					: ids.forEach((id) =>
+							onclosetab ? onclosetab(id) : workspaceSession.closeTab(id),
+						)}
 			onopenquery={() => workspaceSession.openNewQuery(activeId)}
 			onreorder={(movedId, beforeId) =>
 				workspaceSession.reorderTabs(movedId, beforeId)}
@@ -266,6 +277,7 @@
 							{onopenreference}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
+							bind:originals={gridOriginals}
 						/>
 					{/key}
 				{:else}
@@ -286,6 +298,7 @@
 						columns={inspectorData.columns}
 						row={inspectorData.row}
 						rowIndex={inspectorData.rowIndex}
+						savedRow={gridOriginals[inspectorData.rowIndex] ?? null}
 						{baselineEpoch}
 						onclose={() => workspaceSession.clearRowSelection()}
 						onchange={oninspectorchange}

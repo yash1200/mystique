@@ -477,6 +477,8 @@
 	/** Tab id waiting on the unsaved-close modal. */
 	let pendingCloseTabId = $state<string | null>(null)
 	let closePromptBusy = $state(false)
+	/** Remaining tab ids from Close others / all / left / right. */
+	let closeQueue = $state<string[]>([])
 
 	const pendingCloseTab = $derived(
 		pendingCloseTabId
@@ -486,20 +488,48 @@
 	)
 
 	function requestCloseTab(tabId: string) {
-		const tab = workspaceSession.openTabs.find((t) => t.id === tabId)
-		if (!tab) return
-		if (tab.dirty) {
-			// Focus the tab so Save/Discard apply to the visible content.
-			workspaceSession.setActiveTab(tabId)
-			pendingCloseTabId = tabId
-			return
+		enqueueCloseTabs([tabId])
+	}
+
+	function enqueueCloseTabs(ids: string[]) {
+		const open = new Set(workspaceSession.openTabs.map((t) => t.id))
+		const queued = new Set(closeQueue)
+		const next = ids.filter((id) => open.has(id) && !queued.has(id))
+		if (!next.length) return
+		closeQueue = [...closeQueue, ...next]
+		drainCloseQueue()
+	}
+
+	function drainCloseQueue() {
+		if (pendingCloseTabId) return
+		while (closeQueue.length) {
+			const id = closeQueue[0]!
+			const tab = workspaceSession.openTabs.find((t) => t.id === id)
+			if (!tab) {
+				closeQueue = closeQueue.slice(1)
+				continue
+			}
+			if (tab.dirty) {
+				// Focus the tab so Save/Discard apply to the visible content.
+				workspaceSession.setActiveTab(id)
+				pendingCloseTabId = id
+				return
+			}
+			workspaceSession.closeTab(id)
+			closeQueue = closeQueue.slice(1)
 		}
-		workspaceSession.closeTab(tabId)
+	}
+
+	function finishQueuedClose(tabId: string) {
+		pendingCloseTabId = null
+		closeQueue = closeQueue.filter((id) => id !== tabId)
+		drainCloseQueue()
 	}
 
 	function cancelCloseTab() {
 		if (closePromptBusy) return
 		pendingCloseTabId = null
+		closeQueue = []
 	}
 
 	/** In-app save-name modal (window.prompt is broken in Tauri webviews). */
@@ -587,7 +617,7 @@
 			closeSaveNameModal(true)
 			if (shouldClose) {
 				workspaceSession.closeTab(tabId)
-				pendingCloseTabId = null
+				finishQueuedClose(tabId)
 			}
 		} catch (e) {
 			saveNameError = e instanceof Error ? e.message : String(e)
@@ -667,17 +697,15 @@
 				if (!ok) return
 				// Named query path already saved; close here if still open.
 				if (workspaceSession.openTabs.some((t) => t.id === tab.id)) {
-					pendingCloseTabId = null
 					workspaceSession.closeTab(tab.id)
-				} else {
-					pendingCloseTabId = null
 				}
+				finishQueuedClose(tab.id)
 			} else {
 				// Table / model: keep in-memory edits, clear dirty, then close.
 				workspaceSession.setTabDirty(tab.id, false)
 				const id = tab.id
-				pendingCloseTabId = null
 				workspaceSession.closeTab(id)
+				finishQueuedClose(id)
 			}
 		} finally {
 			closePromptBusy = false
@@ -737,8 +765,8 @@
 				workspaceSession.setTabDirty(tab.id, false)
 			}
 			const id = tab.id
-			pendingCloseTabId = null
 			workspaceSession.closeTab(id)
+			finishQueuedClose(id)
 		} finally {
 			closePromptBusy = false
 		}
@@ -1953,6 +1981,7 @@
 		onsavequery={() => void saveActiveQuery()}
 		querysaving={querySaving}
 		onclosetab={requestCloseTab}
+		onclosemany={enqueueCloseTabs}
 		onreloadtable={reloadGridTable}
 		onreconnect={reconnectActiveSession}
 		seedFilters={tableSeedFilters}
