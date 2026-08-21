@@ -10,6 +10,7 @@
 	} from '$lib/api/engines'
 	import { appendQueryHistory, type QueryHistoryItem } from '$lib/api/history'
 	import { isTauri } from '$lib/api/tauri'
+	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type { EngineCapabilities } from '$lib/types/engineCaps'
 	import {
 		buildCsv,
@@ -38,6 +39,7 @@
 	import { isSessionMissingError } from './shell/sessionUtils'
 
 	interface Props {
+		tabId: string
 		connectionId: string
 		connectionName: string
 		engine: string
@@ -56,6 +58,7 @@
 	}
 
 	let {
+		tabId,
 		connectionId,
 		connectionName,
 		engine,
@@ -72,10 +75,13 @@
 		capabilities = null,
 	}: Props = $props()
 
-	let runState = $state<RunState>({ status: 'idle' })
+	const cached = untrack(() => workspaceSession.getQueryRunCache(tabId))
+	// Raw: result grids can be tens of thousands of rows. Deep $state
+	// proxies on that payload freeze the UI after Run.
+	let runState = $state.raw<RunState>(cached?.runState ?? { status: 'idle' })
 	let collection = $state('')
 	let catalogColumns = $state<CatalogColumnRow[]>([])
-	let resultPage = $state(0)
+	let resultPage = $state(cached?.resultPage ?? 0)
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let exporting = $state<ResultExportAction | null>(null)
 	let exportMsg = $state<string | null>(null)
@@ -156,12 +162,21 @@
 	const resultPageRows = $derived(
 		resultRows.slice(resultPageStart, resultPageEnd),
 	)
+
 	const canExport = $derived(
 		runState.status === 'ok' &&
 			!!runState.result &&
 			runState.result.columns.length > 0 &&
 			runState.result.rows.length > 0,
 	)
+
+	function persistRunCache(state: RunState = runState, page = resultPage) {
+		if (state.status === 'running') return
+		workspaceSession.setQueryRunCache(tabId, {
+			runState: state,
+			resultPage: page,
+		})
+	}
 
 	function emitText(value: string) {
 		localText = value
@@ -171,10 +186,12 @@
 
 	function goResultPrev() {
 		resultPage = Math.max(0, resultSafePage - 1)
+		persistRunCache(runState, resultPage)
 	}
 
 	function goResultNext() {
 		resultPage = Math.min(resultTotalPages - 1, resultSafePage + 1)
+		persistRunCache(runState, resultPage)
 	}
 
 	async function exportResults(action: ResultExportAction) {
@@ -292,6 +309,7 @@
 				mode,
 				elapsedMs: Math.round(performance.now() - start),
 			}
+			persistRunCache()
 			return
 		}
 
@@ -308,6 +326,7 @@
 				mode,
 				elapsedMs,
 			}
+			persistRunCache()
 			await recordHistory({
 				success: false,
 				durationMs: elapsedMs,
@@ -346,6 +365,7 @@
 				elapsedMs,
 				result,
 			}
+			persistRunCache()
 			await recordHistory({
 				success: true,
 				durationMs: result.durationMs ?? elapsedMs,
@@ -362,6 +382,7 @@
 				mode,
 				elapsedMs,
 			}
+			persistRunCache()
 			await recordHistory({
 				success: false,
 				durationMs: elapsedMs,

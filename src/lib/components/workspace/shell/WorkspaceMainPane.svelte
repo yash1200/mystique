@@ -150,6 +150,7 @@
 		{#if activeSession && activeTab?.kind === 'query'}
 			{#key activeTab.id}
 				<QueryCanvas
+					tabId={activeTab.id}
 					connectionId={activeSession.profile.id}
 					connectionName={activeSession.profile.name}
 					engine={String(activeSession.profile.engine)}

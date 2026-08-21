@@ -16,7 +16,9 @@
 		columnType?: string
 		rowIndex: number
 		initialText: string
-		onapply: (text: string) => void
+		/** When true, the value cannot be edited (query results). */
+		readonly?: boolean
+		onapply?: (text: string) => void
 		onclose: () => void
 	}
 
@@ -25,6 +27,7 @@
 		columnType = '',
 		rowIndex,
 		initialText,
+		readonly = false,
 		onapply,
 		onclose,
 	}: Props = $props()
@@ -67,16 +70,17 @@
 	}
 
 	function apply() {
-		if (!canApply) return
+		if (readonly || !canApply) return
 		if (mode === 'json') {
 			const compact = minifyJson(text)
-			onapply(compact ?? text)
+			onapply?.(compact ?? text)
 			return
 		}
-		onapply(text)
+		onapply?.(text)
 	}
 
 	function onKeydown(e: KeyboardEvent) {
+		if (readonly) return
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			e.preventDefault()
 			e.stopPropagation()
@@ -150,6 +154,7 @@
 						bind:value={text}
 						spellcheck={false}
 						autofocus
+						{readonly}
 						class="min-h-40 flex-1 resize-none font-mono text-label leading-relaxed"
 					/>
 				</label>
@@ -173,6 +178,7 @@
 				bind:value={text}
 				spellcheck={false}
 				autofocus
+				{readonly}
 				class={cn(
 					'min-h-64 flex-1 resize-none font-mono text-label leading-relaxed',
 					mode === 'json' && jsonError && 'border-danger/50',
@@ -186,13 +192,20 @@
 
 	{#snippet footer()}
 		<div class="flex w-full items-center justify-between gap-2">
-			<p class="m-0 flex items-center gap-1.5 text-caption text-fg-muted">
-				<Kbd>⌘</Kbd><Kbd>↵</Kbd>
-				<span>apply</span>
-				<span aria-hidden="true">·</span>
-				<Kbd>esc</Kbd>
-				<span>cancel</span>
-			</p>
+			{#if readonly}
+				<p class="m-0 flex items-center gap-1.5 text-caption text-fg-muted">
+					<Kbd>esc</Kbd>
+					<span>close</span>
+				</p>
+			{:else}
+				<p class="m-0 flex items-center gap-1.5 text-caption text-fg-muted">
+					<Kbd>⌘</Kbd><Kbd>↵</Kbd>
+					<span>apply</span>
+					<span aria-hidden="true">·</span>
+					<Kbd>esc</Kbd>
+					<span>cancel</span>
+				</p>
+			{/if}
 			<div class="flex items-center gap-2">
 				{#if mode === 'json'}
 					<Button
@@ -204,15 +217,19 @@
 						Prettify
 					</Button>
 				{/if}
-				<Button variant="ghost" size="sm" onclick={onclose}>Cancel</Button>
-				<Button
-					variant="primary"
-					size="sm"
-					onclick={apply}
-					disabled={!canApply}
-				>
-					Apply
-				</Button>
+				{#if readonly}
+					<Button variant="primary" size="sm" onclick={onclose}>Close</Button>
+				{:else}
+					<Button variant="ghost" size="sm" onclick={onclose}>Cancel</Button>
+					<Button
+						variant="primary"
+						size="sm"
+						onclick={apply}
+						disabled={!canApply}
+					>
+						Apply
+					</Button>
+				{/if}
 			</div>
 		</div>
 	{/snippet}

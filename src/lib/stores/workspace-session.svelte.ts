@@ -9,6 +9,7 @@ import {
 	replaceWorkspaceTabs,
 	workspaceTabToSaveInput,
 } from '$lib/api/workspaceTabs'
+import type { QueryRunCache } from '$lib/components/workspace/query/types'
 import type { ConnectionProfile } from '$lib/types/connection'
 import {
 	normalizeCapabilities,
@@ -36,6 +37,11 @@ class WorkspaceSessionStore {
 	queryDrafts = $state<Record<string, string>>({})
 	/** Baseline body used to compute dirty (saved body or last restore). */
 	queryBaselines = $state<Record<string, string>>({})
+	/**
+	 * Last finished query run per tab. Plain Map on purpose: not $state.
+	 * Result sets are large; a reactive store + $effect copy loop froze the app.
+	 */
+	private queryRunCache = new Map<string, QueryRunCache>()
 
 	/** Debounced persist handles per connection. */
 	private persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -314,6 +320,7 @@ class WorkspaceSessionStore {
 		for (const tid of removedTabIds) {
 			delete drafts[tid]
 			delete baselines[tid]
+			this.queryRunCache.delete(tid)
 		}
 		this.queryDrafts = drafts
 		this.queryBaselines = baselines
@@ -429,6 +436,7 @@ class WorkspaceSessionStore {
 			const baselines = { ...this.queryBaselines }
 			delete drafts[tabId]
 			delete baselines[tabId]
+			this.queryRunCache.delete(tabId)
 			this.queryDrafts = drafts
 			this.queryBaselines = baselines
 		}
@@ -513,6 +521,14 @@ class WorkspaceSessionStore {
 			t.connectionId === connectionId ? nextConn[i++]! : t,
 		)
 		this.schedulePersist(connectionId)
+	}
+
+	getQueryRunCache(tabId: string): QueryRunCache | undefined {
+		return this.queryRunCache.get(tabId)
+	}
+
+	setQueryRunCache(tabId: string, cache: QueryRunCache) {
+		this.queryRunCache.set(tabId, cache)
 	}
 
 	setQueryDraft(tabId: string, text: string) {

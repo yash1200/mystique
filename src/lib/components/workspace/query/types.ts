@@ -17,3 +17,9 @@ export type RunState =
 			elapsedMs: number
 			result?: QueryResult | null
 	  }
+
+/** Last finished run for a query tab. In-memory only; not persisted. */
+export type QueryRunCache = {
+	runState: Exclude<RunState, { status: 'running' }>
+	resultPage: number
+}

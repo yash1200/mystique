@@ -40,7 +40,7 @@
 </script>
 
 <div
-	class="flex flex-1 items-center justify-center overflow-auto bg-app-wash p-6"
+	class="flex flex-1 items-center justify-center overflow-auto bg-app-wash p-8"
 >
 	<div class="w-full max-w-panel-sm">
 		<p class="m-0 text-center text-caption text-fg-muted">{profile.name}</p>
@@ -50,22 +50,25 @@
 			No tab open
 		</h1>
 		<p
-			class="mt-2 mb-0 text-center text-body leading-relaxed text-fg-secondary"
+			class="mx-auto mt-2 mb-0 max-w-prose-ui text-center text-body leading-relaxed text-fg-secondary"
 		>
 			Double-click a table in the explorer, or open a query.
 		</p>
-		<div class="mt-4 flex justify-center">
+		<div class="mt-5 flex justify-center">
 			<Button variant="primary" size="sm" onclick={() => onnewquery?.()}>
 				New query
 			</Button>
 		</div>
 
-		<ul class="mt-8 mb-0 list-none p-0" aria-label="Important shortcuts">
+		<ul
+			class="mt-8 mb-0 list-none overflow-hidden rounded-xl border border-line bg-elevated p-1 shadow-sm"
+			aria-label="Important shortcuts"
+		>
 			{#each featured as item (item.id)}
 				<li
-					class="flex items-center justify-between gap-3 border-b border-line py-2 first:border-t"
+					class="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
 				>
-					<span class="min-w-0 text-label text-fg">{item.label}</span>
+					<span class="min-w-0 text-label text-fg-secondary">{item.label}</span>
 					<span class="flex shrink-0 items-center gap-1">
 						{#each item.keys as token, i (item.id + i)}
 							<Kbd>{labelForKey(token, mac)}</Kbd>
