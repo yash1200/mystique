@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { Icon, IconButton, StatusBar } from '$lib/components/core'
+	import {
+		Icon,
+		IconButton,
+		Input,
+		Select,
+		StatusBar,
+	} from '$lib/components/core'
 	import type { ColumnDef } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
 
@@ -210,35 +216,53 @@
 	}
 
 	const dirtyCount = $derived(dirtyCols.size)
+
+	let query = $state('')
+
+	const visibleColumns = $derived.by(() => {
+		const q = query.trim().toLowerCase()
+		return columns
+			.map((col, i) => ({ col, i }))
+			.filter(
+				({ col }) =>
+					!q ||
+					col.name.toLowerCase().includes(q) ||
+					col.type.toLowerCase().includes(q),
+			)
+			.sort(
+				(a, b) => Number(!!b.col.pk) - Number(!!a.col.pk) || a.i - b.i,
+			)
+			.map(({ col }) => col)
+	})
+
+	function isEmptyDraft(colName: string): boolean {
+		return (drafts[colName] ?? '') === ''
+	}
+
+	const filtering = $derived(query.trim().length > 0)
+	const countLabel = $derived(
+		filtering
+			? `${visibleColumns.length} of ${columns.length}`
+			: `${columns.length} column${columns.length === 1 ? '' : 's'}`,
+	)
 </script>
 
 <aside
-	class="flex h-full w-72 shrink-0 flex-col border-l border-line bg-panel"
+	class="flex h-full w-80 shrink-0 flex-col border-l border-line bg-panel"
 	aria-label="Row detail"
 >
-	<header
-		class="flex h-topbar shrink-0 items-center justify-between gap-2 border-b border-line px-3"
-	>
-		<div class="min-w-0">
-			<div class="flex items-center gap-1.5">
-				<span class="truncate text-label font-semibold text-fg">
-					Row {rowIndex + 1}
-				</span>
-				{#if dirtyCount > 0}
-					<span
-						class="shrink-0 rounded-sm border border-warning/45 bg-warning/15 px-1 py-px text-micro font-medium text-warning"
-					>
-						{dirtyCount} edited
-					</span>
-				{/if}
-			</div>
-			<div class="truncate font-mono text-caption text-fg-muted">
-				{tableTitle}
-			</div>
+	<header class="flex shrink-0 items-center gap-1.5 border-b border-line px-3 py-2">
+		<div class="min-w-0 flex-1">
+			<Input
+				type="search"
+				placeholder="Filter columns…"
+				bind:value={query}
+				inputSize="sm"
+			/>
 		</div>
 		<IconButton
 			label="Close row inspector"
-			size="md"
+			size="sm"
 			variant="ghost"
 			onclick={onclose}
 		>
@@ -246,129 +270,130 @@
 		</IconButton>
 	</header>
 
-	<div class="flex-1 overflow-auto p-2">
-		<p class="mb-2 px-0.5 text-caption text-fg-muted">
-			Edit fields below. Enter commits · Esc cancels.
-		</p>
-		<div class="flex flex-col gap-1.5">
-			{#each columns as col (col.name)}
-				{@const raw = row[col.name]}
-				{@const dirty = dirtyCols.has(col.name)}
-				{@const multiline = useTextarea(col, raw)}
-				{@const focused = focusedCol === col.name}
-				<label
-					class={cn(
-						'block rounded-md border px-2.5 py-2 transition-colors',
-						dirty
-							? 'border-warning/45 bg-warning/10'
-							: focused
-								? 'border-focus bg-input ring-2 ring-accent-muted'
-								: 'border-line bg-elevated',
-					)}
-				>
-					<span
-						class="mb-1 flex items-center gap-1.5 text-caption font-medium text-fg-secondary"
+	<div class="min-h-0 flex-1 overflow-auto">
+		{#if visibleColumns.length === 0}
+			<p class="m-3 text-caption leading-relaxed text-fg-muted">
+				{#if query.trim()}
+					No columns match “{query.trim()}”.
+				{:else}
+					This row has no columns.
+				{/if}
+			</p>
+		{:else}
+			<ul class="m-0 list-none p-0">
+				{#each visibleColumns as col (col.name)}
+					{@const raw = row[col.name]}
+					{@const dirty = dirtyCols.has(col.name)}
+					{@const multiline = useTextarea(col, raw)}
+					{@const focused = focusedCol === col.name}
+					{@const empty = isEmptyDraft(col.name)}
+					<li
+						class={cn(
+							'px-3 py-2 transition-colors duration-150',
+							dirty && 'bg-warning/10',
+							focused && !dirty && 'bg-input',
+						)}
 					>
-						<span class="text-fg">{col.name}</span>
-						{#if col.pk}
-							<span class="text-accent" title="Primary key">PK</span>
-						{/if}
-						<span class="font-mono font-normal text-fg-muted">{col.type}</span>
-						{#if dirty}
+						<div class="mb-1 flex min-w-0 items-center gap-1.5">
 							<span
-								class="ml-auto size-1.5 shrink-0 rounded-full bg-warning"
-								title="Edited"
-								aria-label="Edited"
-							></span>
-						{/if}
-					</span>
+								class="min-w-0 truncate font-mono text-label font-medium text-fg"
+							>
+								{col.name}
+							</span>
+							{#if col.pk}
+								<span
+									class="shrink-0 rounded-sm border border-accent/35 bg-accent-muted px-1 py-px font-mono text-micro font-semibold text-accent"
+									title="Primary key">PK</span
+								>
+							{/if}
+							<span
+								class="ml-auto min-w-0 truncate font-mono text-micro text-fg-muted"
+								title={col.type}
+							>
+								{col.type}
+							</span>
+							{#if dirty}
+								<span class="sr-only">Edited</span>
+							{/if}
+						</div>
 
-					{#if usesSelectEditor(col, raw)}
-						{@const options = selectOptionsForColumn(col, raw)}
-						<select
-							class={cn(
-								'm-0 w-full rounded-sm border border-line bg-input px-1.5 py-1',
-								'font-mono text-label text-fg focus:outline-none focus:ring-1 focus:ring-accent',
-								(drafts[col.name] ?? '') === '' && 'italic text-fg-muted',
-							)}
-							value={drafts[col.name] ?? ''}
-							onfocus={() => (focusedCol = col.name)}
-							onchange={(e) => {
-								drafts = {
-									...drafts,
-									[col.name]: (e.currentTarget as HTMLSelectElement).value,
-								}
-								commitField(col.name)
-							}}
-							onblur={() => {
-								if (focusedCol === col.name) commitField(col.name)
-							}}
-							onkeydown={(e) => onFieldKeydown(e, col.name, false)}
-							aria-label={col.name}
-						>
-							{#each options as opt (opt.value === '' ? '__null__' : opt.value)}
-								<option value={opt.value}>{opt.label}</option>
-							{/each}
-						</select>
-					{:else if multiline}
-						<textarea
-							class={cn(
-								'm-0 min-h-16 w-full resize-y rounded-sm border-none bg-transparent p-0',
-								'font-mono text-label leading-relaxed text-fg',
-								'focus:outline-none',
-								(drafts[col.name] ?? '') === '' && 'italic text-fg-muted',
-							)}
-							rows="3"
-							value={drafts[col.name] ?? ''}
-							placeholder="NULL"
-							onfocus={() => (focusedCol = col.name)}
-							oninput={(e) => {
-								drafts = {
-									...drafts,
-									[col.name]: (e.currentTarget as HTMLTextAreaElement).value,
-								}
-							}}
-							onblur={() => commitField(col.name)}
-							onkeydown={(e) => onFieldKeydown(e, col.name, true)}
-							spellcheck="false"
-						></textarea>
-					{:else}
-						<input
-							class={cn(
-								'm-0 w-full border-none bg-transparent p-0 font-mono text-label text-fg',
-								'focus:outline-none',
-								(drafts[col.name] ?? '') === '' && 'italic text-fg-muted',
-							)}
-							value={drafts[col.name] ?? ''}
-							placeholder="NULL"
-							onfocus={() => (focusedCol = col.name)}
-							oninput={(e) => {
-								drafts = {
-									...drafts,
-									[col.name]: (e.currentTarget as HTMLInputElement).value,
-								}
-							}}
-							onblur={() => commitField(col.name)}
-							onkeydown={(e) => onFieldKeydown(e, col.name, false)}
-							spellcheck="false"
-							autocomplete="off"
-						/>
-					{/if}
-				</label>
-			{/each}
-		</div>
+						{#if usesSelectEditor(col, raw)}
+							{@const options = selectOptionsForColumn(col, raw)}
+							<Select
+								inputSize="sm"
+								class="font-mono"
+								value={drafts[col.name] ?? ''}
+								{options}
+								onchange={(v) => {
+									drafts = { ...drafts, [col.name]: v }
+									commitField(col.name)
+								}}
+							/>
+						{:else if multiline}
+							<textarea
+								class={cn(
+									'm-0 min-h-16 w-full resize-y rounded-md border bg-elevated px-2 py-1.5',
+									'font-mono text-label leading-relaxed text-fg',
+									'focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted',
+									dirty ? 'border-warning/45' : 'border-line',
+									empty && 'italic text-fg-muted',
+								)}
+								rows="3"
+								value={drafts[col.name] ?? ''}
+								placeholder="NULL"
+								aria-label={col.name}
+								onfocus={() => (focusedCol = col.name)}
+								oninput={(e) => {
+									drafts = {
+										...drafts,
+										[col.name]: (e.currentTarget as HTMLTextAreaElement)
+											.value,
+									}
+								}}
+								onblur={() => commitField(col.name)}
+								onkeydown={(e) => onFieldKeydown(e, col.name, true)}
+								spellcheck="false"
+							></textarea>
+						{:else}
+							<input
+								class={cn(
+									'm-0 h-control-sm w-full rounded-md border bg-elevated px-2',
+									'font-mono text-label text-fg',
+									'focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted',
+									dirty ? 'border-warning/45' : 'border-line',
+									empty && 'italic text-fg-muted',
+								)}
+								value={drafts[col.name] ?? ''}
+								placeholder="NULL"
+								aria-label={col.name}
+								onfocus={() => (focusedCol = col.name)}
+								oninput={(e) => {
+									drafts = {
+										...drafts,
+										[col.name]: (e.currentTarget as HTMLInputElement).value,
+									}
+								}}
+								onblur={() => commitField(col.name)}
+								onkeydown={(e) => onFieldKeydown(e, col.name, false)}
+								spellcheck="false"
+								autocomplete="off"
+							/>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	</div>
 
 	<StatusBar ariaLabel="Row inspector status">
 		{#snippet left()}
+			<span class="font-mono tabular-nums">{countLabel}</span>
+		{/snippet}
+		{#snippet right()}
 			{#if dirtyCount > 0}
-				<span class="text-warning"
-					>{dirtyCount} field{dirtyCount === 1 ? '' : 's'} changed</span
+				<span class="font-mono tabular-nums text-warning"
+					>{dirtyCount} unsaved</span
 				>
-				<span>·</span>
-				<span>Save from the grid bar</span>
-			{:else}
-				<span>No local field changes</span>
 			{/if}
 		{/snippet}
 	</StatusBar>
