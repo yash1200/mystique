@@ -8,6 +8,7 @@
 		Button,
 		Checkbox,
 		EmptyState,
+		Icon,
 		IconButton,
 		Input,
 		Pill,
@@ -564,28 +565,7 @@
 														onclick={() =>
 															void flashCopy('Row copied', row.join('\t'))}
 													>
-														<svg
-															class="size-3.5"
-															viewBox="0 0 16 16"
-															fill="none"
-															aria-hidden="true"
-														>
-															<rect
-																x="5.5"
-																y="5.5"
-																width="7"
-																height="7"
-																rx="1"
-																stroke="currentColor"
-																stroke-width="1.25"
-															/>
-															<path
-																d="M3.5 10.5h-1a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1"
-																stroke="currentColor"
-																stroke-width="1.25"
-																stroke-linecap="round"
-															/>
-														</svg>
+														<Icon name="copy" />
 													</IconButton>
 												</div>
 											</td>

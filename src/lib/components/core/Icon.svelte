@@ -1,0 +1,20 @@
+<script lang="ts">
+	import { iconInner, type IconName } from '$icons'
+	import { cn } from '$lib/utils/cn'
+
+	interface Props {
+		name: IconName
+		class?: string
+	}
+
+	let { name, class: className = '' }: Props = $props()
+</script>
+
+<svg
+	class={cn('size-3.5 shrink-0', className)}
+	viewBox="0 0 16 16"
+	fill="none"
+	aria-hidden="true"
+>
+	{@html iconInner[name]}
+</svg>

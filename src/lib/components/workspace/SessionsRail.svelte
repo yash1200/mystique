@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		ContextMenu,
+		Icon,
 		IconButton,
 		type ContextMenuItem,
 	} from '$lib/components/core'
@@ -208,14 +209,7 @@
 				aria-label="Open another connection"
 				onclick={onopen}
 			>
-				<svg class="size-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-					<path
-						d="M8 3.25v9.5M3.25 8h9.5"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-					/>
-				</svg>
+				<Icon name="plus" class="size-4" />
 			</button>
 		</div>
 
@@ -238,14 +232,7 @@
 				aria-pressed={mode === 'saved-queries'}
 				onclick={() => onmode('saved-queries')}
 			>
-				<svg class="size-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-					<path
-						d="M4.25 2.75h7.5v10.5L8 11.1l-3.75 2.15V2.75z"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="bookmark" class="size-4" />
 			</button>
 
 			<button
@@ -262,22 +249,7 @@
 				aria-pressed={mode === 'history'}
 				onclick={() => onmode('history')}
 			>
-				<svg class="size-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-					<circle
-						cx="8"
-						cy="8"
-						r="5.25"
-						stroke="currentColor"
-						stroke-width="1.3"
-					/>
-					<path
-						d="M8 5.25V8l2 1.5"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="history" class="size-4" />
 			</button>
 		</div>
 	</div>
@@ -295,22 +267,7 @@
 			aria-expanded={shortcutsOpen}
 			aria-haspopup="dialog"
 		>
-			<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-				<circle
-					cx="8"
-					cy="8"
-					r="5.75"
-					stroke="currentColor"
-					stroke-width="1.2"
-				/>
-				<path
-					d="M6.35 6.15c0-.95.75-1.65 1.65-1.65.9 0 1.65.7 1.65 1.6 0 .75-.45 1.15-1.05 1.5-.4.25-.6.5-.6 1.05"
-					stroke="currentColor"
-					stroke-width="1.2"
-					stroke-linecap="round"
-				/>
-				<circle cx="8" cy="11.15" r="0.7" fill="currentColor" />
-			</svg>
+			<Icon name="help" />
 		</IconButton>
 		<SettingsModal buttonSize="sm" />
 		<span class="font-mono text-caption tabular-nums text-fg-muted">

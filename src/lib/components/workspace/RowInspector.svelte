@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { IconButton, StatusBar } from '$lib/components/core'
+	import { Icon, IconButton, StatusBar } from '$lib/components/core'
 	import type { ColumnDef } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
 
@@ -242,9 +242,7 @@
 			variant="ghost"
 			onclick={onclose}
 		>
-			<span class="text-title leading-none font-medium" aria-hidden="true"
-				>×</span
-			>
+			<Icon name="close" />
 		</IconButton>
 	</header>
 

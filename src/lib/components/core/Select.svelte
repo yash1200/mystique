@@ -5,6 +5,7 @@
    */
   import { popover } from "$lib/utils/motion";
   import { cn } from "$lib/utils/cn";
+  import Icon from "./Icon.svelte";
 
   export type SelectOption = {
     value: string;
@@ -254,24 +255,14 @@
     >
       {displayLabel}
     </span>
-    <svg
+    <Icon
+      name="chevron-down"
       class={cn(
-        "shrink-0 text-fg-muted transition-transform duration-150",
-        inputSize === "sm" ? "size-3" : "size-3.5",
+        "text-fg-muted transition-transform duration-150",
+        inputSize === "sm" ? "size-3.5" : "size-4",
         open && "rotate-180",
       )}
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M4 6l4 4 4-4"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
+    />
   </button>
 
   {#if open}
@@ -322,20 +313,7 @@
           >
             <span class="min-w-0 flex-1 truncate">{opt.label}</span>
             {#if isSelected}
-              <svg
-                class="ml-2 size-3.5 shrink-0 text-accent"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M3.5 8.5l3 3 6-6.5"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <Icon name="check" class="ml-2 size-3.5 text-accent" />
             {/if}
           </button>
         </li>

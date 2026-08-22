@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Input } from '$lib/components/core'
+	import { Button, Icon, Input } from '$lib/components/core'
 	import type { ErEdge, ErNode } from '$lib/types/er'
 	import { cn } from '$lib/utils/cn'
 	import { isBrokenEdge } from './erConstants'
@@ -317,7 +317,7 @@
 							aria-label="Delete relationship"
 							onclick={() => ondeleteedge(edge.id)}
 						>
-							×
+							<Icon name="close" class="size-4" />
 						</button>
 					</li>
 				{/each}

@@ -204,7 +204,7 @@ class WorkspaceSessionStore {
 			(t) => t.connectionId === connectionId && t.kind === 'query',
 		).length
 		const id = `${connectionId}::query::${crypto.randomUUID()}`
-		const title = count === 0 ? 'Untitled query' : `Untitled query ${count + 1}`
+		const title = count === 0 ? 'Query' : `Query ${count + 1}`
 		this.openTabs = [
 			...this.openTabs,
 			{

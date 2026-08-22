@@ -2,10 +2,13 @@
 	import {
 		ContextMenu,
 		Draggable,
+		Icon,
 		type ContextMenuItem,
 	} from '$lib/components/core'
-	import type { WorkspaceTab } from '$lib/types/workspace'
+	import type { CatalogObjectKind, WorkspaceTab } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
+	import { iconNameForTab, iconToneForName } from './catalogIcon'
+	import CatalogIcon from './CatalogIcon.svelte'
 	import { tick } from 'svelte'
 	import { flip } from 'svelte/animate'
 
@@ -23,6 +26,8 @@
 		onopenquery?: () => void
 		/** Insert `movedId` before `beforeId`, or at the end when `beforeId` is null. */
 		onreorder?: (movedId: string, beforeId: string | null) => void
+		/** Live catalog kind so table tabs show table / view / collection marks. */
+		objectKindById?: Record<string, CatalogObjectKind>
 	}
 
 	let {
@@ -35,6 +40,7 @@
 		onclosemany,
 		onopenquery,
 		onreorder,
+		objectKindById = {},
 	}: Props = $props()
 
 	const flipMs =
@@ -171,17 +177,12 @@
 	}
 </script>
 
-{#snippet kindMark(kind: WorkspaceTab['kind'])}
-	{#if kind === 'query'}
-		<span class="text-accent">◇</span>
-		{' '}
-	{:else if kind === 'model'}
-		<span class="text-info">⬡</span>
-		{' '}
-	{:else if kind === 'structure'}
-		<span class="text-fg-muted">▣</span>
-		{' '}
-	{/if}
+{#snippet kindMark(tab: WorkspaceTab)}
+	{@const name = iconNameForTab(
+		tab.kind,
+		tab.tableId ? objectKindById[tab.tableId] : null,
+	)}
+	<CatalogIcon {name} class="size-3" tone={iconToneForName(name)} />
 {/snippet}
 
 <Draggable
@@ -257,7 +258,7 @@
 						aria-selected={active}
 						draggable="false"
 						class={cn(
-							'min-w-0 flex-1 truncate border-none bg-transparent px-2.5 text-left text-label font-medium leading-none',
+							'flex min-w-0 flex-1 items-center gap-1 border-none bg-transparent px-2.5 text-left text-label font-medium leading-none',
 							canReorder &&
 								(drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
 						)}
@@ -267,8 +268,8 @@
 							onactivate(tab.id)
 						}}
 					>
-						{@render kindMark(tab.kind)}
-						{tab.title}
+						{@render kindMark(tab)}
+						<span class="min-w-0 truncate">{tab.title}</span>
 					</button>
 					<button
 						type="button"
@@ -290,18 +291,18 @@
 							onclose(tab.id)
 						}}
 					>
-						<!-- Dirty: yellow dot; hover this control to reveal × -->
+						<!-- Dirty: yellow dot; hover this control to reveal close -->
 						{#if dirty}
 							<span
 								class="text-label leading-none group-hover/close:hidden"
 								aria-hidden="true">●</span
 							>
-							<span
-								class="hidden leading-none group-hover/close:inline"
-								aria-hidden="true">×</span
-							>
+							<Icon
+								name="close"
+								class="hidden size-3.5 group-hover/close:block"
+							/>
 						{:else}
-							<span class="leading-none" aria-hidden="true">×</span>
+							<Icon name="close" class="size-3.5" />
 						{/if}
 					</button>
 				</div>
@@ -334,20 +335,20 @@
 					<span class="absolute inset-x-0 top-0 h-0.5 bg-conn"></span>
 				{/if}
 				<div
-					class="min-w-0 flex-1 self-center truncate px-2.5 text-left text-label font-medium leading-none"
+					class="flex min-w-0 flex-1 items-center gap-1 self-center px-2.5 text-left text-label font-medium leading-none"
 				>
-					{@render kindMark(tab.kind)}
-					{tab.title}
+					{@render kindMark(tab)}
+					<span class="min-w-0 truncate">{tab.title}</span>
 				</div>
 				{#if tab.dirty}
 					<span class="mr-1.5 self-center text-label leading-none text-warning"
 						>●</span
 					>
 				{:else}
-					<span
-						class="mr-1.5 self-center text-body-lg leading-none text-fg-muted"
-						>×</span
-					>
+					<Icon
+						name="close"
+						class="mr-1.5 size-3.5 shrink-0 self-center text-fg-muted"
+					/>
 				{/if}
 			</div>
 		{/if}

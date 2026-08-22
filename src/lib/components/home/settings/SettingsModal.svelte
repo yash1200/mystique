@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { IconButton, Modal } from '$lib/components/core'
+	import { Icon, IconButton, Modal } from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 	import AppearanceSettings from './AppearanceSettings.svelte'
 	import McpSettings from './McpSettings.svelte'
@@ -43,15 +43,7 @@
 	aria-expanded={open}
 	aria-haspopup="dialog"
 >
-	<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-		<path
-			d="M6.6 1.85h2.8l.3 1.45c.42.16.81.38 1.16.66l1.48-.38 1.4 2.42-1.18.9c.07.3.11.62.11 1.1 0 .37-.04.69-.11 1.01l1.18.9-1.4 2.42-1.48-.38a4.6 4.6 0 0 1-1.16.66l-.3 1.45H6.6l-.3-1.45a4.6 4.6 0 0 1-1.16-.66l-1.48.38-1.4-2.42 1.18-.9A4.4 4.4 0 0 1 3.33 8c0-.37.04-.69.11-1.01l-1.18-.9 1.4-2.42 1.48.38c.35-.28.74-.5 1.16-.66l.3-1.45Z"
-			stroke="currentColor"
-			stroke-width="1.2"
-			stroke-linejoin="round"
-		/>
-		<circle cx="8" cy="8" r="1.65" stroke="currentColor" stroke-width="1.2" />
-	</svg>
+	<Icon name="settings" />
 </IconButton>
 
 <Modal
@@ -97,19 +89,7 @@
 				size="sm"
 				onclick={close}
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M4 4l8 8M12 4l-8 8"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-					/>
-				</svg>
+				<Icon name="close" />
 			</IconButton>
 		</div>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		ContextMenu,
+		Icon,
 		IconButton,
 		Input,
 		type ContextMenuItem,
@@ -182,14 +183,7 @@
 			active={creating}
 			onclick={onnew}
 		>
-			<svg class="size-5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-				<path
-					d="M8 3.25v9.5M3.25 8h9.5"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linecap="round"
-				/>
-			</svg>
+			<Icon name="plus" class="size-5" />
 		</IconButton>
 	</div>
 
@@ -209,26 +203,7 @@
 				class={refreshing ? 'opacity-45' : ''}
 				onclick={onrefresh}
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M12.7 6.2A4.85 4.85 0 1 0 13.1 9"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linecap="round"
-					/>
-					<path
-						d="M12.15 3.15v3.15h-3.1"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="refresh" class={refreshing ? 'animate-spin' : ''} />
 			</IconButton>
 			<IconButton
 				label="Order connections"
@@ -239,19 +214,7 @@
 				aria-expanded={sortMenu != null}
 				aria-haspopup="menu"
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M3 4.25h10M4.25 8h7.5M5.75 11.75h4.5"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linecap="round"
-					/>
-				</svg>
+				<Icon name="sort" />
 			</IconButton>
 			{#if sortMenu}
 				<ContextMenu
@@ -310,27 +273,7 @@
 				aria-expanded={shortcutsOpen}
 				aria-haspopup="dialog"
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<circle
-						cx="8"
-						cy="8"
-						r="5.75"
-						stroke="currentColor"
-						stroke-width="1.2"
-					/>
-					<path
-						d="M6.35 6.15c0-.95.75-1.65 1.65-1.65.9 0 1.65.7 1.65 1.6 0 .75-.45 1.15-1.05 1.5-.4.25-.6.5-.6 1.05"
-						stroke="currentColor"
-						stroke-width="1.2"
-						stroke-linecap="round"
-					/>
-					<circle cx="8" cy="11.15" r="0.7" fill="currentColor" />
-				</svg>
+				<Icon name="help" />
 			</IconButton>
 			<SettingsModal buttonSize="sm" />
 		</div>

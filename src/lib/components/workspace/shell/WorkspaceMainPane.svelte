@@ -8,6 +8,7 @@
 	import { familyFromCaps, resolveCapabilities } from '$lib/types/engineCaps'
 	import type { ErDiagramState } from '$lib/types/er'
 	import type {
+		CatalogObjectKind,
 		ColumnReference,
 		TableMeta,
 		WorkspaceTab,
@@ -77,6 +78,7 @@
 		/** Seeded preview sort so remounts keep the same column order. */
 		seedSort?: { column: string; dir: 'asc' | 'desc' } | null
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
+		objectKindById?: Record<string, CatalogObjectKind>
 	}
 
 	let {
@@ -116,6 +118,7 @@
 		seedCodeFilter = null,
 		seedSort = null,
 		onopenreference,
+		objectKindById = {},
 	}: Props = $props()
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
@@ -143,6 +146,7 @@
 			onopenquery={() => workspaceSession.openNewQuery(activeId)}
 			onreorder={(movedId, beforeId) =>
 				workspaceSession.reorderTabs(movedId, beforeId)}
+			{objectKindById}
 		/>
 	{/if}
 

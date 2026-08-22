@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, IconButton, Input, StatusBar } from '$lib/components/core'
+	import { Button, Icon, IconButton, Input, StatusBar } from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 
 	interface Props {
@@ -163,26 +163,7 @@
 				aria-busy={refreshing}
 				class={refreshing ? 'opacity-45' : ''}
 			>
-				<svg
-					class={cn('size-3.5', refreshing && 'animate-spin')}
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-					/>
-					<path
-						d="M13.5 2.5v3.2h-3.2"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 			</IconButton>
 		{/if}
 		<IconButton
@@ -192,22 +173,7 @@
 			active={showGrid}
 			onclick={onToggleGrid}
 		>
-			<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-				<rect
-					x="2"
-					y="2"
-					width="12"
-					height="12"
-					rx="1.2"
-					stroke="currentColor"
-					stroke-width="1.3"
-				/>
-				<path
-					d="M2 6.5h12M2 10.5h12M6.5 2v12M10.5 2v12"
-					stroke="currentColor"
-					stroke-width="1.3"
-				/>
-			</svg>
+			<Icon name="grid" />
 		</IconButton>
 		{#if !readOnly}
 			<Button

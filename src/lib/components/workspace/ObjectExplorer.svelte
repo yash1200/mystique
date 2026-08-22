@@ -2,6 +2,7 @@
 	import {
 		Button,
 		ContextMenu,
+		Icon,
 		IconButton,
 		Input,
 		Modal,
@@ -16,6 +17,7 @@
 	} from '$lib/types/engineCaps'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
+	import CatalogIcon from './CatalogIcon.svelte'
 	import CreateDatabaseForm from './explorer/CreateDatabaseForm.svelte'
 	import ObjectTree from './explorer/ObjectTree.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
@@ -552,46 +554,11 @@
 					disabled={modelLoading || !currentDb}
 					onclick={() => onopenmodel?.()}
 				>
-					<svg
+					<CatalogIcon
+						name="model"
+						tone="info"
 						class={cn('size-3.5', modelLoading && 'opacity-50')}
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
-					>
-						<rect
-							x="1.5"
-							y="2"
-							width="5"
-							height="4.5"
-							rx="0.8"
-							stroke="currentColor"
-							stroke-width="1.2"
-						/>
-						<rect
-							x="9.5"
-							y="2"
-							width="5"
-							height="4.5"
-							rx="0.8"
-							stroke="currentColor"
-							stroke-width="1.2"
-						/>
-						<rect
-							x="5.5"
-							y="9.5"
-							width="5"
-							height="4.5"
-							rx="0.8"
-							stroke="currentColor"
-							stroke-width="1.2"
-						/>
-						<path
-							d="M4 6.5v1.5M12 6.5v1.5M8 9.5V8"
-							stroke="currentColor"
-							stroke-width="1.2"
-							stroke-linecap="round"
-						/>
-					</svg>
+					/>
 				</IconButton>
 			{/if}
 			<IconButton
@@ -601,26 +568,7 @@
 				disabled={refreshing}
 				onclick={onrefresh}
 			>
-				<svg
-					class={cn('size-3.5', refreshing && 'animate-spin')}
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-					/>
-					<path
-						d="M13.5 2.5v3.2h-3.2"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 			</IconButton>
 			{#if presentation.canCreateDatabase}
 				<IconButton
@@ -630,19 +578,7 @@
 					disabled={createBusy}
 					onclick={() => openCreate('database')}
 				>
-					<svg
-						class="size-3.5"
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M8 3.25v9.5M3.25 8h9.5"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-						/>
-					</svg>
+					<Icon name="plus" />
 				</IconButton>
 			{/if}
 		</div>
@@ -672,44 +608,7 @@
 				variant="ghost"
 				onclick={toggleAllGroups}
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					{#if allGroupsExpanded}
-						<path
-							d="M4.25 2.75 8 6 11.75 2.75"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-						<path
-							d="M4.25 13.25 8 10 11.75 13.25"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					{:else}
-						<path
-							d="M4.25 5.5 8 2.25 11.75 5.5"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-						<path
-							d="M4.25 10.5 8 13.75 11.75 10.5"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					{/if}
-				</svg>
+				<Icon name={allGroupsExpanded ? 'collapse-all' : 'expand-all'} />
 			</IconButton>
 		{/if}
 		<IconButton
@@ -719,26 +618,7 @@
 			disabled={refreshingTables || !currentDb}
 			onclick={() => onrefreshtables?.()}
 		>
-			<svg
-				class={cn('size-3.5', refreshingTables && 'animate-spin')}
-				viewBox="0 0 16 16"
-				fill="none"
-				aria-hidden="true"
-			>
-				<path
-					d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
-					stroke="currentColor"
-					stroke-width="1.4"
-					stroke-linecap="round"
-				/>
-				<path
-					d="M13.5 2.5v3.2h-3.2"
-					stroke="currentColor"
-					stroke-width="1.4"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
+			<Icon name="refresh" class={cn(refreshingTables && 'animate-spin')} />
 		</IconButton>
 		{#if presentation.canCreateObject}
 			<IconButton
@@ -748,19 +628,7 @@
 				disabled={createBusy || !currentDb || readOnly}
 				onclick={() => openCreate('object')}
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M8 3.25v9.5M3.25 8h9.5"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-					/>
-				</svg>
+				<Icon name="plus" />
 			</IconButton>
 		{/if}
 	</div>

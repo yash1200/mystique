@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, IconButton, Pager, StatusBar } from '$lib/components/core'
+	import { Button, Icon, IconButton, Pager, StatusBar } from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 
 	interface Props {
@@ -91,26 +91,7 @@
 			onclick={onRefresh}
 			class={refreshing ? 'opacity-45' : ''}
 		>
-			<svg
-				class={cn('size-3.5', refreshing && 'animate-spin')}
-				viewBox="0 0 16 16"
-				fill="none"
-				aria-hidden="true"
-			>
-				<path
-					d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
-					stroke="currentColor"
-					stroke-width="1.4"
-					stroke-linecap="round"
-				/>
-				<path
-					d="M13.5 2.5v3.2h-3.2"
-					stroke="currentColor"
-					stroke-width="1.4"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
+			<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 		</IconButton>
 		<IconButton
 			label="Add a new empty row (⌘/Ctrl+N)"
@@ -119,14 +100,7 @@
 			disabled={saving || refreshing}
 			onclick={onAddRow}
 		>
-			<svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-				<path
-					d="M8 3.25v9.5M3.25 8h9.5"
-					stroke="currentColor"
-					stroke-width="1.4"
-					stroke-linecap="round"
-				/>
-			</svg>
+			<Icon name="plus" />
 		</IconButton>
 		{#if hasChanges}
 			<Button

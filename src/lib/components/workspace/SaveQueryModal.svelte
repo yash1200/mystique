@@ -16,7 +16,7 @@
 
 	let {
 		open,
-		initialName = 'Untitled query',
+		initialName = 'Query',
 		busy = false,
 		error = null,
 		title = 'Save query',
@@ -30,7 +30,7 @@
 	let name = $state('')
 
 	$effect(() => {
-		if (open) name = initialName || 'Untitled query'
+		if (open) name = initialName || 'Query'
 	})
 
 	function submit() {

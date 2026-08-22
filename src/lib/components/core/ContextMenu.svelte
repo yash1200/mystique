@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { cn } from '$lib/utils/cn'
+	import Icon from './Icon.svelte'
 	import { popover } from '$lib/utils/motion'
 	import { onMount } from 'svelte'
 
@@ -109,20 +110,7 @@
 			>
 				<span class="min-w-0 flex-1">{item.label}</span>
 				{#if item.checked}
-					<svg
-						class="size-3.5 shrink-0"
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M3.5 8.5l3 3 6-6.5"
-							stroke="currentColor"
-							stroke-width="1.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
+					<Icon name="check" />
 				{:else if item.shortcut}
 					<span
 						class="shrink-0 font-mono text-micro text-fg-muted tabular-nums"

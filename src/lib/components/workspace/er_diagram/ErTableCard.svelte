@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Input, Select } from '$lib/components/core'
+	import { Button, Icon, Input, Select } from '$lib/components/core'
 	import type { DataFamily, ErNode } from '$lib/types/er'
 	import { defaultColumnType } from '$lib/types/er'
 	import { cn } from '$lib/utils/cn'
@@ -175,7 +175,7 @@
 							}}
 							aria-label="Delete column"
 						>
-							×
+							<Icon name="close" class="size-4" />
 						</button>
 					</div>
 				{:else}

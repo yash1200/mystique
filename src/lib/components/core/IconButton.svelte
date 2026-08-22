@@ -28,9 +28,9 @@
   }: Props = $props();
 
   const sizes: Record<ControlSize, string> = {
-    sm: "size-control-sm text-label",
-    md: "size-control text-body",
-    lg: "size-control-lg text-body-lg",
+    sm: "size-control-sm text-label [&_svg]:size-4",
+    md: "size-control text-body [&_svg]:size-5",
+    lg: "size-control-lg text-body-lg [&_svg]:size-5",
   };
 </script>
 

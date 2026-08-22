@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { IconButton, Input, Select } from '$lib/components/core'
+	import { Icon, IconButton, Input, Select } from '$lib/components/core'
 	import {
 		type FilterMode,
 		type FilterOp,
@@ -52,36 +52,7 @@
 			active={filterMode === 'code'}
 			onclick={() => onSetMode(filterMode === 'ui' ? 'code' : 'ui')}
 		>
-			{#if filterMode === 'ui'}
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M2.5 3.5h11l-4 4.5v3.5L6.5 13V8L2.5 3.5z"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linejoin="round"
-					/>
-				</svg>
-			{:else}
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<path
-						d="M5.5 4.25 2.75 8 5.5 11.75M10.5 4.25 13.25 8 10.5 11.75M9 3.5l-2 9"
-						stroke="currentColor"
-						stroke-width="1.3"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
-			{/if}
+			<Icon name={filterMode === 'ui' ? 'funnel' : 'code-slash'} />
 		</IconButton>
 
 		{#if filterMode === 'ui'}
@@ -154,19 +125,7 @@
 						if (filterRules[0]) onRemoveRule(filterRules[0].id)
 					}}
 				>
-					<svg
-						class="size-3.5"
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M4 4l8 8M12 4l-8 8"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-						/>
-					</svg>
+					<Icon name="close" />
 				</IconButton>
 				<IconButton
 					label="Add condition"
@@ -174,19 +133,7 @@
 					variant="ghost"
 					onclick={onAddRule}
 				>
-					<svg
-						class="size-3.5"
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M8 3.25v9.5M3.25 8h9.5"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-						/>
-					</svg>
+					<Icon name="plus" />
 				</IconButton>
 			{:else}
 				<IconButton
@@ -195,19 +142,7 @@
 					variant="ghost"
 					onclick={onClear}
 				>
-					<svg
-						class="size-3.5"
-						viewBox="0 0 16 16"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M4 4l8 8M12 4l-8 8"
-							stroke="currentColor"
-							stroke-width="1.4"
-							stroke-linecap="round"
-						/>
-					</svg>
+					<Icon name="close" />
 				</IconButton>
 				<!-- Placeholder keeps action group width identical to UI mode -->
 				<span class="size-control-sm shrink-0" aria-hidden="true"></span>
@@ -219,26 +154,7 @@
 				active
 				onclick={onApply}
 			>
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
-				>
-					<circle
-						cx="7"
-						cy="7"
-						r="4.25"
-						stroke="currentColor"
-						stroke-width="1.4"
-					/>
-					<path
-						d="M10.25 10.25 13.5 13.5"
-						stroke="currentColor"
-						stroke-width="1.4"
-						stroke-linecap="round"
-					/>
-				</svg>
+				<Icon name="search" />
 			</IconButton>
 		</div>
 	</div>
@@ -293,19 +209,7 @@
 							variant="ghost"
 							onclick={() => onRemoveRule(rule.id)}
 						>
-							<svg
-								class="size-3.5"
-								viewBox="0 0 16 16"
-								fill="none"
-								aria-hidden="true"
-							>
-								<path
-									d="M4 4l8 8M12 4l-8 8"
-									stroke="currentColor"
-									stroke-width="1.4"
-									stroke-linecap="round"
-								/>
-							</svg>
+							<Icon name="close" />
 						</IconButton>
 						<span class="size-control-sm shrink-0" aria-hidden="true"></span>
 						<span class="size-control-sm shrink-0" aria-hidden="true"></span>

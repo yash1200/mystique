@@ -2,6 +2,7 @@
 	import { cn } from '$lib/utils/cn'
 	import { modalPanel, overlayFade } from '$lib/utils/motion'
 	import type { Snippet } from 'svelte'
+	import Icon from './Icon.svelte'
 	import IconButton from './IconButton.svelte'
 
 	type Size = 'sm' | 'md' | 'lg' | 'xl'
@@ -151,9 +152,7 @@
 								size="sm"
 								onclick={onclose}
 							>
-								<span class="text-body-lg leading-none" aria-hidden="true"
-									>×</span
-								>
+								<Icon name="close" />
 							</IconButton>
 						{/if}
 					</header>

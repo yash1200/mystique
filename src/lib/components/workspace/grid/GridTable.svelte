@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { TablePreviewSortDir } from '$lib/api/engines'
 	import type { ColumnReference, TableMeta } from '$lib/types/workspace'
+	import { Icon } from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 	import {
 		selectOptionsForColumn,
@@ -135,45 +136,13 @@
 										onSort(col.name)
 									}}
 								>
-									<svg
-										class="size-3"
-										viewBox="0 0 16 16"
-										fill="none"
-										aria-hidden="true"
-									>
-										{#if active && sortDir === 'asc'}
-											<path
-												d="M4 10.5 8 5.5 12 10.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										{:else if active && sortDir === 'desc'}
-											<path
-												d="M4 5.5 8 10.5 12 5.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										{:else}
-											<path
-												d="M5 6.5 8 3.5 11 6.5"
-												stroke="currentColor"
-												stroke-width="1.4"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-											<path
-												d="M5 9.5 8 12.5 11 9.5"
-												stroke="currentColor"
-												stroke-width="1.4"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										{/if}
-									</svg>
+									<Icon
+										name={active && sortDir === 'asc'
+											? 'sort-asc'
+											: active && sortDir === 'desc'
+												? 'sort-desc'
+												: 'sort-none'}
+									/>
 								</button>
 							{/if}
 						</div>
@@ -325,26 +294,10 @@
 											e.preventDefault()
 										}}
 									>
-										<svg
-											class="pointer-events-none size-3.5 shrink-0"
-											viewBox="0 0 16 16"
-											fill="none"
-											aria-hidden="true"
-										>
-											<path
-												d="M6.5 3.5H4.25A1.75 1.75 0 0 0 2.5 5.25v6.5c0 .97.78 1.75 1.75 1.75h6.5c.97 0 1.75-.78 1.75-1.75V9.5"
-												stroke="currentColor"
-												stroke-width="1.25"
-												stroke-linecap="round"
-											/>
-											<path
-												d="M9.5 2.5h4v4M13.5 2.5 8 8"
-												stroke="currentColor"
-												stroke-width="1.25"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										</svg>
+										<Icon
+											name="external"
+											class="pointer-events-none size-3.5"
+										/>
 									</button>
 								{/if}
 							</div>

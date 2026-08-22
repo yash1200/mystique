@@ -54,6 +54,7 @@
 	import { modelTabTitle, resolveCapabilities } from '$lib/types/engineCaps'
 	import type { ErDiagramState } from '$lib/types/er'
 	import type {
+		CatalogObjectKind,
 		ColumnReference,
 		DatabaseMeta,
 		TableMeta,
@@ -351,6 +352,14 @@
 
 	const databases = $derived(activeId ? (catalogs[activeId] ?? []) : [])
 
+	const objectKindById = $derived.by(() => {
+		const map: Record<string, CatalogObjectKind> = {}
+		for (const db of databases) {
+			for (const t of db.tables) map[t.id] = t.kind
+		}
+		return map
+	})
+
 	const currentDatabaseName = $derived(
 		activeId ? (selectedDb[activeId] ?? databases[0]?.name ?? '') : '',
 	)
@@ -535,7 +544,7 @@
 	/** In-app save-name modal (window.prompt is broken in Tauri webviews). */
 	let saveNameModalOpen = $state(false)
 	let saveNameTabId = $state<string | null>(null)
-	let saveNameInitial = $state('Untitled query')
+	let saveNameInitial = $state('Query')
 	let saveNameError = $state<string | null>(null)
 	/** Resolves the pending saveQueryTab() promise after modal confirm/cancel. */
 	let saveNameResolver: ((ok: boolean) => void) | null = null
@@ -545,8 +554,8 @@
 	function needsNamePrompt(title: string): boolean {
 		const name = title?.trim() || ''
 		if (!name) return true
-		if (/^untitled query/i.test(name)) return true
-		if (name === 'Query') return true
+		if (/^untitled query(?:\s+\d+)?$/i.test(name)) return true
+		if (/^query(?:\s+\d+)?$/i.test(name)) return true
 		return false
 	}
 
@@ -654,11 +663,7 @@
 		if (needsNamePrompt(tab.title)) {
 			saveNameTabId = tabId
 			saveNameInitial =
-				tab.title &&
-				!/^untitled query/i.test(tab.title) &&
-				tab.title !== 'Query'
-					? tab.title
-					: 'Untitled query'
+				tab.title && !needsNamePrompt(tab.title) ? tab.title : 'Query'
 			saveNameError = null
 			saveThenClose = !!opts?.thenClose
 			saveNameModalOpen = true
@@ -1988,6 +1993,7 @@
 		seedCodeFilter={tableSeedCodeFilter}
 		seedSort={tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
+		{objectKindById}
 	/>
 
 	<ImportDataModal
