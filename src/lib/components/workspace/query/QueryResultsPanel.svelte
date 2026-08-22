@@ -2,8 +2,8 @@
 	import type { QueryResult } from '$lib/api/engines'
 	import {
 		Badge,
-		Button,
 		ContextMenu,
+		IconButton,
 		Pager,
 		StatusBar,
 		type ContextMenuItem,
@@ -240,17 +240,37 @@
 			/>
 		{/snippet}
 		{#snippet right()}
-			<Button
-				variant="ghost"
+			<IconButton
+				label={exporting ? 'Exporting…' : 'Download or copy results'}
 				size="sm"
+				variant="ghost"
+				active={menu != null}
 				disabled={!canExport || exporting !== null || refreshing}
-				onclick={(e) => toggleMenu(e)}
-				title="Download or copy results"
 				aria-haspopup="menu"
 				aria-expanded={menu != null}
+				onclick={(e) => toggleMenu(e)}
 			>
-				{exporting ? '…' : 'Download'}
-			</Button>
+				<svg
+					class="size-3.5"
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+				>
+					<path
+						d="M8 2.5v7.25M5.25 7.25 8 10l2.75-2.75"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+					<path
+						d="M3.25 12.25h9.5"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+					/>
+				</svg>
+			</IconButton>
 			{#if menu}
 				<ContextMenu
 					x={menu.x}
@@ -261,15 +281,36 @@
 					onclose={() => (menu = null)}
 				/>
 			{/if}
-			<Button
-				variant="ghost"
+			<IconButton
+				label={refreshing ? 'Refreshing…' : 'Re-run query'}
 				size="sm"
+				variant="ghost"
 				disabled={refreshing || runState.status === 'idle'}
+				aria-busy={refreshing}
 				onclick={onrefresh}
-				title="Re-run query"
+				class={refreshing ? 'opacity-45' : ''}
 			>
-				{refreshing ? 'Refreshing…' : 'Refresh'}
-			</Button>
+				<svg
+					class={cn('size-3.5', refreshing && 'animate-spin')}
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+				>
+					<path
+						d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+					/>
+					<path
+						d="M13.5 2.5v3.2h-3.2"
+						stroke="currentColor"
+						stroke-width="1.4"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</IconButton>
 		{/snippet}
 	</StatusBar>
 </div>

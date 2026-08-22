@@ -66,6 +66,17 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		],
 	},
 	{
+		id: 'home',
+		title: 'Home',
+		items: [
+			{
+				id: 'back-to-new',
+				label: 'Back to new connection',
+				keys: ['esc'],
+			},
+		],
+	},
+	{
 		id: 'workspace',
 		title: 'Workspace',
 		items: [

@@ -3,7 +3,12 @@
  */
 export type ThemePref = 'light' | 'dark' | 'system'
 export type DensityPref = 'compact' | 'comfortable'
-export type ConnectionListSort = 'name' | 'created' | 'engine' | 'environment'
+export type ConnectionListSort =
+	| 'name'
+	| 'created'
+	| 'recent'
+	| 'engine'
+	| 'environment'
 
 const THEME_KEY = 'mystique-theme'
 const DENSITY_KEY = 'mystique-density'
@@ -55,6 +60,7 @@ function readSort(): ConnectionListSort {
 	if (
 		raw === 'name' ||
 		raw === 'created' ||
+		raw === 'recent' ||
 		raw === 'engine' ||
 		raw === 'environment'
 	) {

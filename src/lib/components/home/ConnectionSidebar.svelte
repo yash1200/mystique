@@ -5,11 +5,11 @@
 		Input,
 		type ContextMenuItem,
 	} from '$lib/components/core'
-	import type { ConnectionProfile } from '$lib/types/connection'
 	import {
 		appPrefs,
 		type ConnectionListSort,
 	} from '$lib/stores/app-prefs.svelte'
+	import type { ConnectionProfile } from '$lib/types/connection'
 	import BrandMark from './BrandMark.svelte'
 	import ConnectionListItem from './ConnectionListItem.svelte'
 	import KeyboardShortcutsModal from './KeyboardShortcutsModal.svelte'
@@ -42,6 +42,7 @@
 	const SORT_OPTIONS: { id: ConnectionListSort; label: string }[] = [
 		{ id: 'name', label: 'Name' },
 		{ id: 'created', label: 'Created' },
+		{ id: 'recent', label: 'Recently used' },
 		{ id: 'engine', label: 'Connection type' },
 		{ id: 'environment', label: 'Environment' },
 	]
@@ -77,6 +78,10 @@
 			const ta = Date.parse(a.createdAt)
 			const tb = Date.parse(b.createdAt)
 			n = (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0)
+		} else if (sort === 'recent') {
+			const ta = a.lastConnectedAt ? Date.parse(a.lastConnectedAt) : NaN
+			const tb = b.lastConnectedAt ? Date.parse(b.lastConnectedAt) : NaN
+			n = (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0)
 		} else if (sort === 'engine') {
 			n = String(a.engine).localeCompare(String(b.engine), undefined, {
 				sensitivity: 'base',
@@ -111,6 +116,7 @@
 		if (
 			id === 'name' ||
 			id === 'created' ||
+			id === 'recent' ||
 			id === 'engine' ||
 			id === 'environment'
 		) {

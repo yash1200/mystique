@@ -12,6 +12,7 @@
 	import ConnectionDetail from '$lib/components/home/ConnectionDetail.svelte'
 	import ConnectionSidebar from '$lib/components/home/ConnectionSidebar.svelte'
 	import NewConnectionPanel from '$lib/components/home/NewConnectionPanel.svelte'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type {
 		ConnectionFormDraft,
@@ -23,7 +24,6 @@
 		pluginConfigFromDraft,
 		saveInputFromDraft,
 	} from '$lib/types/connection'
-	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { setAppTitle } from '$lib/utils/appTitle'
 	import { onMount } from 'svelte'
 
@@ -111,6 +111,21 @@
 	}
 
 	function startCreate() {
+		enterCreateMode()
+	}
+
+	function overlayBlocksEscape(): boolean {
+		return !!document.querySelector('[role="dialog"], [role="menu"]')
+	}
+
+	/** Esc on a selected connection returns to the new-connection landing. */
+	function onHomeKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Escape' || e.repeat || e.isComposing) return
+		if (e.defaultPrevented) return
+		if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+		if (creating || editing || !selected) return
+		if (pendingDelete || overlayBlocksEscape()) return
+		e.preventDefault()
 		enterCreateMode()
 	}
 
@@ -426,6 +441,8 @@
 		})()
 	})
 </script>
+
+<svelte:window onkeydown={onHomeKeydown} />
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
 	<ConnectionSidebar
