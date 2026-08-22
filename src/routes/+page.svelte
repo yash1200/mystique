@@ -11,6 +11,7 @@
 	import { Button, EmptyState, Modal, Toast } from '$lib/components/core'
 	import ConnectionDetail from '$lib/components/home/ConnectionDetail.svelte'
 	import ConnectionSidebar from '$lib/components/home/ConnectionSidebar.svelte'
+	import HomeIllustration from '$lib/components/home/HomeIllustration.svelte'
 	import NewConnectionPanel from '$lib/components/home/NewConnectionPanel.svelte'
 	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
@@ -457,51 +458,56 @@
 		refreshing={listRefreshing}
 	/>
 
-	<main class="h-full min-w-0 flex-1 overflow-auto bg-app-wash">
-		{#if loading}
-			<div class="flex h-full items-center justify-center p-8">
-				<EmptyState title="Loading connections…" />
-			</div>
-		{:else if loadError}
-			<div class="flex h-full items-center justify-center p-8">
-				<EmptyState
-					title="Could not load connections"
-					description={loadError}
-				/>
-			</div>
-		{:else if editing && selected}
-			<NewConnectionPanel
-				initial={selected}
-				{saving}
-				{testing}
-				{testResult}
-				oncancel={cancelForm}
-				onsave={saveConnection}
-				ontest={handleTestConnection}
-			/>
-		{:else if selected}
-			<ConnectionDetail
-				connection={selected}
-				{testing}
-				onconnect={connectSelected}
-				ontest={async () => {
-					await handleTestConnection(draftFromProfile(selected))
-				}}
-				onduplicate={duplicateSelected}
-				ondelete={requestDeleteSelected}
-				onedit={startEdit}
-			/>
-		{:else}
-			{#key createFormKey}
+	<main class="relative h-full min-w-0 flex-1 overflow-hidden bg-app-wash">
+		<div class="relative z-10 h-full overflow-auto">
+			{#if loading}
+				<div class="flex h-full items-center justify-center p-8">
+					<EmptyState title="Loading connections…" />
+				</div>
+			{:else if loadError}
+				<div class="flex h-full items-center justify-center p-8">
+					<EmptyState
+						title="Could not load connections"
+						description={loadError}
+					/>
+				</div>
+			{:else if editing && selected}
 				<NewConnectionPanel
-					initial={null}
+					initial={selected}
 					{saving}
 					{testing}
 					{testResult}
+					oncancel={cancelForm}
 					onsave={saveConnection}
 					ontest={handleTestConnection}
 				/>
-			{/key}
+			{:else if selected}
+				<ConnectionDetail
+					connection={selected}
+					{testing}
+					onconnect={connectSelected}
+					ontest={async () => {
+						await handleTestConnection(draftFromProfile(selected))
+					}}
+					onduplicate={duplicateSelected}
+					ondelete={requestDeleteSelected}
+					onedit={startEdit}
+				/>
+			{:else}
+				{#key createFormKey}
+					<NewConnectionPanel
+						initial={null}
+						{saving}
+						{testing}
+						{testResult}
+						onsave={saveConnection}
+						ontest={handleTestConnection}
+					/>
+				{/key}
+			{/if}
+		</div>
+		{#if !loading && !loadError}
+			<HomeIllustration />
 		{/if}
 	</main>
 

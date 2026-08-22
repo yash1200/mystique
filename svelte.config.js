@@ -14,6 +14,7 @@ const config = {
     }),
     alias: {
       $icons: "src/assets/icons",
+      $illustrations: "src/assets/illustrations",
     },
   },
 };
