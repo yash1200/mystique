@@ -2,7 +2,7 @@
 
 > **Status:** Canonical product UX (follow before implementing UI)  
 > **Code design language (Tailwind tokens):** [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md)  
-> **Companion:** [`ARCHITECTURE_AND_FEATURES.md`](./ARCHITECTURE_AND_FEATURES.md)  
+> **Components:** [`COMPONENT_STRUCTURE.md`](./COMPONENT_STRUCTURE.md)  
 > **Date:** 2026-08-09
 
 These rules define how MystiqueDB looks and behaves. Every screen, component, and interaction should pass this checklist. When in doubt: **clarity under density, calm chrome, loud data.**
@@ -666,7 +666,8 @@ applyStoredAppearance(); // +layout onMount
 
 ## 15. Related docs
 
-- Architecture & features: [`ARCHITECTURE_AND_FEATURES.md`](./ARCHITECTURE_AND_FEATURES.md)  
+- Code tokens: [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md)
+- Query-tab chat (not built yet): [`QUERY_TAB_CHAT_AGENT.md`](./QUERY_TAB_CHAT_AGENT.md)
 - When implementing screens, treat this document as the **source of truth for look and interaction**; update it when deliberate design changes ship.
 
 ---

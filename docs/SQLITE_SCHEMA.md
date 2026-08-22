@@ -3,8 +3,8 @@
 > **Status:** Canonical app-metadata schema  
 > **Migration SQL:** [`crates/mystique-core/migrations/001_init.sql`](../crates/mystique-core/migrations/001_init.sql)  
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md)  
-> **Related:** [`PRD.md`](./PRD.md) · [`FEATURES.md`](./FEATURES.md) · [`ARCHITECTURE_AND_FEATURES.md`](./ARCHITECTURE_AND_FEATURES.md)  
-> **Last updated:** 2026-07-25
+> **Upcoming:** [`QUERY_TAB_CHAT_AGENT.md`](./QUERY_TAB_CHAT_AGENT.md) (`004_agent_chat`)  
+> **Last updated:** 2026-08-22
 
 This document describes the **local SQLite database** used by the MystiqueDB desktop app to persist connection profiles, saved queries, history, and settings.
 
@@ -20,7 +20,7 @@ It is **not** the user’s remote database (Postgres, Mongo, Redis, …). Those 
 | Safe secrets | OS keychain via `secret_ref`; never store passwords in SQLite |
 | Saved queries per connection | `query_groups` + `saved_queries` with FK cascade |
 | Query history | Append-only `query_history` with retention in app code |
-| Simple migrations | Versioned `schema_migrations` + SQL files under `src-tauri/migrations/` |
+| Simple migrations | Versioned `schema_migrations` + SQL files under `crates/mystique-core/migrations/` |
 | Avoid Beekeeper-style column sprawl | One options bag (`plugin_config`), not N× `fooOptions` columns |
 
 ---
@@ -600,7 +600,7 @@ Do **not** put `password` on list/get DTOs.
 
 When extending:
 
-1. Add a new file `002_….sql` under `src-tauri/migrations/`.
+1. Add a new file `00N_….sql` under `crates/mystique-core/migrations/`.
 2. Insert into `schema_migrations`.
 3. Prefer JSON columns over many typed columns for plugin-specific data.
 

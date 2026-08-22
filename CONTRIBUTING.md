@@ -7,14 +7,13 @@ Thanks for helping improve MystiqueDB. This guide is intentionally general so it
 - Report bugs and propose features via **GitLab Issues**
 - Improve documentation under `docs/`
 - Submit code changes via **Merge Requests (MRs)**
-- Keep the kanban board in sync (`docs/kanban.html`, `docs/KANBAN.md`) when work moves
 
 ## Before you start
 
 1. Read the [README](./README.md) for setup (Node, Rust, Tauri deps).
-2. Skim product intent in [`docs/PRD.md`](./docs/PRD.md) and architecture in [`docs/ARCHITECTURE_AND_FEATURES.md`](./docs/ARCHITECTURE_AND_FEATURES.md).
-3. Check open issues and the kanban board so you do not duplicate work.
-4. For UI work, follow [`docs/DESIGN_LANGUAGE.md`](./docs/DESIGN_LANGUAGE.md).
+2. Check open issues so you do not duplicate work.
+3. For UI work, follow [`docs/DESIGN_LANGUAGE.md`](./docs/DESIGN_LANGUAGE.md).
+4. The remaining unbuilt feature spec is [`docs/QUERY_TAB_CHAT_AGENT.md`](./docs/QUERY_TAB_CHAT_AGENT.md).
 
 ## Development setup
 
@@ -27,7 +26,7 @@ yarn tauri dev        # full desktop app (macOS / Linux / Windows)
 yarn dev              # frontend only (no Tauri APIs)
 ```
 
-Windows: use PowerShell with Node, Yarn, and the MSVC Rust toolchain. You do not need WSL/bash for `yarn tauri` — scripts use `scripts/tauri.mjs`. Details and troubleshooting: [README](./README.md) and [docs/wiki/Development.md](./docs/wiki/Development.md). Related: GitLab [#69](https://nova.teachx.ai/trace-analysis/mystique-db/-/issues/69).
+Windows: use PowerShell with Node, Yarn, and the MSVC Rust toolchain. You do not need WSL/bash for `yarn tauri` — scripts use `scripts/tauri.mjs`. Details: [README](./README.md). Related: GitLab [#69](https://nova.teachx.ai/trace-analysis/mystique-db/-/issues/69).
 
 Typecheck:
 
@@ -43,8 +42,7 @@ Rust workspace builds when you run Tauri; you can also build crates from the rep
 
 - One issue per problem or feature when practical.
 - Use clear titles (e.g. `be: PostgresQueryPolicy rejects multi-statement`).
-- Labels (when available): `FE`, `BE`, `DOCS`, `P0`–`P2`, and kanban columns if your project uses them.
-- Link related tickets (`T-BE-003`, etc.) from the kanban when relevant.
+- Labels (when available): `FE`, `BE`, `DOCS`, `P0`–`P2`.
 
 ### Branches
 
@@ -89,7 +87,7 @@ chore/<short-name>
 | Query safety | Per-engine policy; default read; write opt-in; DELETE blocked for now |
 | Frontend | Compose `$lib/components/core/*`; design tokens only (no ad-hoc hex) |
 | Secrets | Never commit credentials, tokens, or real connection passwords |
-| Docs | Update PRD/architecture/kanban when product behavior changes |
+| Docs | Update living contracts (`DESIGN_LANGUAGE`, `SQLITE_SCHEMA`, `BACKEND_STRUCTURE`) when behavior changes; keep [`QUERY_TAB_CHAT_AGENT.md`](./docs/QUERY_TAB_CHAT_AGENT.md) in sync while that feature is built |
 
 ## Code of conduct (short)
 

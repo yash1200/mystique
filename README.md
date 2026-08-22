@@ -9,7 +9,6 @@ Desktop app built with [Tauri 2](https://tauri.app/), [SvelteKit](https://kit.sv
 | **License** | [MIT](./LICENSE) |
 | **Changelog** | [CHANGELOG.md](./CHANGELOG.md) |
 | **Contributing** | [CONTRIBUTING.md](./CONTRIBUTING.md) |
-| **Wiki** | [docs/wiki/](./docs/wiki/) (GitLab Wiki–friendly pages) |
 
 ## Recommended IDE setup
 
@@ -182,7 +181,7 @@ mystique-db/
 │       ├── mystique-plugin-postgres/  # deadpool pool
 │       ├── mystique-plugin-sqlite/    # r2d2 pool
 │       └── mystique-plugin-mongodb/   # driver client pool
-├── docs/                  # PRD, architecture, design language, kanban.html
+├── docs/                  # Design language, schema, remaining feature specs
 ├── src/                   # SvelteKit frontend
 ├── src-tauri/             # Tauri shell + IPC API
 ├── package.json
@@ -191,9 +190,9 @@ mystique-db/
 
 **Engine pool API (Tauri invoke):** `list_engines`, `test_engine_connection`, `open_engine_session`, `close_engine_session`, `ping_engine_session`, `engine_session_pool_status`, `list_engine_sessions`. See `docs/BACKEND_STRUCTURE.md`.
 
-Product docs: [`docs/PRD.md`](docs/PRD.md) · kanban: **[`docs/kanban.html`](docs/kanban.html)** · wiki: [`docs/wiki/Home.md`](docs/wiki/Home.md)
+Living docs: [`docs/DESIGN_LANGUAGE.md`](docs/DESIGN_LANGUAGE.md) · [`docs/BACKEND_STRUCTURE.md`](docs/BACKEND_STRUCTURE.md) · [`docs/SQLITE_SCHEMA.md`](docs/SQLITE_SCHEMA.md). Remaining feature spec: [`docs/QUERY_TAB_CHAT_AGENT.md`](docs/QUERY_TAB_CHAT_AGENT.md).
 
-**V1 engines (product):** PostgreSQL · MongoDB · MySQL — each with its own **query policy** (read default, write opt-in, DELETE off). Home UI may still list SQLite until the MySQL plugin lands; see `docs/PRD.md` and `docs/kanban.html`.
+**Engines:** PostgreSQL · MongoDB · MySQL · SQLite — each with its own **query policy** (read default, write opt-in, DELETE off).
 
 ## Useful scripts
 

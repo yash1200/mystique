@@ -7,7 +7,7 @@
 | **Date** | 2026-08-16 |
 | **Repo** | `/Users/yashjohri/Projects/mystique-db` |
 | **Audience** | Senior engineers implementing PRs 1–8 |
-| **Related** | PRD §7.7 (A-1–A-10), `docs/SQLITE_SCHEMA.md`, `docs/BACKEND_STRUCTURE.md` |
+| **Related** | `docs/SQLITE_SCHEMA.md`, `docs/BACKEND_STRUCTURE.md` |
 
 ---
 
@@ -16,6 +16,23 @@
 Query tabs today are a vertical editor/results split (`QueryCanvas`) with no assistant. Users who want NL → SQL/MQL leave Mystique, paste schema into ChatGPT, and paste a query back — losing connection policy, audit, and the DBML already produced by `AgentTools::get_schema_dbml`.
 
 This design adds an **opt-in right-hand chat pane on query tabs**. The in-app agent lives in `mystique-core` (not `mystique-mcp`), streams from a user-chosen LLM (default **xAI `grok-4.5`**), and calls the **same** `mystique_core::AgentTools` surface MCP already uses. Generated SQL/MQL is a **draft** until the user hits Run in the editor (`workspaceSession.setQueryDraft`). Threads, messages, LLM runs, and tool-call audits persist in local SQLite (`004_agent_chat.sql`). API keys go in the OS keychain — never `app_settings` and never the renderer.
+
+### Product requirements (A-1–A-10)
+
+MCP (A-1, A-3) is already shipped. This spec implements the **embedded** agent.
+
+| ID | Requirement | Status |
+| --- | --- | --- |
+| A-1 | MCP server mirrors the product API (not a parallel business layer) | Shipped (`mystique-mcp`) |
+| A-2 | Embedded agent uses the same **tool surface** (`tool_specs` / `call_tool`) for all agent actions — not HTTP to MCP | This spec (D1) |
+| A-3 | External MCP clients can connect; same *available* tools as the product | Shipped |
+| A-4 | Agent/MCP **opt-in**; master off turns both off; no silent network | This spec (D3) |
+| A-5 | Tool calls **audited**; secrets never returned or dumped into model context | This spec |
+| A-6 | Connection read-only / query policy apply identically to agent-driven actions | This spec |
+| A-7 | LLM providers: local OpenAI-compatible + user cloud keys (OS keychain) | This spec (D5, D6) |
+| A-8 | NL → query is **draft only** until the user runs it | This spec (D7) |
+| A-9 | Result size capped / paginated on agent and MCP reads | This spec + existing `execute_readonly_query` |
+| A-10 | *(Future)* MCP identity distinct from the desktop user | Out of scope |
 
 ---
 
@@ -43,7 +60,7 @@ This design adds an **opt-in right-hand chat pane on query tabs**. The in-app ag
 2. External chat ignores connection read-only / query policy.
 3. No audit of what an assistant read or ran.
 4. MCP exists for Cursor-class clients; desktop users who stay in the query tab get nothing.
-5. Putting API keys in SQLite (or repeating the plaintext `secret_ref` mistake) would violate PRD security and `SQLITE_SCHEMA.md` §3.2.
+5. Putting API keys in SQLite (or repeating the plaintext `secret_ref` mistake) would violate `SQLITE_SCHEMA.md` §3.2.
 
 ---
 
@@ -79,7 +96,7 @@ This design adds an **opt-in right-hand chat pane on query tabs**. The in-app ag
 
 | # | Decision | Rationale |
 | --- | --- | --- |
-| D1 | Chat orchestration lives in **`mystique-core`** (`application/agent_chat.rs` + `application/llm/`), **not** `mystique-mcp`. **A-2** is interpreted as the same tool *surface* (`tool_specs` / `call_tool`), not HTTP to `mystique-mcp`. Amend PRD A-2 wording when convenient. | Codebase rule + `mystique-mcp/src/lib.rs`: in-app agents call `AgentTools` directly. MCP stays an HTTP adapter for external clients. |
+| D1 | Chat orchestration lives in **`mystique-core`** (`application/agent_chat.rs` + `application/llm/`), **not** `mystique-mcp`. **A-2** is the same tool *surface* (`tool_specs` / `call_tool`), not HTTP to `mystique-mcp`. | Codebase rule + `mystique-mcp/src/lib.rs`: in-app agents call `AgentTools` directly. MCP stays an HTTP adapter for external clients. |
 | D2 | Relax BACKEND_STRUCTURE “core must not HTTP” **only** for outbound LLM, and document that exception **in the same PR that adds `reqwest`**. Still no MCP/Axum in core. Extract to `mystique-agent` later if review wants core HTTP-free (Alternative D). | Persistence + `AgentTools` already live in core. A crate split is mechanical (module paths match) and is not required to start. |
 | D3 | **Master `ai.enabled` gates both features.** New installs: unset/`false` (no MCP, no LLM). **Grandfather:** first read of `ai.enabled` when the row is missing **and** `mcp.enabled` is true persists `ai.enabled=true` so already-shipped MCP keeps running after PR 1. Sub-toggles: `agent.enabled` (in-app LLM) and existing `mcp.enabled`. Turning `ai.enabled` off stops MCP and refuses in-app runs. `set_mcp_enabled(true)` while master is off **must not** start the server and **must not** write `mcp.enabled` — return `"AI features are off"` so the FE can `openAppSettings('ai')`. | Satisfies P0 A-4 without silently disabling existing MCP users. Kill switch / rollback is `ai.enabled`, not `agent.enabled`. |
 | D4 | Threads are **per-connection**. `workspace_tab_id` is a nullable hint, **no FK**. `database` is stored on the thread and bound into tools. | Many query tabs per connection (`openNewQuery` uses `${connectionId}::query::${uuid}`). Tabs are ephemeral strings replaced via `replace_workspace_tabs`. Threads survive tab close. |
@@ -666,7 +683,7 @@ impl SecretStore {
 - Base URL `<Input>` when `openai_compat` (validated on save).
 - Default model `<Select>` populated from `src/lib/data/agentModels.ts` (PR 1; Rust twin in PR 3) + free-text override.
 - API key `<PasswordInput>` — write-only; placeholder “••••” when `keySource === 'keychain'`. Caption when `keySource === 'env'`: “Using process env (not saved). Save a key to store it in the keychain.” Save calls `set_ai_api_key`. Clear button.
-- Short note: “MCP is a separate localhost server for external clients (Settings → MCP). The in-app agent does not use it. The master switch above turns both off (PRD A-4).”
+- Short note: “MCP is a separate localhost server for external clients (Settings → MCP). The in-app agent does not use it. The master switch above turns both off (A-4).”
 
 **Effective `ai.enabled` (PR 1, first read):**
 
@@ -1244,7 +1261,7 @@ Spans:
 | --- | --- |
 | Time to first token | < 2s cloud p50; < 5s p95 |
 | Full draft (no tool) | < 15s p50 |
-| Schema inject (`get_schema_dbml` cache miss) | < 5s for ≤200 tables (PRD NFR) |
+| Schema inject (`get_schema_dbml` cache miss) | < 5s for ≤200 tables |
 | Tool execute timeout | 30s (existing) |
 | Failed runs / hour | alert only if we add telemetry later |
 
@@ -1364,7 +1381,7 @@ No further questions block PR 1. A-4 is implemented, not left open.
 
 ## References
 
-- PRD §7.7 A-1–A-10 — `docs/PRD.md`
+- Product requirements A-1–A-10 — this document
 - Agent tools — `crates/mystique-core/src/application/agent_tools.rs`
 - DBML builder — `crates/mystique-core/src/application/dbml.rs`
 - MCP adapter (do not call from in-app) — `crates/mystique-mcp/src/lib.rs`, `src/server.rs`
@@ -1378,7 +1395,6 @@ No further questions block PR 1. A-4 is implemented, not left open.
 - Layering — `docs/BACKEND_STRUCTURE.md`
 - History retention pattern — `application/history.rs` `retain_latest` (global N; agent prune is per-connection — do not copy the SQL)
 - Query language helper — `src/lib/utils/queryPolicyFe.ts` `queryLanguageFor`
-- Do **not** treat `docs/FEATURES.md` §1.12 as a source; that file is **not in the repo**. Use PRD §7.7.
 
 ---
 
@@ -1525,10 +1541,9 @@ Incremental, each PR independently reviewable and mergeable. **Start at PR 1 ∥
 **Files:**
 
 - `tracing` spans as specified
-- `docs/ARCHITECTURE_AND_FEATURES.md` — embedded agent path
-- PRD A-2 wording note (same tool surface, not HTTP) if the PRD is being edited
+- This document remains the source for the embedded agent path (A-2 = same tool surface, not HTTP)
 
-**Change:** Docs + spans. Schema/BACKEND_STRUCTURE already touched in PR 2/3. `repair`/`prune` already in PR 2/4.
+**Change:** Tracing spans. Schema/BACKEND_STRUCTURE already touched in PR 2/3. `repair`/`prune` already in PR 2/4.
 
 ---
 
