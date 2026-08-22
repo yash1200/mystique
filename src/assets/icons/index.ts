@@ -1,11 +1,12 @@
 import bookmark from './bookmark.svg?raw'
+import chat from './chat.svg?raw'
 import check from './check.svg?raw'
 import chevronDown from './chevron-down.svg?raw'
 import chevronLeft from './chevron-left.svg?raw'
 import chevronRight from './chevron-right.svg?raw'
 import close from './close.svg?raw'
-import code from './code.svg?raw'
 import codeSlash from './code-slash.svg?raw'
+import code from './code.svg?raw'
 import collapseAll from './collapse-all.svg?raw'
 import collection from './collection.svg?raw'
 import copy from './copy.svg?raw'
@@ -23,10 +24,10 @@ import refresh from './refresh.svg?raw'
 import schema from './schema.svg?raw'
 import search from './search.svg?raw'
 import settings from './settings.svg?raw'
-import sort from './sort.svg?raw'
 import sortAsc from './sort-asc.svg?raw'
 import sortDesc from './sort-desc.svg?raw'
 import sortNone from './sort-none.svg?raw'
+import sort from './sort.svg?raw'
 import structure from './structure.svg?raw'
 import table from './table.svg?raw'
 import view from './view.svg?raw'
@@ -38,6 +39,7 @@ const files = {
 	help,
 	sort,
 	bookmark,
+	chat,
 	history,
 	funnel,
 	code,
@@ -75,5 +77,8 @@ function svgInner(raw: string): string {
 }
 
 export const iconInner: Record<IconName, string> = Object.fromEntries(
-	(Object.keys(files) as IconName[]).map((name) => [name, svgInner(files[name])]),
+	(Object.keys(files) as IconName[]).map((name) => [
+		name,
+		svgInner(files[name]),
+	]),
 ) as Record<IconName, string>

@@ -2,7 +2,9 @@
 //!
 //! IPC / HTTP adapters call these — never repositories or drivers directly.
 
+mod agent_chat;
 mod agent_tools;
+mod ai_secrets;
 mod dbml;
 mod diagrams;
 mod history;
@@ -11,6 +13,8 @@ mod query_library;
 mod settings;
 mod workspace_tabs;
 
+pub use agent_chat::AgentChatService;
+pub use ai_secrets::AiSecretsService;
 pub use agent_tools::{
     tool_specs, AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload,
     AgentToolSpec, AgentTools,
@@ -76,6 +80,14 @@ impl AppServices {
 
     pub fn diagrams(&self) -> DiagramService<'_> {
         DiagramService { db: &self.db }
+    }
+
+    pub fn agent_chats(&self) -> AgentChatService<'_> {
+        AgentChatService { db: &self.db }
+    }
+
+    pub fn ai_secrets(&self) -> AiSecretsService<'_> {
+        AiSecretsService { db: &self.db }
     }
 
     pub fn connections(&self) -> Arc<ConnectionManager> {

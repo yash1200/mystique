@@ -3,7 +3,7 @@
 > **Status:** Canonical app-metadata schema  
 > **Migration SQL:** [`crates/mystique-core/migrations/001_init.sql`](../crates/mystique-core/migrations/001_init.sql)  
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md)  
-> **Upcoming:** [`QUERY_TAB_CHAT_AGENT.md`](./QUERY_TAB_CHAT_AGENT.md) (`004_agent_chat`)  
+> **Agent chats:** migration `004_agent_chats.sql`  
 > **Last updated:** 2026-08-22
 
 This document describes the **local SQLite database** used by the MystiqueDB desktop app to persist connection profiles, saved queries, history, and settings.
@@ -358,7 +358,28 @@ Key–value settings (theme, density, AI provider prefs, …).
 | `value` | TEXT | yes | JSON or plain string |
 | `updated_at` | TEXT | yes | ISO-8601 |
 
-Example keys: `theme`, `density`, `ai.provider`, `ai.baseUrl` (never put API keys here—use keychain).
+Example keys: `theme`, `density`, `ai.enabled`, `ai.ollama.base_url`. API keys live in `ai_secrets` (encrypted), never here.
+
+### 5.8 `ai_secrets`
+
+Encrypted provider API keys for the query-tab agent. Ciphertext only.
+
+| Column | Type | Required | Description |
+| ------ | ---- | -------- | ----------- |
+| `provider` | TEXT PK | yes | `openai`, `anthropic`, `google`, `deepseek`, `openrouter` |
+| `ciphertext` | TEXT | yes | `v1:` + base64(nonce \|\| AES-256-GCM blob) |
+| `updated_at` | TEXT | yes | ISO-8601 UTC |
+
+Never returned by `list_settings`. Decrypt only in `mystique-agent`.
+
+### 5.9 `agent_chats` / `agent_messages`
+
+Query-tab agent threads, one connection, many chats. See `004_agent_chats.sql`.
+
+| Table | Role |
+| ----- | ---- |
+| `agent_chats` | Thread id, title, provider, model |
+| `agent_messages` | user / assistant / tool rows + optional `draft_body` |
 
 ---
 

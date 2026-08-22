@@ -12,6 +12,7 @@ mod ipc;
 
 use std::sync::Arc;
 
+use mystique_agent::AgentService;
 use mystique_core::{AppDatabase, AppServices};
 use mystique_mcp::McpService;
 use tauri::{
@@ -37,6 +38,7 @@ fn apply_app_icon(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 pub struct AppState {
     pub services: Arc<AppServices>,
     pub mcp: McpService,
+    pub agent: AgentService,
 }
 
 const APP_DISPLAY_NAME: &str = "Mystique DB";
@@ -289,12 +291,20 @@ pub fn run() {
             let db = AppDatabase::open(&db_path).map_err(|e| e.to_string())?;
             let services = Arc::new(AppServices::new(db));
             let mcp = McpService::new(Arc::clone(&services));
+            let agent = AgentService::with_legacy_file(
+                Arc::clone(&services),
+                data_dir.join("ai_secrets.json"),
+            );
             let boot = mcp.clone();
             tauri::async_runtime::spawn(async move {
                 boot.restore_if_enabled().await;
             });
 
-            app.manage(AppState { services, mcp });
+            app.manage(AppState {
+                services,
+                mcp,
+                agent,
+            });
             apply_app_icon(app).map_err(|e| format!("app icon: {e}"))?;
             Ok(())
         })
@@ -354,6 +364,19 @@ pub fn run() {
             ipc::mcp::get_mcp_status,
             ipc::mcp::set_mcp_enabled,
             ipc::mcp::rotate_mcp_token,
+            // in-app query-tab agent
+            ipc::agent::get_ai_settings,
+            ipc::agent::set_ai_enabled,
+            ipc::agent::set_ai_ollama_url,
+            ipc::agent::set_ai_api_key,
+            ipc::agent::list_agent_providers,
+            ipc::agent::list_agent_models,
+            ipc::agent::list_agent_chats,
+            ipc::agent::create_agent_chat,
+            ipc::agent::delete_agent_chat,
+            ipc::agent::list_agent_messages,
+            ipc::agent::update_agent_chat,
+            ipc::agent::send_agent_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

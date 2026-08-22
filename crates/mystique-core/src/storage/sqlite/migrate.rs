@@ -10,6 +10,14 @@ const MIGRATIONS: &[(i32, &str)] = &[
         3,
         include_str!("../../../migrations/003_workspace_tabs.sql"),
     ),
+    (
+        4,
+        include_str!("../../../migrations/004_agent_chats.sql"),
+    ),
+    (
+        5,
+        include_str!("../../../migrations/005_ai_secrets.sql"),
+    ),
 ];
 
 /// Apply pending schema migrations in order.
@@ -62,5 +70,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+
+        let secrets: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ai_secrets'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(secrets, 1);
     }
 }

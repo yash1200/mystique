@@ -12,6 +12,7 @@ mystique-db/
 │   ├── mystique-core/              # domain + storage + ConnectionManager + AgentTools
 │   │   └── src/connectors/         # registry (connectors + policies) + session/pool manager
 │   ├── mystique-mcp/               # localhost MCP HTTP server (calls AgentTools)
+│   ├── mystique-agent/             # in-app query agent (Rig + AgentTools)
 │   └── plugins/
 │       ├── mystique-plugin-postgres/   # pool + session + PostgresQueryPolicy
 │       ├── mystique-plugin-mysql/      # pool + session + SqlQueryPolicy("mysql")
@@ -28,7 +29,8 @@ mystique-db/
 | `plugins/*` | connector-api + one driver | tauri, mystique-core |
 | `mystique-core` | connector-api + plugins (registry only) | dialect-specific SQL/MQL parsing, HTTP/MCP |
 | `mystique-mcp` | mystique-core (AgentTools) + axum | tauri, engine drivers |
-| `src-tauri/ipc` | mystique-core, mystique-mcp, tauri | SQL, driver imports |
+| `mystique-agent` | mystique-core (AgentTools, chats) + Rig | tauri, engine drivers, MCP HTTP |
+| `src-tauri/ipc` | mystique-core, mystique-mcp, mystique-agent, tauri | SQL, driver imports |
 
 ## Query policy SPI
 

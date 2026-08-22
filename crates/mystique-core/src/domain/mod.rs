@@ -3,6 +3,8 @@
 //! Future engine plugins should depend on types here (or a thinner
 //! `mystique-connector-api` crate extracted from this module).
 
+mod agent_chat;
+mod ai_secret;
 mod connection;
 mod er_diagram;
 mod history;
@@ -11,6 +13,8 @@ mod settings;
 mod time;
 mod workspace_tabs;
 
+pub use agent_chat::*;
+pub use ai_secret::*;
 pub use connection::*;
 pub use er_diagram::*;
 pub use history::*;

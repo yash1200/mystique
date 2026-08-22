@@ -177,6 +177,7 @@ mystique-db/
 │   ├── mystique-connector-api/   # SPI (traits, DTOs, pool types) — no drivers
 │   ├── mystique-core/            # domain, local app DB, ConnectionManager, AgentTools
 │   ├── mystique-mcp/             # localhost MCP HTTP server
+│   ├── mystique-agent/           # in-app query agent (Rig)
 │   └── plugins/
 │       ├── mystique-plugin-postgres/  # deadpool pool
 │       ├── mystique-plugin-sqlite/    # r2d2 pool
