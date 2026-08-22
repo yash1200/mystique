@@ -5,13 +5,13 @@
 	import { listProfiles } from '$lib/api/profiles'
 	import { isTauri } from '$lib/api/tauri'
 	import WorkspaceShell from '$lib/components/workspace/WorkspaceShell.svelte'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type { ConnectionProfile } from '$lib/types/connection'
 	import {
 		draftFromProfile,
 		pluginConfigForSession,
 	} from '$lib/types/connection'
-	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { onMount } from 'svelte'
 
 	let ready = $state(false)

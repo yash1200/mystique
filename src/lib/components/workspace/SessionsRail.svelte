@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		ContextMenu,
+		Draggable,
 		Icon,
 		IconButton,
 		type ContextMenuItem,
@@ -18,6 +19,7 @@
 	} from '$lib/types/connection'
 	import { cn } from '$lib/utils/cn'
 	import { resetAppToHome } from '$lib/utils/resetApp'
+	import { flip } from 'svelte/animate'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 	import LeaveWorkspaceModal from './LeaveWorkspaceModal.svelte'
 
@@ -33,6 +35,7 @@
 		onnewquery: (id: string) => void
 		onopen: () => void
 		onmode: (mode: SideNavMode) => void
+		onreorder?: (movedId: string, beforeId: string | null) => void
 	}
 
 	let {
@@ -45,7 +48,22 @@
 		onnewquery,
 		onopen,
 		onmode,
+		onreorder,
 	}: Props = $props()
+
+	const flipMs =
+		typeof window !== 'undefined' &&
+		window.matchMedia('(prefers-reduced-motion: reduce)').matches
+			? 0
+			: 140
+
+	const sessionIds = $derived(sessions.map((s) => s.profile.id))
+	const canReorder = $derived(!!onreorder && sessions.length > 1)
+	let listEl = $state<HTMLDivElement | undefined>(undefined)
+
+	function sessionById(id: string): ConnectedSession | undefined {
+		return sessions.find((s) => s.profile.id === id)
+	}
 
 	let menu = $state<{ id: string; x: number; y: number } | null>(null)
 	let infoId = $state<string | null>(null)
@@ -132,48 +150,146 @@
 	</header>
 
 	<div
+		bind:this={listEl}
 		class="flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden px-1.5 py-2"
 	>
-		<div
-			class="flex w-full flex-col items-center gap-1.5"
-			role="listbox"
-			aria-label="Open connections"
+		<Draggable
+			ids={sessionIds}
+			enabled={canReorder}
+			axis="y"
+			scrollRoot={listEl}
+			onpickup={selectConnection}
+			onreorder={(movedId, beforeId) => onreorder?.(movedId, beforeId)}
 		>
-			{#each sessions as s (s.profile.id)}
-				{@const active = mode === 'explorer' && activeId === s.profile.id}
-				{@const hex = colorHex(s.profile.colorId)}
-				{@const prod = s.profile.environment === 'production'}
-				{@const initial = connectionInitial(
-					s.profile.name,
-					String(s.profile.engine),
-				)}
-				{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}${prod ? ' · PROD' : ''}`}
+			{#snippet children(drag)}
 				<div
-					role="option"
-					aria-selected={active}
-					style="--connection-color: {hex}"
+					class={cn(
+						'flex w-full flex-col items-center gap-1.5',
+						drag.draggingId && 'cursor-grabbing select-none',
+					)}
+					role="listbox"
+					aria-label="Open connections"
 				>
+					{#each sessions as s (s.profile.id)}
+						{@const active = mode === 'explorer' && activeId === s.profile.id}
+						{@const hex = colorHex(s.profile.colorId)}
+						{@const prod = s.profile.environment === 'production'}
+						{@const initial = connectionInitial(
+							s.profile.name,
+							String(s.profile.engine),
+						)}
+						{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}${prod ? ' · PROD' : ''}`}
+						{@const dragging = drag.draggingId === s.profile.id}
+						{@const edge = drag.dropEdge(s.profile.id)}
+						<div
+							data-drag-id={s.profile.id}
+							animate:flip={{ duration: flipMs }}
+							class={cn(
+								'relative',
+								canReorder && !drag.draggingId && 'cursor-grab',
+								dragging && 'pointer-events-none cursor-grabbing opacity-35',
+							)}
+							role="presentation"
+							style="--connection-color: {hex}"
+							onpointerdown={(e) => drag.start(e, s.profile.id)}
+						>
+							{#if edge === 'before' || edge === 'after'}
+								<span
+									class={cn(
+										'pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-accent',
+										edge === 'before' ? '-top-1' : '-bottom-1',
+									)}
+									aria-hidden="true"
+								></span>
+							{/if}
+							<button
+								type="button"
+								draggable="false"
+								class={cn(
+									'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
+									'text-title leading-none font-semibold transition-[border-color,box-shadow,background-color] duration-150',
+									'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+									canReorder &&
+										(drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
+									active
+										? 'conn-ring conn-tint border-(--connection-color)'
+										: prod
+											? 'border-warning/45 bg-elevated hover:border-warning/70 hover:bg-warning/10'
+											: 'border-line bg-elevated hover:border-line-strong hover:bg-hover',
+								)}
+								title={canReorder
+									? `${label} · Drag to reorder · Right-click for actions`
+									: `${label} · Right-click for actions`}
+								role="option"
+								aria-selected={active}
+								aria-label={label}
+								onclick={() => {
+									if (drag.ateClick()) return
+									selectConnection(s.profile.id)
+								}}
+								oncontextmenu={(e) => {
+									e.preventDefault()
+									e.stopPropagation()
+									menu = { id: s.profile.id, x: e.clientX, y: e.clientY }
+								}}
+							>
+								<span
+									class="absolute inset-x-0 top-0 h-0.5 bg-conn"
+									aria-hidden="true"
+								></span>
+								<span
+									class="select-none"
+									style="color: var(--connection-color)"
+									aria-hidden="true"
+								>
+									{initial}
+								</span>
+								{#if prod}
+									<span
+										class="absolute top-1 right-1 size-1.5 rounded-full bg-warning ring-1 ring-elevated"
+										title="Production"
+										aria-hidden="true"
+									></span>
+								{/if}
+							</button>
+						</div>
+					{/each}
+
 					<button
 						type="button"
 						class={cn(
-							'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
-							'text-title leading-none font-semibold transition-[border-color,box-shadow,background-color] duration-150',
+							'grid size-9 place-items-center rounded-lg border border-dashed border-line',
+							'text-fg-muted transition-colors',
+							'hover:border-accent hover:bg-accent-muted hover:text-accent',
 							'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
-							active
-								? 'conn-ring conn-tint border-(--connection-color)'
-								: prod
-									? 'border-warning/45 bg-elevated hover:border-warning/70 hover:bg-warning/10'
-									: 'border-line bg-elevated hover:border-line-strong hover:bg-hover',
 						)}
-						title="{label} · Right-click for actions"
-						aria-label={label}
-						aria-haspopup="menu"
-						onclick={() => selectConnection(s.profile.id)}
-						oncontextmenu={(e) => {
-							e.preventDefault()
-							e.stopPropagation()
-							menu = { id: s.profile.id, x: e.clientX, y: e.clientY }
-						}}
+						title="Open another connection"
+						aria-label="Open another connection"
+						onclick={onopen}
+					>
+						<Icon name="plus" class="size-4" />
+					</button>
+				</div>
+			{/snippet}
+
+			{#snippet preview({ id })}
+				{@const s = sessionById(id)}
+				{#if s}
+					{@const hex = colorHex(s.profile.colorId)}
+					{@const prod = s.profile.environment === 'production'}
+					{@const initial = connectionInitial(
+						s.profile.name,
+						String(s.profile.engine),
+					)}
+					<div
+						class={cn(
+							'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
+							'text-title leading-none font-semibold',
+							prod
+								? 'border-warning/45 bg-elevated'
+								: 'border-line bg-elevated',
+						)}
+						style="--connection-color: {hex}"
 					>
 						<span
 							class="absolute inset-x-0 top-0 h-0.5 bg-conn"
@@ -186,32 +302,10 @@
 						>
 							{initial}
 						</span>
-						{#if prod}
-							<span
-								class="absolute top-1 right-1 size-1.5 rounded-full bg-warning ring-1 ring-elevated"
-								title="Production"
-								aria-hidden="true"
-							></span>
-						{/if}
-					</button>
-				</div>
-			{/each}
-
-			<button
-				type="button"
-				class={cn(
-					'grid size-9 place-items-center rounded-lg border border-dashed border-line',
-					'text-fg-muted transition-colors',
-					'hover:border-accent hover:bg-accent-muted hover:text-accent',
-					'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
-				)}
-				title="Open another connection"
-				aria-label="Open another connection"
-				onclick={onopen}
-			>
-				<Icon name="plus" class="size-4" />
-			</button>
-		</div>
+					</div>
+				{/if}
+			{/snippet}
+		</Draggable>
 
 		<div
 			class="mt-1 flex w-full flex-col items-center gap-1.5 border-t border-line pt-2"

@@ -1336,6 +1336,16 @@
 		selectedCell = null
 		if (shouldOpenInspector()) onselectrow(row)
 		focusGridShell()
+		pinScrollToRowGutter()
+	}
+
+	function gridScrollEl(): HTMLElement | null {
+		return gridShellEl?.querySelector<HTMLElement>('[data-grid-scroll]') ?? null
+	}
+
+	function pinScrollToRowGutter() {
+		const scroller = gridScrollEl()
+		if (scroller) scroller.scrollLeft = 0
 	}
 
 	function scrollCellIntoView(row: number, col: string) {
@@ -1349,6 +1359,9 @@
 			`[data-grid-cell][data-row="${row}"][data-col="${esc}"]`,
 		)
 		el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+		// First data column: snap fully left so the # gutter is not left off-screen
+		// after scrolling in from the right (`inline: nearest` only cares about the cell).
+		if (colNames()[0] === col) pinScrollToRowGutter()
 	}
 
 	/** Current page is already fetched from the server; just scroll. */

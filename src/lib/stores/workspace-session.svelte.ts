@@ -523,6 +523,32 @@ class WorkspaceSessionStore {
 		this.schedulePersist(connectionId)
 	}
 
+	/**
+	 * Move an open connection in the rail. `beforeId` is the session it should
+	 * sit in front of; `null` appends to the end.
+	 */
+	reorderSessions(movedId: string, beforeId: string | null) {
+		if (movedId === beforeId) return
+		const from = this.sessions.findIndex((s) => s.profile.id === movedId)
+		if (from < 0) return
+		const dest =
+			beforeId == null
+				? this.sessions.length
+				: this.sessions.findIndex((s) => s.profile.id === beforeId)
+		if (dest < 0 || from === dest || from + 1 === dest) return
+
+		const next = this.sessions.slice()
+		const [item] = next.splice(from, 1)
+		if (!item) return
+		const insertAt =
+			beforeId == null
+				? next.length
+				: next.findIndex((s) => s.profile.id === beforeId)
+		if (insertAt < 0) return
+		next.splice(insertAt, 0, item)
+		this.sessions = next
+	}
+
 	getQueryRunCache(tabId: string): QueryRunCache | undefined {
 		return this.queryRunCache.get(tabId)
 	}

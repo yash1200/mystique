@@ -1922,6 +1922,8 @@
 			pickerOpen = true
 		}}
 		onmode={setSideMode}
+		onreorder={(movedId, beforeId) =>
+			workspaceSession.reorderSessions(movedId, beforeId)}
 	/>
 
 	<WorkspaceSidePane
