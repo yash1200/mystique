@@ -762,7 +762,7 @@
 			<tr style="height: {HEADER_H}px">
 				<th
 					data-result-index-col
-					class="border-b border-line px-2 py-1.5 font-mono text-caption font-semibold text-fg-muted"
+					class="border-b border-r border-line px-2 py-1.5 font-mono text-caption font-semibold text-fg-muted"
 					>#</th
 				>
 				{#each columns as col, ci (col.name + '\0' + ci)}
@@ -800,7 +800,7 @@
 					aria-selected={rowSelected}
 				>
 					<td
-						class="cursor-pointer select-none border-b border-line/60 px-2 align-middle font-mono text-caption text-fg-muted tabular-nums hover:bg-hover"
+						class="cursor-pointer select-none border-b border-line/60 border-r border-r-line px-2 align-middle font-mono text-caption text-fg-muted tabular-nums hover:bg-hover"
 						style="height: {ROW_H}px; max-height: {ROW_H}px; padding-top: 0; padding-bottom: 0"
 						onclick={(e) => {
 							e.stopPropagation()

@@ -96,7 +96,7 @@
 		<thead class="sticky top-0 z-10">
 			<tr class="bg-elevated">
 				<th
-					class="w-10 min-w-10 select-none border-b border-line px-2 py-1.5 text-caption font-semibold text-fg-muted"
+					class="w-10 min-w-10 select-none border-b border-r border-line px-2 py-1.5 text-caption font-semibold text-fg-muted"
 				>
 					#
 				</th>
@@ -176,7 +176,7 @@
 				>
 					<td
 						class={cn(
-							'cursor-pointer select-none px-2 py-1 font-mono text-caption tabular-nums hover:bg-hover',
+							'cursor-pointer select-none border-r border-line px-2 py-1 font-mono text-caption tabular-nums hover:bg-hover',
 							isDeleted
 								? 'font-medium text-danger'
 								: isNew
