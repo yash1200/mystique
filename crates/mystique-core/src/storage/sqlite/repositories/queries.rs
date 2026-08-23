@@ -1,14 +1,14 @@
 use rusqlite::{params, Connection, OptionalExtension};
-use uuid::Uuid;
 
 use crate::domain::now_iso;
 use crate::domain::{SaveQueryInput, SavedQuery};
 use crate::error::{AppError, AppResult};
+use crate::storage::sqlite::repositories::ids::{id_string, parse_id};
 
 fn map_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedQuery> {
     Ok(SavedQuery {
-        id: row.get("id")?,
-        connection_id: row.get("connection_id")?,
+        id: id_string(row, "id")?,
+        connection_id: id_string(row, "connection_id")?,
         name: row.get("name")?,
         body: row.get("body")?,
         language: row.get("language")?,
@@ -19,6 +19,7 @@ fn map_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedQuery> {
 }
 
 fn ensure_connection_exists(conn: &Connection, connection_id: &str) -> AppResult<()> {
+    let connection_id = parse_id(connection_id)?;
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM connections WHERE id = ?1)",
         params![connection_id],
@@ -47,6 +48,7 @@ pub fn list_all_queries(conn: &Connection) -> AppResult<Vec<SavedQuery>> {
 }
 
 pub fn list_queries(conn: &Connection, connection_id: &str) -> AppResult<Vec<SavedQuery>> {
+    let connection_id = parse_id(connection_id)?;
     let mut stmt = conn.prepare(
         "
         SELECT id, connection_id, name, body, language, sort_order, created_at, updated_at
@@ -64,12 +66,13 @@ pub fn list_queries(conn: &Connection, connection_id: &str) -> AppResult<Vec<Sav
 }
 
 pub fn get_query(conn: &Connection, id: &str) -> AppResult<SavedQuery> {
+    let id_n = parse_id(id)?;
     conn.query_row(
         "
         SELECT id, connection_id, name, body, language, sort_order, created_at, updated_at
         FROM saved_queries WHERE id = ?1
         ",
-        params![id],
+        params![id_n],
         map_query,
     )
     .optional()?
@@ -89,7 +92,9 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
+    let connection_id = parse_id(&input.connection_id)?;
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
+        let id_n = parse_id(id)?;
         let n = conn.execute(
             "
             UPDATE saved_queries SET
@@ -106,7 +111,7 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
                 language,
                 input.sort_order,
                 now,
-                id,
+                id_n,
             ],
         )?;
         if n == 0 {
@@ -114,16 +119,14 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
         }
         get_query(conn, id)
     } else {
-        let id = Uuid::new_v4().to_string();
         conn.execute(
             "
             INSERT INTO saved_queries (
-              id, connection_id, name, body, language, sort_order, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+              connection_id, name, body, language, sort_order, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ",
             params![
-                id,
-                input.connection_id,
+                connection_id,
                 input.name.trim(),
                 input.body,
                 language,
@@ -132,12 +135,13 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
                 now,
             ],
         )?;
-        get_query(conn, &id)
+        get_query(conn, &conn.last_insert_rowid().to_string())
     }
 }
 
 pub fn delete_query(conn: &Connection, id: &str) -> AppResult<()> {
-    let n = conn.execute("DELETE FROM saved_queries WHERE id = ?1", params![id])?;
+    let id_n = parse_id(id)?;
+    let n = conn.execute("DELETE FROM saved_queries WHERE id = ?1", params![id_n])?;
     if n == 0 {
         return Err(AppError::NotFound(format!("saved query '{id}'")));
     }
@@ -192,7 +196,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(!saved.id.is_empty());
+        assert!(saved.id.parse::<i64>().is_ok(), "id should be numeric");
         assert_eq!(saved.name, "Active users");
         assert_eq!(saved.body, "SELECT 1");
 

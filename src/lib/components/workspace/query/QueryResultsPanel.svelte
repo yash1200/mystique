@@ -9,6 +9,7 @@
 		StatusBar,
 		type ContextMenuItem,
 	} from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { cn } from '$lib/utils/cn'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
 	import type { RunState } from './types'
@@ -273,6 +274,15 @@
 				class={refreshing ? 'opacity-45' : ''}
 			>
 				<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
+			</IconButton>
+			<IconButton
+				label={appPrefs.agentChatOpen ? 'Close agent' : 'Open agent'}
+				size="sm"
+				variant="ghost"
+				active={appPrefs.agentChatOpen}
+				onclick={() => appPrefs.setAgentChatOpen(!appPrefs.agentChatOpen)}
+			>
+				<Icon name="chat" />
 			</IconButton>
 		{/snippet}
 	</StatusBar>

@@ -1,14 +1,14 @@
 use rusqlite::{params, Connection};
-use uuid::Uuid;
 
 use crate::domain::{now_iso, AppendHistoryInput, QueryHistoryItem};
 use crate::error::AppResult;
+use crate::storage::sqlite::repositories::ids::{id_string, id_string_opt, parse_id, parse_id_opt};
 
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueryHistoryItem> {
     let success_i: i64 = row.get("success")?;
     Ok(QueryHistoryItem {
-        id: row.get("id")?,
-        connection_id: row.get("connection_id")?,
+        id: id_string(row, "id")?,
+        connection_id: id_string_opt(row, "connection_id")?,
         engine: row.get("engine")?,
         body: row.get("body")?,
         language: row.get("language")?,
@@ -21,7 +21,6 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueryHistoryItem> {
 }
 
 pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHistoryItem> {
-    let id = Uuid::new_v4().to_string();
     let ran_at = now_iso();
     let language = input
         .language
@@ -29,17 +28,17 @@ pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHi
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let connection_id_n = parse_id_opt(input.connection_id.as_deref())?;
 
     conn.execute(
         "
         INSERT INTO query_history (
-          id, connection_id, engine, body, language, success,
+          connection_id, engine, body, language, success,
           row_count, duration_ms, error_message, ran_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ",
         params![
-            id,
-            input.connection_id,
+            connection_id_n,
             input.engine,
             input.body,
             language,
@@ -52,7 +51,7 @@ pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHi
     )?;
 
     Ok(QueryHistoryItem {
-        id,
+        id: conn.last_insert_rowid().to_string(),
         connection_id: input.connection_id,
         engine: input.engine,
         body: input.body,
@@ -71,6 +70,7 @@ pub fn list_for_connection(
     limit: i64,
 ) -> AppResult<Vec<QueryHistoryItem>> {
     let limit = limit.clamp(1, 500);
+    let connection_id = parse_id(connection_id)?;
     let mut stmt = conn.prepare(
         "
         SELECT id, connection_id, engine, body, language, success,
@@ -123,6 +123,7 @@ pub fn retain_latest(conn: &Connection, keep: i64) -> AppResult<usize> {
 }
 
 pub fn clear_for_connection(conn: &Connection, connection_id: &str) -> AppResult<usize> {
+    let connection_id = parse_id(connection_id)?;
     let n = conn.execute(
         "DELETE FROM query_history WHERE connection_id = ?1",
         params![connection_id],

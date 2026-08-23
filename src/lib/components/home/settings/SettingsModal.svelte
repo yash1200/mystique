@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { Icon, IconButton, Modal } from '$lib/components/core'
+	import {
+		appSettingsUi,
+		type SettingsSection,
+	} from '$lib/stores/app-settings.svelte'
 	import { cn } from '$lib/utils/cn'
+	import AiSettings from './AiSettings.svelte'
 	import AppearanceSettings from './AppearanceSettings.svelte'
 	import McpSettings from './McpSettings.svelte'
-
-	type Section = 'appearance' | 'mcp'
 
 	interface Props {
 		buttonSize?: 'sm' | 'md'
@@ -12,25 +15,26 @@
 
 	let { buttonSize = 'sm' }: Props = $props()
 
-	let open = $state(false)
-	let section = $state<Section>('appearance')
-
-	const sections: { id: Section; label: string; title: string }[] = [
+	const sections: { id: SettingsSection; label: string; title: string }[] = [
 		{ id: 'appearance', label: 'Appearance', title: 'Appearance' },
+		{ id: 'ai', label: 'AI', title: 'AI agent' },
 		{ id: 'mcp', label: 'MCP', title: 'MCP server' },
 	]
 
 	const current = $derived(
-		sections.find((s) => s.id === section) ?? sections[0]!,
+		sections.find((s) => s.id === appSettingsUi.section) ?? sections[0]!,
 	)
 
 	function toggle() {
-		open = !open
-		if (open) section = 'appearance'
+		if (appSettingsUi.open) {
+			appSettingsUi.close()
+			return
+		}
+		appSettingsUi.show('appearance')
 	}
 
 	function close() {
-		open = false
+		appSettingsUi.close()
 	}
 </script>
 
@@ -38,16 +42,16 @@
 	label="Settings"
 	variant="ghost"
 	size={buttonSize}
-	active={open}
+	active={appSettingsUi.open}
 	onclick={toggle}
-	aria-expanded={open}
+	aria-expanded={appSettingsUi.open}
 	aria-haspopup="dialog"
 >
 	<Icon name="settings" />
 </IconButton>
 
 <Modal
-	{open}
+	open={appSettingsUi.open}
 	onclose={close}
 	layout="bare"
 	size="xl"
@@ -69,11 +73,11 @@
 				type="button"
 				class={cn(
 					'rounded-md border-none px-2 py-1.5 text-left text-label transition-colors',
-					section === item.id
+					appSettingsUi.section === item.id
 						? 'bg-accent-muted text-accent'
 						: 'bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
 				)}
-				onclick={() => (section = item.id)}
+				onclick={() => (appSettingsUi.section = item.id)}
 			>
 				{item.label}
 			</button>
@@ -93,8 +97,10 @@
 			</IconButton>
 		</div>
 
-		{#if section === 'appearance'}
+		{#if appSettingsUi.section === 'appearance'}
 			<AppearanceSettings />
+		{:else if appSettingsUi.section === 'ai'}
+			<AiSettings />
 		{:else}
 			<McpSettings />
 		{/if}

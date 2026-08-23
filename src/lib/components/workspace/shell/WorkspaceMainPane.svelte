@@ -2,6 +2,7 @@
 	import type { ObjectStructure, TablePreviewFilter } from '$lib/api/engines'
 	import type { QueryHistoryItem } from '$lib/api/history'
 	import { EmptyState } from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import type { ConnectedSession } from '$lib/stores/workspace-session.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import { colorHex } from '$lib/types/connection'
@@ -15,6 +16,7 @@
 	} from '$lib/types/workspace'
 	import DataGrid from '../DataGrid.svelte'
 	import ErWorkspace from '../er_diagram/ErWorkspace.svelte'
+	import AgentChatPane from '../query/AgentChatPane.svelte'
 	import QueryCanvas from '../QueryCanvas.svelte'
 	import RowInspector from '../RowInspector.svelte'
 	import type { SideNavMode } from '../SessionsRail.svelte'
@@ -152,25 +154,44 @@
 
 	<div class="flex min-h-0 flex-1">
 		{#if activeSession && activeTab?.kind === 'query'}
-			{#key activeTab.id}
-				<QueryCanvas
-					tabId={activeTab.id}
-					connectionId={activeSession.profile.id}
-					connectionName={activeSession.profile.name}
-					engine={String(activeSession.profile.engine)}
-					capabilities={activeSession.capabilities}
-					profileReadOnly={!!activeSession.profile.readOnly}
-					engineSessionId={activeSession.engineSessionId}
-					database={currentDatabaseName}
-					text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
-					dirty={!!activeTab.dirty}
-					saving={querysaving}
-					ontextchange={(v) => workspaceSession.setQueryDraft(activeTab.id, v)}
-					{onhistory}
-					onsave={onsavequery}
-					{onreconnect}
-				/>
-			{/key}
+			<div class="flex min-h-0 min-w-0 flex-1">
+				<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+					{#key activeTab.id}
+						<QueryCanvas
+							tabId={activeTab.id}
+							connectionId={activeSession.profile.id}
+							connectionName={activeSession.profile.name}
+							engine={String(activeSession.profile.engine)}
+							capabilities={activeSession.capabilities}
+							profileReadOnly={!!activeSession.profile.readOnly}
+							engineSessionId={activeSession.engineSessionId}
+							database={currentDatabaseName}
+							text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
+							dirty={!!activeTab.dirty}
+							saving={querysaving}
+							ontextchange={(v) =>
+								workspaceSession.setQueryDraft(activeTab.id, v)}
+							{onhistory}
+							onsave={onsavequery}
+							{onreconnect}
+						/>
+					{/key}
+				</div>
+				{#if appPrefs.agentChatOpen}
+					<div
+						class="flex h-full shrink-0"
+						style="width: {appPrefs.agentChatPanelWidth}px"
+					>
+						<AgentChatPane
+							tabId={activeTab.id}
+							connectionId={activeSession.profile.id}
+							connectionName={activeSession.profile.name}
+							engine={String(activeSession.profile.engine)}
+							database={currentDatabaseName}
+						/>
+					</div>
+				{/if}
+			</div>
 		{:else if activeSession && activeTab?.kind === 'model'}
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 				{#if modelError}

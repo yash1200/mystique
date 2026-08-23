@@ -199,9 +199,9 @@ impl AgentTools {
         if id.is_empty() {
             return Err(AppError::Invalid("connection_id is required".into()));
         }
-        if self.connections.get_session(id).await.is_some()
-            && self.connections.ping(id).await.is_ok()
-        {
+        // Reuse the desktop session. Do not ping — that is an extra network
+        // round-trip and blocks the agent on a live query tab.
+        if self.connections.get_session(id).await.is_some() {
             return Ok(id.to_string());
         }
         let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;

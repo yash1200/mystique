@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | Approved |
+| **Status** | In progress (v1 shipped: Rig crate, settings keys, query-tab pane) |
 | **Author** | TBD |
 | **Date** | 2026-08-16 |
 | **Repo** | `/Users/yashjohri/Projects/mystique-db` |

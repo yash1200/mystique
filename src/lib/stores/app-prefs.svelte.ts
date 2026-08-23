@@ -17,10 +17,15 @@ const REMEMBER_KEY = 'mystique-remember-last-connection'
 const INSPECT_ON_CLICK_KEY = 'mystique-inspect-on-row-click'
 const CONN_SORT_KEY = 'mystique-connection-sort'
 const EXPLORER_WIDTH_KEY = 'mystique-explorer-panel-width'
+const AGENT_CHAT_OPEN_KEY = 'mystique-agent-chat-open'
+const AGENT_CHAT_WIDTH_KEY = 'mystique-agent-chat-panel-width'
 
 export const EXPLORER_PANEL_WIDTH_DEFAULT = 240
 export const EXPLORER_PANEL_WIDTH_MIN = 180
 export const EXPLORER_PANEL_WIDTH_MAX = 480
+export const AGENT_CHAT_PANEL_WIDTH_DEFAULT = 320
+export const AGENT_CHAT_PANEL_WIDTH_MIN = 280
+export const AGENT_CHAT_PANEL_WIDTH_MAX = 720
 
 function lsGet(key: string): string | null {
 	try {
@@ -33,6 +38,14 @@ function lsGet(key: string): string | null {
 function lsSet(key: string, value: string) {
 	try {
 		localStorage.setItem(key, value)
+	} catch {
+		/* ignore */
+	}
+}
+
+function lsRemove(key: string) {
+	try {
+		localStorage.removeItem(key)
 	} catch {
 		/* ignore */
 	}
@@ -77,10 +90,24 @@ export function clampExplorerPanelWidth(px: number): number {
 	)
 }
 
+export function clampAgentChatPanelWidth(px: number): number {
+	if (!Number.isFinite(px)) return AGENT_CHAT_PANEL_WIDTH_DEFAULT
+	return Math.min(
+		AGENT_CHAT_PANEL_WIDTH_MAX,
+		Math.max(AGENT_CHAT_PANEL_WIDTH_MIN, Math.round(px)),
+	)
+}
+
 function readExplorerWidth(): number {
 	const raw = lsGet(EXPLORER_WIDTH_KEY)
 	if (raw == null || raw === '') return EXPLORER_PANEL_WIDTH_DEFAULT
 	return clampExplorerPanelWidth(Number(raw))
+}
+
+function readAgentChatWidth(): number {
+	const raw = lsGet(AGENT_CHAT_WIDTH_KEY)
+	if (raw == null || raw === '') return AGENT_CHAT_PANEL_WIDTH_DEFAULT
+	return clampAgentChatPanelWidth(Number(raw))
 }
 
 function systemPrefersDark(): boolean {
@@ -96,6 +123,9 @@ class AppPrefsStore {
 	rememberLastConnection = $state(readBool(REMEMBER_KEY, true))
 	connectionListSort = $state<ConnectionListSort>(readSort())
 	explorerPanelWidth = $state(readExplorerWidth())
+	/** Session-only. Always starts closed; never written to localStorage. */
+	agentChatOpen = $state(false)
+	agentChatPanelWidth = $state(readAgentChatWidth())
 	systemDark = $state(systemPrefersDark())
 
 	get resolvedTheme(): 'light' | 'dark' {
@@ -154,6 +184,16 @@ class AppPrefsStore {
 	setExplorerPanelWidth(px: number, persist = true) {
 		this.explorerPanelWidth = clampExplorerPanelWidth(px)
 		if (persist) lsSet(EXPLORER_WIDTH_KEY, String(this.explorerPanelWidth))
+	}
+
+	setAgentChatOpen(on: boolean) {
+		this.agentChatOpen = on
+		lsRemove(AGENT_CHAT_OPEN_KEY)
+	}
+
+	setAgentChatPanelWidth(px: number, persist = true) {
+		this.agentChatPanelWidth = clampAgentChatPanelWidth(px)
+		if (persist) lsSet(AGENT_CHAT_WIDTH_KEY, String(this.agentChatPanelWidth))
 	}
 
 	watchSystemTheme(): () => void {
