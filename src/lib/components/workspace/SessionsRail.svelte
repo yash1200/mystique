@@ -354,7 +354,7 @@
 	>
 		<IconButton
 			label="Keyboard shortcuts"
-			variant="ghost"
+			variant="quiet"
 			size="sm"
 			active={shortcutsOpen}
 			onclick={() => (shortcutsOpen = !shortcutsOpen)}
@@ -363,7 +363,7 @@
 		>
 			<Icon name="help" />
 		</IconButton>
-		<SettingsModal buttonSize="sm" />
+		<SettingsModal buttonSize="sm" buttonVariant="quiet" />
 		<span class="font-mono text-caption tabular-nums text-fg-muted">
 			{sessions.length}
 		</span>

@@ -333,7 +333,8 @@ Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.
 | Need | Primitive | Notes |
 | ---- | --------- | ----- |
 | Button | `Button` | `variant`: primary \| secondary \| ghost \| danger \| danger-ghost |
-| Text field | `Field` + `Input`/`Select`/`Textarea` | Label = `text-label` |
+| Icon button | `IconButton` | `variant`: default \| accent \| ghost \| quiet. `quiet` is borderless toolbar chrome (explorer, clustered actions) |
+| Text field | `Field` + `Input`/`Select`/`Textarea` | Label = `text-label`. `Input inset`: none \| start \| end \| both (icon padding) |
 | Card | `Card` | Title recipe = section header |
 | Status | `StatusDot` + `Pill` | PROD = `tone="warning"` |
 | Engine mark | `EngineBadge` | Uses `text-micro` mono |

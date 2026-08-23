@@ -4,7 +4,6 @@
 		ContextMenu,
 		Icon,
 		IconButton,
-		Input,
 		Modal,
 		Select,
 		StatusBar,
@@ -19,6 +18,7 @@
 	import { cn } from '$lib/utils/cn'
 	import CatalogIcon from './CatalogIcon.svelte'
 	import CreateDatabaseForm from './explorer/CreateDatabaseForm.svelte'
+	import ExplorerSearch from './explorer/ExplorerSearch.svelte'
 	import ObjectTree from './explorer/ObjectTree.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
 
@@ -176,6 +176,8 @@
 	})
 
 	const totalCount = $derived(filtered.length)
+	const catalogCount = $derived(tables.length)
+	const filtering = $derived(query.trim().length > 0)
 
 	const formError = $derived(createLocalError ?? createError)
 
@@ -529,8 +531,9 @@
 <aside
 	class="flex h-full w-full min-w-0 flex-col bg-panel"
 	aria-label="Database objects"
+	aria-busy={refreshing || refreshingTables || undefined}
 >
-	<div class="shrink-0 space-y-1.5 border-b border-line px-2 py-2">
+	<header class="shrink-0 border-b border-line px-2.5 pt-2.5 pb-2">
 		<div class="flex items-center gap-1">
 			<div class="min-w-0 flex-1">
 				<span class="sr-only">{presentation.databaseLabel}</span>
@@ -542,95 +545,134 @@
 					inputSize="sm"
 					disabled={refreshing || dbOptions.length === 0}
 					onchange={onDbChange}
-				/>
-			</div>
-			{#if onopenmodel && showModel}
-				<IconButton
-					label={caps.supportsErDiagram
-						? 'ER diagram for this database'
-						: 'Model for this database'}
-					size="sm"
-					variant="ghost"
-					disabled={modelLoading || !currentDb}
-					onclick={() => onopenmodel?.()}
 				>
-					<CatalogIcon
-						name="model"
-						tone="info"
-						class={cn('size-3.5', modelLoading && 'opacity-50')}
-					/>
+					{#snippet leading()}
+						<CatalogIcon name="database" class="size-3.5" />
+					{/snippet}
+				</Select>
+			</div>
+			<div
+				class="flex shrink-0 items-center"
+				role="group"
+				aria-label="{presentation.databaseLabel} actions"
+			>
+				{#if onopenmodel && showModel}
+					<IconButton
+						label={caps.supportsErDiagram
+							? 'ER diagram for this database'
+							: 'Model for this database'}
+						size="sm"
+						variant="quiet"
+						disabled={modelLoading || !currentDb}
+						onclick={() => onopenmodel?.()}
+					>
+						<CatalogIcon
+							name="model"
+							tone="info"
+							class={cn('size-3.5', modelLoading && 'opacity-50')}
+						/>
+					</IconButton>
+				{/if}
+				<IconButton
+					label="Refresh databases"
+					size="sm"
+					variant="quiet"
+					disabled={refreshing}
+					aria-busy={refreshing}
+					class={refreshing ? 'opacity-45' : ''}
+					onclick={onrefresh}
+				>
+					<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
+				</IconButton>
+				{#if presentation.canCreateDatabase}
+					<IconButton
+						label="Create {presentation.databaseLabel.toLowerCase()}"
+						size="sm"
+						variant="quiet"
+						disabled={createBusy}
+						onclick={() => openCreate('database')}
+					>
+						<Icon name="plus" />
+					</IconButton>
+				{/if}
+			</div>
+		</div>
+
+		<div class="mt-2">
+			<ExplorerSearch
+				bind:value={query}
+				placeholder={presentation.filterPlaceholder}
+				label={presentation.filterPlaceholder}
+			/>
+			{#if filtering}
+				<p class="sr-only" aria-live="polite">
+					{totalCount} of {catalogCount}
+					{presentation.objectLabel}
+				</p>
+			{/if}
+		</div>
+	</header>
+
+	<div class="flex shrink-0 items-center gap-1 px-2.5 py-0.5">
+		<div class="flex min-w-0 flex-1 items-center gap-1.5">
+			<h2
+				class="m-0 min-w-0 truncate text-label font-semibold tracking-wider text-fg-muted uppercase"
+			>
+				{presentation.listTitle}
+			</h2>
+			<span
+				class="shrink-0 rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
+				title={filtering
+					? `${totalCount} of ${catalogCount} ${presentation.objectLabel}`
+					: `${catalogCount} ${presentation.objectLabel}`}
+			>
+				{#if filtering}
+					{totalCount}/{catalogCount}
+				{:else}
+					{catalogCount}
+				{/if}
+			</span>
+		</div>
+		<div
+			class="flex shrink-0 items-center"
+			role="group"
+			aria-label="{presentation.listTitle} actions"
+		>
+			{#if isTree && groups.length > 0}
+				<IconButton
+					label={allGroupsExpanded
+						? `Collapse all ${(presentation.groupLabel || 'schema').toLowerCase()}s`
+						: `Expand all ${(presentation.groupLabel || 'schema').toLowerCase()}s`}
+					size="sm"
+					variant="quiet"
+					onclick={toggleAllGroups}
+				>
+					<Icon name={allGroupsExpanded ? 'collapse-all' : 'expand-all'} />
 				</IconButton>
 			{/if}
 			<IconButton
-				label="Refresh databases"
+				label="Refresh {presentation.listTitle.toLowerCase()}"
 				size="sm"
-				variant="ghost"
-				disabled={refreshing}
-				onclick={onrefresh}
+				variant="quiet"
+				disabled={refreshingTables || !currentDb}
+				aria-busy={refreshingTables}
+				class={refreshingTables ? 'opacity-45' : ''}
+				onclick={() => onrefreshtables?.()}
 			>
-				<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
+				<Icon name="refresh" class={cn(refreshingTables && 'animate-spin')} />
 			</IconButton>
-			{#if presentation.canCreateDatabase}
+			{#if presentation.canCreateObject}
 				<IconButton
-					label="Create {presentation.databaseLabel.toLowerCase()}"
+					label="Create {noun}"
 					size="sm"
-					variant="ghost"
-					disabled={createBusy}
-					onclick={() => openCreate('database')}
+					variant="quiet"
+					disabled={createBusy || !currentDb || readOnly}
+					onclick={() => openCreate('object')}
 				>
 					<Icon name="plus" />
 				</IconButton>
 			{/if}
 		</div>
-
-		<Input
-			type="search"
-			placeholder={presentation.filterPlaceholder}
-			bind:value={query}
-			inputSize="sm"
-		/>
-	</div>
-
-	<div
-		class="flex h-control-sm shrink-0 items-center gap-1 border-b border-line px-2"
-	>
-		<h2
-			class="m-0 min-w-0 flex-1 truncate text-caption font-semibold tracking-wide text-fg-muted uppercase"
-		>
-			{presentation.listTitle}
-		</h2>
-		{#if isTree && groups.length > 0}
-			<IconButton
-				label={allGroupsExpanded
-					? `Collapse all ${(presentation.groupLabel || 'schema').toLowerCase()}s`
-					: `Expand all ${(presentation.groupLabel || 'schema').toLowerCase()}s`}
-				size="sm"
-				variant="ghost"
-				onclick={toggleAllGroups}
-			>
-				<Icon name={allGroupsExpanded ? 'collapse-all' : 'expand-all'} />
-			</IconButton>
-		{/if}
-		<IconButton
-			label="Refresh {presentation.listTitle.toLowerCase()}"
-			size="sm"
-			variant="ghost"
-			disabled={refreshingTables || !currentDb}
-			onclick={() => onrefreshtables?.()}
-		>
-			<Icon name="refresh" class={cn(refreshingTables && 'animate-spin')} />
-		</IconButton>
-		{#if presentation.canCreateObject}
-			<IconButton
-				label="Create {noun}"
-				size="sm"
-				variant="ghost"
-				disabled={createBusy || !currentDb || readOnly}
-				onclick={() => openCreate('object')}
-			>
-				<Icon name="plus" />
-			</IconButton>
-		{/if}
 	</div>
 
 	<ObjectTree
@@ -645,6 +687,7 @@
 		{groups}
 		{flatItems}
 		{isExpanded}
+		busy={refreshingTables}
 		onToggleGroup={toggleGroup}
 		{onopen}
 		onmenu={openTableMenu}

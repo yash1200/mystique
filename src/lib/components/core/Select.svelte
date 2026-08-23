@@ -3,6 +3,7 @@
    * Custom select — same look on every OS (no native <select> menu).
    * Menu is position:fixed so it isn’t clipped by overflow parents.
    */
+  import type { Snippet } from "svelte";
   import { popover } from "$lib/utils/motion";
   import { cn } from "$lib/utils/cn";
   import Icon from "./Icon.svelte";
@@ -23,6 +24,7 @@
     id?: string;
     /** Fires after the bound value changes. */
     onchange?: (value: string) => void;
+    leading?: Snippet;
   }
 
   let {
@@ -34,6 +36,7 @@
     class: className = "",
     id,
     onchange,
+    leading,
   }: Props = $props();
 
   let open = $state(false);
@@ -249,6 +252,11 @@
     onclick={onTriggerClick}
     onkeydown={onTriggerKeydown}
   >
+    {#if leading}
+      <span class="grid shrink-0 place-items-center text-fg-muted" aria-hidden="true">
+        {@render leading()}
+      </span>
+    {/if}
     <span
       class={cn(
         "min-w-0 flex-1 truncate",

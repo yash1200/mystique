@@ -106,11 +106,6 @@
 	})
 </script>
 
-<p class="mt-0 mb-3 text-label text-fg-muted">
-	Keys are encrypted in the local app database. The query-tab agent uses them to
-	draft SQL or MQL against the open connection.
-</p>
-
 {#if !desktop}
 	<p class="m-0 text-caption text-fg-muted">
 		AI settings are available in the desktop app.
@@ -123,11 +118,13 @@
 		onchange={onEnable}
 	/>
 
-	<div class="mt-4 flex flex-col gap-3">
+	<div
+		class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel"
+	>
 		{#each view.providers as p (p.id)}
 			{@const has = view.keys.find((k) => k.provider === p.id)?.hasKey}
-			<div class="rounded-md border border-line bg-panel px-3 py-2.5">
-				<div class="mb-1.5 flex items-baseline justify-between gap-2">
+			<div class="px-3 py-3">
+				<div class="mb-2 flex items-baseline justify-between gap-2">
 					<p class="m-0 text-label font-medium text-fg">{p.label}</p>
 					<span class="text-caption text-fg-muted">
 						{p.needsKey ? (has ? 'Key saved' : 'No key') : 'Local'}

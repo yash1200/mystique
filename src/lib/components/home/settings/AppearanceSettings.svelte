@@ -34,29 +34,31 @@
 	}
 </script>
 
-<div class="flex flex-col gap-3">
+<div class="flex max-w-panel-sm flex-col gap-5">
 	<Field label="Theme">
 		<ThemeToggle
 			preference={appPrefs.theme}
 			onchange={(pref) => appPrefs.setTheme(pref)}
 		/>
 	</Field>
-	<Field label="Density">
-		<Select
-			value={appPrefs.density}
-			options={densityOptions}
-			inputSize="sm"
-			onchange={onDensity}
-		/>
-	</Field>
-	<Field label="UI scale">
-		<Select
-			value={scale}
-			options={scaleOptions}
-			inputSize="sm"
-			onchange={onScale}
-		/>
-	</Field>
+	<div class="grid grid-cols-2 gap-3">
+		<Field label="Density">
+			<Select
+				value={appPrefs.density}
+				options={densityOptions}
+				inputSize="sm"
+				onchange={onDensity}
+			/>
+		</Field>
+		<Field label="UI scale">
+			<Select
+				value={scale}
+				options={scaleOptions}
+				inputSize="sm"
+				onchange={onScale}
+			/>
+		</Field>
+	</div>
 	<Field label="Row details">
 		<Checkbox
 			checked={appPrefs.inspectOnRowClick}

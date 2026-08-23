@@ -3,7 +3,7 @@
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils/cn";
 
-  type Variant = "default" | "accent" | "ghost";
+  type Variant = "default" | "accent" | "ghost" | "quiet";
   /** Matches Input/Button control scale from the design language. */
   type ControlSize = "sm" | "md" | "lg";
 
@@ -40,11 +40,16 @@
     "inline-grid shrink-0 place-items-center rounded-md border p-0 leading-none transition-[color,background-color,border-color,transform] duration-150 [transition-timing-function:var(--ease-out)] enabled:active:scale-[0.97]",
     sizes[size],
     variant === "ghost" && "border-line bg-transparent text-fg",
+    variant === "quiet" && "border-transparent bg-transparent text-fg-secondary",
     variant === "default" && "border-line bg-elevated text-fg",
     variant === "accent" &&
       !active &&
       "border-transparent bg-accent text-fg-inverse hover:bg-accent-hover",
+    variant === "quiet" &&
+      !active &&
+      "hover:bg-hover hover:text-fg",
     variant !== "accent" &&
+      variant !== "quiet" &&
       !active &&
       "hover:border-line-strong hover:bg-hover",
     active && "border-accent bg-accent-muted text-accent",

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Icon } from '$lib/components/core'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
 	import { iconToneForName } from '../catalogIcon'
@@ -16,6 +17,7 @@
 		groups: { key: string; items: TableMeta[] }[]
 		flatItems: TableMeta[]
 		isExpanded: (key: string) => boolean
+		busy?: boolean
 		onToggleGroup: (key: string) => void
 		onopen: (table: TableMeta) => void
 		onmenu: (table: TableMeta, e: MouseEvent) => void
@@ -33,6 +35,7 @@
 		groups,
 		flatItems,
 		isExpanded,
+		busy = false,
 		onToggleGroup,
 		onopen,
 		onmenu,
@@ -52,7 +55,32 @@
 		if (kind === 'table' || kind === 'collection') return 'bg-success/15'
 		return 'bg-input'
 	}
+
+	function matchParts(
+		text: string,
+		q: string,
+	): { text: string; hit: boolean }[] {
+		const needle = q.trim()
+		if (!needle) return [{ text, hit: false }]
+		const i = text.toLowerCase().indexOf(needle.toLowerCase())
+		if (i < 0) return [{ text, hit: false }]
+		return [
+			{ text: text.slice(0, i), hit: false },
+			{ text: text.slice(i, i + needle.length), hit: true },
+			{ text: text.slice(i + needle.length), hit: false },
+		].filter((part) => part.text.length > 0)
+	}
 </script>
+
+{#snippet highlighted(text: string)}
+	{#each matchParts(text, query) as part, i (i)}
+		{#if part.hit}
+			<mark class="rounded-sm bg-accent-muted p-0 text-fg">{part.text}</mark>
+		{:else}
+			{part.text}
+		{/if}
+	{/each}
+{/snippet}
 
 {#snippet objectRow(t: TableMeta)}
 	{@const active = activeTableId === t.id}
@@ -65,7 +93,7 @@
 		<button
 			type="button"
 			class={cn(
-				'flex h-control-sm w-full items-center gap-1.5 rounded-md border-none px-1.5 text-left transition-colors duration-150',
+				'relative flex h-control-sm w-full items-center gap-1.5 rounded-md border-none px-1.5 text-left transition-colors duration-150',
 				'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
 				active ? 'bg-accent-muted' : 'bg-transparent hover:bg-hover',
 			)}
@@ -78,6 +106,13 @@
 				onmenu(t, e)
 			}}
 		>
+			<span
+				class={cn(
+					'absolute inset-y-1 left-0 w-0.5 rounded-full transition-colors duration-150',
+					active ? 'bg-accent' : 'bg-transparent',
+				)}
+				aria-hidden="true"
+			></span>
 			<span
 				class={cn(
 					'grid size-5 shrink-0 place-items-center rounded-sm transition-colors duration-150',
@@ -97,7 +132,7 @@
 					active ? 'font-medium text-fg' : 'text-fg',
 				)}
 			>
-				{t.name}
+				{@render highlighted(t.name)}
 			</span>
 			{#if count}
 				<span
@@ -114,31 +149,65 @@
 {/snippet}
 
 <div
-	class="flex-1 overflow-auto px-1.5 py-1.5"
+	class={cn(
+		'flex-1 overflow-auto px-1.5 py-1 transition-opacity duration-150',
+		busy && 'opacity-60',
+	)}
 	role="tree"
 	aria-label="{objectLabel} in {selectedDatabase}"
+	aria-busy={busy || undefined}
 >
 	{#if !currentDb}
-		<p class="m-2 text-caption leading-relaxed text-fg-muted">
-			No database selected.
-		</p>
+		<div
+			class="flex flex-col items-center justify-center px-3 py-8 text-center"
+		>
+			<span
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				aria-hidden="true"
+			>
+				<CatalogIcon name="database" class="size-4" />
+			</span>
+			<p class="m-0 text-label font-medium text-fg">No database selected</p>
+			<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
+				Choose a database above to browse {objectLabel}.
+			</p>
+		</div>
 	{:else if totalCount === 0 && groups.length === 0}
-		<p class="m-2 text-caption leading-relaxed text-fg-muted">
-			No {objectLabel} match
+		<div
+			class="flex flex-col items-center justify-center px-3 py-8 text-center"
+		>
+			<span
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				aria-hidden="true"
+			>
+				<Icon
+					name={query.trim() ? 'search' : 'table'}
+					class="size-4 text-fg-muted"
+				/>
+			</span>
 			{#if query.trim()}
-				for “{query.trim()}”
+				<p class="m-0 text-label font-medium text-fg">No matches</p>
+				<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
+					Nothing matches “{query.trim()}”.
+				</p>
 			{:else}
-				in <span class="font-mono text-fg-secondary">{currentDb.name}</span>
-			{/if}.
-		</p>
+				<p class="m-0 text-label font-medium text-fg">
+					No {objectLabel}
+				</p>
+				<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
+					<span class="font-mono text-fg-secondary">{currentDb.name}</span>
+					has no {objectLabel} yet.
+				</p>
+			{/if}
+		</div>
 	{:else if isTree}
 		{#each groups as group (group.key)}
 			{@const expanded = isExpanded(group.key)}
-			<section class="mb-1" aria-label="{groupLabel} {group.key}">
+			<section class="mb-0.5" aria-label="{groupLabel} {group.key}">
 				<button
 					type="button"
 					class={cn(
-						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-panel px-1.5 text-left transition-colors duration-150',
+						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-panel/95 px-1.5 text-left transition-colors duration-150',
 						'text-fg-secondary hover:bg-hover hover:text-fg',
 						'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
 					)}
@@ -155,7 +224,7 @@
 					/>
 					<CatalogIcon name="schema" class="size-3.5" />
 					<span class="min-w-0 flex-1 truncate font-mono text-label">
-						{group.key}
+						{@render highlighted(group.key)}
 					</span>
 					<span
 						class="shrink-0 rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"

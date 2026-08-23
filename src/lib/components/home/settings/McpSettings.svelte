@@ -63,7 +63,7 @@
 				if (copied === key) copied = null
 			}, 1600)
 		} catch {
-			error = 'Could not copy — select the text instead.'
+			error = 'Could not copy. Select the text instead.'
 		}
 	}
 
@@ -72,10 +72,6 @@
 	})
 </script>
 
-<p class="mt-0 mb-3 text-label text-fg-muted">
-	While Mystique DB is running, external LLMs can read schema (DBML), list
-	tables, run read-only queries, and save queries. Writes are blocked.
-</p>
 {#if !desktop}
 	<p class="m-0 text-caption text-fg-muted">
 		MCP is available in the desktop app.
@@ -88,12 +84,14 @@
 		onchange={onEnable}
 	/>
 	{#if mcp.running && mcp.url}
-		<div class="mt-3 flex flex-col gap-2">
-			<div>
-				<p class="m-0 mb-1 text-caption font-medium text-fg-secondary">URL</p>
+		<div
+			class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel"
+		>
+			<div class="px-3 py-3">
+				<p class="m-0 mb-1.5 text-caption font-medium text-fg-secondary">URL</p>
 				<div class="flex items-center gap-1.5">
 					<code
-						class="min-w-0 flex-1 truncate rounded-md border border-line bg-panel px-2 py-1 font-mono text-caption text-fg"
+						class="min-w-0 flex-1 truncate rounded-md border border-line bg-input px-2 py-1 font-mono text-caption text-fg"
 						>{mcp.url}</code
 					>
 					<Button size="sm" onclick={() => void copy(mcp.url ?? '', 'url')}>
@@ -101,11 +99,11 @@
 					</Button>
 				</div>
 			</div>
-			<div>
-				<p class="m-0 mb-1 text-caption font-medium text-fg-secondary">Token</p>
+			<div class="px-3 py-3">
+				<p class="m-0 mb-1.5 text-caption font-medium text-fg-secondary">Token</p>
 				<div class="flex items-center gap-1.5">
 					<code
-						class="min-w-0 flex-1 truncate rounded-md border border-line bg-panel px-2 py-1 font-mono text-caption text-fg"
+						class="min-w-0 flex-1 truncate rounded-md border border-line bg-input px-2 py-1 font-mono text-caption text-fg"
 						>{mcp.token}</code
 					>
 					<Button size="sm" onclick={() => void copy(mcp.token ?? '', 'token')}>
@@ -113,13 +111,13 @@
 					</Button>
 				</div>
 			</div>
-			<div>
-				<p class="m-0 mb-1 text-caption font-medium text-fg-secondary">
+			<div class="px-3 py-3">
+				<p class="m-0 mb-1.5 text-caption font-medium text-fg-secondary">
 					Client config
 				</p>
 				<pre
-					class="m-0 max-h-40 overflow-auto rounded-md border border-line bg-panel p-2 font-mono text-caption text-fg">{snippet}</pre>
-				<div class="mt-1.5 flex flex-wrap gap-1.5">
+					class="m-0 max-h-40 overflow-auto rounded-md border border-line bg-input p-2 font-mono text-caption text-fg">{snippet}</pre>
+				<div class="mt-2 flex flex-wrap gap-1.5">
 					<Button size="sm" onclick={() => void copy(snippet, 'snippet')}>
 						{copied === 'snippet' ? 'Copied' : 'Copy config'}
 					</Button>
@@ -133,10 +131,10 @@
 					</Button>
 				</div>
 			</div>
-			<p class="m-0 text-caption text-fg-muted">
-				Turning the app off stops the server.
-			</p>
 		</div>
+		<p class="mt-3 mb-0 text-caption text-fg-muted">
+			Turning the app off stops the server.
+		</p>
 	{:else if mcp.enabled && !mcp.running}
 		<p class="mt-2 mb-0 text-caption text-fg-muted">
 			Enabled, but the server is not running yet.

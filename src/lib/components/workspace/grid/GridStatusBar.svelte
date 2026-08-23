@@ -85,7 +85,7 @@
 		<IconButton
 			label={refreshing ? 'Refreshing table' : 'Refresh table (⌘/Ctrl+R)'}
 			size="sm"
-			variant="ghost"
+			variant="quiet"
 			disabled={refreshing}
 			aria-busy={refreshing}
 			onclick={onRefresh}
@@ -96,7 +96,7 @@
 		<IconButton
 			label="Add a new empty row (⌘/Ctrl+N)"
 			size="sm"
-			variant="ghost"
+			variant="quiet"
 			disabled={saving || refreshing}
 			onclick={onAddRow}
 		>

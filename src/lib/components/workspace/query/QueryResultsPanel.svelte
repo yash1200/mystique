@@ -5,10 +5,12 @@
 		ContextMenu,
 		Icon,
 		IconButton,
+		Kbd,
 		Pager,
 		StatusBar,
 		type ContextMenuItem,
 	} from '$lib/components/core'
+	import { isMacPlatform, labelForKey } from '$lib/data/appShortcuts'
 	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { cn } from '$lib/utils/cn'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
@@ -105,6 +107,8 @@
 	const hasRows = $derived(
 		runState.status === 'ok' && resultTotal > 0 && resultColumns.length > 0,
 	)
+	const mac = isMacPlatform()
+	const runMod = labelForKey('mod', mac)
 
 	const durationMs = $derived.by(() => {
 		if (
@@ -159,17 +163,61 @@
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 		{#if runState.status === 'idle'}
-			<!-- Empty results area until a query is run -->
+			<div
+				class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
+			>
+				<span
+					class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+					aria-hidden="true"
+				>
+					<Icon name="code" class="size-4 text-fg-muted" />
+				</span>
+				<p class="m-0 text-label font-medium text-fg">No query run yet</p>
+				<p
+					class="mt-1 mb-0 flex items-center gap-1 text-caption text-fg-muted"
+				>
+					Press
+					<Kbd>{runMod}</Kbd>
+					<Kbd>Enter</Kbd>
+					to run
+				</p>
+			</div>
 		{:else if runState.status === 'running'}
-			<p class="p-3 text-body text-fg-muted">Running…</p>
+			<div
+				class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
+				aria-busy="true"
+			>
+				<span
+					class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+					aria-hidden="true"
+				>
+					<Icon name="refresh" class="size-4 animate-spin text-fg-muted" />
+				</span>
+				<p class="m-0 text-label font-medium text-fg">Running</p>
+				<p class="mt-1 mb-0 text-caption text-fg-muted">
+					Waiting for the engine.
+				</p>
+			</div>
 		{:else if runState.status === 'ok' && runState.result}
 			{@const result = runState.result}
 			{#if result.columns.length === 0}
-				<p class="p-3 text-body text-fg-muted">
-					{result.message ?? 'Statement finished with no tabular rows.'}
-				</p>
+				<div
+					class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
+				>
+					<p class="m-0 text-label font-medium text-fg">No tabular rows</p>
+					<p class="mt-1 mb-0 max-w-prose-ui text-caption text-fg-muted">
+						{result.message ?? 'The statement finished without a result set.'}
+					</p>
+				</div>
 			{:else if resultTotal === 0}
-				<p class="p-3 text-body text-fg-muted">No rows returned.</p>
+				<div
+					class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
+				>
+					<p class="m-0 text-label font-medium text-fg">No rows</p>
+					<p class="mt-1 mb-0 text-caption text-fg-muted">
+						The query returned an empty result.
+					</p>
+				</div>
 			{:else}
 				<QueryResultsGrid
 					columns={resultColumns}
@@ -200,7 +248,11 @@
 				<span class="truncate font-mono tabular-nums">
 					{runState.status === 'ok' && resultColumns.length > 0
 						? '0 rows'
-						: '—'}
+						: runState.status === 'idle'
+							? 'Idle'
+							: runState.status === 'running'
+								? 'Running'
+								: '0 rows'}
 				</span>
 			{/if}
 			{#if durationMs != null}
@@ -245,7 +297,7 @@
 			<IconButton
 				label={exporting ? 'Exporting…' : 'Download or copy results'}
 				size="sm"
-				variant="ghost"
+				variant="quiet"
 				active={menu != null}
 				disabled={!canExport || exporting !== null || refreshing}
 				aria-haspopup="menu"
@@ -267,7 +319,7 @@
 			<IconButton
 				label={refreshing ? 'Refreshing…' : 'Re-run query'}
 				size="sm"
-				variant="ghost"
+				variant="quiet"
 				disabled={refreshing || runState.status === 'idle'}
 				aria-busy={refreshing}
 				onclick={onrefresh}
@@ -278,7 +330,7 @@
 			<IconButton
 				label={appPrefs.agentChatOpen ? 'Close agent' : 'Open agent'}
 				size="sm"
-				variant="ghost"
+				variant="quiet"
 				active={appPrefs.agentChatOpen}
 				onclick={() => appPrefs.setAgentChatOpen(!appPrefs.agentChatOpen)}
 			>

@@ -4,6 +4,7 @@
 	import {
 		colorHex,
 		connectionEndpoint,
+		connectionInitial,
 		engineLabel,
 	} from '$lib/types/connection'
 	import { cn } from '$lib/utils/cn'
@@ -20,6 +21,7 @@
 		connection: ConnectionProfile
 		selected?: boolean
 		connecting?: boolean
+		query?: string
 		onclick?: () => void
 		ondblclick?: () => void
 	}
@@ -28,13 +30,18 @@
 		connection,
 		selected = false,
 		connecting = false,
+		query = '',
 		onclick,
 		ondblclick,
 	}: Props = $props()
 
 	const hex = $derived(colorHex(connection.colorId))
 	const status = $derived(connection.status ?? 'disconnected')
-	const endpoint = $derived(connectionEndpoint(connection))
+	const host = $derived.by(() => {
+		const raw = connectionEndpoint(connection).trim()
+		if (!raw || raw === '—') return ''
+		return raw
+	})
 	const prod = $derived(connection.environment === 'production')
 	const engineRank = $derived(
 		ENGINE_RANK[String(connection.engine).toLowerCase()] ??
@@ -43,69 +50,113 @@
 	const showStatus = $derived(
 		connecting || status === 'connected' || status === 'error',
 	)
+	const initial = $derived(
+		connectionInitial(connection.name, String(connection.engine)),
+	)
+
+	function matchParts(
+		text: string,
+		q: string,
+	): { text: string; hit: boolean }[] {
+		const needle = q.trim()
+		if (!needle) return [{ text, hit: false }]
+		const i = text.toLowerCase().indexOf(needle.toLowerCase())
+		if (i < 0) return [{ text, hit: false }]
+		return [
+			{ text: text.slice(0, i), hit: false },
+			{ text: text.slice(i, i + needle.length), hit: true },
+			{ text: text.slice(i + needle.length), hit: false },
+		].filter((part) => part.text.length > 0)
+	}
 </script>
 
 <button
 	type="button"
 	class={cn(
-		'group relative w-full min-h-row select-none rounded-md border py-2 pr-3 pl-3.5 text-left transition-[color,background-color,border-color] duration-150',
+		'group relative w-full min-h-row select-none rounded-lg border py-2 pr-2.5 pl-3 text-left',
+		'transition-[color,background-color,border-color,transform] duration-150 [transition-timing-function:var(--ease-out)]',
+		'enabled:active:scale-[0.99]',
 		'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus',
 		selected
-			? 'border-(--connection-color)/40 conn-tint'
+			? 'border-(--connection-color)/35 conn-tint'
 			: 'border-transparent hover:bg-hover',
 	)}
 	style="--connection-color: {hex}"
 	{onclick}
 	{ondblclick}
 	aria-current={selected ? 'true' : undefined}
+	aria-busy={connecting || undefined}
 	title="{engineLabel(
 		connection.engine,
 	)} · Click to select · Double-click to connect"
 >
 	<span
 		class={cn(
-			'absolute inset-y-2 left-0 w-stripe rounded-r-sm bg-conn',
-			selected ? 'opacity-100' : 'opacity-70 group-hover:opacity-100',
+			'absolute inset-y-1.5 left-0 w-stripe rounded-r-sm bg-conn transition-opacity duration-150',
+			selected ? 'opacity-100' : 'opacity-55 group-hover:opacity-100',
 		)}
 		aria-hidden="true"
 	></span>
 
-	<div class="flex min-w-0 items-center gap-1.5">
+	<div class="flex min-w-0 items-center gap-2">
 		<span
 			class={cn(
-				'min-w-0 truncate text-body tracking-tight text-fg',
-				selected ? 'font-semibold' : 'font-medium',
+				'grid size-7 shrink-0 place-items-center rounded-md text-caption font-semibold leading-none transition-colors duration-150',
+				selected
+					? 'bg-(--connection-color)/20'
+					: 'bg-input group-hover:bg-(--connection-color)/12',
 			)}
+			style="color: var(--connection-color)"
+			aria-hidden="true"
 		>
-			{connection.name}
+			{initial}
 		</span>
-		{#if prod}
-			<Pill tone="warning" uppercase>PROD</Pill>
-		{/if}
-		{#if connection.readOnly}
-			<Pill uppercase>RO</Pill>
-		{/if}
-	</div>
 
-	<div class="mt-0.5 flex min-w-0 items-center gap-1.5">
-		<span class="shrink-0 font-mono text-caption text-fg-secondary">
-			{engineRank}
-		</span>
-		<span class="shrink-0 text-fg-muted" aria-hidden="true">·</span>
-		<span class="min-w-0 truncate font-mono text-caption text-fg-muted">
-			{#if connecting}
-				Connecting…
-			{:else}
-				{endpoint}
-			{/if}
-		</span>
+		<div class="min-w-0 flex-1">
+			<div class="flex min-w-0 items-center gap-1.5">
+				<span
+					class={cn(
+						'min-w-0 truncate text-body tracking-tight text-fg',
+						selected ? 'font-semibold' : 'font-medium',
+					)}
+				>
+					{#each matchParts(connection.name, query) as part, i (i)}
+						{#if part.hit}
+							<mark class="rounded-sm bg-accent-muted p-0 text-fg">{part.text}</mark>
+						{:else}
+							{part.text}
+						{/if}
+					{/each}
+				</span>
+				{#if prod}
+					<Pill tone="warning" uppercase>PROD</Pill>
+				{/if}
+				{#if connection.readOnly}
+					<Pill uppercase>RO</Pill>
+				{/if}
+			</div>
+
+			<div class="mt-0.5 flex min-w-0 items-center gap-2">
+				<span class="shrink-0 font-mono text-caption text-fg-secondary">
+					{engineRank}
+				</span>
+				{#if connecting}
+					<span class="min-w-0 truncate font-mono text-caption text-fg-muted">
+						Connecting…
+					</span>
+				{:else if host}
+					<span class="min-w-0 truncate font-mono text-caption text-fg-muted">
+						{host}
+					</span>
+				{/if}
+			</div>
+		</div>
+
 		{#if showStatus}
-			<span class="ml-auto shrink-0">
-				<StatusDot
-					status={connecting ? 'running' : status}
-					label={connecting ? 'Connecting' : undefined}
-				/>
-			</span>
+			<StatusDot
+				status={connecting ? 'running' : status}
+				label={connecting ? 'Connecting' : undefined}
+			/>
 		{/if}
 	</div>
 </button>

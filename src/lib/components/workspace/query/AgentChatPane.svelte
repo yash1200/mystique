@@ -605,13 +605,13 @@
 					{connectionLine}
 				</p>
 			</div>
-			<IconButton label="New chat" variant="ghost" size="sm" onclick={newChat}>
+			<IconButton label="New chat" variant="quiet" size="sm" onclick={newChat}>
 				<Icon name="plus" />
 			</IconButton>
 			{#if chatId}
 				<IconButton
 					label="Delete chat"
-					variant="ghost"
+					variant="quiet"
 					size="sm"
 					onclick={() => void removeChat()}
 				>
@@ -620,7 +620,7 @@
 			{/if}
 			<IconButton
 				label="Close agent"
-				variant="ghost"
+				variant="quiet"
 				size="sm"
 				onclick={() => appPrefs.setAgentChatOpen(false)}
 			>

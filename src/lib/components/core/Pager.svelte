@@ -32,7 +32,7 @@
 <div class="flex items-center gap-1.5" role="group" aria-label={ariaLabel}>
 	<IconButton
 		label="Previous page"
-		variant="ghost"
+		variant="quiet"
 		size="sm"
 		disabled={disabled || !active || page <= 0}
 		onclick={onprev}
@@ -46,7 +46,7 @@
 	</span>
 	<IconButton
 		label="Next page"
-		variant="ghost"
+		variant="quiet"
 		size="sm"
 		disabled={disabled || !active || page >= totalPages - 1}
 		onclick={onnext}
