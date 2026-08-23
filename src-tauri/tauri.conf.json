@@ -38,7 +38,8 @@
 			"icons/icon.ico"
 		],
 		"macOS": {
-			"bundleName": "Mystique DB"
+			"bundleName": "Mystique DB",
+			"signingIdentity": "-"
 		}
 	}
 }
