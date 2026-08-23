@@ -10,6 +10,8 @@ pub enum AgentProvider {
     Google,
     Deepseek,
     Openrouter,
+    /// xAI Grok (console.x.ai API key).
+    Xai,
     Ollama,
 }
 
@@ -21,6 +23,7 @@ impl AgentProvider {
             Self::Google => "google",
             Self::Deepseek => "deepseek",
             Self::Openrouter => "openrouter",
+            Self::Xai => "xai",
             Self::Ollama => "ollama",
         }
     }
@@ -32,6 +35,7 @@ impl AgentProvider {
             Self::Google => "Gemini",
             Self::Deepseek => "DeepSeek",
             Self::Openrouter => "OpenRouter",
+            Self::Xai => "Grok",
             Self::Ollama => "Ollama",
         }
     }
@@ -47,6 +51,7 @@ impl AgentProvider {
             Self::Google => "gemini-3.7-flash",
             Self::Deepseek => "deepseek-v4-flash",
             Self::Openrouter => "openai/gpt-5.6-terra",
+            Self::Xai => "grok-4.6",
             // Live list from the local daemon — never invent a pulled model.
             Self::Ollama => "",
         }
@@ -60,6 +65,7 @@ pub fn parse_provider(raw: &str) -> AppResult<AgentProvider> {
         "google" | "gemini" => Ok(AgentProvider::Google),
         "deepseek" => Ok(AgentProvider::Deepseek),
         "openrouter" => Ok(AgentProvider::Openrouter),
+        "xai" | "grok" => Ok(AgentProvider::Xai),
         "ollama" => Ok(AgentProvider::Ollama),
         other => Err(AppError::Invalid(format!("unknown provider `{other}`"))),
     }
@@ -88,6 +94,7 @@ pub fn provider_catalog() -> Vec<AgentProviderInfo> {
         AgentProvider::Google,
         AgentProvider::Deepseek,
         AgentProvider::Openrouter,
+        AgentProvider::Xai,
         AgentProvider::Ollama,
     ]
     .into_iter()
@@ -130,6 +137,7 @@ pub fn models_for(provider: AgentProvider) -> Vec<AgentModelInfo> {
             ("google/gemini-3.7-flash", "Gemini 3.7 Flash"),
             ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
         ],
+        AgentProvider::Xai => &[("grok-4.6", "Grok 4.6")],
         AgentProvider::Ollama => &[],
     };
     pairs

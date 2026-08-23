@@ -7,6 +7,7 @@ export type AgentProviderId =
 	| 'google'
 	| 'deepseek'
 	| 'openrouter'
+	| 'xai'
 	| 'ollama'
 
 export interface AgentProviderInfo {

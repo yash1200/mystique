@@ -79,7 +79,7 @@ function readSort(): ConnectionListSort {
 	) {
 		return raw
 	}
-	return 'name'
+	return 'created'
 }
 
 export function clampExplorerPanelWidth(px: number): number {

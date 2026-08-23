@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { formatEngineConnectionUrl } from '$lib/api/engines'
+	import { isTauri } from '$lib/api/tauri'
 	import {
 		ContextMenu,
 		Draggable,
 		Icon,
 		IconButton,
+		Toast,
 		type ContextMenuItem,
 	} from '$lib/components/core'
 	import {
@@ -18,6 +21,7 @@
 		engineLabel,
 	} from '$lib/types/connection'
 	import { cn } from '$lib/utils/cn'
+	import { copyTextToClipboard } from '$lib/utils/exportTable'
 	import { resetAppToHome } from '$lib/utils/resetApp'
 	import { flip } from 'svelte/animate'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
@@ -70,6 +74,22 @@
 	let leaveOpen = $state(false)
 	let leaveBusy = $state(false)
 	let shortcutsOpen = $state(false)
+	let toast = $state<{
+		kind: 'info' | 'success' | 'warning' | 'danger'
+		message: string
+	} | null>(null)
+	let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+	function showToast(
+		kind: 'info' | 'success' | 'warning' | 'danger',
+		message: string,
+	) {
+		toast = { kind, message }
+		if (toastTimer) clearTimeout(toastTimer)
+		toastTimer = setTimeout(() => {
+			toast = null
+		}, 3600)
+	}
 
 	function requestLeaveHome() {
 		if (leaveBusy) return
@@ -107,6 +127,11 @@
 		{ id: 'refresh', label: 'Refresh catalog' },
 		{ id: 'new-query', label: 'New query' },
 		{
+			id: 'copy-url',
+			label: 'Copy connection URL',
+			separatorBefore: true,
+		},
+		{
 			id: 'disconnect',
 			label: 'Disconnect',
 			danger: true,
@@ -120,6 +145,40 @@
 			: null,
 	)
 
+	async function copyConnectionUrl(id: string) {
+		const session = sessions.find((s) => s.profile.id === id)
+		if (!session) return
+		const profile = session.profile
+		if (!isTauri()) {
+			showToast(
+				'warning',
+				'Copy connection URL needs the desktop app (`npm run tauri dev`).',
+			)
+			return
+		}
+		try {
+			const password = profile.password?.trim() || null
+			const formatted = await formatEngineConnectionUrl({
+				engine: String(profile.engine),
+				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
+				password,
+			})
+			const url = formatted.url?.trim()
+			if (!url) {
+				showToast('warning', 'No connection URL available for this profile.')
+				return
+			}
+			const result = await copyTextToClipboard(url)
+			if (result.ok) {
+				showToast('success', 'Connection URL copied.')
+			} else if (!result.cancelled) {
+				showToast('danger', result.error || 'Could not copy connection URL.')
+			}
+		} catch (err) {
+			showToast('danger', err instanceof Error ? err.message : String(err))
+		}
+	}
+
 	function onMenuPick(action: string) {
 		const id = menu?.id
 		menu = null
@@ -127,6 +186,7 @@
 		if (action === 'info') infoId = id
 		if (action === 'refresh') onrefresh(id)
 		if (action === 'new-query') onnewquery(id)
+		if (action === 'copy-url') void copyConnectionUrl(id)
 		if (action === 'disconnect') ondisconnect(id)
 	}
 </script>
@@ -400,3 +460,9 @@
 	open={shortcutsOpen}
 	onclose={() => (shortcutsOpen = false)}
 />
+
+{#if toast}
+	{#key toast.message + toast.kind}
+		<Toast message={toast.message} tone={toast.kind} />
+	{/key}
+{/if}

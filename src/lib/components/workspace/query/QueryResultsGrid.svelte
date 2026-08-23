@@ -10,6 +10,7 @@
 	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { cn } from '$lib/utils/cn'
 	import {
+		buildCsv,
 		buildJson,
 		buildMarkdown,
 		buildTsv,
@@ -505,7 +506,7 @@
 
 	async function copyRowAs(
 		indices: number[],
-		kind: 'copy' | 'json' | 'markdown',
+		kind: 'copy' | 'csv' | 'json' | 'markdown',
 	) {
 		const rowsOut: unknown[][] = []
 		for (const abs of indices) {
@@ -518,12 +519,15 @@
 		let okMsg = n === 1 ? 'Row copied' : `${n} rows copied`
 		if (kind === 'copy') {
 			text = buildTsv(exportCols, rowsOut)
+		} else if (kind === 'csv') {
+			text = buildCsv(exportCols, rowsOut)
+			okMsg = n === 1 ? 'Copied as CSV' : `Copied ${n} rows as CSV`
 		} else if (kind === 'json') {
 			text = buildJson(exportCols, rowsOut, true)
-			okMsg = n === 1 ? 'Copied as JSON' : `Copied ${n} as JSON`
+			okMsg = n === 1 ? 'Copied as JSON' : `Copied ${n} rows as JSON`
 		} else {
 			text = buildMarkdown(exportCols, rowsOut)
-			okMsg = n === 1 ? 'Copied as Markdown' : `Copied ${n} as Markdown`
+			okMsg = n === 1 ? 'Copied as Markdown' : `Copied ${n} rows as Markdown`
 		}
 		const res = await copyTextToClipboard(text)
 		await flashCopy(res.ok, okMsg)
@@ -541,8 +545,7 @@
 	}
 
 	const cellMenuItems = $derived.by((): ContextMenuItem[] => {
-		const n = selKind === 'cells' ? selectedCells.size : 1
-		const many = n > 1
+		const many = selKind === 'cells' && selectedCells.size > 1
 		return [
 			{
 				id: 'view',
@@ -552,42 +555,38 @@
 			},
 			{
 				id: 'copy',
-				label: many ? `Copy ${n} cells` : 'Copy',
+				label: 'Copy',
 				shortcut: copyShortcut,
 				separatorBefore: true,
 			},
-			{ id: 'copy-column', label: 'Copy column name' },
+			{ id: 'copy-json', label: 'Copy as JSON' },
+			{ id: 'copy-tsv', label: 'Copy as TSV' },
 			{
-				id: 'copy-json',
-				label: many ? `Copy ${n} as JSON` : 'Copy JSON',
+				id: 'copy-row',
+				label: 'Copy row',
+				separatorBefore: true,
 			},
+			{ id: 'copy-row-csv', label: 'Copy row as CSV' },
+			{ id: 'copy-row-json', label: 'Copy row as JSON' },
+			{ id: 'copy-row-markdown', label: 'Copy row as Markdown' },
 			{
-				id: 'copy-tsv',
-				label: many ? `Copy ${n} as TSV` : 'Copy TSV',
+				id: 'copy-column',
+				label: 'Copy column name',
+				separatorBefore: true,
 			},
 		]
 	})
 
-	const rowMenuItems = $derived.by((): ContextMenuItem[] => {
-		const n =
-			selKind === 'rows' && selectedRows.size > 0 ? selectedRows.size : 1
-		const many = n > 1
-		return [
-			{
-				id: 'copy',
-				label: many ? `Copy ${n} rows` : 'Copy',
-				shortcut: copyShortcut,
-			},
-			{
-				id: 'copy-json',
-				label: many ? `Copy ${n} as JSON` : 'Copy as JSON',
-			},
-			{
-				id: 'copy-markdown',
-				label: many ? `Copy ${n} as Markdown` : 'Copy as Markdown',
-			},
-		]
-	})
+	const rowMenuItems = $derived.by((): ContextMenuItem[] => [
+		{
+			id: 'copy',
+			label: 'Copy',
+			shortcut: copyShortcut,
+		},
+		{ id: 'copy-csv', label: 'Copy as CSV' },
+		{ id: 'copy-json', label: 'Copy as JSON' },
+		{ id: 'copy-markdown', label: 'Copy as Markdown' },
+	])
 
 	function onCellMenuPick(id: string) {
 		const ctx = cellMenu
@@ -598,9 +597,13 @@
 			return
 		}
 		if (id === 'copy') void copyCellSelection('copy')
-		if (id === 'copy-column') void copyColumnName(ctx.col)
 		if (id === 'copy-json') void copyCellSelection('json')
 		if (id === 'copy-tsv') void copyCellSelection('tsv')
+		if (id === 'copy-row') void copyRowAs([ctx.row], 'copy')
+		if (id === 'copy-row-csv') void copyRowAs([ctx.row], 'csv')
+		if (id === 'copy-row-json') void copyRowAs([ctx.row], 'json')
+		if (id === 'copy-row-markdown') void copyRowAs([ctx.row], 'markdown')
+		if (id === 'copy-column') void copyColumnName(ctx.col)
 	}
 
 	function onRowMenuPick(id: string) {
@@ -609,6 +612,7 @@
 		if (!ctx) return
 		const targets = targetRows(ctx.row)
 		if (id === 'copy') void copyRowAs(targets, 'copy')
+		if (id === 'copy-csv') void copyRowAs(targets, 'csv')
 		if (id === 'copy-json') void copyRowAs(targets, 'json')
 		if (id === 'copy-markdown') void copyRowAs(targets, 'markdown')
 	}

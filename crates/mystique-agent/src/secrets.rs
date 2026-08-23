@@ -56,6 +56,9 @@ impl SecretStore {
         if matches!(provider, AgentProvider::Google) {
             ids.push("gemini".into());
         }
+        if matches!(provider, AgentProvider::Xai) {
+            ids.push("grok".into());
+        }
         ids
     }
 
@@ -89,6 +92,9 @@ impl SecretStore {
         if matches!(provider, AgentProvider::Google) {
             let _ = self.app.ai_secrets().delete("gemini");
         }
+        if matches!(provider, AgentProvider::Xai) {
+            let _ = self.app.ai_secrets().delete("grok");
+        }
         Ok(())
     }
 
@@ -107,6 +113,7 @@ impl SecretStore {
             AgentProvider::Google,
             AgentProvider::Deepseek,
             AgentProvider::Openrouter,
+            AgentProvider::Xai,
             AgentProvider::Ollama,
         ]
         .into_iter()

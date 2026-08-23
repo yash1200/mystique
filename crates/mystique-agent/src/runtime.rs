@@ -5,7 +5,7 @@ use mystique_core::{
 use rig::client::Nothing;
 use rig::completion::{Chat, Message};
 use rig::prelude::*;
-use rig::providers::{anthropic, deepseek, gemini, ollama, openai, openrouter};
+use rig::providers::{anthropic, deepseek, gemini, ollama, openai, openrouter, xai};
 use rig::{Agent, AgentBuilder};
 use serde::{Deserialize, Serialize};
 
@@ -400,6 +400,11 @@ async fn run_agent(
         AgentProvider::Openrouter => {
             let key = require_key(secrets, provider)?;
             let client = openrouter::Client::new(&key).map_err(|e| e.to_string())?;
+            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+        }
+        AgentProvider::Xai => {
+            let key = require_key(secrets, provider)?;
+            let client = xai::Client::new(&key).map_err(|e| e.to_string())?;
             chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
         }
         AgentProvider::Ollama => {

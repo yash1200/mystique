@@ -489,7 +489,7 @@
 	function cloneFocusedRow() {
 		const targets = actionRows()
 		if (targets.length === 0) {
-			flashStatus('Select a row to clone')
+			flashStatus('Select a row to duplicate')
 			return
 		}
 		cloneRows(targets)
@@ -830,8 +830,8 @@
 		}
 		flashStatus(
 			snaps.length === 1
-				? 'Row cloned — save to insert'
-				: `${snaps.length} rows cloned — save to insert`,
+				? 'Row duplicated — save to insert'
+				: `${snaps.length} rows duplicated — save to insert`,
 		)
 	}
 
@@ -1020,16 +1020,13 @@
 		const liveAny = targets.some((i) => !deletedIndices.has(i))
 		const many = n > 1
 		const items: ContextMenuItem[] = [
-			{ id: 'copy', label: many ? `Copy ${n} rows` : 'Copy' },
-			{ id: 'csv', label: many ? `Copy ${n} as CSV` : 'Copy as CSV' },
-			{
-				id: 'markdown',
-				label: many ? `Copy ${n} as Markdown` : 'Copy as Markdown',
-			},
-			{ id: 'json', label: many ? `Copy ${n} as JSON` : 'Copy as JSON' },
+			{ id: 'copy', label: 'Copy' },
+			{ id: 'csv', label: 'Copy as CSV' },
+			{ id: 'markdown', label: 'Copy as Markdown' },
+			{ id: 'json', label: 'Copy as JSON' },
 			{
 				id: 'clone',
-				label: many ? `Clone ${n} rows` : 'Clone row',
+				label: 'Duplicate row',
 				shortcut: '⌘/Ctrl+D',
 				disabled: ro || pendingAll,
 				separatorBefore: true,
@@ -1038,7 +1035,7 @@
 		if (liveAny) {
 			items.push({
 				id: 'delete',
-				label: many ? `Delete ${n} rows` : 'Delete row',
+				label: 'Delete row',
 				shortcut: '⌘/Ctrl+Delete',
 				danger: true,
 				disabled: ro,
@@ -1047,7 +1044,7 @@
 		if (pendingAny) {
 			items.push({
 				id: 'undelete',
-				label: many ? 'Undo delete on selected' : 'Undo delete',
+				label: 'Undo delete',
 				disabled: ro,
 			})
 		}
@@ -1127,27 +1124,36 @@
 			},
 			{
 				id: 'set-null',
-				label: cellCount > 1 ? `Set NULL in ${cellCount} cells` : 'Set NULL',
+				label: 'Set NULL',
 				shortcut: 'Delete',
 				disabled: ro || pending || allNull,
 			},
 			{
 				id: 'copy',
-				label: cellCount > 1 ? `Copy ${cellCount} cells` : 'Copy',
+				label: 'Copy',
 				separatorBefore: true,
 			},
 			{
 				id: 'paste',
-				label: cellCount > 1 ? `Paste into ${cellCount} cells` : 'Paste',
+				label: 'Paste',
 				disabled: ro || pending,
 			},
 			{
+				id: 'copy-row',
+				label: 'Copy row',
+				separatorBefore: true,
+			},
+			{ id: 'copy-row-csv', label: 'Copy row as CSV' },
+			{ id: 'copy-row-json', label: 'Copy row as JSON' },
+			{ id: 'copy-row-markdown', label: 'Copy row as Markdown' },
+			{
 				id: 'copy-column',
-				label: 'Copy Column Name',
+				label: 'Copy column name',
+				separatorBefore: true,
 			},
 			{
 				id: 'clone',
-				label: many ? `Clone ${targets.length} rows` : 'Clone row',
+				label: 'Duplicate row',
 				shortcut: '⌘/Ctrl+D',
 				disabled: ro || pendingAll,
 				separatorBefore: true,
@@ -1156,7 +1162,7 @@
 		if (liveAny) {
 			items.push({
 				id: 'delete',
-				label: many ? `Delete ${targets.length} rows` : 'Delete row',
+				label: 'Delete row',
 				shortcut: '⌘/Ctrl+Delete',
 				danger: true,
 				disabled: ro,
@@ -1165,7 +1171,7 @@
 		if (pendingAny) {
 			items.push({
 				id: 'undelete',
-				label: many ? 'Undo delete on selected' : 'Undo delete',
+				label: 'Undo delete',
 				disabled: ro,
 			})
 		}
@@ -1211,6 +1217,22 @@
 			} catch {
 				flashStatus('Could not read clipboard')
 			}
+			return
+		}
+		if (id === 'copy-row') {
+			void copyRowAs(targetRows(row), 'copy')
+			return
+		}
+		if (id === 'copy-row-csv') {
+			void copyRowAs(targetRows(row), 'csv')
+			return
+		}
+		if (id === 'copy-row-json') {
+			void copyRowAs(targetRows(row), 'json')
+			return
+		}
+		if (id === 'copy-row-markdown') {
+			void copyRowAs(targetRows(row), 'markdown')
 			return
 		}
 		if (id === 'copy-column') {
