@@ -1,13 +1,60 @@
 //! Engine catalog + pooled session IPC (API-shaped).
 
-use mystique_core::{EngineDescriptor, OpenSessionRequest, PoolStatus, SessionInfo, TestResult};
+use mystique_core::{
+    EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl, PoolStatus,
+    SessionInfo, TestResult,
+};
+use serde::Deserialize;
+use serde_json::Value as JsonValue;
 use tauri::State;
 
 use crate::AppState;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseConnectionUrlRequest {
+    pub engine: String,
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatConnectionUrlRequest {
+    pub engine: String,
+    pub plugin_config: JsonValue,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
 #[tauri::command]
 pub async fn list_engines(state: State<'_, AppState>) -> Result<Vec<EngineDescriptor>, String> {
     Ok(state.services.connections().list_engines())
+}
+
+/// Parse a connection URL into discrete plugin config fields (plugin-owned).
+#[tauri::command]
+pub async fn parse_engine_connection_url(
+    state: State<'_, AppState>,
+    request: ParseConnectionUrlRequest,
+) -> Result<ParsedConnectionUrl, String> {
+    state
+        .services
+        .connections()
+        .parse_connection_url(&request.engine, &request.url)
+        .map_err(|e| e.to_string())
+}
+
+/// Format discrete plugin config into a connection URL (plugin-owned).
+#[tauri::command]
+pub async fn format_engine_connection_url(
+    state: State<'_, AppState>,
+    request: FormatConnectionUrlRequest,
+) -> Result<FormattedConnectionUrl, String> {
+    state
+        .services
+        .connections()
+        .format_connection_url(&request.engine, request.plugin_config, request.password)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -34,8 +34,8 @@ pub use mystique_connector_api::{
     DescribeTableRequest, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, ExportFormat,
     ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ImportObjectRequest,
     ImportObjectResult, ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest,
-    ObjectStructure, ObjectStructureRequest, PoolConfig, PoolStatus, PreviewImportRequest,
-    PreviewImportResult, QueryColumn, QueryMode, QueryResult, SessionInfo, StructureSection,
-    TableAdminOp, TableAdminRequest, TableAdminResult, TableEditColumn, TablePreviewResult,
-    TableRowInsert, TableRowUpdate, TestResult,
+    FormattedConnectionUrl, ObjectStructure, ObjectStructureRequest, ParsedConnectionUrl,
+    PoolConfig, PoolStatus, PreviewImportRequest, PreviewImportResult, QueryColumn, QueryMode,
+    QueryResult, SessionInfo, StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult,
+    TableEditColumn, TablePreviewResult, TableRowInsert, TableRowUpdate, TestResult,
 };

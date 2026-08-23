@@ -18,6 +18,14 @@
 	import KeyboardShortcutsModal from './KeyboardShortcutsModal.svelte'
 	import { SettingsModal } from './settings'
 
+	export type ConnectionMenuAction =
+		| 'view'
+		| 'connect'
+		| 'edit'
+		| 'duplicate'
+		| 'delete'
+		| 'copy-url'
+
 	interface Props {
 		connections: ConnectionProfile[]
 		selectedId: string | null
@@ -25,6 +33,8 @@
 		onselect: (id: string) => void
 		onnew: () => void
 		onconnect: (id: string) => void
+		/** Right-click context menu actions on a connection row. */
+		onaction?: (action: ConnectionMenuAction, id: string) => void
 		onrefresh: () => void
 		refreshing?: boolean
 		connectingId?: string | null
@@ -37,6 +47,7 @@
 		onselect,
 		onnew,
 		onconnect,
+		onaction,
 		onrefresh,
 		refreshing = false,
 		connectingId = null,
@@ -59,6 +70,46 @@
 	let shortcutsOpen = $state(false)
 	let query = $state('')
 	let sortMenu = $state<{ x: number; y: number } | null>(null)
+	let connMenu = $state<{ id: string; x: number; y: number } | null>(null)
+
+	const connMenuItems = $derived.by((): ContextMenuItem[] => {
+		const connecting = connMenu != null && connectingId === connMenu.id
+		return [
+			{ id: 'view', label: 'View' },
+			{
+				id: 'connect',
+				label: connecting ? 'Connecting…' : 'Connect',
+				disabled: connecting,
+			},
+			{ id: 'edit', label: 'Edit', separatorBefore: true },
+			{ id: 'duplicate', label: 'Duplicate' },
+			{ id: 'copy-url', label: 'Copy connection URL' },
+			{ id: 'delete', label: 'Delete', danger: true, separatorBefore: true },
+		]
+	})
+
+	function openConnMenu(e: MouseEvent, id: string) {
+		e.preventDefault()
+		e.stopPropagation()
+		sortMenu = null
+		connMenu = { id, x: e.clientX, y: e.clientY }
+	}
+
+	function onConnMenuPick(action: string) {
+		const id = connMenu?.id
+		connMenu = null
+		if (!id) return
+		if (
+			action === 'view' ||
+			action === 'connect' ||
+			action === 'edit' ||
+			action === 'duplicate' ||
+			action === 'delete' ||
+			action === 'copy-url'
+		) {
+			onaction?.(action, id)
+		}
+	}
 
 	function byName(a: ConnectionProfile, b: ConnectionProfile): number {
 		return (
@@ -300,6 +351,7 @@
 						query={query.trim()}
 						onclick={() => onselect(conn.id)}
 						ondblclick={() => onconnect(conn.id)}
+						oncontextmenu={(e) => openConnMenu(e, conn.id)}
 					/>
 				</div>
 			{/each}
@@ -334,6 +386,17 @@
 		{/snippet}
 	</StatusBar>
 </aside>
+
+{#if connMenu}
+	<ContextMenu
+		x={connMenu.x}
+		y={connMenu.y}
+		items={connMenuItems}
+		ariaLabel="Connection actions"
+		onpick={onConnMenuPick}
+		onclose={() => (connMenu = null)}
+	/>
+{/if}
 
 <KeyboardShortcutsModal
 	open={shortcutsOpen}

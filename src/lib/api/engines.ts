@@ -66,6 +66,45 @@ export async function listEngines(): Promise<EngineDescriptor[]> {
 	return invoke('list_engines')
 }
 
+/** Discrete fields produced by plugin URL parsers (postgres/mysql). */
+export interface ParsedConnectionUrl {
+	engine: string
+	pluginConfig: Record<string, unknown>
+	password?: string | null
+}
+
+export interface ParseConnectionUrlRequest {
+	engine: string
+	url: string
+}
+
+/** Parse a connection URL via the engine plugin (backend-backed). */
+export async function parseEngineConnectionUrl(
+	request: ParseConnectionUrlRequest,
+): Promise<ParsedConnectionUrl> {
+	requireTauri()
+	return invoke('parse_engine_connection_url', { request })
+}
+
+export interface FormattedConnectionUrl {
+	engine: string
+	url: string
+}
+
+export interface FormatConnectionUrlRequest {
+	engine: string
+	pluginConfig: Record<string, unknown>
+	password?: string | null
+}
+
+/** Format discrete plugin config into a connection URL (plugin-owned). */
+export async function formatEngineConnectionUrl(
+	request: FormatConnectionUrlRequest,
+): Promise<FormattedConnectionUrl> {
+	requireTauri()
+	return invoke('format_engine_connection_url', { request })
+}
+
 export async function testEngineConnection(
 	request: OpenSessionRequest,
 ): Promise<TestResult> {

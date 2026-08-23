@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use mystique_connector_api::{
     ConnectionConfig, ConnectionFormSchema, ConnectorError, ConnectorResult, ConnectorSession,
-    DatabaseConnector, EngineCapabilities, EngineFamily, FormField, FormFieldType, TestResult,
+    DatabaseConnector, EngineCapabilities, EngineFamily, FormField, FormFieldType,
+    FormattedConnectionUrl, TestResult,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -20,6 +21,36 @@ fn resolve_path(config: &ConnectionConfig) -> ConnectorResult<PathBuf> {
         .or_else(|| config.str_field("database"))
         .ok_or_else(|| ConnectorError::InvalidConfig("missing `path`".into()))?;
     Ok(PathBuf::from(path))
+}
+
+/// Format SQLite path as a `file://` URL (or plain path for relative files).
+fn format_sqlite_url(config: &ConnectionConfig) -> ConnectorResult<FormattedConnectionUrl> {
+    let path = config
+        .str_field("path")
+        .or_else(|| config.str_field("database"))
+        .ok_or_else(|| ConnectorError::InvalidConfig("missing `path`".into()))?;
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(ConnectorError::InvalidConfig("missing `path`".into()));
+    }
+
+    let url = if path.starts_with('/') {
+        format!("file://{path}")
+    } else if path.len() >= 3
+        && path.as_bytes()[0].is_ascii_alphabetic()
+        && path.as_bytes()[1] == b':'
+        && (path.as_bytes()[2] == b'\\' || path.as_bytes()[2] == b'/')
+    {
+        let normalized = path.replace('\\', "/");
+        format!("file:///{normalized}")
+    } else {
+        path.to_string()
+    };
+
+    Ok(FormattedConnectionUrl {
+        engine: "sqlite".into(),
+        url,
+    })
 }
 
 fn build_pool(config: &ConnectionConfig) -> ConnectorResult<Pool<SqliteConnectionManager>> {
@@ -87,6 +118,13 @@ impl DatabaseConnector for SqliteConnector {
                 hint: None,
             }],
         }
+    }
+
+    fn format_connection_url(
+        &self,
+        config: &ConnectionConfig,
+    ) -> ConnectorResult<FormattedConnectionUrl> {
+        format_sqlite_url(config)
     }
 
     async fn test_connection(&self, config: &ConnectionConfig) -> ConnectorResult<TestResult> {

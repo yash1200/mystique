@@ -8,9 +8,10 @@ use mystique_connector_api::{
     ConnectorResult, ConnectorSession, DescribeTableRequest, EngineDescriptor, ExecuteQueryRequest,
     ExportObjectRequest, ExportObjectResult, FetchTablePreviewRequest, ImportObjectRequest,
     ImportObjectResult, ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest,
-    PoolConfig, PoolStatus, PreviewImportRequest, PreviewImportResult, QueryMode, QueryResult,
-    SessionInfo, TableAdminOp, TableAdminRequest, TableAdminResult, TablePreviewResult, TestResult,
-    ValidatedQuery, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
+    FormattedConnectionUrl, ParsedConnectionUrl, PoolConfig, PoolStatus, PreviewImportRequest,
+    PreviewImportResult, QueryMode, QueryResult, SessionInfo, TableAdminOp, TableAdminRequest,
+    TableAdminResult, TablePreviewResult, TestResult, ValidatedQuery, DEFAULT_MAX_ROWS,
+    DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -64,6 +65,54 @@ impl ConnectionManager {
 
     pub fn list_engines(&self) -> Vec<EngineDescriptor> {
         self.registry.list()
+    }
+
+    /// Resolve connector for URL helpers (`mariadb` → mysql plugin).
+    fn resolve_url_connector(
+        &self,
+        engine: &str,
+    ) -> ConnectorResult<std::sync::Arc<dyn mystique_connector_api::DatabaseConnector>> {
+        let engine_key = engine.trim().to_ascii_lowercase();
+        if engine_key.is_empty() {
+            return Err(ConnectorError::InvalidConfig("engine is required".into()));
+        }
+        let engine_id = if engine_key == "mariadb" {
+            "mysql"
+        } else {
+            engine_key.as_str()
+        };
+        self.registry.get(engine_id).ok_or_else(|| {
+            ConnectorError::InvalidConfig(format!("unknown engine `{engine}`"))
+        })
+    }
+
+    /// Parse a connection URL via the engine plugin’s driver (host/port/db/user/ssl).
+    ///
+    /// `mariadb` is resolved to the MySQL plugin (same wire protocol / URL shape).
+    pub fn parse_connection_url(
+        &self,
+        engine: &str,
+        url: &str,
+    ) -> ConnectorResult<ParsedConnectionUrl> {
+        let connector = self.resolve_url_connector(engine)?;
+        connector.parse_connection_url(url)
+    }
+
+    /// Format discrete plugin config into a connection URL via the engine plugin.
+    pub fn format_connection_url(
+        &self,
+        engine: &str,
+        plugin_config: JsonValue,
+        password: Option<String>,
+    ) -> ConnectorResult<FormattedConnectionUrl> {
+        let connector = self.resolve_url_connector(engine)?;
+        let config = ConnectionConfig {
+            engine: connector.id().to_string(),
+            plugin_config,
+            password,
+            pool: PoolConfig::default(),
+        };
+        connector.format_connection_url(&config)
     }
 
     /// Always returns a structured [`TestResult`] (never fails the API envelope for connect errors).
@@ -530,6 +579,95 @@ impl ConnectionManager {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn parse_connection_url_postgres_and_mysql() {
+        let mgr = ConnectionManager::bootstrap();
+        let pg = mgr
+            .parse_connection_url(
+                "postgres",
+                "postgresql://app:s3cret@db.example.com:5433/appdb?sslmode=require",
+            )
+            .expect("postgres url");
+        assert_eq!(pg.plugin_config["host"], "db.example.com");
+        assert_eq!(pg.plugin_config["port"], 5433);
+        assert_eq!(pg.plugin_config["database"], "appdb");
+        assert_eq!(pg.password.as_deref(), Some("s3cret"));
+        assert_eq!(pg.plugin_config["ssl"], true);
+
+        let my = mgr
+            .parse_connection_url("mysql", "mysql://admin:123@127.0.0.1:3307/mystique")
+            .expect("mysql url");
+        assert_eq!(my.plugin_config["host"], "127.0.0.1");
+        assert_eq!(my.plugin_config["port"], 3307);
+        assert_eq!(my.plugin_config["username"], "admin");
+        assert_eq!(my.password.as_deref(), Some("123"));
+
+        // MariaDB alias → mysql plugin
+        let md = mgr
+            .parse_connection_url("mariadb", "mariadb://root@localhost/db")
+            .expect("mariadb url");
+        assert_eq!(md.engine, "mysql");
+        assert_eq!(md.plugin_config["database"], "db");
+    }
+
+    #[test]
+    fn format_connection_url_postgres_and_mysql() {
+        let mgr = ConnectionManager::bootstrap();
+        let pg = mgr
+            .format_connection_url(
+                "postgres",
+                json!({
+                    "host": "db.example.com",
+                    "port": 5433,
+                    "database": "appdb",
+                    "username": "app",
+                    "ssl": true,
+                    "sslMode": "require"
+                }),
+                Some("s3cret".into()),
+            )
+            .expect("format postgres");
+        assert!(
+            pg.url.contains("postgresql://") && pg.url.contains("db.example.com:5433"),
+            "url={}",
+            pg.url
+        );
+        assert!(pg.url.contains("sslmode=require"), "url={}", pg.url);
+
+        let my = mgr
+            .format_connection_url(
+                "mysql",
+                json!({
+                    "host": "127.0.0.1",
+                    "port": 3306,
+                    "database": "mystique",
+                    "username": "admin"
+                }),
+                Some("123".into()),
+            )
+            .expect("format mysql");
+        assert!(my.url.starts_with("mysql://"), "url={}", my.url);
+        assert!(my.url.contains("admin"), "url={}", my.url);
+
+        let mongo = mgr
+            .format_connection_url(
+                "mongodb",
+                json!({ "uri": "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin" }),
+                None,
+            )
+            .expect("format mongo");
+        assert!(mongo.url.starts_with("mongodb://"), "url={}", mongo.url);
+
+        let sqlite = mgr
+            .format_connection_url(
+                "sqlite",
+                json!({ "path": "/tmp/app.sqlite" }),
+                None,
+            )
+            .expect("format sqlite");
+        assert_eq!(sqlite.url, "file:///tmp/app.sqlite");
+    }
 
     #[tokio::test]
     async fn test_unknown_engine_returns_structured_fail() {

@@ -3,6 +3,32 @@ use serde_json::Value as JsonValue;
 
 use crate::error::{ConnectorError, ConnectorResult};
 
+/// Result of parsing a connection URL into discrete plugin config fields.
+///
+/// Plugins map engine-native URL forms (`postgres://…`, `mysql://…`) onto the
+/// same `plugin_config` keys used by the connection form and `build_*` helpers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedConnectionUrl {
+    pub engine: String,
+    /// Discrete fields (host, port, database, username, ssl, …).
+    pub plugin_config: JsonValue,
+    /// Password from the URL, if present (never log this).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+}
+
+/// Result of formatting discrete plugin config into a connection URL.
+///
+/// Inverse of [`ParsedConnectionUrl`]: plugins own scheme rules so the FE
+/// never reimplements `postgresql://` / `mysql://` / `mongodb://` assembly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormattedConnectionUrl {
+    pub engine: String,
+    pub url: String,
+}
+
 /// Opaque engine config from the profile `plugin_config` JSON bag + secrets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

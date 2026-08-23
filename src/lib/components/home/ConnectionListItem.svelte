@@ -24,6 +24,7 @@
 		query?: string
 		onclick?: () => void
 		ondblclick?: () => void
+		oncontextmenu?: (e: MouseEvent) => void
 	}
 
 	let {
@@ -33,6 +34,7 @@
 		query = '',
 		onclick,
 		ondblclick,
+		oncontextmenu,
 	}: Props = $props()
 
 	const hex = $derived(colorHex(connection.colorId))
@@ -84,11 +86,12 @@
 	style="--connection-color: {hex}"
 	{onclick}
 	{ondblclick}
+	{oncontextmenu}
 	aria-current={selected ? 'true' : undefined}
 	aria-busy={connecting || undefined}
 	title="{engineLabel(
 		connection.engine,
-	)} · Click to select · Double-click to connect"
+	)} · Click to select · Double-click to connect · Right-click for actions"
 >
 	<span
 		class={cn(

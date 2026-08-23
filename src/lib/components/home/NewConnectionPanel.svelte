@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		Alert,
-		Badge,
 		Button,
 		ContentPanel,
 		Field,
@@ -14,7 +13,6 @@
 		Textarea,
 	} from '$lib/components/core'
 	import ColorSwatchGroup from './ColorSwatchGroup.svelte'
-	import EngineBadge from './EngineBadge.svelte'
 	import {
 		CONNECTION_COLORS,
 		ENGINE_OPTIONS,
@@ -129,9 +127,9 @@
 		}
 	})
 
-	/** Switching engine on create resets engine-specific fields, keeps shared ones. */
+	/** Switching engine resets engine-specific fields, keeps shared ones. */
 	function onEngineChange(next: string) {
-		if (next === engine || isEdit) return
+		if (next === engine) return
 		const kept = {
 			name,
 			colorId,
@@ -227,26 +225,12 @@
 		<Stack gap="md">
 			<FormGrid>
 				<Field label="Database engine">
-					{#if isEdit}
-						<div
-							class="flex h-control items-center gap-2 rounded-md border border-line bg-input px-2.5"
-						>
-							<EngineBadge {engine} size="md" />
-							<span class="text-body font-medium text-fg">
-								{selectedEngine?.name ?? engine}
-							</span>
-							<Badge tone="neutral" size="sm">
-								{selectedEngine?.queryLanguage ?? '—'}
-							</Badge>
-						</div>
-					{:else}
-						<Select
-							id="conn-engine"
-							value={engine}
-							options={engineOptions}
-							onchange={onEngineChange}
-						/>
-					{/if}
+					<Select
+						id="conn-engine"
+						value={engine}
+						options={engineOptions}
+						onchange={onEngineChange}
+					/>
 				</Field>
 
 				<Field label="Environment">
@@ -294,6 +278,7 @@
 					bind:readOnly
 					{isEdit}
 					passwordSet={!!initial?.passwordSet}
+					disabled={saving || testing}
 				/>
 			{:else}
 				<PostgresFields
@@ -306,6 +291,7 @@
 					bind:readOnly
 					{isEdit}
 					passwordSet={!!initial?.passwordSet}
+					disabled={saving || testing}
 				/>
 			{/if}
 

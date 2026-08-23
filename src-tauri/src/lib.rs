@@ -311,6 +311,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // engines / connection pools
             ipc::engines::list_engines,
+            ipc::engines::parse_engine_connection_url,
+            ipc::engines::format_engine_connection_url,
             ipc::engines::test_engine_connection,
             ipc::engines::open_engine_session,
             ipc::engines::close_engine_session,

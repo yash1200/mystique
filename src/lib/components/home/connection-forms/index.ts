@@ -1,3 +1,4 @@
+export { default as ImportConnectionUrl } from './ImportConnectionUrl.svelte'
 export { default as MongodbFields } from './MongodbFields.svelte'
 export { default as MysqlFields } from './MysqlFields.svelte'
 export { default as PostgresFields } from './PostgresFields.svelte'

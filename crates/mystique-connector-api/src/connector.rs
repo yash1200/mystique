@@ -5,7 +5,7 @@ use crate::catalog::{
     CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo, FetchTablePreviewInput,
     TablePreviewResult,
 };
-use crate::config::ConnectionConfig;
+use crate::config::{ConnectionConfig, FormattedConnectionUrl, ParsedConnectionUrl};
 use crate::edits::{ApplyTableEditsInput, ApplyTableEditsResult};
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
@@ -33,6 +33,33 @@ pub trait DatabaseConnector: Send + Sync {
 
     fn capabilities(&self) -> EngineCapabilities;
     fn connection_form_schema(&self) -> ConnectionFormSchema;
+
+    /// Parse a connection URL into discrete `plugin_config` fields.
+    ///
+    /// Default: not supported. Network engines (postgres, mysql, …) override
+    /// this using their driver’s URL parser so the FE can import URLs without
+    /// reimplementing scheme rules.
+    fn parse_connection_url(&self, url: &str) -> ConnectorResult<ParsedConnectionUrl> {
+        let _ = url;
+        Err(crate::ConnectorError::NotSupported(format!(
+            "connection URL import is not supported for engine `{}`",
+            self.id()
+        )))
+    }
+
+    /// Format discrete `plugin_config` (+ password) into a connection URL.
+    ///
+    /// Default: not supported. Inverse of [`DatabaseConnector::parse_connection_url`].
+    fn format_connection_url(
+        &self,
+        config: &ConnectionConfig,
+    ) -> ConnectorResult<FormattedConnectionUrl> {
+        let _ = config;
+        Err(crate::ConnectorError::NotSupported(format!(
+            "connection URL export is not supported for engine `{}`",
+            self.id()
+        )))
+    }
 
     fn descriptor(&self) -> EngineDescriptor {
         let caps = self.capabilities();

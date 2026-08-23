@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { ensureEngineSession, testEngineConnection } from '$lib/api/engines'
+	import {
+		ensureEngineSession,
+		formatEngineConnectionUrl,
+		testEngineConnection,
+	} from '$lib/api/engines'
 	import {
 		deleteProfile,
 		listProfiles,
@@ -25,7 +29,9 @@
 		pluginConfigFromDraft,
 		saveInputFromDraft,
 	} from '$lib/types/connection'
+	import type { ConnectionMenuAction } from '$lib/components/home/ConnectionSidebar.svelte'
 	import { setAppTitle } from '$lib/utils/appTitle'
+	import { copyTextToClipboard } from '$lib/utils/exportTable'
 	import { onMount } from 'svelte'
 
 	type ToastState = {
@@ -132,8 +138,16 @@
 
 	function startEdit() {
 		if (!selected) return
-		editing = true
+		editConnection(selected.id)
+	}
+
+	function editConnection(id: string) {
+		const profile = connections.find((c) => c.id === id)
+		if (!profile) return
+		selectedId = id
+		appPrefs.setLastConnectionId(id)
 		creating = false
+		editing = true
 		testResult = null
 	}
 
@@ -249,9 +263,101 @@
 	/** In-app confirm — `window.confirm` often opens *behind* the Tauri window on macOS. */
 	let pendingDelete = $state<{ id: string; name: string } | null>(null)
 
+	function requestDeleteConnection(id: string) {
+		if (deleting) return
+		const profile = connections.find((c) => c.id === id)
+		if (!profile) return
+		pendingDelete = { id: profile.id, name: profile.name }
+	}
+
 	function requestDeleteSelected() {
 		if (!selected || deleting) return
-		pendingDelete = { id: selected.id, name: selected.name }
+		requestDeleteConnection(selected.id)
+	}
+
+	async function duplicateConnection(id: string) {
+		const profile = connections.find((c) => c.id === id)
+		if (!profile) return
+		try {
+			saving = true
+			const cfg = { ...(profile.pluginConfig ?? {}) }
+			const saved = await saveProfile({
+				id: null,
+				name: `${profile.name}-copy`,
+				engine: String(profile.engine),
+				colorId: profile.colorId,
+				environment: profile.environment,
+				readOnly: profile.readOnly,
+				notes: profile.notes ?? null,
+				pluginConfig: cfg,
+				password: profile.password ?? null,
+			})
+			await refreshList(saved.id)
+			showToast('success', `Duplicated as “${saved.name}”.`)
+		} catch (err) {
+			showToast('danger', err instanceof Error ? err.message : String(err))
+		} finally {
+			saving = false
+		}
+	}
+
+	async function copyConnectionUrl(id: string) {
+		const profile = connections.find((c) => c.id === id)
+		if (!profile) return
+		if (!isTauri()) {
+			showToast(
+				'warning',
+				'Copy connection URL needs the desktop app (`npm run tauri dev`).',
+			)
+			return
+		}
+		try {
+			const password = profile.password?.trim() || null
+			const formatted = await formatEngineConnectionUrl({
+				engine: String(profile.engine),
+				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
+				password,
+			})
+			const url = formatted.url?.trim()
+			if (!url) {
+				showToast('warning', 'No connection URL available for this profile.')
+				return
+			}
+			const result = await copyTextToClipboard(url)
+			if (result.ok) {
+				showToast('success', 'Connection URL copied.')
+			} else if (!result.cancelled) {
+				showToast('danger', result.error || 'Could not copy connection URL.')
+			}
+		} catch (err) {
+			showToast('danger', err instanceof Error ? err.message : String(err))
+		}
+	}
+
+	function handleConnectionAction(action: ConnectionMenuAction, id: string) {
+		if (action === 'view') {
+			selectConnection(id)
+			return
+		}
+		if (action === 'connect') {
+			void connectById(id)
+			return
+		}
+		if (action === 'edit') {
+			editConnection(id)
+			return
+		}
+		if (action === 'duplicate') {
+			void duplicateConnection(id)
+			return
+		}
+		if (action === 'delete') {
+			requestDeleteConnection(id)
+			return
+		}
+		if (action === 'copy-url') {
+			void copyConnectionUrl(id)
+		}
 	}
 
 	function cancelPendingDelete() {
@@ -294,27 +400,7 @@
 
 	async function duplicateSelected() {
 		if (!selected) return
-		try {
-			saving = true
-			const cfg = { ...(selected.pluginConfig ?? {}) }
-			const saved = await saveProfile({
-				id: null,
-				name: `${selected.name}-copy`,
-				engine: String(selected.engine),
-				colorId: selected.colorId,
-				environment: selected.environment,
-				readOnly: selected.readOnly,
-				notes: selected.notes ?? null,
-				pluginConfig: cfg,
-				password: selected.password ?? null,
-			})
-			await refreshList(saved.id)
-			showToast('success', `Duplicated as “${saved.name}”.`)
-		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
-		} finally {
-			saving = false
-		}
+		await duplicateConnection(selected.id)
 	}
 
 	async function openWorkspace(
@@ -454,6 +540,7 @@
 		onselect={selectConnection}
 		onnew={startCreate}
 		onconnect={connectById}
+		onaction={handleConnectionAction}
 		onrefresh={refreshConnections}
 		refreshing={listRefreshing}
 	/>
