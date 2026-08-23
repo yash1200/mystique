@@ -43,7 +43,7 @@ yarn -v
 
 ### 3. Rust (required for `tauri dev`)
 
-Install Rust via [rustup](https://rustup.rs/):
+Install Rust via [rustup](https://rustup.rs/). The repo `rust-toolchain.toml` pins **stable** and the Apple Silicon + Intel macOS targets (`aarch64-apple-darwin`, `x86_64-apple-darwin`); rustup installs those stdlibs the first time you run Cargo in this tree.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -58,7 +58,7 @@ cargo --version
 echo "$PATH" | tr ':' '\n' | grep cargo   # should show ~/.cargo/bin
 ```
 
-`yarn tauri` / `npm run tauri` uses `scripts/tauri.mjs`, which puts `~/.cargo/bin` on PATH so npm scripts find `cargo` even if your shell PATH is incomplete. It is Node-based so it works on Windows PowerShell without bash/WSL.
+`yarn tauri` / `npm run tauri` runs the official `@tauri-apps/cli`. Cargo must be on `PATH` in the same terminal (`~/.cargo/bin` or `%USERPROFILE%\.cargo\bin`).
 
 ### 4. Platform dependencies (Tauri)
 
@@ -86,7 +86,7 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
 - [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (usually preinstalled on Windows 10/11)
 - Rust via [rustup](https://rustup.rs/) for **Windows** (MSVC toolchain). After install, open a **new** PowerShell/terminal so `cargo` is on `PATH`.
 
-You do **not** need WSL or Git Bash to run `yarn tauri dev`. The launcher is Node-based (`scripts/tauri.mjs`). Avoid relying on the Windows `bash` shim if it points at a broken/minimal WSL distro.
+You do **not** need WSL or Git Bash to run `yarn tauri dev`. Use PowerShell.
 
 Verify in PowerShell:
 
@@ -161,13 +161,41 @@ yarn check:watch
 
 ## Build
 
-Create a production desktop build:
+Create a production desktop build for the machine you are on ([Tauri DMG guide](https://v2.tauri.app/distribute/dmg/)):
 
 ```bash
 yarn tauri build
 ```
 
-Bundles are written under `src-tauri/target/release/bundle/` (format depends on OS: `.dmg` / `.app` on macOS, `.deb` / `.AppImage` on Linux, `.msi` / `.exe` on Windows).
+On an Apple Silicon Mac that is only the `aarch64` bundle. The Intel std target is listed in `rust-toolchain.toml`, so rustup installs it automatically.
+
+```bash
+# Intel Mac (cross-compiled from Apple Silicon)
+yarn tauri:build:x86
+
+# Apple Silicon, written under target/aarch64-apple-darwin/ instead of target/release/
+yarn tauri build -- --target aarch64-apple-darwin
+
+# one fat .app / .dmg that runs on both CPUs
+yarn tauri build -- --target universal-apple-darwin
+
+# Windows (.msi / .exe) — run this on a Windows machine
+yarn tauri:build:windows
+```
+
+Windows bundles need the MSVC toolchain and WebView2; Tauri does not produce them from macOS. On Windows, `yarn tauri build` is enough if you only ship x64 — `yarn tauri:build:windows` is the same target, explicit.
+
+Bundles:
+
+| Command | Output |
+| --- | --- |
+| `yarn tauri build` (Apple Silicon host) | `target/release/bundle/` — `*_aarch64.dmg` |
+| `--target aarch64-apple-darwin` | `target/aarch64-apple-darwin/release/bundle/` |
+| `yarn tauri:build:x86` | `target/x86_64-apple-darwin/release/bundle/` |
+| `--target universal-apple-darwin` | `target/universal-apple-darwin/release/bundle/` |
+| `yarn tauri:build:windows` | `target/x86_64-pc-windows-msvc/release/bundle/` |
+
+Formats: `.dmg` / `.app` on macOS, `.deb` / `.AppImage` on Linux, `.msi` / `.exe` on Windows.
 
 ## Project structure
 
@@ -204,13 +232,17 @@ Living docs: [`docs/DESIGN_LANGUAGE.md`](docs/DESIGN_LANGUAGE.md) · [`docs/BACK
 | `yarn preview`     | Preview production frontend build                |
 | `yarn check`       | Svelte / TypeScript type check                   |
 | `yarn tauri dev`   | Full desktop app in development mode             |
-| `yarn tauri build` | Production desktop bundle                        |
+| `yarn tauri build` | Production desktop bundle (host architecture)    |
+| `yarn tauri:build:x86` | Intel Mac bundle (`x86_64-apple-darwin`) |
+| `yarn tauri:build:windows` | Windows x64 bundle (`x86_64-pc-windows-msvc`; run on Windows) |
+| `yarn tauri build -- --target universal-apple-darwin` | One universal (fat) macOS binary |
 
 ## Troubleshooting
 
 - **Port 1420 already in use** — stop any process on that port, or change `server.port` in `vite.config.js` and `build.devUrl` in `src-tauri/tauri.conf.json` together.
 - **Rust compile errors on first run** — ensure platform dependencies (step 4) are installed; the first compile can take several minutes.
+- **`Target x86_64-apple-darwin is not installed`** — rustup should pick this up from `rust-toolchain.toml`. If not: `rustup target add x86_64-apple-darwin`.
 - **`yarn` not found** — install Yarn globally with `npm install -g yarn`, or use `corepack enable` if you prefer Corepack.
-- **`bash` / WSL error on `yarn tauri dev`** — scripts must use `node scripts/tauri.mjs` (not `bash scripts/tauri.sh`). On Windows, system `bash` often launches WSL; a missing `/bin/bash` in the distro fails the script. Pull latest main or run `npx tauri dev` as a workaround. See GitLab [#69](https://nova.teachx.ai/trace-analysis/mystique-db/-/issues/69).
 - **`EBUSY: resource busy or locked, watch ...\target\...\*.dll`** — Vite was watching Cargo build output under the workspace `target/` directory. `vite.config.js` ignores `**/target/**` (and `**/src-tauri/**`). Pull latest or ensure those `server.watch.ignored` entries are present, then restart `yarn tauri dev`.
-- **`cargo not found` from yarn scripts** — ensure `%USERPROFILE%\.cargo\bin` (Windows) or `~/.cargo/bin` (Unix) is on PATH in the same terminal. `scripts/tauri.mjs` prepends that path automatically when present.
+- **`cargo not found` from yarn scripts** — ensure `%USERPROFILE%\.cargo\bin` (Windows) or `~/.cargo/bin` (Unix) is on PATH in the same terminal (open a new one after installing Rust).
+- **Linux WebKit MESA/EGL spam or 1× scale on large monitors** — export `WEBKIT_DISABLE_DMABUF_RENDERER=1` (and `XCURSOR_SIZE=16` if the cursor is huge). On machines with no DRM GPU, also `LIBGL_ALWAYS_SOFTWARE=1`.

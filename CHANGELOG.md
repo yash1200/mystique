@@ -12,6 +12,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - Product documentation set (PRD, architecture, features, design language, kanban)
 - Per-engine query policy SPI design (read default, write opt-in, DELETE blocked)
 - V1 target engines: PostgreSQL, MongoDB, MySQL
+- macOS Intel (`x86_64-apple-darwin`) rustup target in `rust-toolchain.toml` so Apple Silicon and Intel (or universal) DMGs can be built from one Mac via `tauri build --target`
 
 ### Changed
 

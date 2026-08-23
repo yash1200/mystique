@@ -26,7 +26,7 @@ yarn tauri dev        # full desktop app (macOS / Linux / Windows)
 yarn dev              # frontend only (no Tauri APIs)
 ```
 
-Windows: use PowerShell with Node, Yarn, and the MSVC Rust toolchain. You do not need WSL/bash for `yarn tauri` — scripts use `scripts/tauri.mjs`. Details: [README](./README.md). Related: GitLab [#69](https://nova.teachx.ai/trace-analysis/mystique-db/-/issues/69).
+Windows: use PowerShell with Node, Yarn, and the MSVC Rust toolchain. You do not need WSL or Git Bash for `yarn tauri`. Details: [README](./README.md).
 
 Typecheck:
 

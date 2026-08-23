@@ -1,0 +1,6 @@
+# rustup installs these std targets automatically when you enter the repo.
+# aarch64 is the native Apple Silicon host; x86_64 is Intel Mac (cross-compiled
+# from Apple Silicon with the macOS SDK — no second machine needed).
+[toolchain]
+channel = "stable"
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
