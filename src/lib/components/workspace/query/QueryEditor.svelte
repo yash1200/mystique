@@ -319,7 +319,8 @@
 	>
 		<span class="flex min-w-0 flex-1 items-center gap-2 truncate">
 			<span class="font-mono text-caption tabular-nums text-fg-muted">
-				{lineCount} {lineCount === 1 ? 'line' : 'lines'}
+				{lineCount}
+				{lineCount === 1 ? 'line' : 'lines'}
 			</span>
 			<span class="font-mono text-caption tabular-nums text-fg-muted">
 				{localText.length.toLocaleString()} chars

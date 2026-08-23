@@ -173,9 +173,7 @@
 					<Icon name="code" class="size-4 text-fg-muted" />
 				</span>
 				<p class="m-0 text-label font-medium text-fg">No query run yet</p>
-				<p
-					class="mt-1 mb-0 flex items-center gap-1 text-caption text-fg-muted"
-				>
+				<p class="mt-1 mb-0 flex items-center gap-1 text-caption text-fg-muted">
 					Press
 					<Kbd>{runMod}</Kbd>
 					<Kbd>Enter</Kbd>

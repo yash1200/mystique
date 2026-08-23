@@ -52,9 +52,7 @@
 				rel="external noreferrer"
 				class="text-accent underline-offset-2 hover:underline"
 				>{@render inlineNodes(node.children)}</a
-			>{:else if node.type === 'link'}{@render inlineNodes(
-				node.children,
-			)}{/if}
+			>{:else if node.type === 'link'}{@render inlineNodes(node.children)}{/if}
 	{/each}
 {/snippet}
 

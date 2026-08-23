@@ -14,7 +14,13 @@
 		onApply?: (sql: string) => void
 	}
 
-	let { code, lang = '', engine: _engine, compact = false, onApply }: Props = $props()
+	let {
+		code,
+		lang = '',
+		engine: _engine,
+		compact = false,
+		onApply,
+	}: Props = $props()
 
 	const resolvedLang = $derived(inferFenceLang(lang, code))
 	const display = $derived(code.endsWith('\n') ? code : `${code}\n`)

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { labradorRest, labradorSit } from '$illustrations'
 	import {
 		deleteAgentChat,
 		getAiSettings,
@@ -13,7 +14,6 @@
 		type AiSettingsView,
 	} from '$lib/api/agent'
 	import { isTauri } from '$lib/api/tauri'
-	import { labradorRest, labradorSit } from '$illustrations'
 	import {
 		Alert,
 		Button,
@@ -578,7 +578,7 @@
 	>
 		<span
 			class={cn(
-				'pointer-events-none h-10 w-0.5 rounded-full bg-line-strong opacity-0 transition-opacity duration-150 [transition-timing-function:var(--ease-out)]',
+				'pointer-events-none h-10 w-0.5 rounded-full bg-line-strong opacity-0 transition-opacity duration-150 ease-out',
 				'group-hover:opacity-100 group-focus-visible:opacity-100',
 				dragging && 'bg-accent opacity-100',
 			)}
@@ -640,7 +640,7 @@
 
 	<div class="relative flex min-h-0 flex-1 flex-col bg-app">
 		<div
-			class="pointer-events-none absolute inset-x-0 top-0 z-1 h-4 bg-gradient-to-b from-app to-transparent"
+			class="pointer-events-none absolute inset-x-0 top-0 z-1 h-4 bg-linear-to-b from-app to-transparent"
 			aria-hidden="true"
 		></div>
 		<div
@@ -651,22 +651,26 @@
 			)}
 		>
 			{#if !desktop}
-				<div class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center">
+				<div
+					class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center"
+				>
 					<span
 						class="grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line"
 						aria-hidden="true"
 					>
 						<Icon name="chat" class="size-5" />
 					</span>
-					<p class="mt-3 mb-0 text-body font-semibold text-fg">
-						Desktop only
-					</p>
-					<p class="mt-1.5 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
+					<p class="mt-3 mb-0 text-body font-semibold text-fg">Desktop only</p>
+					<p
+						class="mt-1.5 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted"
+					>
 						The agent runs in the Mystique desktop app, next to the editor.
 					</p>
 				</div>
 			{:else if settings && !settings.enabled}
-				<div class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center">
+				<div
+					class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center"
+				>
 					<span
 						class="grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line"
 						aria-hidden="true"
@@ -674,7 +678,9 @@
 						<Icon name="settings" class="size-5" />
 					</span>
 					<p class="mt-3 mb-0 text-body font-semibold text-fg">Agent is off</p>
-					<p class="mt-1.5 mb-3 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
+					<p
+						class="mt-1.5 mb-3 max-w-prose-ui text-caption leading-relaxed text-fg-muted"
+					>
 						Turn it on and add a provider key in Settings.
 					</p>
 					<Button size="sm" onclick={() => appSettingsUi.show('ai')}>
@@ -690,7 +696,9 @@
 						>
 							<Icon name="chat" class="size-5" />
 						</span>
-						<p class="mt-3 mb-0 text-pretty text-body-lg font-semibold tracking-tight text-fg">
+						<p
+							class="mt-3 mb-0 text-pretty text-body-lg font-semibold tracking-tight text-fg"
+						>
 							Ask in the language of the schema
 						</p>
 						<p class="mt-1.5 mb-0 text-caption leading-relaxed text-fg-muted">
@@ -702,7 +710,7 @@
 								<li>
 									<button
 										type="button"
-										class="flex w-full items-start gap-2 rounded-lg border border-line bg-elevated px-2.5 py-2 text-left transition-[border-color,background-color,transform] duration-150 [transition-timing-function:var(--ease-out)] hover:border-line-strong hover:bg-hover enabled:active:scale-[0.99]"
+										class="flex w-full items-start gap-2 rounded-lg border border-line bg-elevated px-2.5 py-2 text-left transition-[border-color,background-color,transform] duration-150 ease-out hover:border-line-strong hover:bg-hover enabled:active:scale-[0.99]"
 										onclick={() => useStarter(starter.text)}
 									>
 										<Icon name={starter.icon} class="mt-0.5 text-accent" />
@@ -741,7 +749,7 @@
 							<li class="self-stretch">
 								<button
 									type="button"
-									class="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors duration-150 [transition-timing-function:var(--ease-out)] hover:bg-hover"
+									class="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors duration-150 ease-out hover:bg-hover"
 									aria-expanded={openTools[msg.id] === true}
 									onclick={() => toggleTool(msg.id)}
 								>
@@ -754,7 +762,7 @@
 									<Icon
 										name="chevron-down"
 										class={cn(
-											'text-fg-muted transition-transform duration-150 [transition-timing-function:var(--ease-out)]',
+											'text-fg-muted transition-transform duration-150 ease-out',
 											openTools[msg.id] && 'rotate-180',
 										)}
 									/>
