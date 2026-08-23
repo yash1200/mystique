@@ -1,10 +1,9 @@
 # MystiqueDB — Local SQLite Schema
 
 > **Status:** Canonical app-metadata schema  
-> **Migration SQL:** [`crates/mystique-core/migrations/001_init.sql`](../crates/mystique-core/migrations/001_init.sql)  
+> **Schema SQL:** [`crates/mystique-core/migrations/001_init.sql`](../crates/mystique-core/migrations/001_init.sql)  
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md)  
-> **Agent chats:** migration `004_agent_chats.sql`  
-> **Last updated:** 2026-08-22
+> **Last updated:** 2026-08-23
 
 This document describes the **local SQLite database** used by the MystiqueDB desktop app to persist connection profiles, saved queries, history, and settings.
 
@@ -18,9 +17,9 @@ It is **not** the user’s remote database (Postgres, Mongo, Redis, …). Those 
 | ---- | -------- |
 | Support many engines now and later | `engine` + `plugin_config` JSON — no host/port-only lock-in |
 | Safe secrets | OS keychain via `secret_ref`; never store passwords in SQLite |
-| Saved queries per connection | `query_groups` + `saved_queries` with FK cascade |
+| Saved queries per connection | `saved_queries` with FK cascade |
 | Query history | Append-only `query_history` with retention in app code |
-| Simple migrations | Versioned `schema_migrations` + SQL files under `crates/mystique-core/migrations/` |
+| Simple schema | Baseline `001_init.sql` applied once on first launch |
 | Avoid Beekeeper-style column sprawl | One options bag (`plugin_config`), not N× `fooOptions` columns |
 
 ---
@@ -374,7 +373,7 @@ Never returned by `list_settings`. Decrypt only in `mystique-agent`.
 
 ### 5.9 `agent_chats` / `agent_messages`
 
-Query-tab agent threads, one connection, many chats. See `004_agent_chats.sql`.
+Query-tab agent threads, one connection, many chats. See `001_init.sql`.
 
 | Table | Role |
 | ----- | ---- |

@@ -17,7 +17,6 @@
 		showGrid: boolean
 		dbmlSourceMode: boolean
 		showDbml: boolean
-		saving: boolean
 		canZoomOut: boolean
 		canZoomIn: boolean
 		zoomLabel: string
@@ -31,8 +30,6 @@
 		onToggleGrid: () => void
 		onToggleDbmlEditor: () => void
 		onToggleDbml: () => void
-		onLoadLatest: () => void
-		onSave: () => void
 	}
 
 	let {
@@ -50,7 +47,6 @@
 		showGrid,
 		dbmlSourceMode,
 		showDbml,
-		saving,
 		canZoomOut,
 		canZoomIn,
 		zoomLabel,
@@ -64,8 +60,6 @@
 		onToggleGrid,
 		onToggleDbmlEditor,
 		onToggleDbml,
-		onLoadLatest,
-		onSave,
 	}: Props = $props()
 </script>
 
@@ -193,13 +187,6 @@
 				aria-pressed={showDbml}
 			>
 				{showDbml ? 'Hide DBML' : 'Show DBML'}
-			</Button>
-		{/if}
-		{#if !readOnly}
-			<Button variant="ghost" size="sm" onclick={onLoadLatest}>Load last</Button
-			>
-			<Button variant="primary" size="sm" onclick={onSave} disabled={saving}>
-				{saving ? 'Saving…' : 'Save'}
 			</Button>
 		{/if}
 	{/snippet}

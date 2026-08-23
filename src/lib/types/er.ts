@@ -46,15 +46,6 @@ export interface ErDiagramState {
   edges: ErEdge[];
 }
 
-export interface ErDiagramRecord {
-  id: string;
-  name: string;
-  family: DataFamily;
-  body: ErDiagramState;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export const SQL_TYPES = [
   "INTEGER",
   "BIGINT",

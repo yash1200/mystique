@@ -43,8 +43,11 @@ function parseBlocks(src: string): MdBlock[] {
 	const lines = src.split('\n')
 	const blocks: MdBlock[] = []
 	let i = 0
+	let steps = 0
+	const stepLimit = lines.length * 8 + 64
 
 	while (i < lines.length) {
+		if (++steps > stepLimit) break
 		const line = lines[i]
 		if (!line.trim()) {
 			i += 1

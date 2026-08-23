@@ -154,9 +154,9 @@
 
 	<div class="flex min-h-0 flex-1">
 		{#if activeSession && activeTab?.kind === 'query'}
-			{#key activeTab.id}
-				<div class="flex min-h-0 min-w-0 flex-1">
-					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+			<div class="flex min-h-0 min-w-0 flex-1">
+				<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+					{#key activeTab.id}
 						<QueryCanvas
 							tabId={activeTab.id}
 							connectionId={activeSession.profile.id}
@@ -175,23 +175,23 @@
 							onsave={onsavequery}
 							{onreconnect}
 						/>
-					</div>
-					{#if appPrefs.agentChatOpen}
-						<div
-							class="flex h-full shrink-0"
-							style="width: {appPrefs.agentChatPanelWidth}px"
-						>
-							<AgentChatPane
-								tabId={activeTab.id}
-								connectionId={activeSession.profile.id}
-								connectionName={activeSession.profile.name}
-								engine={String(activeSession.profile.engine)}
-								database={currentDatabaseName}
-							/>
-						</div>
-					{/if}
+					{/key}
 				</div>
-			{/key}
+				{#if appPrefs.agentChatOpen}
+					<div
+						class="flex h-full shrink-0"
+						style="width: {appPrefs.agentChatPanelWidth}px"
+					>
+						<AgentChatPane
+							tabId={activeTab.id}
+							connectionId={activeSession.profile.id}
+							connectionName={activeSession.profile.name}
+							engine={String(activeSession.profile.engine)}
+							database={currentDatabaseName}
+						/>
+					</div>
+				{/if}
+			</div>
 		{:else if activeSession && activeTab?.kind === 'model'}
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 				{#if modelError}

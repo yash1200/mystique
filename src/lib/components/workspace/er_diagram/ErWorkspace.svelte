@@ -3,12 +3,6 @@
 	 * ER canvas orchestrator — live (read-only chrome) or designer.
 	 * Geometry: `erGeometry`. Layout: `erLayout`. Chrome: sibling panes.
 	 */
-	import {
-		listDiagrams,
-		saveDiagram,
-		type ErDiagramRecord,
-	} from '$lib/api/diagrams'
-	import { isTauri } from '$lib/api/tauri'
 	import { ContextMenu } from '$lib/components/core'
 	import type {
 		DataFamily,
@@ -99,13 +93,11 @@
 	})
 
 	let diagram = $state<ErDiagramState | null>(null)
-	let diagramId = $state<string | null>(null)
 	let diagramName = $state('Untitled diagram')
 	/** Multi-select table ids (order = selection order; last is primary for editing). */
 	let selectedTableIds = $state<string[]>([])
 	let selectedEdgeId = $state<string | null>(null)
 	let toolMsg = $state<string | null>(null)
-	let saving = $state(false)
 	let dirty = $state(false)
 	let showGrid = $state(true)
 	/**
@@ -258,7 +250,6 @@
 			toolMsg =
 				'DBML editor (left) builds the diagram from text · Show DBML for a copyable export.'
 		}
-		diagramId = null
 		selectedTableIds = []
 		selectedEdgeId = null
 		arrowTool = null
@@ -1463,77 +1454,6 @@
 		}
 	}
 
-	async function handleSave() {
-		if (!diagram) return
-		saving = true
-		try {
-			if (!isTauri()) {
-				const key = 'mystique-er-diagrams'
-				const raw = localStorage.getItem(key)
-				const list: ErDiagramRecord[] = raw ? JSON.parse(raw) : []
-				const now = new Date().toISOString()
-				const id = diagramId ?? uid('d')
-				const rec: ErDiagramRecord = {
-					id,
-					name: diagramName.trim() || 'Untitled',
-					family,
-					body: diagram,
-					createdAt: list.find((r) => r.id === id)?.createdAt ?? now,
-					updatedAt: now,
-				}
-				localStorage.setItem(
-					key,
-					JSON.stringify([rec, ...list.filter((r) => r.id !== id)]),
-				)
-				diagramId = id
-				dirty = false
-				toolMsg = 'Saved locally (browser).'
-				return
-			}
-			const saved = await saveDiagram({
-				id: diagramId,
-				name: diagramName.trim() || 'Untitled',
-				family,
-				body: diagram,
-			})
-			diagramId = saved.id
-			dirty = false
-			toolMsg = `Saved “${saved.name}”.`
-		} catch (e) {
-			toolMsg = e instanceof Error ? e.message : String(e)
-		} finally {
-			saving = false
-		}
-	}
-
-	async function handleLoadLatest() {
-		try {
-			let list: ErDiagramRecord[] = []
-			if (isTauri()) {
-				list = await listDiagrams(family)
-			} else {
-				const raw = localStorage.getItem('mystique-er-diagrams')
-				list = (raw ? JSON.parse(raw) : []).filter(
-					(r: ErDiagramRecord) => r.family === family,
-				)
-			}
-			if (!list.length) {
-				toolMsg = 'No saved diagrams yet.'
-				return
-			}
-			const rec = list[0]!
-			diagram = rec.body
-			diagramId = rec.id
-			diagramName = rec.name
-			dirty = false
-			selectedTableIds = []
-			selectedEdgeId = null
-			clearHistory()
-			toolMsg = `Loaded “${rec.name}”.`
-		} catch (e) {
-			toolMsg = e instanceof Error ? e.message : String(e)
-		}
-	}
 </script>
 
 <svelte:window
@@ -1684,7 +1604,6 @@
 		{showGrid}
 		{dbmlSourceMode}
 		{showDbml}
-		{saving}
 		{canZoomOut}
 		{canZoomIn}
 		{zoomLabel}
@@ -1698,8 +1617,6 @@
 		onToggleGrid={toggleGrid}
 		onToggleDbmlEditor={toggleDbmlSourceEditor}
 		onToggleDbml={toggleDbml}
-		onLoadLatest={() => void handleLoadLatest()}
-		onSave={() => void handleSave()}
 	/>
 </div>
 

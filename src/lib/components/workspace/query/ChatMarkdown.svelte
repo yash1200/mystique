@@ -1,9 +1,8 @@
 <script lang="ts">
-	import type { MdBlock } from '$lib/utils/chatMarkdown'
+	import type { MdBlock, MdInline } from '$lib/utils/chatMarkdown'
 	import { parseChatMarkdown } from '$lib/utils/chatMarkdown'
 	import { cn } from '$lib/utils/cn'
 	import ChatCodeBlock from './ChatCodeBlock.svelte'
-	import ChatMdInline from './ChatMdInline.svelte'
 
 	interface Props {
 		source?: string
@@ -22,34 +21,66 @@
 		onApply,
 	}: Props = $props()
 
-	const tree = $derived(blocks ?? parseChatMarkdown(source))
+	const text = $derived(String(source ?? ''))
+	const tree = $derived.by((): MdBlock[] => {
+		if (blocks) return blocks
+		try {
+			return parseChatMarkdown(text)
+		} catch {
+			return text.trim()
+				? [{ type: 'p', children: [{ type: 'text', value: text }] }]
+				: []
+		}
+	})
 </script>
 
-<div class={cn('flex min-w-0 flex-col', compact ? 'gap-1.5' : 'gap-2')}>
-	{#each tree as block, i (i)}
+{#snippet inlineNodes(nodes: MdInline[])}
+	{#each nodes ?? [] as node, i (i)}
+		{#if node.type === 'text'}{node.value}{:else if node.type === 'break'}<br
+			/>{:else if node.type === 'code'}<code
+				class="rounded-sm bg-input px-1 py-px font-mono text-caption text-syntax-name"
+				>{node.value}</code
+			>{:else if node.type === 'strong'}<strong class="font-semibold text-fg"
+				>{@render inlineNodes(node.children)}</strong
+			>{:else if node.type === 'em'}<em class="italic"
+				>{@render inlineNodes(node.children)}</em
+			>{:else if node.type === 'del'}<s class="text-fg-secondary"
+				>{@render inlineNodes(node.children)}</s
+			>{:else if node.type === 'link' && node.href}<a
+				href={node.href}
+				target="_blank"
+				rel="external noreferrer"
+				class="text-accent underline-offset-2 hover:underline"
+				>{@render inlineNodes(node.children)}</a
+			>{:else if node.type === 'link'}{@render inlineNodes(
+				node.children,
+			)}{/if}
+	{/each}
+{/snippet}
+
+{#snippet blockTree(items: MdBlock[])}
+	{#each items ?? [] as block, i (i)}
 		{#if block.type === 'p'}
 			<p
 				class={cn(
-					'm-0 min-w-0 wrap-break-word text-fg',
-					compact ? 'text-label' : 'text-body',
+					'm-0 min-w-0 wrap-break-word text-pretty text-fg',
+					compact ? 'text-label leading-relaxed' : 'text-body leading-relaxed',
 				)}
 			>
-				<ChatMdInline nodes={block.children} />
+				{@render inlineNodes(block.children)}
 			</p>
 		{:else if block.type === 'h'}
 			{#if block.level === 1}
 				<h3 class="m-0 text-body-lg font-semibold tracking-tight text-fg">
-					<ChatMdInline nodes={block.children} />
+					{@render inlineNodes(block.children)}
 				</h3>
 			{:else if block.level === 2}
 				<h4 class="m-0 text-body font-semibold text-fg">
-					<ChatMdInline nodes={block.children} />
+					{@render inlineNodes(block.children)}
 				</h4>
 			{:else}
-				<h5
-					class="m-0 text-label font-semibold tracking-wide text-fg-secondary uppercase"
-				>
-					<ChatMdInline nodes={block.children} />
+				<h5 class="m-0 text-label font-semibold tracking-tight text-fg">
+					{@render inlineNodes(block.children)}
 				</h5>
 			{/if}
 		{:else if block.type === 'code'}
@@ -64,12 +95,7 @@
 			<ul class="m-0 list-disc space-y-1 p-0 pl-4 marker:text-fg-muted">
 				{#each block.items as item, j (j)}
 					<li class="min-w-0 pl-0.5">
-						<ChatMarkdown
-							blocks={item.children.length ? item.children : []}
-							{engine}
-							{compact}
-							{onApply}
-						/>
+						{@render blockTree(item.children)}
 					</li>
 				{/each}
 			</ul>
@@ -80,23 +106,18 @@
 			>
 				{#each block.items as item, j (j)}
 					<li class="min-w-0 pl-0.5">
-						<ChatMarkdown
-							blocks={item.children.length ? item.children : []}
-							{engine}
-							{compact}
-							{onApply}
-						/>
+						{@render blockTree(item.children)}
 					</li>
 				{/each}
 			</ol>
 		{:else if block.type === 'blockquote'}
 			<blockquote
-				class="m-0 border-l border-line-strong pl-2.5 text-fg-secondary"
+				class="m-0 border-l border-line-strong pl-3 text-fg-secondary"
 			>
-				<ChatMarkdown blocks={block.children} {engine} {compact} {onApply} />
+				{@render blockTree(block.children)}
 			</blockquote>
 		{:else if block.type === 'table'}
-			<div class="overflow-x-auto rounded-md border border-line">
+			<div class="overflow-x-auto rounded-lg border border-line">
 				<table class="w-full border-collapse text-left">
 					<thead class="bg-elevated">
 						<tr>
@@ -104,7 +125,7 @@
 								<th
 									class="border-b border-line px-2 py-1 text-caption font-semibold text-fg-secondary"
 								>
-									<ChatMdInline nodes={cell} />
+									{@render inlineNodes(cell)}
 								</th>
 							{/each}
 						</tr>
@@ -116,7 +137,7 @@
 									<td
 										class="border-t border-line px-2 py-1 font-mono text-caption text-fg"
 									>
-										<ChatMdInline nodes={cell} />
+										{@render inlineNodes(cell)}
 									</td>
 								{/each}
 							</tr>
@@ -128,4 +149,19 @@
 			<hr class="m-1 border-0 border-t border-line" />
 		{/if}
 	{/each}
+{/snippet}
+
+<div class={cn('flex min-w-0 flex-col', compact ? 'gap-1.5' : 'gap-2.5')}>
+	{#if tree.length}
+		{@render blockTree(tree)}
+	{:else if text.trim()}
+		<p
+			class={cn(
+				'm-0 min-w-0 whitespace-pre-wrap wrap-break-word text-fg',
+				compact ? 'text-label leading-relaxed' : 'text-body leading-relaxed',
+			)}
+		>
+			{text}
+		</p>
+	{/if}
 </div>

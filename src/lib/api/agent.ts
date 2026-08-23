@@ -53,6 +53,27 @@ export interface AgentMessage {
 	createdAt: string
 }
 
+function asId(value: unknown): string {
+	if (value == null) return ''
+	return String(value)
+}
+
+function normalizeChat(raw: AgentChat): AgentChat {
+	return {
+		...raw,
+		id: asId(raw.id),
+		connectionId: asId(raw.connectionId),
+	}
+}
+
+function normalizeMessage(raw: AgentMessage): AgentMessage {
+	return {
+		...raw,
+		id: asId(raw.id),
+		chatId: asId(raw.chatId),
+	}
+}
+
 export interface SendAgentResult {
 	chat: AgentChat
 	user: AgentMessage
@@ -104,7 +125,10 @@ export async function listAgentChats(
 	connectionId: string,
 ): Promise<AgentChat[]> {
 	requireDesktop()
-	return invoke('list_agent_chats', { connectionId })
+	const rows = await invoke<AgentChat[]>('list_agent_chats', {
+		connectionId: asId(connectionId),
+	})
+	return rows.map(normalizeChat)
 }
 
 export async function createAgentChat(input: {
@@ -114,7 +138,11 @@ export async function createAgentChat(input: {
 	model: string
 }): Promise<AgentChat> {
 	requireDesktop()
-	return invoke('create_agent_chat', { input })
+	return normalizeChat(
+		await invoke('create_agent_chat', {
+			input: { ...input, connectionId: asId(input.connectionId) },
+		}),
+	)
 }
 
 export async function updateAgentChat(input: {
@@ -124,19 +152,26 @@ export async function updateAgentChat(input: {
 	model?: string | null
 }): Promise<AgentChat> {
 	requireDesktop()
-	return invoke('update_agent_chat', { input })
+	return normalizeChat(
+		await invoke('update_agent_chat', {
+			input: { ...input, id: asId(input.id) },
+		}),
+	)
 }
 
 export async function deleteAgentChat(id: string): Promise<boolean> {
 	requireDesktop()
-	return invoke('delete_agent_chat', { id })
+	return invoke('delete_agent_chat', { id: asId(id) })
 }
 
 export async function listAgentMessages(
 	chatId: string,
 ): Promise<AgentMessage[]> {
 	requireDesktop()
-	return invoke('list_agent_messages', { chatId })
+	const rows = await invoke<AgentMessage[]>('list_agent_messages', {
+		chatId: asId(chatId),
+	})
+	return rows.map(normalizeMessage)
 }
 
 export async function sendAgentMessage(request: {
@@ -151,5 +186,16 @@ export async function sendAgentMessage(request: {
 	editorQuery?: string | null
 }): Promise<SendAgentResult> {
 	requireDesktop()
-	return invoke('send_agent_message', { request })
+	const result = await invoke<SendAgentResult>('send_agent_message', {
+		request: {
+			...request,
+			connectionId: asId(request.connectionId),
+			chatId: request.chatId ? asId(request.chatId) : request.chatId,
+		},
+	})
+	return {
+		chat: normalizeChat(result.chat),
+		user: normalizeMessage(result.user),
+		assistant: normalizeMessage(result.assistant),
+	}
 }

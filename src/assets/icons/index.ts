@@ -1,3 +1,4 @@
+import arrowUp from './arrow-up.svg?raw'
 import bookmark from './bookmark.svg?raw'
 import chat from './chat.svg?raw'
 import check from './check.svg?raw'
@@ -30,11 +31,14 @@ import sortNone from './sort-none.svg?raw'
 import sort from './sort.svg?raw'
 import structure from './structure.svg?raw'
 import table from './table.svg?raw'
+import trash from './trash.svg?raw'
 import view from './view.svg?raw'
 
 const files = {
 	plus,
 	close,
+	'arrow-up': arrowUp,
+	trash,
 	refresh,
 	help,
 	sort,

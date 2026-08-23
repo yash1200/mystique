@@ -44,7 +44,9 @@
   let menuStyle = $state("");
 
   const listId = $derived(id ? `${id}-listbox` : undefined);
-  const selected = $derived(options.find((o) => o.value === value));
+  const selected = $derived(
+    options.find((o) => String(o.value) === String(value)),
+  );
   const displayLabel = $derived(selected?.label ?? (value ? String(value) : placeholder));
   const showingPlaceholder = $derived(!selected && !value);
 
@@ -115,9 +117,9 @@
 
   function selectOption(opt: SelectOption) {
     if (opt.disabled) return;
-    const prev = value;
-    value = opt.value;
-    if (prev !== opt.value) onchange?.(opt.value);
+    const next = String(opt.value);
+    value = next;
+    onchange?.(next);
     closeMenu();
   }
 
@@ -283,7 +285,7 @@
       onkeydown={onListKeydown}
     >
       {#each options as opt, i (opt.value)}
-        {@const isSelected = opt.value === value}
+        {@const isSelected = String(opt.value) === String(value)}
         {@const isActive = i === highlighted}
         <li
           id={id ? `${id}-opt-${i}` : undefined}

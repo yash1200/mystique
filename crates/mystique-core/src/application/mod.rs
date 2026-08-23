@@ -6,7 +6,6 @@ mod agent_chat;
 mod agent_tools;
 mod ai_secrets;
 mod dbml;
-mod diagrams;
 mod history;
 mod profiles;
 mod query_library;
@@ -19,7 +18,6 @@ pub use agent_tools::{
     tool_specs, AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload,
     AgentToolSpec, AgentTools,
 };
-pub use diagrams::DiagramService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;
@@ -76,10 +74,6 @@ impl AppServices {
 
     pub fn settings(&self) -> SettingsService<'_> {
         SettingsService { db: &self.db }
-    }
-
-    pub fn diagrams(&self) -> DiagramService<'_> {
-        DiagramService { db: &self.db }
     }
 
     pub fn agent_chats(&self) -> AgentChatService<'_> {

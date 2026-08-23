@@ -1,12 +1,12 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value as JsonValue;
-use uuid::Uuid;
 
 use crate::domain::now_iso;
 use crate::domain::{
     is_placeholder_secret_ref, validate_environment, ConnectionProfile, SaveConnectionInput,
 };
 use crate::error::{AppError, AppResult};
+use crate::storage::sqlite::repositories::ids::{id_string, parse_id};
 
 /// Normalize stored secret: drop legacy keychain placeholders; keep real passwords.
 fn password_from_stored(secret_ref: Option<String>) -> Option<String> {
@@ -30,7 +30,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
     let read_only_i: i64 = row.get("read_only")?;
 
     Ok(ConnectionProfile {
-        id: row.get("id")?,
+        id: id_string(row, "id")?,
         name: row.get("name")?,
         engine: row.get("engine")?,
         color_id: row.get("color_id")?,
@@ -64,9 +64,10 @@ pub fn list_all(conn: &Connection) -> AppResult<Vec<ConnectionProfile>> {
 }
 
 pub fn get_by_id(conn: &Connection, id: &str) -> AppResult<ConnectionProfile> {
+    let id_n = parse_id(id)?;
     conn.query_row(
         &format!("SELECT {SELECT_COLS} FROM connections WHERE id = ?1"),
-        params![id],
+        params![id_n],
         map_row,
     )
     .optional()?
@@ -108,10 +109,11 @@ fn resolve_password_to_store(
 
     // Update with blank password → keep previous secret.
     if let Some(id) = existing_id {
+        let id_n = parse_id(id)?;
         let prev: Option<String> = conn
             .query_row(
                 "SELECT secret_ref FROM connections WHERE id = ?1",
-                params![id],
+                params![id_n],
                 |r| r.get(0),
             )
             .optional()?
@@ -142,6 +144,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
         .map(|s| s.to_string());
 
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
+        let id_n = parse_id(id)?;
         let secret_ref = resolve_password_to_store(conn, &input, Some(id))?;
 
         let n = conn.execute(
@@ -168,7 +171,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 plugin_config,
                 secret_ref,
                 now,
-                id,
+                id_n,
             ],
         )?;
         if n == 0 {
@@ -176,17 +179,15 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
         }
         get_by_id(conn, id)
     } else {
-        let id = Uuid::new_v4().to_string();
         let secret_ref = resolve_password_to_store(conn, &input, None)?;
         conn.execute(
             "
             INSERT INTO connections (
-              id, name, engine, color_id, environment, read_only, notes,
+              name, engine, color_id, environment, read_only, notes,
               plugin_config, secret_ref, last_connected_at, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10)
             ",
             params![
-                id,
                 input.name.trim(),
                 input.engine.trim(),
                 input.color_id.trim(),
@@ -199,12 +200,13 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 now,
             ],
         )?;
-        get_by_id(conn, &id)
+        get_by_id(conn, &conn.last_insert_rowid().to_string())
     }
 }
 
 pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
-    let n = conn.execute("DELETE FROM connections WHERE id = ?1", params![id])?;
+    let id_n = parse_id(id)?;
+    let n = conn.execute("DELETE FROM connections WHERE id = ?1", params![id_n])?;
     if n == 0 {
         return Err(AppError::NotFound(format!("connection '{id}'")));
     }
@@ -213,9 +215,10 @@ pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
 
 pub fn touch_last_connected(conn: &Connection, id: &str) -> AppResult<ConnectionProfile> {
     let now = now_iso();
+    let id_n = parse_id(id)?;
     let n = conn.execute(
         "UPDATE connections SET last_connected_at = ?1, updated_at = ?1 WHERE id = ?2",
-        params![now, id],
+        params![now, id_n],
     )?;
     if n == 0 {
         return Err(AppError::NotFound(format!("connection '{id}'")));
@@ -226,10 +229,11 @@ pub fn touch_last_connected(conn: &Connection, id: &str) -> AppResult<Connection
 /// Returns the stored plaintext password (if any).
 #[allow(dead_code)]
 pub fn get_password(conn: &Connection, id: &str) -> AppResult<Option<String>> {
+    let id_n = parse_id(id)?;
     let stored: Option<String> = conn
         .query_row(
             "SELECT secret_ref FROM connections WHERE id = ?1",
-            params![id],
+            params![id_n],
             |r| r.get(0),
         )
         .optional()?
@@ -279,6 +283,7 @@ mod tests {
         assert!(saved.password_set);
         assert_eq!(saved.password.as_deref(), Some("s3cret"));
         assert_eq!(saved.engine, "postgres");
+        assert!(saved.id.parse::<i64>().is_ok(), "id should be numeric");
         assert_eq!(saved.plugin_config["port"], 5432);
 
         let all = list_all(&conn).unwrap();

@@ -3,11 +3,7 @@
 	import { inferFenceLang, isQueryLang } from '$lib/utils/chatMarkdown'
 	import { cn } from '$lib/utils/cn'
 	import { copyTextToClipboard } from '$lib/utils/exportTable'
-	import {
-		highlightCode,
-		prettifyCode,
-		tokenClass,
-	} from '$lib/utils/highlightCode'
+	import { highlightCode, tokenClass } from '$lib/utils/highlightCode'
 	import { onDestroy } from 'svelte'
 
 	interface Props {
@@ -18,21 +14,15 @@
 		onApply?: (sql: string) => void
 	}
 
-	let { code, lang = '', engine, compact = false, onApply }: Props = $props()
+	let { code, lang = '', engine: _engine, compact = false, onApply }: Props = $props()
 
 	const resolvedLang = $derived(inferFenceLang(lang, code))
-	const pretty = $derived.by(() => {
-		try {
-			return prettifyCode(resolvedLang, code, engine)
-		} catch {
-			return code.endsWith('\n') ? code : `${code}\n`
-		}
-	})
+	const display = $derived(code.endsWith('\n') ? code : `${code}\n`)
 	const tokens = $derived.by(() => {
 		try {
-			return highlightCode(resolvedLang, pretty)
+			return highlightCode(resolvedLang, display)
 		} catch {
-			return [{ kind: 'text' as const, text: pretty }]
+			return [{ kind: 'text' as const, text: display }]
 		}
 	})
 	const applyable = $derived(isQueryLang(resolvedLang) && Boolean(onApply))
@@ -72,7 +62,7 @@
 	}
 
 	async function copy() {
-		const result = await copyTextToClipboard(pretty.replace(/\s+$/, '') + '\n')
+		const result = await copyTextToClipboard(display.replace(/\s+$/, '') + '\n')
 		if (!result.ok) return
 		copied = true
 		if (copyTimer) clearTimeout(copyTimer)
@@ -88,12 +78,12 @@
 
 <figure
 	class={cn(
-		'm-0 max-w-full min-w-0 overflow-hidden rounded-md border border-line bg-app',
-		compact && 'rounded-sm',
+		'm-0 max-w-full min-w-0 overflow-hidden rounded-lg border border-line bg-app',
+		compact && 'rounded-md',
 	)}
 >
 	<figcaption
-		class="flex items-center gap-1 border-b border-line bg-elevated px-1.5 py-0.5"
+		class="flex items-center gap-1 border-b border-line bg-elevated px-2 py-1"
 	>
 		<Icon name="code" class="text-fg-muted" />
 		<span
@@ -110,7 +100,7 @@
 			<Icon name={copied ? 'check' : 'copy'} />
 		</IconButton>
 		{#if applyable && onApply}
-			<Button size="sm" variant="ghost" onclick={() => onApply(pretty)}>
+			<Button size="sm" variant="ghost" onclick={() => onApply(display)}>
 				Apply
 			</Button>
 		{/if}

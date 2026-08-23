@@ -6,7 +6,6 @@
 mod agent_chat;
 mod ai_secret;
 mod connection;
-mod er_diagram;
 mod history;
 mod query_library;
 mod settings;
@@ -16,7 +15,6 @@ mod workspace_tabs;
 pub use agent_chat::*;
 pub use ai_secret::*;
 pub use connection::*;
-pub use er_diagram::*;
 pub use history::*;
 pub use query_library::*;
 pub use settings::*;

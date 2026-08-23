@@ -1,5 +1,4 @@
 pub mod agent;
-pub mod diagrams;
 pub mod engines;
 pub mod history;
 pub mod mcp;

@@ -52,9 +52,10 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
   const ts = nowIso();
   const id =
     (input.id && String(input.id).trim()) ||
-    (typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `local-${Date.now()}`);
+    String(
+      Math.max(0, ...rows.map((r) => Number.parseInt(String(r.id), 10) || 0)) +
+        1,
+    )
 
   const existing = rows.find((r) => r.id === id);
 

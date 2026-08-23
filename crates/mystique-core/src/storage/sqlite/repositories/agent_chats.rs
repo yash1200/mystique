@@ -1,15 +1,15 @@
 use rusqlite::{params, Connection};
-use uuid::Uuid;
 
 use crate::domain::{
     now_iso, AgentChat, AgentMessage, AppendAgentMessageInput, CreateAgentChatInput,
 };
 use crate::error::{AppError, AppResult};
+use crate::storage::sqlite::repositories::ids::{id_string, parse_id};
 
 fn map_chat(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentChat> {
     Ok(AgentChat {
-        id: row.get("id")?,
-        connection_id: row.get("connection_id")?,
+        id: id_string(row, "id")?,
+        connection_id: id_string(row, "connection_id")?,
         title: row.get("title")?,
         provider: row.get("provider")?,
         model: row.get("model")?,
@@ -20,8 +20,8 @@ fn map_chat(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentChat> {
 
 fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentMessage> {
     Ok(AgentMessage {
-        id: row.get("id")?,
-        chat_id: row.get("chat_id")?,
+        id: id_string(row, "id")?,
+        chat_id: id_string(row, "chat_id")?,
         role: row.get("role")?,
         content: row.get("content")?,
         tool_name: row.get("tool_name")?,
@@ -34,6 +34,7 @@ pub fn list_for_connection(
     conn: &Connection,
     connection_id: &str,
 ) -> AppResult<Vec<AgentChat>> {
+    let connection_id = parse_id(connection_id)?;
     let mut stmt = conn.prepare(
         "
         SELECT id, connection_id, title, provider, model, created_at, updated_at
@@ -48,13 +49,14 @@ pub fn list_for_connection(
 }
 
 pub fn get_by_id(conn: &Connection, id: &str) -> AppResult<AgentChat> {
+    let id_n = parse_id(id)?;
     conn.query_row(
         "
         SELECT id, connection_id, title, provider, model, created_at, updated_at
         FROM agent_chats
         WHERE id = ?1
         ",
-        params![id],
+        params![id_n],
         map_chat,
     )
     .map_err(|e| match e {
@@ -64,7 +66,6 @@ pub fn get_by_id(conn: &Connection, id: &str) -> AppResult<AgentChat> {
 }
 
 pub fn create(conn: &Connection, input: CreateAgentChatInput) -> AppResult<AgentChat> {
-    let id = Uuid::new_v4().to_string();
     let now = now_iso();
     let title = input
         .title
@@ -73,14 +74,14 @@ pub fn create(conn: &Connection, input: CreateAgentChatInput) -> AppResult<Agent
         .filter(|s| !s.is_empty())
         .unwrap_or("New chat")
         .to_string();
+    let connection_id = parse_id(&input.connection_id)?;
     conn.execute(
         "
-        INSERT INTO agent_chats (id, connection_id, title, provider, model, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        INSERT INTO agent_chats (connection_id, title, provider, model, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         ",
         params![
-            id,
-            input.connection_id,
+            connection_id,
             title,
             input.provider,
             input.model,
@@ -88,7 +89,7 @@ pub fn create(conn: &Connection, input: CreateAgentChatInput) -> AppResult<Agent
             now
         ],
     )?;
-    get_by_id(conn, &id)
+    get_by_id(conn, &conn.last_insert_rowid().to_string())
 }
 
 pub fn update_meta(
@@ -112,31 +113,35 @@ pub fn update_meta(
         .filter(|s| !s.is_empty())
         .unwrap_or(&existing.model);
     let now = now_iso();
+    let id_n = parse_id(id)?;
     conn.execute(
         "
         UPDATE agent_chats
            SET title = ?2, provider = ?3, model = ?4, updated_at = ?5
          WHERE id = ?1
         ",
-        params![id, title, provider, model, now],
+        params![id_n, title, provider, model, now],
     )?;
     get_by_id(conn, id)
 }
 
 pub fn touch(conn: &Connection, id: &str) -> AppResult<()> {
+    let id_n = parse_id(id)?;
     conn.execute(
         "UPDATE agent_chats SET updated_at = ?2 WHERE id = ?1",
-        params![id, now_iso()],
+        params![id_n, now_iso()],
     )?;
     Ok(())
 }
 
 pub fn delete(conn: &Connection, id: &str) -> AppResult<bool> {
-    let n = conn.execute("DELETE FROM agent_chats WHERE id = ?1", params![id])?;
+    let id_n = parse_id(id)?;
+    let n = conn.execute("DELETE FROM agent_chats WHERE id = ?1", params![id_n])?;
     Ok(n > 0)
 }
 
 pub fn list_messages(conn: &Connection, chat_id: &str) -> AppResult<Vec<AgentMessage>> {
+    let chat_id = parse_id(chat_id)?;
     let mut stmt = conn.prepare(
         "
         SELECT id, chat_id, role, content, tool_name, draft_body, created_at
@@ -153,16 +158,15 @@ pub fn append_message(
     conn: &Connection,
     input: AppendAgentMessageInput,
 ) -> AppResult<AgentMessage> {
-    let id = Uuid::new_v4().to_string();
     let now = now_iso();
+    let chat_id = parse_id(&input.chat_id)?;
     conn.execute(
         "
-        INSERT INTO agent_messages (id, chat_id, role, content, tool_name, draft_body, created_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        INSERT INTO agent_messages (chat_id, role, content, tool_name, draft_body, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         ",
         params![
-            id,
-            input.chat_id,
+            chat_id,
             input.role,
             input.content,
             input.tool_name,
@@ -172,7 +176,7 @@ pub fn append_message(
     )?;
     touch(conn, &input.chat_id)?;
     Ok(AgentMessage {
-        id,
+        id: conn.last_insert_rowid().to_string(),
         chat_id: input.chat_id,
         role: input.role,
         content: input.content,

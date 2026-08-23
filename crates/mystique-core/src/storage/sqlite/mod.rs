@@ -55,7 +55,6 @@ pub mod repo {
     pub use super::repositories::agent_chats;
     pub use super::repositories::ai_secrets;
     pub use super::repositories::connections;
-    pub use super::repositories::diagrams;
     pub use super::repositories::history;
     pub use super::repositories::queries;
     pub use super::repositories::settings;
