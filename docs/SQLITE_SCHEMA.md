@@ -1,11 +1,11 @@
-# MystiqueDB — Local SQLite Schema
+# Mystique — Local SQLite Schema
 
 > **Status:** Canonical app-metadata schema  
 > **Schema SQL:** [`crates/mystique-core/migrations/001_init.sql`](../crates/mystique-core/migrations/001_init.sql)  
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md)  
 > **Last updated:** 2026-08-23
 
-This document describes the **local SQLite database** used by the MystiqueDB desktop app to persist connection profiles, saved queries, history, and settings.
+This document describes the **local SQLite database** used by the Mystique desktop app to persist connection profiles, saved queries, history, and settings.
 
 It is **not** the user’s remote database (Postgres, Mongo, Redis, …). Those are accessed at runtime via **engine plugins**. This file only stores *how Mystique remembers* profiles and library data on disk.
 

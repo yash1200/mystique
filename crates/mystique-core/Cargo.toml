@@ -2,7 +2,7 @@
 name = "mystique-core"
 version = "0.1.0"
 edition = "2021"
-description = "MystiqueDB domain logic, local storage, connectors, and application services"
+description = "Mystique domain logic, local storage, connectors, and application services"
 publish = false
 
 [dependencies]

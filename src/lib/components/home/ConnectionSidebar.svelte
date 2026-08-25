@@ -183,11 +183,6 @@
 		sortMenu = null
 	}
 
-	const sortLabel = $derived(
-		SORT_OPTIONS.find((opt) => opt.id === appPrefs.connectionListSort)?.label ??
-			'Name',
-	)
-
 	const visible = $derived.by(() => {
 		const q = query.trim().toLowerCase()
 		const rows = !q
@@ -231,7 +226,6 @@
 					class="m-0 min-w-0 truncate text-body-lg font-semibold tracking-tight text-fg"
 				>
 					Mystique
-					<span class="font-mono text-label font-medium text-fg-muted">DB</span>
 				</p>
 			</div>
 
@@ -386,10 +380,6 @@
 					{:else}
 						{connections.length} saved
 					{/if}
-					<span class="mx-1 shrink-0" aria-hidden="true">·</span>
-					<span class="truncate text-fg-muted"
-						>by {sortLabel.toLowerCase()}</span
-					>
 				</span>
 			{/snippet}
 			{#snippet right()}

@@ -33,7 +33,7 @@ impl ConnectorRegistry {
         self.policies.insert(policy.engine_id(), policy);
     }
 
-    /// Bootstrap default engines shipped with MystiqueDB.
+    /// Bootstrap default engines shipped with Mystique.
     pub fn bootstrap() -> Self {
         let mut reg = Self::new();
         reg.register(mystique_plugin_postgres::connector());

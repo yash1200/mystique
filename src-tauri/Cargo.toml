@@ -1,12 +1,12 @@
 [package]
-name = "mystique-db"
+name = "mystique"
 version = "0.1.0"
-description = "Mystique DB desktop shell (Tauri)"
+description = "Mystique desktop shell (Tauri)"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "mystique_db_lib"
+name = "mystique_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -1,11 +1,11 @@
-# MystiqueDB — UI / UX Guidelines
+# Mystique — UI / UX Guidelines
 
 > **Status:** Canonical product UX (follow before implementing UI)  
 > **Code design language (Tailwind tokens):** [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md)  
 > **Components:** [`COMPONENT_STRUCTURE.md`](./COMPONENT_STRUCTURE.md)  
 > **Date:** 2026-08-09
 
-These rules define how MystiqueDB looks and behaves. Every screen, component, and interaction should pass this checklist. When in doubt: **clarity under density, calm chrome, loud data.**
+These rules define how Mystique looks and behaves. Every screen, component, and interaction should pass this checklist. When in doubt: **clarity under density, calm chrome, loud data.**
 
 ---
 
@@ -672,4 +672,4 @@ applyStoredAppearance(); // +layout onMount
 
 ---
 
-*MystiqueDB UI: quiet shell, sharp data, and a color for every connection.*
+*Mystique UI: quiet shell, sharp data, and a color for every connection.*

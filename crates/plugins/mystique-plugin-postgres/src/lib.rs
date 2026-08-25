@@ -1,4 +1,4 @@
-//! PostgreSQL engine plugin for MystiqueDB.
+//! PostgreSQL engine plugin for Mystique.
 //!
 //! Pooling: [`deadpool_postgres`] over [`tokio_postgres`].
 

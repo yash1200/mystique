@@ -93,7 +93,7 @@
 	const activeTabId = $derived(workspaceSession.activeTabId)
 	const selectedRow = $derived(workspaceSession.selectedRow)
 
-	// OS window title: "Mystique DB · {connection}" (system title bar only).
+	// OS window title: "Mystique · {connection}" (system title bar only).
 	$effect(() => {
 		void setAppTitle(activeSession?.profile.name ?? null)
 	})

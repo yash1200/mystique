@@ -2,7 +2,7 @@
 @import './lib/styles/tokens.css';
 
 /*
-  MystiqueDB design language → Tailwind
+  Mystique design language → Tailwind
   See docs/DESIGN_LANGUAGE.md
 
   Theme: [data-theme] swaps CSS vars; utilities stay semantic (no dark: color pairs).

@@ -445,7 +445,7 @@ json_tool!(
 json_tool!(
     ListSavedQueries,
     "list_saved_queries",
-    "List queries saved in Mystique DB for this connection.",
+    "List queries saved in Mystique for this connection.",
     json!({
         "type": "object",
         "properties": {},

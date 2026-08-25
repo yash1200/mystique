@@ -1,4 +1,4 @@
-# MystiqueDB — Design Language (Code)
+# Mystique — Design Language (Code)
 
 > **Status:** Canonical implementation design system  
 > **Stack:** Tailwind CSS v4 · semantic tokens · Svelte 5  

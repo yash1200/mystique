@@ -1,6 +1,6 @@
-# Contributing to MystiqueDB
+# Contributing to Mystique
 
-Thanks for helping improve MystiqueDB. This guide is intentionally general so it works for GitLab issues, merge requests, and day-to-day collaboration.
+Thanks for helping improve Mystique. This guide is intentionally general so it works for GitLab issues, merge requests, and day-to-day collaboration.
 
 ## Ways to contribute
 
@@ -19,7 +19,7 @@ Thanks for helping improve MystiqueDB. This guide is intentionally general so it
 
 ```bash
 git clone <repo-url>
-cd mystique-db
+cd mystique
 yarn install          # or npm install
 yarn tauri dev        # full desktop app (macOS / Linux / Windows)
 # or

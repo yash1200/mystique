@@ -237,7 +237,7 @@ fn build_pg_config(config: &ConnectionConfig) -> ConnectorResult<tokio_postgres:
 
     let timeout_ms = config.pool.acquire_timeout_ms.max(1_000);
     pg.connect_timeout(Duration::from_millis(timeout_ms.min(30_000)));
-    pg.application_name("MystiqueDB");
+    pg.application_name("Mystique");
 
     if wants_ssl(config) {
         pg.ssl_mode(tokio_postgres::config::SslMode::Require);

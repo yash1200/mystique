@@ -6,7 +6,8 @@ import type {
 import { asColorId, asEnvironment } from "$lib/types/connection";
 import { isTauri } from "./tauri";
 
-const LS_KEY = "mystique-db.profiles.v1";
+const LS_KEY = "mystique.profiles.v1";
+const LS_KEY_LEGACY = "mystique-db.profiles.v1";
 
 /** Normalize backend / local payload into a typed UI profile. */
 export function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
@@ -33,7 +34,8 @@ function nowIso(): string {
 
 function readLocal(): ConnectionProfile[] {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw =
+      localStorage.getItem(LS_KEY) ?? localStorage.getItem(LS_KEY_LEGACY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ConnectionProfile[];
     if (!Array.isArray(parsed)) return [];
@@ -45,6 +47,7 @@ function readLocal(): ConnectionProfile[] {
 
 function writeLocal(rows: ConnectionProfile[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(rows));
+  localStorage.removeItem(LS_KEY_LEGACY);
 }
 
 function localSave(input: SaveConnectionInput): ConnectionProfile {

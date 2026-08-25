@@ -66,7 +66,7 @@ async fn build_client(config: &ConnectionConfig) -> ConnectorResult<(Client, Opt
         options.credential = Some(cred);
     }
 
-    options.app_name = Some("MystiqueDB".into());
+    options.app_name = Some("Mystique".into());
 
     let default_db = config
         .str_field("database")

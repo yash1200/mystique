@@ -2,7 +2,7 @@
 name = "mystique-connector-api"
 version = "0.1.0"
 edition = "2021"
-description = "Stable SPI: traits, DTOs, errors for MystiqueDB engine plugins"
+description = "Stable SPI: traits, DTOs, errors for Mystique engine plugins"
 publish = false
 
 [dependencies]

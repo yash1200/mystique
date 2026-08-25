@@ -1,4 +1,4 @@
-//! MystiqueDB Tauri shell.
+//! Mystique Tauri shell.
 //!
 //! Responsibilities:
 //! - Window / plugin lifecycle
@@ -41,7 +41,7 @@ pub struct AppState {
     pub agent: AgentService,
 }
 
-const APP_DISPLAY_NAME: &str = "Mystique DB";
+const APP_DISPLAY_NAME: &str = "Mystique";
 
 fn about_metadata(app: &tauri::AppHandle) -> AboutMetadata<'_> {
     let pkg = app.package_info();
@@ -202,7 +202,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[&PredefinedMenuItem::about(
             app,
-            Some("About Mystique DB"),
+            Some("About Mystique"),
             Some(about),
         )?],
     )?;
@@ -215,15 +215,15 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             APP_DISPLAY_NAME,
             true,
             &[
-                &PredefinedMenuItem::about(app, Some("About Mystique DB"), Some(about))?,
+                &PredefinedMenuItem::about(app, Some("About Mystique"), Some(about))?,
                 &PredefinedMenuItem::separator(app)?,
                 &PredefinedMenuItem::services(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::hide(app, Some("Hide Mystique DB"))?,
+                &PredefinedMenuItem::hide(app, Some("Hide Mystique"))?,
                 &PredefinedMenuItem::hide_others(app, None)?,
                 &PredefinedMenuItem::show_all(app, None)?,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::quit(app, Some("Quit Mystique DB"))?,
+                &PredefinedMenuItem::quit(app, Some("Quit Mystique"))?,
             ],
         )?;
         return Menu::with_items(

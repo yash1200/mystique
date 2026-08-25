@@ -1,6 +1,6 @@
 //! # mystique-connector-api
 //!
-//! Stable plugin contract for MystiqueDB engines.
+//! Stable plugin contract for Mystique engines.
 //!
 //! - **Plugins** implement [`DatabaseConnector`] + [`ConnectorSession`].
 //! - **Core** depends only on this crate (never on engine drivers).

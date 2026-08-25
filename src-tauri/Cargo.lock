@@ -2053,7 +2053,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mystique-db"
+name = "mystique"
 version = "0.1.0"
 dependencies = [
  "chrono",

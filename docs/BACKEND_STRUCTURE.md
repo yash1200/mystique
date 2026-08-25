@@ -1,11 +1,11 @@
 # Backend structure (Rust)
 
-> Scalable layout for MystiqueDB desktop backend (API-first connectors).
+> Scalable layout for Mystique desktop backend (API-first connectors).
 
 ## Workspace
 
 ```text
-mystique-db/
+mystique/
 ├── Cargo.toml
 ├── crates/
 │   ├── mystique-connector-api/     # SPI: connector + EngineQueryPolicy + DTOs (no drivers)

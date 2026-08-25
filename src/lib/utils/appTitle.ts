@@ -1,15 +1,15 @@
 import { isTauri } from '$lib/api/tauri'
 
 /** Product name shown in the OS / browser window title bar. */
-export const APP_TITLE = 'Mystique DB'
+export const APP_TITLE = 'Mystique'
 
 /** Monotonic token so overlapping async setTitle calls don't clobber a newer title. */
 let titleGen = 0
 
 /**
  * Build the window title.
- * Home: "Mystique DB"
- * Connected: "Mystique DB · {connectionName}"
+ * Home: "Mystique"
+ * Connected: "Mystique · {connectionName}"
  */
 export function formatAppTitle(connectionName?: string | null): string {
 	const name = connectionName?.trim()

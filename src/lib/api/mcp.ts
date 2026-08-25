@@ -38,7 +38,7 @@ export function mcpClientSnippet(status: McpStatus): string {
 	return JSON.stringify(
 		{
 			mcpServers: {
-				'mystique-db': {
+				mystique: {
 					url,
 					headers: {
 						Authorization: `Bearer ${token}`,

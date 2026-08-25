@@ -5772,6 +5772,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mystique"
+version = "0.1.0"
+dependencies = [
+ "mystique-agent",
+ "mystique-core",
+ "mystique-mcp",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-opener",
+]
+
+[[package]]
 name = "mystique-agent"
 version = "0.1.0"
 dependencies = [
@@ -5817,22 +5833,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "mystique-db"
-version = "0.1.0"
-dependencies = [
- "mystique-agent",
- "mystique-core",
- "mystique-mcp",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-opener",
 ]
 
 [[package]]

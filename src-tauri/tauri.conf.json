@@ -1,8 +1,8 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Mystique DB",
+	"productName": "Mystique",
 	"version": "0.1.0",
-	"identifier": "com.yashjohri.mystique-db",
+	"identifier": "com.yashjohri.mystique",
 	"build": {
 		"beforeDevCommand": "npm run dev",
 		"devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
 	"app": {
 		"windows": [
 			{
-				"title": "Mystique DB",
+				"title": "Mystique",
 				"width": 1440,
 				"height": 900,
 				"minWidth": 1024,
@@ -38,7 +38,7 @@
 			"icons/icon.ico"
 		],
 		"macOS": {
-			"bundleName": "Mystique DB",
+			"bundleName": "Mystique",
 			"signingIdentity": "-"
 		}
 	}

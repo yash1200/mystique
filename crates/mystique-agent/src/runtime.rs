@@ -343,7 +343,7 @@ fn system_prompt(
     let editor = editor_block(engine, editor_query);
     if explain {
         return format!(
-            "You are Mystique DB’s query assistant for connection `{name}`, engine `{engine}`, database `{db}`.\n\
+            "You are Mystique’s query assistant for connection `{name}`, engine `{engine}`, database `{db}`.\n\
              The user wants the current editor query explained. That query is below.\n\
              Answer in plain language: what it returns, main clauses, filters, joins, and caveats.\n\
              Do not call tools. Do not invent a new query unless they asked to change it.\n\
@@ -351,7 +351,7 @@ fn system_prompt(
         );
     }
     format!(
-        "You are Mystique DB’s query assistant for connection `{name}`, engine `{engine}`, database `{db}`.\n\
+        "You are Mystique’s query assistant for connection `{name}`, engine `{engine}`, database `{db}`.\n\
          You can explain the current editor query or propose a replacement in a fenced ```sql or ```mql block.\n\
          Use schema-qualified names. Do not invent tables or columns.\n\
          Call get_schema_dbml or describe_object only if you must inspect schema. Prefer the editor buffer.\n\

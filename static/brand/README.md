@@ -1,4 +1,4 @@
-# Mystique DB logo
+# Mystique logo
 
 **Mark:** a smiling dog face (closed happy eyes, floppy ears) on a warm-ink tile.  
 **Metaphor:** Mystique — friendly, a little mysterious. Chrome stays quiet; the dog is the signal.  

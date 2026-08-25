@@ -153,7 +153,7 @@ async fn mcp_get() -> impl IntoResponse {
         StatusCode::OK,
         json!({
             "ok": true,
-            "server": "mystique-db",
+            "server": "mystique",
             "transport": "streamable-http",
             "hint": "POST JSON-RPC to this URL"
         })
@@ -235,10 +235,10 @@ async fn handle_method(
                     "resources": { "subscribe": false, "listChanged": false }
                 },
                 "serverInfo": {
-                    "name": "mystique-db",
+                    "name": "mystique",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": "Mystique DB is a desktop database studio. Tools are read-only: schema (DBML), list/describe tables or collections, run SELECT/find, save and list queries. Use list_connections first. Never ask the user to paste schema."
+                "instructions": "Mystique is a desktop database studio. Tools are read-only: schema (DBML), list/describe tables or collections, run SELECT/find, save and list queries. Use list_connections first. Never ask the user to paste schema."
             }))
         }
         "ping" => Ok(json!({})),

@@ -530,7 +530,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
         AgentToolSpec {
             name: "list_connections",
             description:
-                "List saved Mystique DB connections: id, name, engine, database. No hosts or passwords.",
+                "List saved Mystique connections: id, name, engine, database. No hosts or passwords.",
             input_schema: json!({
                 "type": "object",
                 "properties": {},
@@ -601,7 +601,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
         },
         AgentToolSpec {
             name: "list_saved_queries",
-            description: "List queries saved in Mystique DB. Optionally filter by connection_id.",
+            description: "List queries saved in Mystique. Optionally filter by connection_id.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -612,7 +612,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
         },
         AgentToolSpec {
             name: "save_query",
-            description: "Save a named query on a connection so it appears in Mystique DB.",
+            description: "Save a named query on a connection so it appears in Mystique.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

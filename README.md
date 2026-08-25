@@ -1,6 +1,6 @@
-# Mystique DB
+# Mystique
 
-<img src="static/brand/mystique-mark.svg" width="48" height="48" alt="Mystique DB" />
+<img src="static/brand/mystique-mark.svg" width="48" height="48" alt="Mystique" />
 
 Desktop app built with [Tauri 2](https://tauri.app/), [SvelteKit](https://kit.svelte.dev/), and TypeScript.
 
@@ -103,7 +103,7 @@ See the full list in the [Tauri prerequisites docs](https://tauri.app/start/prer
 
 ```bash
 git clone <repo-url>
-cd mystique-db
+cd mystique
 yarn install
 ```
 
@@ -200,7 +200,7 @@ Formats: `.dmg` / `.app` on macOS, `.deb` / `.AppImage` on Linux, `.msi` / `.exe
 ## Project structure
 
 ```
-mystique-db/
+mystique/
 ├── crates/
 │   ├── mystique-connector-api/   # SPI (traits, DTOs, pool types) — no drivers
 │   ├── mystique-core/            # domain, local app DB, ConnectionManager, AgentTools

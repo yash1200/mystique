@@ -21,6 +21,7 @@ use crate::providers::AgentProvider;
 
 /// App-local wrapping key. Not a user password — stops casual inspection of
 /// `mystique.db` without the binary. Do not treat this as multi-user isolation.
+// Historical key id — do not change; existing wrapped secrets depend on it.
 const PEPPER: &[u8; 32] = b"mystique-db.ai.secret.v1.pepper!";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

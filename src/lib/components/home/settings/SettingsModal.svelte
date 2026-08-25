@@ -43,7 +43,7 @@
 			title: 'MCP server',
 			icon: 'code',
 			description:
-				'While Mystique DB is running, external LLMs can read schema, list tables, run read-only queries, and save queries. Writes are blocked.',
+				'While Mystique is running, external LLMs can read schema, list tables, run read-only queries, and save queries. Writes are blocked.',
 		},
 	]
 

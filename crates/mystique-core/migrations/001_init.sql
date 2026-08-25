@@ -1,4 +1,4 @@
--- MystiqueDB app metadata — current schema.
+-- Mystique app metadata — current schema.
 -- Fresh installs apply this once. Incremental SQL lives in later files if added.
 
 -- -----------------------------------------------------------------------------

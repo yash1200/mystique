@@ -1,4 +1,4 @@
-//! MySQL / MariaDB engine plugin for MystiqueDB.
+//! MySQL / MariaDB engine plugin for Mystique.
 //!
 //! Pooling: [`mysql_async::Pool`].
 

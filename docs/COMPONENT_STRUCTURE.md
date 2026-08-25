@@ -1,6 +1,6 @@
 # Frontend component structure
 
-> Customisable, reusable UI for MystiqueDB (Svelte 5).
+> Customisable, reusable UI for Mystique (Svelte 5).
 
 ## Layers
 

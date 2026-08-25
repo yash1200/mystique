@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Mystique DB</string>
+	<string>Mystique</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mystique DB</string>
+	<string>Mystique</string>
 </dict>
 </plist>

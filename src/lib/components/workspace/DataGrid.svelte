@@ -2032,7 +2032,7 @@
 			}
 			if (pendingDbDeletes > 0 && (result.deleted ?? 0) < pendingDbDeletes) {
 				throw new Error(
-					'Delete did not apply. Restart MystiqueDB (`npm run tauri dev`) so the engine can run DELETE.',
+					'Delete did not apply. Restart Mystique (`npm run tauri dev`) so the engine can run DELETE.',
 				)
 			}
 			if (onreload) {
