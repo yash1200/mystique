@@ -1,5 +1,5 @@
 use mystique_core::{
-    AgentChat, AgentMessage, AppendAgentMessageInput, AppError, AppResult, AppServices,
+    AgentChat, AgentMessage, AppError, AppResult, AppServices, AppendAgentMessageInput,
     CreateAgentChatInput,
 };
 use rig::client::Nothing;
@@ -105,8 +105,7 @@ impl AgentRuntime {
             if fallback.is_empty() {
                 return Err(AppError::Invalid(match provider {
                     AgentProvider::Ollama => {
-                        "No Ollama model selected. Pull one (`ollama pull …`) and pick it."
-                            .into()
+                        "No Ollama model selected. Pull one (`ollama pull …`) and pick it.".into()
                     }
                     _ => "model is required".into(),
                 }));
@@ -123,7 +122,12 @@ impl AgentRuntime {
             .unwrap_or("")
             .to_string();
 
-        let chat = match req.chat_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let chat = match req
+            .chat_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(id) => {
                 let existing = app.agent_chats().get(id)?;
                 if existing.connection_id != req.connection_id {
@@ -172,7 +176,7 @@ impl AgentRuntime {
         let limit = if explain {
             std::time::Duration::from_secs(45)
         } else {
-            std::time::Duration::from_secs(90)
+            std::time::Duration::from_secs(AGENT_TIMEOUT_SECS)
         };
         // Run on another worker so a stuck HTTP call cannot block the timeout.
         let provider_run = provider;
@@ -202,8 +206,7 @@ impl AgentRuntime {
             Ok(Err(e)) => return Err(AppError::Internal(format!("agent task: {e}"))),
             Err(_) => {
                 return Err(AppError::Invalid(
-                    "The model did not finish in time. Try again, or use a smaller model."
-                        .into(),
+                    "The model did not finish in time. Try again, or use a smaller model.".into(),
                 ));
             }
         };
@@ -233,7 +236,10 @@ impl AgentRuntime {
 }
 
 fn title_from(text: &str) -> String {
-    let one = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("Chat");
+    let one = text
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("Chat");
     let mut t = one.trim().to_string();
     if t.chars().count() > 48 {
         t = t.chars().take(45).collect::<String>() + "…";
@@ -242,6 +248,10 @@ fn title_from(text: &str) -> String {
 }
 
 const EDITOR_MAX: usize = 40_000;
+/// Tool-loop budget: schema + sequential `describe_object` for several
+/// tables + optional probes, then a fenced draft.
+const DEFAULT_MAX_TURNS: usize = 16;
+const AGENT_TIMEOUT_SECS: u64 = 180;
 
 fn editor_fence(engine: &str) -> &'static str {
     match engine.to_ascii_lowercase().as_str() {
@@ -345,6 +355,7 @@ fn system_prompt(
          You can explain the current editor query or propose a replacement in a fenced ```sql or ```mql block.\n\
          Use schema-qualified names. Do not invent tables or columns.\n\
          Call get_schema_dbml or describe_object only if you must inspect schema. Prefer the editor buffer.\n\
+         When a draft spans several tables, inspect every needed table in one turn (parallel describe_object calls). Do not spend a turn per table.\n\
          When you use a tool, use the native function/tool-calling interface. Never print a JSON object like {{\"name\":\"list_objects\",\"arguments\":{{}}}} in your reply.\n\
          Writes are rejected. Never ask for hosts, passwords, or schema pastes. The user applies the draft and runs it.\n\
          {editor}"
@@ -380,32 +391,80 @@ async fn run_agent(
         AgentProvider::Openai => {
             let key = require_key(secrets, provider)?;
             let client = openai::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
         AgentProvider::Anthropic => {
             let key = require_key(secrets, provider)?;
             let client = anthropic::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
         AgentProvider::Google => {
             let key = require_key(secrets, provider)?;
             let client = gemini::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
         AgentProvider::Deepseek => {
             let key = require_key(secrets, provider)?;
             let client = deepseek::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
         AgentProvider::Openrouter => {
             let key = require_key(secrets, provider)?;
             let client = openrouter::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
         AgentProvider::Xai => {
             let key = require_key(secrets, provider)?;
             let client = xai::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
         AgentProvider::Ollama => {
             let client = ollama::Client::builder()
@@ -413,7 +472,15 @@ async fn run_agent(
                 .base_url(ollama_url)
                 .build()
                 .map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), preamble, bound, user, &mut history, with_tools).await
+            chat_once(
+                client.agent(model),
+                preamble,
+                bound,
+                user,
+                &mut history,
+                with_tools,
+            )
+            .await
         }
     }
 }
@@ -482,10 +549,7 @@ async fn chat_once(
     with_tools: bool,
 ) -> Result<String, String> {
     if !with_tools {
-        let agent: Agent = builder
-            .preamble(preamble)
-            .max_tokens(2048)
-            .build();
+        let agent: Agent = builder.preamble(preamble).max_tokens(2048).build();
         return agent
             .chat(Message::user(user), history)
             .await
@@ -499,7 +563,7 @@ async fn chat_once(
         .tool(DescribeObject(bound.clone()))
         .tool(ExecuteReadonly(bound.clone()))
         .tool(ListSavedQueries(bound))
-        .default_max_turns(5)
+        .default_max_turns(DEFAULT_MAX_TURNS)
         .max_tokens(4096)
         .build();
     let mut prompt = user.to_string();
@@ -515,11 +579,9 @@ async fn chat_once(
         if turn == 3 {
             let cleaned = strip_leaked_tool_calls(&reply);
             if cleaned.trim().is_empty() {
-                return Err(
-                    "The local model printed tool calls instead of answering. \
+                return Err("The local model printed tool calls instead of answering. \
                      Try a tool-capable Ollama model (qwen2.5, llama3.1, or a larger variant)."
-                        .into(),
-                );
+                    .into());
             }
             return Ok(cleaned);
         }
@@ -528,10 +590,7 @@ async fn chat_once(
     Err("The local model printed tool calls instead of answering.".into())
 }
 
-async fn execute_leaked_tools(
-    bound: &BoundTools,
-    calls: Vec<LeakedToolCall>,
-) -> String {
+async fn execute_leaked_tools(bound: &BoundTools, calls: Vec<LeakedToolCall>) -> String {
     let mut out = String::from(
         "The previous assistant message was a tool invocation printed as JSON, not an answer. \
          Those tools have been executed. Use the results below. \
@@ -588,10 +647,7 @@ mod tests {
     #[test]
     fn explain_requires_editor_buffer() {
         assert!(!looks_like_explain("describe this query", ""));
-        assert!(looks_like_explain(
-            "describe this query",
-            "select 1 from t"
-        ));
+        assert!(looks_like_explain("describe this query", "select 1 from t"));
     }
 
     #[test]
@@ -606,7 +662,10 @@ mod tests {
     #[test]
     fn explain_ignores_rewrite_requests() {
         let q = "select id from users";
-        assert!(!looks_like_explain("describe this and then write a faster one", q));
+        assert!(!looks_like_explain(
+            "describe this and then write a faster one",
+            q
+        ));
         assert!(!looks_like_explain("fix this query", q));
     }
 }
