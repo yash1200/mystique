@@ -341,6 +341,7 @@ Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.
 | Toast | `Toast` | `tone` only |
 | Empty | `EmptyState` | `text-title` + `text-body` + next action; parent centers it |
 | Status footer | `StatusBar` | Three zones: left meta · center pager · right actions; may wrap (`min-h-statusbar`) |
+| Resize | `Resizable` | Panel wrapper or handle-only sash. `axis` x/y, `edge` start/end, `variant` overlay/split |
 | Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
 | Settings | `SettingsModal` | Gear + modal; panes in `home/settings` |
 | Brand | `BrandMark` | Ink-tile dog mark — identity in the home sidebar and workspace rail |

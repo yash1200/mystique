@@ -17,12 +17,17 @@ const REMEMBER_KEY = 'mystique-remember-last-connection'
 const INSPECT_ON_CLICK_KEY = 'mystique-inspect-on-row-click'
 const CONN_SORT_KEY = 'mystique-connection-sort'
 const EXPLORER_WIDTH_KEY = 'mystique-explorer-panel-width'
+const HOME_SIDEBAR_WIDTH_KEY = 'mystique-home-sidebar-width'
 const AGENT_CHAT_OPEN_KEY = 'mystique-agent-chat-open'
 const AGENT_CHAT_WIDTH_KEY = 'mystique-agent-chat-panel-width'
 
 export const EXPLORER_PANEL_WIDTH_DEFAULT = 240
 export const EXPLORER_PANEL_WIDTH_MIN = 180
 export const EXPLORER_PANEL_WIDTH_MAX = 480
+/** Matches current `w-sidebar` (17.5rem) so first-run size does not jump. */
+export const HOME_SIDEBAR_WIDTH_DEFAULT = 280
+export const HOME_SIDEBAR_WIDTH_MIN = 200
+export const HOME_SIDEBAR_WIDTH_MAX = 420
 export const AGENT_CHAT_PANEL_WIDTH_DEFAULT = 320
 export const AGENT_CHAT_PANEL_WIDTH_MIN = 280
 export const AGENT_CHAT_PANEL_WIDTH_MAX = 720
@@ -90,6 +95,14 @@ export function clampExplorerPanelWidth(px: number): number {
 	)
 }
 
+export function clampHomeSidebarWidth(px: number): number {
+	if (!Number.isFinite(px)) return HOME_SIDEBAR_WIDTH_DEFAULT
+	return Math.min(
+		HOME_SIDEBAR_WIDTH_MAX,
+		Math.max(HOME_SIDEBAR_WIDTH_MIN, Math.round(px)),
+	)
+}
+
 export function clampAgentChatPanelWidth(px: number): number {
 	if (!Number.isFinite(px)) return AGENT_CHAT_PANEL_WIDTH_DEFAULT
 	return Math.min(
@@ -102,6 +115,12 @@ function readExplorerWidth(): number {
 	const raw = lsGet(EXPLORER_WIDTH_KEY)
 	if (raw == null || raw === '') return EXPLORER_PANEL_WIDTH_DEFAULT
 	return clampExplorerPanelWidth(Number(raw))
+}
+
+function readHomeSidebarWidth(): number {
+	const raw = lsGet(HOME_SIDEBAR_WIDTH_KEY)
+	if (raw == null || raw === '') return HOME_SIDEBAR_WIDTH_DEFAULT
+	return clampHomeSidebarWidth(Number(raw))
 }
 
 function readAgentChatWidth(): number {
@@ -123,6 +142,7 @@ class AppPrefsStore {
 	rememberLastConnection = $state(readBool(REMEMBER_KEY, true))
 	connectionListSort = $state<ConnectionListSort>(readSort())
 	explorerPanelWidth = $state(readExplorerWidth())
+	homeSidebarWidth = $state(readHomeSidebarWidth())
 	/** Session-only. Always starts closed; never written to localStorage. */
 	agentChatOpen = $state(false)
 	agentChatPanelWidth = $state(readAgentChatWidth())
@@ -184,6 +204,11 @@ class AppPrefsStore {
 	setExplorerPanelWidth(px: number, persist = true) {
 		this.explorerPanelWidth = clampExplorerPanelWidth(px)
 		if (persist) lsSet(EXPLORER_WIDTH_KEY, String(this.explorerPanelWidth))
+	}
+
+	setHomeSidebarWidth(px: number, persist = true) {
+		this.homeSidebarWidth = clampHomeSidebarWidth(px)
+		if (persist) lsSet(HOME_SIDEBAR_WIDTH_KEY, String(this.homeSidebarWidth))
 	}
 
 	setAgentChatOpen(on: boolean) {

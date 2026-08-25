@@ -19,12 +19,15 @@
 		Button,
 		Icon,
 		IconButton,
+		Resizable,
 		Select,
 		Textarea,
 	} from '$lib/components/core'
 	import { isMacPlatform, labelForKey } from '$lib/data/appShortcuts'
 	import {
 		AGENT_CHAT_PANEL_WIDTH_DEFAULT,
+		AGENT_CHAT_PANEL_WIDTH_MAX,
+		AGENT_CHAT_PANEL_WIDTH_MIN,
 		appPrefs,
 	} from '$lib/stores/app-prefs.svelte'
 	import { appSettingsUi } from '$lib/stores/app-settings.svelte'
@@ -474,43 +477,6 @@
 		})
 	}
 
-	function onResizePointerDown(e: PointerEvent) {
-		if (e.button !== 0) return
-		e.preventDefault()
-		const startX = e.clientX
-		const startW = appPrefs.agentChatPanelWidth
-		dragging = true
-		const target = e.currentTarget as HTMLElement
-		target.setPointerCapture(e.pointerId)
-		document.body.style.cursor = 'col-resize'
-		document.body.style.userSelect = 'none'
-
-		const onMove = (ev: PointerEvent) => {
-			appPrefs.setAgentChatPanelWidth(startW - (ev.clientX - startX), false)
-		}
-		const onUp = (ev: PointerEvent) => {
-			dragging = false
-			document.body.style.cursor = ''
-			document.body.style.userSelect = ''
-			try {
-				target.releasePointerCapture(ev.pointerId)
-			} catch {
-				/* ignore */
-			}
-			target.removeEventListener('pointermove', onMove)
-			target.removeEventListener('pointerup', onUp)
-			target.removeEventListener('pointercancel', onUp)
-			appPrefs.setAgentChatPanelWidth(appPrefs.agentChatPanelWidth, true)
-		}
-		target.addEventListener('pointermove', onMove)
-		target.addEventListener('pointerup', onUp)
-		target.addEventListener('pointercancel', onUp)
-	}
-
-	function onResizeDblClick() {
-		appPrefs.setAgentChatPanelWidth(AGENT_CHAT_PANEL_WIDTH_DEFAULT, true)
-	}
-
 	function onComposerKey(e: KeyboardEvent) {
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			e.preventDefault()
@@ -552,39 +518,17 @@
 	)}
 	aria-label="Query agent"
 >
-	<button
-		type="button"
-		aria-label="Resize agent panel ({appPrefs.agentChatPanelWidth}px)"
-		title="Drag to resize · double-click to reset"
-		class={cn(
-			'group absolute top-0 left-0 z-10 flex h-full w-2 shrink-0 -translate-x-1/2 cursor-col-resize items-center justify-center border-none bg-transparent p-0',
-			'hover:bg-hover/80',
-			dragging && 'bg-accent-muted',
-		)}
-		onpointerdown={onResizePointerDown}
-		ondblclick={onResizeDblClick}
-		onkeydown={(e) => {
-			if (e.key === 'ArrowLeft') {
-				e.preventDefault()
-				appPrefs.setAgentChatPanelWidth(appPrefs.agentChatPanelWidth + 12, true)
-			} else if (e.key === 'ArrowRight') {
-				e.preventDefault()
-				appPrefs.setAgentChatPanelWidth(appPrefs.agentChatPanelWidth - 12, true)
-			} else if (e.key === 'Home') {
-				e.preventDefault()
-				appPrefs.setAgentChatPanelWidth(AGENT_CHAT_PANEL_WIDTH_DEFAULT, true)
-			}
-		}}
-	>
-		<span
-			class={cn(
-				'pointer-events-none h-10 w-0.5 rounded-full bg-line-strong opacity-0 transition-opacity duration-150 ease-out',
-				'group-hover:opacity-100 group-focus-visible:opacity-100',
-				dragging && 'bg-accent opacity-100',
-			)}
-			aria-hidden="true"
-		></span>
-	</button>
+	<Resizable
+		size={appPrefs.agentChatPanelWidth}
+		defaultSize={AGENT_CHAT_PANEL_WIDTH_DEFAULT}
+		min={AGENT_CHAT_PANEL_WIDTH_MIN}
+		max={AGENT_CHAT_PANEL_WIDTH_MAX}
+		edge="start"
+		label="Resize agent panel"
+		bind:dragging
+		onresize={(n) => appPrefs.setAgentChatPanelWidth(n, false)}
+		oncommit={(n) => appPrefs.setAgentChatPanelWidth(n, true)}
+	/>
 
 	<header class="shrink-0 border-b border-line">
 		<div class="flex items-center gap-1.5 px-2 py-2">

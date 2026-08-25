@@ -10,6 +10,7 @@
 	} from '$lib/api/engines'
 	import { appendQueryHistory, type QueryHistoryItem } from '$lib/api/history'
 	import { isTauri } from '$lib/api/tauri'
+	import { Resizable } from '$lib/components/core'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type { EngineCapabilities } from '$lib/types/engineCaps'
 	import {
@@ -396,42 +397,6 @@
 		return Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(pct * 10) / 10))
 	}
 
-	function onSplitPointerDown(e: PointerEvent) {
-		if (!splitRootEl) return
-		e.preventDefault()
-		const root = splitRootEl
-		const startY = e.clientY
-		const startPct = editorSharePct
-		const rootH = root.getBoundingClientRect().height || 1
-		splitDragging = true
-
-		const target = e.currentTarget as HTMLElement
-		target.setPointerCapture(e.pointerId)
-
-		const onMove = (ev: PointerEvent) => {
-			const deltaPct = ((ev.clientY - startY) / rootH) * 100
-			editorSharePct = clampSplit(startPct + deltaPct)
-		}
-		const onUp = (ev: PointerEvent) => {
-			splitDragging = false
-			try {
-				target.releasePointerCapture(ev.pointerId)
-			} catch {
-				/* ignore */
-			}
-			target.removeEventListener('pointermove', onMove)
-			target.removeEventListener('pointerup', onUp)
-			target.removeEventListener('pointercancel', onUp)
-		}
-		target.addEventListener('pointermove', onMove)
-		target.addEventListener('pointerup', onUp)
-		target.addEventListener('pointercancel', onUp)
-	}
-
-	function onSplitDblClick() {
-		editorSharePct = SPLIT_DEFAULT
-	}
-
 	onMount(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
@@ -480,38 +445,19 @@
 			/>
 		</div>
 
-		<div
-			role="slider"
-			aria-orientation="horizontal"
-			aria-label="Resize editor and results"
-			aria-valuemin={SPLIT_MIN}
-			aria-valuemax={SPLIT_MAX}
-			aria-valuenow={Math.round(editorSharePct)}
-			tabindex="0"
-			class="group relative z-10 flex h-1.5 w-full shrink-0 cursor-row-resize items-center justify-center border-x-0 border-y border-line bg-elevated p-0 hover:bg-hover"
-			class:bg-accent-muted={splitDragging}
-			title="Drag to resize · double-click to reset"
-			onpointerdown={onSplitPointerDown}
-			ondblclick={onSplitDblClick}
-			onkeydown={(e) => {
-				if (e.key === 'ArrowUp') {
-					e.preventDefault()
-					editorSharePct = clampSplit(editorSharePct - 2)
-				} else if (e.key === 'ArrowDown') {
-					e.preventDefault()
-					editorSharePct = clampSplit(editorSharePct + 2)
-				} else if (e.key === 'Home') {
-					e.preventDefault()
-					editorSharePct = SPLIT_DEFAULT
-				}
-			}}
-		>
-			<span
-				class="pointer-events-none h-0.5 w-10 rounded-full bg-line-strong opacity-70 group-hover:bg-accent group-hover:opacity-100"
-				class:bg-accent={splitDragging}
-				aria-hidden="true"
-			></span>
-		</div>
+		<Resizable
+			axis="y"
+			variant="split"
+			size={editorSharePct}
+			defaultSize={SPLIT_DEFAULT}
+			min={SPLIT_MIN}
+			max={SPLIT_MAX}
+			step={2}
+			track={splitRootEl}
+			label="Resize editor and results"
+			bind:dragging={splitDragging}
+			onresize={(n) => (editorSharePct = clampSplit(n))}
+		/>
 
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			<QueryResultsPanel

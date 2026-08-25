@@ -2,6 +2,7 @@
  * Design-system primitives. No product domain (engines, MCP, shortcuts).
  * Features import from `$lib/components/core`.
  */
+export type { IconName } from '$icons'
 export { default as Alert } from './Alert.svelte'
 export { default as Badge } from './Badge.svelte'
 export { default as Button } from './Button.svelte'
@@ -17,7 +18,6 @@ export { default as EmptyState } from './EmptyState.svelte'
 export { default as Field } from './Field.svelte'
 export { default as FormGrid } from './FormGrid.svelte'
 export { default as Icon } from './Icon.svelte'
-export type { IconName } from '$icons'
 export { default as IconButton } from './IconButton.svelte'
 export { default as Inline } from './Inline.svelte'
 export { default as Input } from './Input.svelte'
@@ -27,6 +27,7 @@ export { default as PageHeader } from './PageHeader.svelte'
 export { default as Pager } from './Pager.svelte'
 export { default as PasswordInput } from './PasswordInput.svelte'
 export { default as Pill } from './Pill.svelte'
+export { default as Resizable } from './Resizable.svelte'
 export { default as Select } from './Select.svelte'
 export type { SelectOption } from './Select.svelte'
 export { default as Stack } from './Stack.svelte'
