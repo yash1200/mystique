@@ -115,7 +115,10 @@
 	let importPath = $state('')
 	let importFormat = $state<ImportFormat>('csv')
 	let importPreview = $state<PreviewImportResult | null>(null)
+	/** Inspector wrote a cell in-place — grid recomputes dirty against the saved baseline. */
 	let rowSyncTick = $state(0)
+	/** Server replaced the preview page (open / filter / sort / page). New saved baseline. */
+	let tablePreviewTick = $state(0)
 	let baselineEpoch = $state(0)
 	/** connectionId → last engineSessionId we loaded a live catalog for */
 	let liveCatalogKey = $state<Record<string, string>>({})
@@ -1178,7 +1181,10 @@
 				tables: db.tables.map((t) => (t.id === table.id ? preview : t)),
 			}))
 			catalogs = { ...catalogs, [activeId]: next }
-			rowSyncTick += 1
+			// Whole preview page was replaced. Do not bump rowSyncTick — that
+			// signal means "inspector edited a cell", and would mark every
+			// cell dirty against the previous (unfiltered) originals.
+			tablePreviewTick += 1
 			// Do not log table previews / catalog fetches to query history —
 			// history is only for statements the user runs from the Query editor.
 		} catch (e) {
@@ -1975,6 +1981,7 @@
 		{tableLoading}
 		{rowSelectionIndex}
 		{rowSyncTick}
+		{tablePreviewTick}
 		{baselineEpoch}
 		{inspectorData}
 		onhistory={(item) => prependHistoryItem(item)}

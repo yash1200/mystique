@@ -10,6 +10,7 @@
 		prettyJson,
 		type CellViewMode,
 	} from './cellView'
+	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
 
 	interface Props {
 		column: string
@@ -173,16 +174,19 @@
 					</div>
 				</div>
 			</div>
+		{:else if mode === 'json'}
+			<JsonHighlightEditor
+				bind:value={text}
+				{readonly}
+				invalid={!!jsonError}
+			/>
 		{:else}
 			<Textarea
 				bind:value={text}
 				spellcheck={false}
 				autofocus
 				{readonly}
-				class={cn(
-					'min-h-64 flex-1 resize-none font-mono text-label leading-relaxed',
-					mode === 'json' && jsonError && 'border-danger/50',
-				)}
+				class="min-h-64 flex-1 resize-none font-mono text-label leading-relaxed"
 			/>
 		{/if}
 		{#if jsonError}

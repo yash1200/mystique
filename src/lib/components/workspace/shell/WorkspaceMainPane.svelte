@@ -48,6 +48,8 @@
 		tableLoading: boolean
 		rowSelectionIndex: number | null
 		rowSyncTick: number
+		/** Server replaced the table preview (filter/sort/page/open). */
+		tablePreviewTick?: number
 		baselineEpoch: number
 		inspectorData: {
 			tableTitle: string
@@ -102,6 +104,7 @@
 		tableLoading,
 		rowSelectionIndex,
 		rowSyncTick,
+		tablePreviewTick = 0,
 		baselineEpoch,
 		inspectorData,
 		onhistory,
@@ -281,11 +284,15 @@
 						/>
 					</div>
 				{:else if gridTable}
-					{#key `${gridTable.id}::${(seedFilters ?? []).map((f) => `${f.column}:${f.op}:${f.value}`).join('|')}`}
+					<!-- Key on table id only. Including seedFilters remounted the
+					     grid on every filter apply, which dropped the saved
+					     baseline and marked every cell unsaved. -->
+					{#key gridTable.id}
 						<DataGrid
 							table={gridTable}
 							selectedRowIndex={rowSelectionIndex}
 							{rowSyncTick}
+							{tablePreviewTick}
 							{onbaselinechange}
 							{onselectrow}
 							engine={String(activeSession.profile.engine)}

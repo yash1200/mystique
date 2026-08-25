@@ -46,6 +46,8 @@
 		selectedRowIndex: number | null
 		onselectrow: (index: number) => void
 		rowSyncTick?: number
+		/** Server replaced the preview page. Adopt as the new saved baseline. */
+		tablePreviewTick?: number
 		onbaselinechange?: () => void
 		/** Notify parent when unsaved edit count changes (for tab dirty indicator). */
 		ondirtychange?: (dirty: boolean) => void
@@ -84,6 +86,7 @@
 		selectedRowIndex,
 		onselectrow,
 		rowSyncTick = 0,
+		tablePreviewTick = 0,
 		onbaselinechange,
 		ondirtychange,
 		originals = $bindable<Record<string, unknown>[]>([]),
@@ -145,6 +148,8 @@
 
 	let loadedTableId = $state<string | null>(null)
 	let appliedSyncTick = $state(0)
+	let appliedPreviewTick = $state(0)
+	let appliedSeedSig = $state<string | null>(null)
 
 	let filterMode = $state<FilterMode>('ui')
 	let filterRules = $state<FilterRule[]>([])
@@ -284,6 +289,11 @@
 		filterMode = mode
 	}
 
+	function markServerPreviewApplied() {
+		appliedPreviewTick = tablePreviewTick
+		appliedSyncTick = rowSyncTick
+	}
+
 	async function reloadFromEngine(offset: number) {
 		if (!onreload) return
 		refreshing = true
@@ -291,7 +301,7 @@
 		try {
 			await onreload(reloadOpts(offset))
 			loadFromTable(true)
-			appliedSyncTick = rowSyncTick
+			markServerPreviewApplied()
 		} catch (err) {
 			statusMsg = err instanceof Error ? err.message : String(err)
 		} finally {
@@ -1258,13 +1268,34 @@
 		}
 	}
 
-	$effect(() => {
-		const id = table.id
-		if (loadedTableId === id) return
-		loadFromTable(true)
-		page = 0
-		statusMsg = null
-		// Seed filters from FK jump, or restore the code-filter box.
+	function seedSignature(): string {
+		const filters = (seedFilters ?? [])
+			.map((f) => `${f.column}:${f.op}:${f.value}`)
+			.join('|')
+		const code = seedCodeFilter?.trim() ?? ''
+		const sort =
+			seedSort?.column && seedSort.dir
+				? `${seedSort.column}:${seedSort.dir}`
+				: ''
+		return `${code}\n${filters}\n${sort}`
+	}
+
+	/** What the parent would persist if it reloaded from the current filter bar. */
+	function localSeedSignature(): string {
+		const code =
+			filtersActive && filterMode === 'code' ? filterCode.trim() : ''
+		const filters =
+			!filtersActive || filterMode === 'code'
+				? ''
+				: activeRules()
+						.map((r) => `${r.column}:${r.op}:${r.value}`)
+						.join('|')
+		const sort =
+			sortColumn && sortDir ? `${sortColumn}:${sortDir}` : ''
+		return `${code}\n${filters}\n${sort}`
+	}
+
+	function applySeedState() {
 		const seed = seedFilters
 		const codeSeed = seedCodeFilter?.trim() ?? ''
 		if (codeSeed) {
@@ -1295,7 +1326,32 @@
 			sortColumn = null
 			sortDir = null
 		}
+		appliedSeedSig = seedSignature()
+	}
+
+	$effect(() => {
+		const id = table.id
+		if (loadedTableId === id) return
+		loadFromTable(true)
+		page = 0
+		statusMsg = null
+		applySeedState()
 		appliedSyncTick = -1
+		appliedPreviewTick = tablePreviewTick
+	})
+
+	// FK jump (or explorer re-open) can reseed the same table without remounting.
+	$effect(() => {
+		const sig = seedSignature()
+		if (loadedTableId !== table.id) return
+		if (sig === appliedSeedSig) return
+		// Filter apply writes the same seeds we already have in the bar —
+		// don't rebuild rules (that would drop extra empty conditions).
+		if (sig === localSeedSignature()) {
+			appliedSeedSig = sig
+			return
+		}
+		applySeedState()
 	})
 
 	$effect(() => {
@@ -1306,6 +1362,19 @@
 		if (editing) return
 		appliedSyncTick = tick
 		loadFromTable(false)
+	})
+
+	// Filter / sort / page / open replace the preview page. That is a new
+	// saved baseline, not an in-place inspector edit.
+	$effect(() => {
+		const tick = tablePreviewTick
+		const tableId = table.id
+		if (loadedTableId !== tableId) return
+		if (tick === appliedPreviewTick) return
+		if (editing) return
+		appliedPreviewTick = tick
+		loadFromTable(true)
+		appliedSyncTick = rowSyncTick
 	})
 
 	$effect(() => {
@@ -1876,7 +1945,7 @@
 		try {
 			await onreload(reloadOpts(p * PAGE_SIZE))
 			loadFromTable(true)
-			appliedSyncTick = rowSyncTick
+			markServerPreviewApplied()
 		} catch (err) {
 			statusMsg = err instanceof Error ? err.message : String(err)
 		} finally {
@@ -1901,7 +1970,7 @@
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
-				appliedSyncTick = rowSyncTick
+				markServerPreviewApplied()
 			} else {
 				const cloned = seed.map((r) => ({ ...r }))
 				rows = cloned.map((r) => ({ ...r }))
@@ -1969,7 +2038,7 @@
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
-				appliedSyncTick = rowSyncTick
+				markServerPreviewApplied()
 			} else {
 				const snap = rows
 					.map((r, i) => ({ r, i }))
