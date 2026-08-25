@@ -4,7 +4,6 @@
 	import {
 		ContextMenu,
 		Input,
-		StatusBar,
 		type ContextMenuItem,
 	} from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
@@ -222,12 +221,6 @@
 			</ul>
 		{/if}
 	</div>
-
-	<StatusBar ariaLabel="Query list status">
-		{#snippet left()}
-			<span class="tabular-nums">{count}</span>
-		{/snippet}
-	</StatusBar>
 </aside>
 
 {#if menu}

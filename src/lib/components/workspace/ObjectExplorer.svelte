@@ -6,7 +6,6 @@
 		IconButton,
 		Modal,
 		Select,
-		StatusBar,
 		type ContextMenuItem,
 	} from '$lib/components/core'
 	import {
@@ -692,27 +691,6 @@
 		{onopen}
 		onmenu={openTableMenu}
 	/>
-
-	<StatusBar ariaLabel="Catalog status">
-		{#snippet left()}
-			<span class="flex min-w-0 items-center truncate leading-none">
-				{#if currentDb}
-					<span class="font-mono text-fg-secondary">{currentDb.name}</span>
-					<span class="mx-1 shrink-0" aria-hidden="true">·</span>
-				{/if}
-				<span class="truncate">
-					{totalCount}
-					{presentation.objectLabel}
-					{#if isTree && groups.length > 0}
-						· {groups.length}
-						{groups.length === 1
-							? presentation.groupLabel.toLowerCase()
-							: `${presentation.groupLabel.toLowerCase()}s`}
-					{/if}
-				</span>
-			</span>
-		{/snippet}
-	</StatusBar>
 </aside>
 
 {#if tableMenu}
