@@ -512,6 +512,12 @@
 		}, ms)
 	}
 
+	function assertWritable(): boolean {
+		if (!profileReadOnly) return true
+		flashStatus('Connection is read-only')
+		return false
+	}
+
 	function selectedRowList(): number[] {
 		return [...selectedRows].sort((a, b) => a - b)
 	}
@@ -1128,9 +1134,9 @@
 		const items: ContextMenuItem[] = [
 			{
 				id: 'edit-modal',
-				label: 'Edit Modal',
+				label: ro ? 'View in modal' : 'Edit Modal',
 				shortcut: '⇧Enter',
-				disabled: ro || pending || cellCount > 1,
+				disabled: pending || cellCount > 1,
 			},
 			{
 				id: 'set-null',
@@ -1510,6 +1516,7 @@
 		seedDraft?: string,
 	) {
 		e?.stopPropagation()
+		if (!assertWritable()) return
 		if (deletedIndices.has(row)) {
 			flashStatus('Row is marked for delete — undo delete to edit')
 			return
@@ -1532,6 +1539,7 @@
 	}
 
 	function applyCellValue(row: number, col: string, rawText: string) {
+		if (!assertWritable()) return
 		const prev = rows[row]?.[col]
 		const def = columnDef(col)
 		const next =
@@ -1656,6 +1664,7 @@
 	}
 
 	function pasteIntoGrid(text: string) {
+		if (!assertWritable()) return
 		const cols = colNames()
 		if (cols.length === 0) return
 
@@ -1999,6 +2008,7 @@
 
 	async function saveChanges() {
 		if (saving) return
+		if (!assertWritable()) return
 		if (editing) commitEdit()
 		if (dirtyCount === 0) return
 		saving = true
@@ -2204,6 +2214,7 @@
 			columnType={cellModal.type}
 			rowIndex={cellModal.row}
 			initialText={cellModal.text}
+			readonly={profileReadOnly}
 			onapply={applyCellModal}
 			onclose={closeCellModal}
 		/>
@@ -2244,6 +2255,7 @@
 		{totalPages}
 		{refreshing}
 		{saving}
+		readOnly={profileReadOnly}
 		onPrev={goPrev}
 		onNext={goNext}
 		onRefresh={() => void refresh()}

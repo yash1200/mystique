@@ -28,6 +28,7 @@
 		onchange?: (column: string, value: unknown) => void
 		/** Bumps on grid save / reset / refresh so drafts re-sync. */
 		baselineEpoch?: number
+		readOnly?: boolean
 	}
 
 	let {
@@ -39,6 +40,7 @@
 		onclose,
 		onchange,
 		baselineEpoch = 0,
+		readOnly = false,
 	}: Props = $props()
 
 	function seedFromRow() {
@@ -173,6 +175,10 @@
 	})
 
 	function commitField(colName: string) {
+		if (readOnly) {
+			focusedCol = null
+			return
+		}
 		const col = columns.find((c) => c.name === colName)
 		if (!col) return
 		const previous = row[colName]
@@ -324,6 +330,7 @@
 								class="font-mono"
 								value={drafts[col.name] ?? ''}
 								{options}
+								disabled={readOnly}
 								onchange={(v) => {
 									drafts = { ...drafts, [col.name]: v }
 									commitField(col.name)
@@ -342,6 +349,7 @@
 								value={drafts[col.name] ?? ''}
 								placeholder="NULL"
 								aria-label={col.name}
+								readonly={readOnly}
 								onfocus={() => (focusedCol = col.name)}
 								oninput={(e) => {
 									drafts = {
@@ -366,6 +374,7 @@
 								value={drafts[col.name] ?? ''}
 								placeholder="NULL"
 								aria-label={col.name}
+								readonly={readOnly}
 								onfocus={() => (focusedCol = col.name)}
 								oninput={(e) => {
 									drafts = {

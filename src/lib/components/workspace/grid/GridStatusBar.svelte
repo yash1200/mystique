@@ -15,6 +15,7 @@
 		totalPages: number
 		refreshing: boolean
 		saving: boolean
+		readOnly?: boolean
 		onPrev: () => void
 		onNext: () => void
 		onRefresh: () => void
@@ -36,6 +37,7 @@
 		totalPages,
 		refreshing,
 		saving,
+		readOnly = false,
 		onPrev,
 		onNext,
 		onRefresh,
@@ -93,15 +95,17 @@
 		>
 			<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 		</IconButton>
-		<IconButton
-			label="Add a new empty row (⌘/Ctrl+N)"
-			size="sm"
-			variant="quiet"
-			disabled={saving || refreshing}
-			onclick={onAddRow}
-		>
-			<Icon name="plus" />
-		</IconButton>
+		{#if !readOnly}
+			<IconButton
+				label="Add a new empty row (⌘/Ctrl+N)"
+				size="sm"
+				variant="quiet"
+				disabled={saving || refreshing}
+				onclick={onAddRow}
+			>
+				<Icon name="plus" />
+			</IconButton>
+		{/if}
 		{#if hasChanges}
 			<Button
 				variant="ghost"

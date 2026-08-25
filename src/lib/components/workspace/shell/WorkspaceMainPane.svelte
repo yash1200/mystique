@@ -333,6 +333,7 @@
 						rowIndex={inspectorData.rowIndex}
 						savedRow={gridOriginals[inspectorData.rowIndex] ?? null}
 						{baselineEpoch}
+						readOnly={!!activeSession.profile.readOnly}
 						onclose={() => workspaceSession.clearRowSelection()}
 						onchange={oninspectorchange}
 					/>

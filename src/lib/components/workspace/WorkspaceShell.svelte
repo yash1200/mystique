@@ -1829,6 +1829,7 @@
 	}
 
 	function onInspectorFieldChange(column: string, value: unknown) {
+		if (activeSession?.profile.readOnly) return
 		if (rowSelectionIndex === null || !gridTable) return
 		const i = rowSelectionIndex
 		const current = gridTable.rows[i] ?? {}
