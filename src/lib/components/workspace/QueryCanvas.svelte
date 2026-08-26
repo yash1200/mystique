@@ -423,7 +423,7 @@
 		class:select-none={splitDragging}
 	>
 		<div
-			class="flex min-h-0 min-w-0 flex-col overflow-hidden"
+			class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-elevated"
 			style="flex: 0 0 {editorSharePct}%; max-height: {SPLIT_MAX}%"
 		>
 			<QueryEditor

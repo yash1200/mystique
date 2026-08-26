@@ -4,7 +4,7 @@
 	 * Highlighting is frontend-only — live as you type, no backend.
 	 */
 	import type { CatalogColumnRow } from '$lib/api/engines'
-	import { Button, Input } from '$lib/components/core'
+	import { Button, Icon, Input, Pill } from '$lib/components/core'
 	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { formatQuery } from '$lib/utils/formatQuery'
 	import {
@@ -315,9 +315,10 @@
 	></div>
 
 	<div
-		class="flex h-control-sm shrink-0 items-center gap-2 border-t border-line bg-elevated px-2.5"
+		class="flex shrink-0 items-center gap-2 border-t border-line bg-elevated px-2.5 py-1.5"
 	>
-		<span class="flex min-w-0 flex-1 items-center gap-2 truncate">
+		<div class="flex min-w-0 flex-1 items-center gap-2">
+			<Pill uppercase>{language === 'mql' ? 'MQL' : 'SQL'}</Pill>
 			<span class="font-mono text-caption tabular-nums text-fg-muted">
 				{lineCount}
 				{lineCount === 1 ? 'line' : 'lines'}
@@ -328,8 +329,22 @@
 			{#if formatMsg}
 				<span class="truncate text-caption text-warning">{formatMsg}</span>
 			{/if}
-		</span>
+		</div>
 		<div class="flex shrink-0 items-center gap-1.5">
+			<Button
+				variant="ghost"
+				size="sm"
+				class={appPrefs.agentChatOpen
+					? 'border-accent/40 bg-accent-muted text-accent hover:border-accent/50 hover:bg-accent-muted'
+					: ''}
+				aria-pressed={appPrefs.agentChatOpen}
+				onclick={() => appPrefs.setAgentChatOpen(!appPrefs.agentChatOpen)}
+				title={appPrefs.agentChatOpen ? 'Close agent' : 'Open agent'}
+			>
+				<Icon name="chat" class="size-3.5" />
+				Agent
+			</Button>
+			<span class="mx-0.5 h-4 w-px shrink-0 bg-line" aria-hidden="true"></span>
 			{#if language === 'mql'}
 				<Input
 					class="w-32 font-mono"
