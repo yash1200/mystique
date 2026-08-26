@@ -8,6 +8,9 @@ mod runtime;
 mod secrets;
 mod tools;
 
+#[cfg(test)]
+mod tests;
+
 pub use providers::{
     default_model, models_for, parse_provider, provider_catalog, AgentModelInfo, AgentProvider,
     AgentProviderInfo,
