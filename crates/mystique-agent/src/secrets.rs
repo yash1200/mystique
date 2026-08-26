@@ -3,7 +3,7 @@
 //! No OS keychain — macOS Keychain Access prompts on every read. Keys are
 //! AES-256-GCM blobs. The frontend never sees plaintext.
 
-mod crypto;
+pub(crate) mod crypto;
 mod legacy;
 
 use std::path::PathBuf;

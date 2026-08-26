@@ -13,7 +13,7 @@ use serde_json::{Map, Value as JsonValue};
 use crate::catalog::{ColumnInfo, FetchTablePreviewInput};
 use crate::connector::ConnectorSession;
 use crate::error::{ConnectorError, ConnectorResult};
-use crate::sql_table_edits::{qualify_table, quote_ident, sql_literal, SqlIdentStyle};
+use super::sql::{qualify_table, quote_ident, sql_literal, SqlIdentStyle};
 
 /// Rows written per engine fetch / file append.
 pub const EXPORT_CHUNK_SIZE: u32 = 100;

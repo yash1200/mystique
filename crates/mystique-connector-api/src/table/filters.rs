@@ -3,7 +3,7 @@
 
 use crate::catalog::{ColumnInfo, TableFilter};
 use crate::error::{ConnectorError, ConnectorResult};
-use crate::sql_table_edits::{quote_ident, SqlIdentStyle};
+use super::sql::{quote_ident, SqlIdentStyle};
 
 fn sql_string_literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))

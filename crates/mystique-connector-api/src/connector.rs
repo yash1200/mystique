@@ -6,17 +6,15 @@ use crate::catalog::{
     TablePreviewResult,
 };
 use crate::config::{ConnectionConfig, FormattedConnectionUrl, ParsedConnectionUrl};
-use crate::edits::{ApplyTableEditsInput, ApplyTableEditsResult};
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
 use crate::object_structure::ObjectStructure;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
-use crate::table_admin::{TableAdminInput, TableAdminResult};
-use crate::table_export::{ExportObjectInput, ExportObjectResult};
-use crate::table_import::{
+use crate::table::{
+    ApplyTableEditsInput, ApplyTableEditsResult, ExportObjectInput, ExportObjectResult,
     ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, PreviewImportInput,
-    PreviewImportResult,
+    PreviewImportResult, TableAdminInput, TableAdminResult,
 };
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;

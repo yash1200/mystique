@@ -1,4 +1,4 @@
-pub(super) fn extract_draft(text: &str) -> Option<String> {
+pub(crate) fn extract_draft(text: &str) -> Option<String> {
     for fence in ["```sql", "```mql", "```mongodb"] {
         if let Some(rest) = text.split_once(fence) {
             let body = rest.1.split_once("```").map(|(b, _)| b).unwrap_or(rest.1);

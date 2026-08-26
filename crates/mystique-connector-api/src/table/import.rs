@@ -11,7 +11,7 @@ use serde_json::{Map, Value as JsonValue};
 
 use crate::catalog::ColumnInfo;
 use crate::connector::ConnectorSession;
-use crate::edits::{ApplyTableEditsInput, TableEditColumn, TableRowInsert};
+use super::edits::{ApplyTableEditsInput, TableEditColumn, TableRowInsert};
 use crate::error::{ConnectorError, ConnectorResult};
 
 pub const IMPORT_CHUNK_SIZE: usize = 100;
@@ -841,7 +841,7 @@ pub async fn import_object_from_file(
 
 /// Shared SQL write for one import chunk (insert or upsert).
 pub fn import_chunk_sql(
-    style: crate::sql_table_edits::SqlIdentStyle,
+    style: super::sql::SqlIdentStyle,
     chunk: &ImportChunkInput,
 ) -> ConnectorResult<(Vec<String>, ImportChunkResult)> {
     let edits = ApplyTableEditsInput {
@@ -870,13 +870,13 @@ pub fn import_chunk_sql(
         };
         match chunk.on_duplicate {
             ImportOnDuplicate::StopOnError => {
-                statements.push(crate::sql_table_edits::compile_insert(
+                statements.push(super::sql::compile_insert(
                     style, &edits, &insert,
                 )?);
                 result.inserted += 1;
             }
             ImportOnDuplicate::UpdateOnDuplicate => {
-                statements.push(crate::sql_table_edits::compile_upsert(
+                statements.push(super::sql::compile_upsert(
                     style, &edits, &insert,
                 )?);
                 result.updated += 1;

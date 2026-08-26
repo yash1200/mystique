@@ -3,7 +3,7 @@
 
 use serde_json::Value as JsonValue;
 
-use crate::edits::{ApplyTableEditsInput, TableEditColumn};
+use super::edits::{ApplyTableEditsInput, TableEditColumn};
 use crate::error::{ConnectorError, ConnectorResult};
 
 #[derive(Debug, Clone, Copy)]
@@ -167,7 +167,7 @@ fn is_empty_value(v: &JsonValue) -> bool {
 pub fn compile_update(
     style: SqlIdentStyle,
     input: &ApplyTableEditsInput,
-    update: &crate::edits::TableRowUpdate,
+    update: &super::edits::TableRowUpdate,
 ) -> ConnectorResult<String> {
     let pks = pk_columns(&input.columns);
     if pks.is_empty() {
@@ -228,7 +228,7 @@ pub fn compile_update(
 pub fn compile_insert(
     style: SqlIdentStyle,
     input: &ApplyTableEditsInput,
-    insert: &crate::edits::TableRowInsert,
+    insert: &super::edits::TableRowInsert,
 ) -> ConnectorResult<String> {
     let cols: Vec<(&String, &JsonValue)> = insert
         .values
@@ -262,7 +262,7 @@ pub fn compile_insert(
 pub fn compile_upsert(
     style: SqlIdentStyle,
     input: &ApplyTableEditsInput,
-    insert: &crate::edits::TableRowInsert,
+    insert: &super::edits::TableRowInsert,
 ) -> ConnectorResult<String> {
     let insert_sql = compile_insert(style, input, insert)?;
     let pks = pk_columns(&input.columns);
@@ -323,7 +323,7 @@ pub fn compile_upsert(
 pub fn compile_delete(
     style: SqlIdentStyle,
     input: &ApplyTableEditsInput,
-    delete: &crate::edits::TableRowDelete,
+    delete: &super::edits::TableRowDelete,
 ) -> ConnectorResult<String> {
     let pks = pk_columns(&input.columns);
     if pks.is_empty() {

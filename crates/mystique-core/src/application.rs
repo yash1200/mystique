@@ -5,7 +5,7 @@
 mod agent_chat;
 mod agent_tools;
 mod ai_secrets;
-mod dbml;
+pub(crate) mod dbml;
 mod history;
 mod profiles;
 mod query_library;

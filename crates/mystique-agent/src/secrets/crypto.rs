@@ -11,7 +11,7 @@ use mystique_core::{AppError, AppResult};
 // Historical key id — do not change; existing wrapped secrets depend on it.
 const PEPPER: &[u8; 32] = b"mystique-db.ai.secret.v1.pepper!";
 
-pub(super) fn encrypt(plain: &str) -> AppResult<String> {
+pub(crate) fn encrypt(plain: &str) -> AppResult<String> {
     let cipher = Aes256Gcm::new_from_slice(PEPPER)
         .map_err(|e| AppError::Internal(format!("aes key: {e}")))?;
     let mut nonce_bytes = [0u8; 12];
@@ -26,7 +26,7 @@ pub(super) fn encrypt(plain: &str) -> AppResult<String> {
     Ok(format!("v1:{}", B64.encode(packed)))
 }
 
-pub(super) fn decrypt(blob: &str) -> AppResult<String> {
+pub(crate) fn decrypt(blob: &str) -> AppResult<String> {
     let raw = blob
         .strip_prefix("v1:")
         .ok_or_else(|| AppError::Internal("unsupported secret encoding".into()))?;

@@ -19,7 +19,7 @@ use super::prompt::SYSTEM_PROMPT;
 const DEFAULT_MAX_TURNS: usize = 16;
 pub(super) const AGENT_TIMEOUT_SECS: u64 = 180;
 
-fn history_from(prior: &[AgentMessage], context: &str) -> Vec<Message> {
+pub(crate) fn history_from(prior: &[AgentMessage], context: &str) -> Vec<Message> {
     let mut out = Vec::new();
     let start = prior.len().saturating_sub(20);
     for msg in &prior[start..] {

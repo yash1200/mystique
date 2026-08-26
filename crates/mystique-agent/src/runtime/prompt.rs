@@ -33,7 +33,7 @@ fn editor_block(engine: &str, raw: &str) -> String {
     format!("Current query tab editor (live buffer):\n```{fence}\n{body}{note}\n```")
 }
 
-pub(super) fn workspace_context(
+pub(crate) fn workspace_context(
     name: &str,
     engine: &str,
     database: &str,

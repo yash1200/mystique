@@ -16,9 +16,11 @@ use mystique_connector_api::{
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::types::ValueRef;
 use rusqlite::OptionalExtension;
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
+
+mod encode;
+use encode::*;
 
 pub struct SqliteSession {
     pool: Pool<SqliteConnectionManager>,
@@ -33,19 +35,6 @@ impl SqliteSession {
             max_size,
             closed: AtomicBool::new(false),
         }
-    }
-}
-
-fn value_ref_json(v: ValueRef<'_>) -> JsonValue {
-    match v {
-        ValueRef::Null => JsonValue::Null,
-        ValueRef::Integer(i) => json!(i),
-        ValueRef::Real(f) => json!(f),
-        ValueRef::Text(t) => JsonValue::String(String::from_utf8_lossy(t).into_owned()),
-        ValueRef::Blob(b) => JsonValue::String(format!(
-            "\\x{}",
-            b.iter().map(|x| format!("{x:02x}")).collect::<String>()
-        )),
     }
 }
 

@@ -1,86 +1,36 @@
 //! Reusable read-only workspace tools.
 //!
-//! The MCP HTTP server and the future in-app agent both call these methods.
+//! The MCP HTTP server and the in-app agent both call these methods.
 //! They never return passwords, hosts, or connection strings.
+
+mod args;
+mod download;
+mod specs;
+mod types;
 
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    CatalogObject, ColumnInfo, ExecuteQueryRequest, ListCatalogColumnsRequest, ListCatalogRequest,
-    ListRelationshipsRequest, PoolConfig, QueryMode, QueryResult,
+    ColumnInfo, ExecuteQueryRequest, ListCatalogColumnsRequest, ListCatalogRequest,
+    ListRelationshipsRequest, PoolConfig, QueryMode,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
 use super::dbml::catalog_to_dbml;
 use crate::connectors::{ConnectionManager, OpenSessionRequest};
-use crate::domain::{ConnectionProfile, SaveQueryInput, SavedQuery};
+use crate::domain::{SaveQueryInput, SavedQuery};
 use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
 
-pub const AGENT_MAX_ROWS: u32 = 2_000;
-pub const AGENT_DEFAULT_ROWS: u32 = 200;
+use self::args::{object_info, opt_str, profile_database, req_str};
+use self::download::download_from_result;
+use self::types::{AGENT_DEFAULT_ROWS, AGENT_MAX_ROWS};
 
-/// Safe connection card for models (no host / password / URI).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentConnectionInfo {
-    pub id: String,
-    pub name: String,
-    pub engine: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub database: Option<String>,
-    pub read_only: bool,
-    pub connected: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentObjectInfo {
-    pub name: String,
-    /// Schema-qualified name for SQL (`main.boards`). Same as `name` when schema is public/empty.
-    pub qualified_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub database: Option<String>,
-    pub kind: String,
-    #[serde(default)]
-    pub row_count: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentColumnInfo {
-    pub name: String,
-    pub data_type: String,
-    pub nullable: bool,
-    pub pk: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentQueryDownload {
-    pub engine: String,
-    pub columns: Vec<String>,
-    pub row_count: u64,
-    pub truncated: bool,
-    pub duration_ms: u64,
-    /// `json` rows or a CSV string.
-    pub format: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rows: Option<Vec<Vec<JsonValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub csv: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AgentToolSpec {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub input_schema: JsonValue,
-}
+pub use specs::tool_specs;
+pub use types::{
+    AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload, AgentToolSpec,
+};
 
 /// Shared tool surface: list schema, run read queries, save/list queries.
 #[derive(Clone)]
@@ -378,253 +328,4 @@ impl AgentTools {
     pub fn save_query(&self, input: SaveQueryInput) -> AppResult<SavedQuery> {
         self.db.with_conn(|c| repo::queries::save_query(c, input))
     }
-}
-
-fn download_from_result(result: QueryResult, format: &str) -> AgentQueryDownload {
-    let columns: Vec<String> = result.columns.iter().map(|c| c.name.clone()).collect();
-    let csv_wanted = format.eq_ignore_ascii_case("csv");
-    if csv_wanted {
-        AgentQueryDownload {
-            engine: result.engine,
-            columns,
-            row_count: result.row_count,
-            truncated: result.truncated,
-            duration_ms: result.duration_ms,
-            format: "csv".into(),
-            rows: None,
-            csv: Some(rows_to_csv(
-                &result
-                    .columns
-                    .iter()
-                    .map(|c| c.name.as_str())
-                    .collect::<Vec<_>>(),
-                &result.rows,
-            )),
-        }
-    } else {
-        AgentQueryDownload {
-            engine: result.engine,
-            columns,
-            row_count: result.row_count,
-            truncated: result.truncated,
-            duration_ms: result.duration_ms,
-            format: "json".into(),
-            rows: Some(result.rows),
-            csv: None,
-        }
-    }
-}
-
-fn rows_to_csv(headers: &[&str], rows: &[Vec<JsonValue>]) -> String {
-    let mut out = String::new();
-    out.push_str(
-        &headers
-            .iter()
-            .map(|h| csv_escape(h))
-            .collect::<Vec<_>>()
-            .join(","),
-    );
-    out.push('\n');
-    for row in rows {
-        let line: Vec<String> = (0..headers.len())
-            .map(|i| {
-                let cell = row.get(i).unwrap_or(&JsonValue::Null);
-                csv_escape(&json_cell(cell))
-            })
-            .collect();
-        out.push_str(&line.join(","));
-        out.push('\n');
-    }
-    out
-}
-
-fn json_cell(v: &JsonValue) -> String {
-    match v {
-        JsonValue::Null => String::new(),
-        JsonValue::String(s) => s.clone(),
-        JsonValue::Bool(b) => b.to_string(),
-        JsonValue::Number(n) => n.to_string(),
-        other => other.to_string(),
-    }
-}
-
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn object_info(obj: CatalogObject) -> AgentObjectInfo {
-    let schema = obj.schema.clone().unwrap_or_default();
-    let qualified_name = super::dbml::table_ident(&schema, &obj.name);
-    AgentObjectInfo {
-        name: obj.name,
-        qualified_name,
-        schema: obj.schema,
-        database: obj.database,
-        kind: obj.kind,
-        row_count: obj.row_count,
-    }
-}
-
-fn profile_database(profile: &ConnectionProfile) -> Option<String> {
-    let cfg = &profile.plugin_config;
-    if let Some(s) = cfg
-        .get("database")
-        .or_else(|| cfg.get("db"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Some(s.to_string());
-    }
-    if let Some(path) = cfg
-        .get("path")
-        .or_else(|| cfg.get("file"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Some(path.to_string());
-    }
-    if let Some(uri) = cfg.get("uri").and_then(|v| v.as_str()) {
-        if let Some(db) = database_from_mongo_uri(uri) {
-            return Some(db);
-        }
-    }
-    None
-}
-
-fn database_from_mongo_uri(uri: &str) -> Option<String> {
-    let after = uri.split("://").nth(1)?;
-    let path = after.split_once('/')?.1;
-    let name = path.split('?').next()?.trim();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
-}
-
-fn req_str(args: &JsonValue, key: &str) -> AppResult<String> {
-    args.get(key)
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .ok_or_else(|| AppError::Invalid(format!("`{key}` is required")))
-}
-
-fn opt_str(args: &JsonValue, key: &str) -> Option<String> {
-    args.get(key)
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-}
-
-pub fn tool_specs() -> Vec<AgentToolSpec> {
-    vec![
-        AgentToolSpec {
-            name: "list_connections",
-            description:
-                "List saved Mystique connections: id, name, engine, database. No hosts or passwords.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-        },
-        AgentToolSpec {
-            name: "get_schema_dbml",
-            description:
-                "Return live DBML (tables/collections, columns, keys, relationships) for a connection. Opens the connection if needed. Use schema-qualified names from the Table headers (e.g. main.boards) — unqualified names fail when the table is not on search_path.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string", "description": "Connection profile id from list_connections" },
-                    "database": { "type": "string", "description": "Optional database / catalog name" }
-                },
-                "required": ["connection_id"],
-                "additionalProperties": false
-            }),
-        },
-        AgentToolSpec {
-            name: "list_objects",
-            description:
-                "List tables, views, or collections in a connection (opens it if needed). Use qualified_name in SQL (e.g. main.boards).",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" },
-                    "database": { "type": "string" }
-                },
-                "required": ["connection_id"],
-                "additionalProperties": false
-            }),
-        },
-        AgentToolSpec {
-            name: "describe_object",
-            description:
-                "Describe columns / fields of one table or collection.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" },
-                    "name": { "type": "string", "description": "Table or collection name" },
-                    "schema": { "type": "string" },
-                    "database": { "type": "string" }
-                },
-                "required": ["connection_id", "name"],
-                "additionalProperties": false
-            }),
-        },
-        AgentToolSpec {
-            name: "execute_readonly_query",
-            description:
-                "Run a read-only query (SELECT / find). Writes are rejected. Returns JSON rows or CSV for download. Opens the connection if needed. Qualify tables with schema (SELECT * FROM main.boards), not bare names.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" },
-                    "query": { "type": "string", "description": "SQL or Mongo find/aggregate / JSON filter" },
-                    "database": { "type": "string" },
-                    "collection": { "type": "string", "description": "Mongo collection when required" },
-                    "max_rows": { "type": "integer", "minimum": 1, "maximum": 2000 },
-                    "format": { "type": "string", "enum": ["json", "csv"], "description": "json (default) or csv" }
-                },
-                "required": ["connection_id", "query"],
-                "additionalProperties": false
-            }),
-        },
-        AgentToolSpec {
-            name: "list_saved_queries",
-            description: "List queries saved in Mystique. Optionally filter by connection_id.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" }
-                },
-                "additionalProperties": false
-            }),
-        },
-        AgentToolSpec {
-            name: "save_query",
-            description: "Save a named query on a connection so it appears in Mystique.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "body": { "type": "string", "description": "Query text" },
-                    "language": { "type": "string", "description": "sql | mql" },
-                    "id": { "type": "string", "description": "Existing id to update" }
-                },
-                "required": ["connection_id", "name", "body"],
-                "additionalProperties": false
-            }),
-        },
-    ]
 }

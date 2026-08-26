@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use mysql_async::consts::ColumnType;
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Value};
 use mystique_connector_api::{
@@ -17,43 +16,11 @@ use mystique_connector_api::{
     SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
     TableObjectKind, TablePreviewResult, ValidatedQuery,
 };
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 
-/// SQL-ish type name for query result headers (not Debug enum tags).
-fn mysql_type_label(t: ColumnType) -> &'static str {
-    use ColumnType::*;
-    match t {
-        MYSQL_TYPE_DECIMAL | MYSQL_TYPE_NEWDECIMAL => "decimal",
-        MYSQL_TYPE_TINY => "tinyint",
-        MYSQL_TYPE_SHORT => "smallint",
-        MYSQL_TYPE_LONG => "int",
-        MYSQL_TYPE_FLOAT => "float",
-        MYSQL_TYPE_DOUBLE => "double",
-        MYSQL_TYPE_NULL => "null",
-        MYSQL_TYPE_TIMESTAMP | MYSQL_TYPE_TIMESTAMP2 => "timestamp",
-        MYSQL_TYPE_LONGLONG => "bigint",
-        MYSQL_TYPE_INT24 => "mediumint",
-        MYSQL_TYPE_DATE | MYSQL_TYPE_NEWDATE => "date",
-        MYSQL_TYPE_TIME | MYSQL_TYPE_TIME2 => "time",
-        MYSQL_TYPE_DATETIME | MYSQL_TYPE_DATETIME2 => "datetime",
-        MYSQL_TYPE_YEAR => "year",
-        MYSQL_TYPE_VARCHAR => "varchar",
-        MYSQL_TYPE_BIT => "bit",
-        MYSQL_TYPE_JSON => "json",
-        MYSQL_TYPE_ENUM => "enum",
-        MYSQL_TYPE_SET => "set",
-        MYSQL_TYPE_TINY_BLOB => "tinyblob",
-        MYSQL_TYPE_MEDIUM_BLOB => "mediumblob",
-        MYSQL_TYPE_LONG_BLOB => "longblob",
-        MYSQL_TYPE_BLOB => "blob",
-        MYSQL_TYPE_VAR_STRING => "varchar",
-        MYSQL_TYPE_STRING => "char",
-        MYSQL_TYPE_GEOMETRY => "geometry",
-        MYSQL_TYPE_VECTOR => "vector",
-        MYSQL_TYPE_TYPED_ARRAY => "array",
-        MYSQL_TYPE_UNKNOWN => "unknown",
-    }
-}
+mod encode;
+use encode::*;
+
 
 pub struct MysqlSession {
     pool: Pool,
@@ -71,60 +38,6 @@ impl MysqlSession {
     }
 }
 
-fn value_json(v: Value) -> JsonValue {
-    match v {
-        Value::NULL => JsonValue::Null,
-        Value::Bytes(b) => match String::from_utf8(b.clone()) {
-            Ok(s) => JsonValue::String(s),
-            Err(_) => JsonValue::String(format!(
-                "\\x{}",
-                b.iter().map(|x| format!("{x:02x}")).collect::<String>()
-            )),
-        },
-        Value::Int(i) => json!(i),
-        Value::UInt(u) => json!(u),
-        Value::Float(f) => json!(f),
-        Value::Double(d) => json!(d),
-        // DATE / DATETIME / TIMESTAMP all arrive as Value::Date
-        Value::Date(year, month, day, hour, minute, second, micros) => {
-            // MySQL zero-date / invalid components
-            if year == 0 || month == 0 || day == 0 {
-                return JsonValue::Null;
-            }
-            // Pure DATE (no time component)
-            if hour == 0 && minute == 0 && second == 0 && micros == 0 {
-                // Could still be midnight DATETIME — still valid ISO form.
-                // Prefer full datetime when any time field is non-zero; for
-                // pure DATE columns this matches YYYY-MM-DD which is correct.
-                return JsonValue::String(format!("{year:04}-{month:02}-{day:02}"));
-            }
-            if micros == 0 {
-                JsonValue::String(format!(
-                    "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
-                ))
-            } else {
-                // Trim trailing zeros in fractional seconds for readability
-                let frac = format!("{micros:06}");
-                let frac = frac.trim_end_matches('0');
-                JsonValue::String(format!(
-                    "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{frac}"
-                ))
-            }
-        }
-        Value::Time(is_neg, days, hours, minutes, seconds, micros) => {
-            let sign = if is_neg { "-" } else { "" };
-            if micros == 0 {
-                JsonValue::String(format!("{sign}{days} {hours:02}:{minutes:02}:{seconds:02}"))
-            } else {
-                let frac = format!("{micros:06}");
-                let frac = frac.trim_end_matches('0');
-                JsonValue::String(format!(
-                    "{sign}{days} {hours:02}:{minutes:02}:{seconds:02}.{frac}"
-                ))
-            }
-        }
-    }
-}
 
 #[async_trait]
 impl ConnectorSession for MysqlSession {
@@ -1207,193 +1120,5 @@ impl ConnectorSession for MysqlSession {
         )
         .with_subtitle(format!("MySQL · {object_kind}"))
         .with_object_kind(object_kind))
-    }
-}
-
-/// Present DEFAULT / AUTO_INCREMENT for structure UI.
-fn mysql_default_display(column_default: Option<&str>, extra: &str) -> Option<String> {
-    let extra = extra.trim();
-    let mut parts = Vec::new();
-    if let Some(d) = column_default.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(d.to_string());
-    }
-    if !extra.is_empty() {
-        // e.g. auto_increment, on update CURRENT_TIMESTAMP
-        parts.push(extra.to_string());
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" · "))
-    }
-}
-
-fn parse_mysql_enum_values(column_type: &str) -> Option<Vec<String>> {
-    let lower = column_type.to_ascii_lowercase();
-    if !(lower.starts_with("enum(") || lower.starts_with("set(")) {
-        return None;
-    }
-    let mut values = Vec::new();
-    let bytes = column_type.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\'' {
-            i += 1;
-            let mut s = String::new();
-            while i < bytes.len() {
-                if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                    s.push(bytes[i + 1] as char);
-                    i += 2;
-                    continue;
-                }
-                if bytes[i] == b'\'' {
-                    i += 1;
-                    break;
-                }
-                s.push(bytes[i] as char);
-                i += 1;
-            }
-            values.push(s);
-        } else {
-            i += 1;
-        }
-    }
-    if values.is_empty() {
-        None
-    } else {
-        Some(values)
-    }
-}
-
-#[cfg(test)]
-mod live_tests {
-    use crate::connector::MysqlConnector;
-    use mystique_connector_api::{
-        ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
-    };
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn list_tables_and_preview_users() {
-        let config = ConnectionConfig {
-            engine: "mysql".into(),
-            plugin_config: json!({
-                "host": "127.0.0.1",
-                "port": 3306,
-                "database": "mystique",
-                "username": "admin"
-            }),
-            password: Some("123".into()),
-            pool: PoolConfig {
-                max_size: 2,
-                min_idle: 0,
-                acquire_timeout_ms: 5000,
-                idle_timeout_secs: 30,
-            },
-        };
-        let connector = MysqlConnector;
-        let session = connector.connect(&config).await.expect("connect");
-        session.ping().await.expect("ping");
-
-        let tables = session
-            .execute_query(&ValidatedQuery {
-                text: "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY table_name".into(),
-                mode: QueryMode::Read,
-                max_rows: 100,
-                timeout_ms: 10_000,
-                collection: None,
-                database: None,
-            })
-            .await
-            .expect("list tables");
-        assert!(
-            tables.row_count >= 5,
-            "expected seed tables, got {}",
-            tables.row_count
-        );
-        let names: Vec<String> = tables
-            .rows
-            .iter()
-            .filter_map(|r| r.get(1).and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .collect();
-        assert!(names.iter().any(|n| n == "users"), "names={names:?}");
-        assert!(names.iter().any(|n| n == "orders"), "names={names:?}");
-
-        let preview = session
-            .execute_query(&ValidatedQuery {
-                text: "SELECT * FROM `mystique`.`users` LIMIT 10".into(),
-                mode: QueryMode::Read,
-                max_rows: 10,
-                timeout_ms: 10_000,
-                collection: None,
-                database: None,
-            })
-            .await
-            .expect("preview");
-        assert_eq!(preview.row_count, 10);
-        assert!(!preview.columns.is_empty());
-        assert!(preview
-            .columns
-            .iter()
-            .any(|c| c.name == "email" || c.name == "id"));
-
-        session.close().await.expect("close");
-    }
-}
-
-#[cfg(test)]
-mod er_meta_tests {
-    use crate::connector::MysqlConnector;
-    use mystique_connector_api::{
-        ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
-    };
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn information_schema_columns_and_fks() {
-        let config = ConnectionConfig {
-            engine: "mysql".into(),
-            plugin_config: json!({
-                "host": "127.0.0.1",
-                "port": 3306,
-                "database": "mystique",
-                "username": "admin"
-            }),
-            password: Some("123".into()),
-            pool: PoolConfig {
-                max_size: 2,
-                min_idle: 0,
-                acquire_timeout_ms: 5000,
-                idle_timeout_secs: 30,
-            },
-        };
-        let session = MysqlConnector.connect(&config).await.expect("connect");
-
-        let cols = session
-            .execute_query(&ValidatedQuery {
-                text: "SELECT table_name, column_name, column_type, is_nullable, column_key FROM information_schema.columns WHERE table_schema = 'mystique' ORDER BY table_name, ordinal_position".into(),
-                mode: QueryMode::Read,
-                max_rows: 5000,
-                timeout_ms: 10_000,
-                collection: None,
-                database: None,
-            })
-            .await
-            .expect("columns");
-        assert!(cols.row_count >= 20, "got {}", cols.row_count);
-
-        let fks = session
-            .execute_query(&ValidatedQuery {
-                text: "SELECT table_name, column_name, referenced_table_name, referenced_column_name FROM information_schema.key_column_usage WHERE table_schema = 'mystique' AND referenced_table_name IS NOT NULL".into(),
-                mode: QueryMode::Read,
-                max_rows: 100,
-                timeout_ms: 10_000,
-                collection: None,
-                database: None,
-            })
-            .await
-            .expect("fks");
-        assert_eq!(fks.row_count, 4, "seed has 4 FKs");
-        session.close().await.ok();
     }
 }

@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
@@ -7,80 +6,14 @@ use mystique_connector_api::{
     DatabaseConnector, EngineCapabilities, EngineFamily, FormField, FormFieldType,
     FormattedConnectionUrl, TestResult,
 };
-use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::OpenFlags;
 
 use crate::session::SqliteSession;
 
+pub(crate) mod path;
+
+use path::{build_pool, format_sqlite_url, resolve_path};
+
 pub struct SqliteConnector;
-
-fn resolve_path(config: &ConnectionConfig) -> ConnectorResult<PathBuf> {
-    let path = config
-        .str_field("path")
-        .or_else(|| config.str_field("database"))
-        .ok_or_else(|| ConnectorError::InvalidConfig("missing `path`".into()))?;
-    Ok(PathBuf::from(path))
-}
-
-/// Format SQLite path as a `file://` URL (or plain path for relative files).
-fn format_sqlite_url(config: &ConnectionConfig) -> ConnectorResult<FormattedConnectionUrl> {
-    let path = config
-        .str_field("path")
-        .or_else(|| config.str_field("database"))
-        .ok_or_else(|| ConnectorError::InvalidConfig("missing `path`".into()))?;
-    let path = path.trim();
-    if path.is_empty() {
-        return Err(ConnectorError::InvalidConfig("missing `path`".into()));
-    }
-
-    let url = if path.starts_with('/') {
-        format!("file://{path}")
-    } else if path.len() >= 3
-        && path.as_bytes()[0].is_ascii_alphabetic()
-        && path.as_bytes()[1] == b':'
-        && (path.as_bytes()[2] == b'\\' || path.as_bytes()[2] == b'/')
-    {
-        let normalized = path.replace('\\', "/");
-        format!("file:///{normalized}")
-    } else {
-        path.to_string()
-    };
-
-    Ok(FormattedConnectionUrl {
-        engine: "sqlite".into(),
-        url,
-    })
-}
-
-fn build_pool(config: &ConnectionConfig) -> ConnectorResult<Pool<SqliteConnectionManager>> {
-    let path = resolve_path(config)?;
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            return Err(ConnectorError::InvalidConfig(format!(
-                "parent directory does not exist: {}",
-                parent.display()
-            )));
-        }
-    }
-
-    let flags = if config.bool_field("readOnly", false) || config.bool_field("read_only", false) {
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX
-    } else {
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX
-    };
-
-    let manager = SqliteConnectionManager::file(&path).with_flags(flags);
-    let pool = Pool::builder()
-        .max_size(config.pool.max_size.max(1))
-        .min_idle(Some(config.pool.min_idle.min(config.pool.max_size).max(0)))
-        .connection_timeout(Duration::from_millis(config.pool.acquire_timeout_ms))
-        .build(manager)
-        .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-    Ok(pool)
-}
 
 #[async_trait]
 impl DatabaseConnector for SqliteConnector {
@@ -163,7 +96,6 @@ impl DatabaseConnector for SqliteConnector {
             .await
             .map_err(|e| ConnectorError::Internal(e.to_string()))??;
 
-        // validate
         {
             let pool2 = pool.clone();
             tokio::task::spawn_blocking(move || {
