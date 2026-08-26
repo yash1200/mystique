@@ -74,13 +74,16 @@
 	}
 
 	const exportItems: ContextMenuItem[] = [
-		{ id: 'dl-label', label: 'Download', heading: true },
-		{ id: 'download-csv', label: 'CSV' },
-		{ id: 'download-json', label: 'JSON' },
-		{ id: 'download-excel', label: 'Excel' },
-		{ id: 'copy-label', label: 'Copy', heading: true, separatorBefore: true },
-		{ id: 'copy-csv', label: 'Copy as CSV' },
-		{ id: 'copy-json', label: 'Copy as JSON' },
+		{ id: 'download-csv', label: 'Download as CSV', icon: 'download' },
+		{ id: 'download-json', label: 'Download as JSON', icon: 'download' },
+		{ id: 'download-excel', label: 'Download as Excel', icon: 'download' },
+		{
+			id: 'copy-csv',
+			label: 'Copy as CSV',
+			icon: 'copy',
+			separatorBefore: true,
+		},
+		{ id: 'copy-json', label: 'Copy as JSON', icon: 'copy' },
 	]
 
 	const statusText = $derived.by(() => {
@@ -143,7 +146,7 @@
 		const t = e?.currentTarget
 		if (!(t instanceof HTMLElement)) return
 		const rect = t.getBoundingClientRect()
-		menu = { x: rect.right, y: rect.top }
+		menu = { x: rect.right, y: rect.top - 6 }
 	}
 
 	function onMenuPick(action: string) {
@@ -308,6 +311,7 @@
 				<ContextMenu
 					x={menu.x}
 					y={menu.y}
+					placement="above-end"
 					items={exportItems}
 					ariaLabel="Download or copy results"
 					onpick={onMenuPick}

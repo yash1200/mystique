@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { IconName } from '$icons'
 	import { cn } from '$lib/utils/cn'
 	import Icon from './Icon.svelte'
 	import { popover } from '$lib/utils/motion'
@@ -7,6 +8,8 @@
 	export type ContextMenuItem = {
 		id: string
 		label: string
+		/** Optional leading glyph. Same family as the rest of the app. */
+		icon?: IconName
 		/** Optional keyboard hint shown on the right (e.g. ⌘D). */
 		shortcut?: string
 		danger?: boolean
@@ -23,25 +26,48 @@
 		y: number
 		items: ContextMenuItem[]
 		ariaLabel?: string
+		/**
+		 * `cursor` — (x, y) is the top-left (right-click).
+		 * `above-end` — (x, y) is the bottom-right, so a status-bar
+		 * trigger stays visible and cannot eat the opening click.
+		 */
+		placement?: 'cursor' | 'above-end'
 		onpick: (id: string) => void
 		onclose: () => void
 	}
 
-	let { x, y, items, ariaLabel = 'Actions', onpick, onclose }: Props = $props()
+	let {
+		x,
+		y,
+		items,
+		ariaLabel = 'Actions',
+		placement = 'cursor',
+		onpick,
+		onclose,
+	}: Props = $props()
 
 	let root = $state<HTMLDivElement | null>(null)
 	let left = $state(0)
 	let top = $state(0)
 
 	onMount(() => {
-		left = x
-		top = y
 		const el = root
+		const pad = 8
 		if (el) {
-			const rect = el.getBoundingClientRect()
-			const pad = 8
-			left = Math.max(pad, Math.min(x, window.innerWidth - rect.width - pad))
-			top = Math.max(pad, Math.min(y, window.innerHeight - rect.height - pad))
+			const box = el.getBoundingClientRect()
+			const rawLeft = placement === 'above-end' ? x - box.width : x
+			const rawTop = placement === 'above-end' ? y - box.height : y
+			left = Math.max(
+				pad,
+				Math.min(rawLeft, window.innerWidth - box.width - pad),
+			)
+			top = Math.max(
+				pad,
+				Math.min(rawTop, window.innerHeight - box.height - pad),
+			)
+		} else {
+			left = x
+			top = y
 		}
 		const onDoc = (e: PointerEvent) => {
 			if (e.target instanceof Node && root?.contains(e.target)) return
@@ -70,9 +96,11 @@
 
 <div
 	bind:this={root}
-	class="fixed z-50 min-w-44 rounded-md border border-line bg-elevated py-1 shadow-md"
+	class="fixed z-50 min-w-52 rounded-md border border-line bg-elevated py-1 shadow-md"
 	style="left:{left}px; top:{top}px"
-	transition:popover|global={{ origin: 'top left' }}
+	transition:popover|global={{
+		origin: placement === 'above-end' ? 'bottom right' : 'top left',
+	}}
 	role="menu"
 	tabindex="-1"
 	aria-label={ariaLabel}
@@ -95,7 +123,7 @@
 				role="menuitem"
 				disabled={item.disabled}
 				class={cn(
-					'flex w-full cursor-pointer items-center gap-4 border-none bg-transparent px-2.5 py-1.5 text-left text-label',
+					'flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-2.5 py-1.5 text-left text-label',
 					item.danger
 						? 'text-danger hover:bg-danger/10'
 						: item.checked
@@ -108,6 +136,9 @@
 					pick(item.id, item.disabled)
 				}}
 			>
+				{#if item.icon}
+					<Icon name={item.icon} class="text-fg-muted" />
+				{/if}
 				<span class="min-w-0 flex-1">{item.label}</span>
 				{#if item.checked}
 					<Icon name="check" />
