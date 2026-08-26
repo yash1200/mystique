@@ -13,11 +13,11 @@ mod settings;
 mod workspace_tabs;
 
 pub use agent_chat::AgentChatService;
-pub use ai_secrets::AiSecretsService;
 pub use agent_tools::{
     tool_specs, AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload,
     AgentToolSpec, AgentTools,
 };
+pub use ai_secrets::AiSecretsService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;

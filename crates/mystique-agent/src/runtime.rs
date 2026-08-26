@@ -1,14 +1,12 @@
 pub(crate) mod chat;
 pub(crate) mod draft;
+pub(crate) mod ollama;
 pub(crate) mod prompt;
 
 use mystique_core::{
     AgentChat, AgentMessage, AppError, AppResult, AppServices, AppendAgentMessageInput,
     CreateAgentChatInput,
 };
-use rig::client::Nothing;
-use rig::prelude::*;
-use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
 
 use crate::providers::{models_for, parse_provider, AgentModelInfo, AgentProvider};
@@ -17,6 +15,7 @@ use crate::tools::BoundTools;
 
 use self::chat::{run_agent, AGENT_TIMEOUT_SECS};
 use self::draft::extract_draft;
+use self::ollama::list_ollama_models;
 use self::prompt::workspace_context;
 
 pub const SETTING_AI_ENABLED: &str = "ai.enabled";
@@ -236,52 +235,4 @@ fn title_from(text: &str) -> String {
         t = t.chars().take(45).collect::<String>() + "…";
     }
     t
-}
-
-async fn list_ollama_models(app: &AppServices) -> AppResult<Vec<AgentModelInfo>> {
-    let url = AgentRuntime::ollama_url(app);
-    let client = ollama::Client::builder()
-        .api_key(Nothing)
-        .base_url(&url)
-        .build()
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    let listed = client.list_models().await.map_err(|e| {
-        AppError::Invalid(format!(
-            "Could not list Ollama models at {url}. Is Ollama running? ({e})"
-        ))
-    })?;
-
-    let mut out: Vec<AgentModelInfo> = listed
-        .iter()
-        .filter(|m| !is_likely_embedding(&m.id) && !is_likely_embedding(m.display_name()))
-        .map(|m| AgentModelInfo {
-            id: m.id.clone(),
-            label: m.display_name().to_string(),
-        })
-        .collect();
-    if out.is_empty() {
-        out = listed
-            .iter()
-            .map(|m| AgentModelInfo {
-                id: m.id.clone(),
-                label: m.display_name().to_string(),
-            })
-            .collect();
-    }
-    out.sort_by(|a, b| {
-        a.label
-            .to_ascii_lowercase()
-            .cmp(&b.label.to_ascii_lowercase())
-    });
-    out.dedup_by(|a, b| a.id == b.id);
-    Ok(out)
-}
-
-fn is_likely_embedding(id: &str) -> bool {
-    let l = id.to_ascii_lowercase();
-    l.contains("embed")
-        || l.contains("minilm")
-        || l.contains("nomic-bert")
-        || l.contains("bge-")
-        || l.contains("e5-")
 }

@@ -163,8 +163,8 @@ async fn execute_leaked_tools(bound: &BoundTools, calls: Vec<LeakedToolCall>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::history_from;
     use super::super::prompt::workspace_context;
+    use super::history_from;
     use mystique_core::AgentMessage;
     use rig::completion::Message;
 

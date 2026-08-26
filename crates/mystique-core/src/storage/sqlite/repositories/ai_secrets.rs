@@ -40,7 +40,10 @@ pub fn set(conn: &Connection, provider: &str, ciphertext: &str) -> AppResult<AiS
 }
 
 pub fn delete(conn: &Connection, provider: &str) -> AppResult<bool> {
-    let n = conn.execute("DELETE FROM ai_secrets WHERE provider = ?1", params![provider])?;
+    let n = conn.execute(
+        "DELETE FROM ai_secrets WHERE provider = ?1",
+        params![provider],
+    )?;
     Ok(n > 0)
 }
 

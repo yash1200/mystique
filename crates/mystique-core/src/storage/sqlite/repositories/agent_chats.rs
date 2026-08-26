@@ -30,10 +30,7 @@ fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentMessage> {
     })
 }
 
-pub fn list_for_connection(
-    conn: &Connection,
-    connection_id: &str,
-) -> AppResult<Vec<AgentChat>> {
+pub fn list_for_connection(conn: &Connection, connection_id: &str) -> AppResult<Vec<AgentChat>> {
     let connection_id = parse_id(connection_id)?;
     let mut stmt = conn.prepare(
         "
@@ -80,14 +77,7 @@ pub fn create(conn: &Connection, input: CreateAgentChatInput) -> AppResult<Agent
         INSERT INTO agent_chats (connection_id, title, provider, model, created_at, updated_at)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         ",
-        params![
-            connection_id,
-            title,
-            input.provider,
-            input.model,
-            now,
-            now
-        ],
+        params![connection_id, title, input.provider, input.model, now, now],
     )?;
     get_by_id(conn, &conn.last_insert_rowid().to_string())
 }

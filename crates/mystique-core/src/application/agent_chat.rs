@@ -1,6 +1,4 @@
-use crate::domain::{
-    AgentChat, AgentMessage, AppendAgentMessageInput, CreateAgentChatInput,
-};
+use crate::domain::{AgentChat, AgentMessage, AppendAgentMessageInput, CreateAgentChatInput};
 use crate::error::AppResult;
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;

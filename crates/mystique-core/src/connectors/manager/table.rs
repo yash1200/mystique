@@ -1,0 +1,80 @@
+use mystique_connector_api::{
+    ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
+    ConnectorResult, FetchTablePreviewRequest, TableAdminOp, TableAdminRequest, TableAdminResult,
+    TablePreviewResult, DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
+};
+
+use super::ConnectionManager;
+
+impl ConnectionManager {
+    /// Persist grid edits via the engine plugin (dialect + execution).
+    pub async fn apply_table_edits(
+        &self,
+        req: ApplyTableEditsRequest,
+    ) -> ConnectorResult<ApplyTableEditsResult> {
+        if req.profile_read_only {
+            return Err(ConnectorError::Policy(
+                "This connection is read-only. Disable read-only to save edits.".into(),
+            ));
+        }
+        let session = self.session(&req.session_id).await?;
+        if req.updates.is_empty() && req.inserts.is_empty() && req.deletes.is_empty() {
+            return Ok(ApplyTableEditsResult::empty());
+        }
+        let input = ApplyTableEditsInput::from(req);
+        session.apply_table_edits(&input).await
+    }
+
+    pub async fn fetch_table_preview(
+        &self,
+        req: FetchTablePreviewRequest,
+    ) -> ConnectorResult<TablePreviewResult> {
+        let session = self.session(&req.session_id).await?;
+        let input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
+        session.fetch_table_preview(&input).await
+    }
+    /// Plugin-owned table/collection admin (CREATE text + mutating ops).
+    pub async fn apply_table_admin(
+        &self,
+        req: TableAdminRequest,
+    ) -> ConnectorResult<TableAdminResult> {
+        if req.profile_read_only && req.op != TableAdminOp::CreateStatement {
+            return Err(ConnectorError::Policy(
+                "This connection is read-only. Disable read-only to change objects.".into(),
+            ));
+        }
+        let needs_name = matches!(req.op, TableAdminOp::Rename | TableAdminOp::Duplicate);
+        if needs_name
+            && req
+                .new_name
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+        {
+            return Err(ConnectorError::InvalidConfig(
+                "newName is required for rename and duplicate.".into(),
+            ));
+        }
+        if req.name.trim().is_empty() {
+            return Err(ConnectorError::InvalidConfig(
+                "Object name is required.".into(),
+            ));
+        }
+        if matches!(
+            req.op,
+            TableAdminOp::CreateGroup | TableAdminOp::CreateObject
+        ) && !req
+            .name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(ConnectorError::InvalidConfig(
+                "Name may only contain letters, numbers, and underscore.".into(),
+            ));
+        }
+        let session = self.session(&req.session_id).await?;
+        let input = req.into_input();
+        session.apply_table_admin(&input).await
+    }
+}
