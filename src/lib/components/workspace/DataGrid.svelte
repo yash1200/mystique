@@ -79,6 +79,8 @@
 		codeFilterPlaceholder?: string
 		/** Plugin-owned FK jump from a cell. */
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
+		/** Open this table's structure in a new tab. */
+		onopenstructure?: () => void
 	}
 
 	let {
@@ -100,6 +102,7 @@
 		seedSort = null,
 		codeFilterPlaceholder = '{ "email": "user@example.com" }',
 		onopenreference,
+		onopenstructure,
 	}: Props = $props()
 
 	let seed = $state<Record<string, unknown>[]>([])
@@ -267,8 +270,13 @@
 		Math.max(1, Math.ceil(serverTotal / PAGE_SIZE) || 1),
 	)
 	const safePage = $derived(Math.min(page, totalPages - 1))
-	const pageStart = $derived(safePage * PAGE_SIZE)
-	const pageEnd = $derived(pageStart + filteredCount)
+	let lastFetchedAt = $state<number | null>(Date.now())
+
+	$effect(() => {
+		void table.id
+		void tablePreviewTick
+		lastFetchedAt = Date.now()
+	})
 
 	function setFilterMode(mode: FilterMode) {
 		if (mode === filterMode) return
@@ -2244,18 +2252,17 @@
 
 	<GridStatusBar
 		{filteredCount}
-		{pageStart}
-		{pageEnd}
 		{filtersActive}
 		{hasActiveFilters}
-		tableRowCount={Math.max(table.rowCount, rows.length)}
 		{dirtyCount}
 		{statusMsg}
+		{lastFetchedAt}
 		{safePage}
 		{totalPages}
 		{refreshing}
 		{saving}
 		readOnly={profileReadOnly}
+		onOpenStructure={onopenstructure}
 		onPrev={goPrev}
 		onNext={goNext}
 		onRefresh={() => void refresh()}

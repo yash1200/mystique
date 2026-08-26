@@ -876,7 +876,7 @@
 	async function openObjectStructure(table: TableMeta, force = false) {
 		if (!activeId || !activeSession) return
 		sideMode = 'explorer'
-		const title = `Structure · ${table.name}`
+		const title = table.name
 		workspaceSession.openStructure(activeId, table.id, title)
 		const key = structureCacheKey(activeId, table.id)
 		if (!force && liveStructures[key]?.data?.sections?.length) {
@@ -908,7 +908,7 @@
 				workspaceSession.openStructure(
 					activeId,
 					table.id,
-					`Structure · ${table.name}`,
+					table.name,
 				)
 			}
 		} catch (e) {
@@ -2003,6 +2003,7 @@
 		seedCodeFilter={tableSeedCodeFilter}
 		seedSort={tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
+		onopenstructure={(table) => void openObjectStructure(table)}
 		{objectKindById}
 	/>
 

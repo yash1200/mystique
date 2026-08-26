@@ -82,6 +82,7 @@
 		/** Seeded preview sort so remounts keep the same column order. */
 		seedSort?: { column: string; dir: 'asc' | 'desc' } | null
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
+		onopenstructure?: (table: TableMeta) => void
 		objectKindById?: Record<string, CatalogObjectKind>
 	}
 
@@ -123,6 +124,7 @@
 		seedCodeFilter = null,
 		seedSort = null,
 		onopenreference,
+		onopenstructure,
 		objectKindById = {},
 	}: Props = $props()
 
@@ -308,6 +310,11 @@
 								activeSession.capabilities,
 							).codeFilterPlaceholder}
 							{onopenreference}
+							onopenstructure={
+								onopenstructure
+									? () => onopenstructure(gridTable)
+									: undefined
+							}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
 							bind:originals={gridOriginals}

@@ -118,11 +118,16 @@
 		]
 	})
 
+	function tabLabel(tab: WorkspaceTab): string {
+		if (tab.kind === 'structure') return entityName(tab)
+		return tab.title
+	}
+
 	function entityName(tab: WorkspaceTab): string {
 		if (tab.kind === 'table' || tab.kind === 'structure') {
 			const fromId = tab.tableId?.split('.').pop()?.trim()
 			if (fromId) return fromId
-			return tab.title.replace(/^Structure\s*·\s*/, '').trim()
+			return tab.title.replace(/^Structure\s*[·.]\s*/, '').trim()
 		}
 		if (tab.kind === 'model') {
 			return (tab.modelDatabase || tab.title).trim()
@@ -262,14 +267,18 @@
 							canReorder &&
 								(drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
 						)}
-						title={dirty ? `${tab.title} (unsaved changes)` : tab.title}
+						title={dirty
+							? `${tab.kind === 'structure' ? `Structure: ${tabLabel(tab)}` : tab.title} (unsaved changes)`
+							: tab.kind === 'structure'
+								? `Structure: ${tabLabel(tab)}`
+								: tab.title}
 						onclick={() => {
 							if (drag.ateClick()) return
 							onactivate(tab.id)
 						}}
 					>
 						{@render kindMark(tab)}
-						<span class="min-w-0 truncate">{tab.title}</span>
+						<span class="min-w-0 truncate">{tabLabel(tab)}</span>
 					</button>
 					<button
 						type="button"
@@ -283,8 +292,8 @@
 							dirty ? 'text-warning' : 'text-fg-muted',
 						)}
 						aria-label={dirty
-							? `Unsaved — close ${tab.title}`
-							: `Close ${tab.title}`}
+							? `Unsaved, close ${tabLabel(tab)}`
+							: `Close ${tabLabel(tab)}`}
 						title={dirty ? 'Unsaved changes — click to close' : 'Close'}
 						onclick={(e) => {
 							e.stopPropagation()
@@ -338,7 +347,7 @@
 					class="flex min-w-0 flex-1 items-center gap-1 self-center px-2.5 text-left text-label font-medium leading-none"
 				>
 					{@render kindMark(tab)}
-					<span class="min-w-0 truncate">{tab.title}</span>
+					<span class="min-w-0 truncate">{tabLabel(tab)}</span>
 				</div>
 				{#if tab.dirty}
 					<span class="mr-1.5 self-center text-label leading-none text-warning"

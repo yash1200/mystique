@@ -1,21 +1,27 @@
 <script lang="ts">
-	import { Button, Icon, IconButton, Pager, StatusBar } from '$lib/components/core'
+	import {
+		Button,
+		Icon,
+		IconButton,
+		Pager,
+		StatusBar,
+	} from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 
 	interface Props {
 		filteredCount: number
-		pageStart: number
-		pageEnd: number
 		filtersActive: boolean
 		hasActiveFilters: boolean
-		tableRowCount: number
 		dirtyCount: number
 		statusMsg: string | null
+		/** Epoch ms of the last engine preview fetch. */
+		lastFetchedAt: number | null
 		safePage: number
 		totalPages: number
 		refreshing: boolean
 		saving: boolean
 		readOnly?: boolean
+		onOpenStructure?: () => void
 		onPrev: () => void
 		onNext: () => void
 		onRefresh: () => void
@@ -26,18 +32,17 @@
 
 	let {
 		filteredCount,
-		pageStart,
-		pageEnd,
 		filtersActive,
 		hasActiveFilters,
-		tableRowCount,
 		dirtyCount,
 		statusMsg,
+		lastFetchedAt,
 		safePage,
 		totalPages,
 		refreshing,
 		saving,
 		readOnly = false,
+		onOpenStructure,
 		onPrev,
 		onNext,
 		onRefresh,
@@ -47,20 +52,57 @@
 	}: Props = $props()
 
 	const hasChanges = $derived(dirtyCount > 0)
+	let now = $state(Date.now())
+
+	$effect(() => {
+		const id = window.setInterval(() => {
+			now = Date.now()
+		}, 15_000)
+		return () => window.clearInterval(id)
+	})
+
+	function fetchedLabel(ts: number, at: number): string {
+		const sec = Math.max(0, Math.floor((at - ts) / 1000))
+		if (sec < 60) return 'Just now'
+		const min = Math.floor(sec / 60)
+		if (min < 60) return `${min}m ago`
+		const hr = Math.floor(min / 60)
+		if (hr < 24) return `${hr}h ago`
+		return new Date(ts).toLocaleDateString(undefined, {
+			month: 'short',
+			day: 'numeric',
+		})
+	}
 </script>
 
-<StatusBar ariaLabel="Table status">
+<StatusBar class="!pl-1" ariaLabel="Table status">
 	{#snippet left()}
+		{#if onOpenStructure}
+			<Button
+				variant="ghost"
+				size="sm"
+				class="!px-1.5"
+				onclick={onOpenStructure}
+				title="Open table structure in a new tab"
+			>
+				<Icon name="structure" class="size-3.5" />
+				Structure
+			</Button>
+		{/if}
+		{#if lastFetchedAt != null}
+			<span
+				class="inline-flex min-w-0 items-center gap-1 truncate text-caption text-fg-muted"
+				title={new Date(lastFetchedAt).toLocaleString()}
+			>
+				<Icon name="history" class="size-3.5 shrink-0" />
+				<span class="truncate tabular-nums">{fetchedLabel(lastFetchedAt, now)}</span>
+			</span>
+		{/if}
 		{#if filteredCount === 0}
-			<span class="truncate font-mono tabular-nums">0 rows</span>
-		{:else}
-			<span class="truncate font-mono tabular-nums">
-				{pageStart + 1}–{pageEnd} of
-				{#if filtersActive && hasActiveFilters}
-					{filteredCount} filtered · {tableRowCount.toLocaleString()} total
-				{:else}
-					{tableRowCount.toLocaleString()}
-				{/if}
+			<span class="truncate font-mono tabular-nums text-fg-muted">0 rows</span>
+		{:else if filtersActive && hasActiveFilters}
+			<span class="truncate font-mono tabular-nums text-fg-muted">
+				{filteredCount} filtered
 			</span>
 		{/if}
 		{#if hasChanges}
