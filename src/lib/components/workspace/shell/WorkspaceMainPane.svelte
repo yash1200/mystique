@@ -44,6 +44,9 @@
 		structure?: ObjectStructure | null
 		structureLoading?: boolean
 		structureError?: string | null
+		/** Epoch ms of the last engine structure fetch. */
+		structureFetchedAt?: number | null
+		onopentable?: () => void
 		gridTable: TableMeta | null
 		tableLoading: boolean
 		rowSelectionIndex: number | null
@@ -101,6 +104,8 @@
 		structure = null,
 		structureLoading = false,
 		structureError = null,
+		structureFetchedAt = null,
+		onopentable,
 		gridTable,
 		tableLoading,
 		rowSelectionIndex,
@@ -257,7 +262,9 @@
 					{structure}
 					loading={structureLoading}
 					error={structureError}
+					lastFetchedAt={structureFetchedAt}
 					onretry={onopenstructureretry}
+					{onopentable}
 				/>
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}

@@ -1,71 +1,61 @@
 <script lang="ts">
 	/**
-	 * Object structure — laboratory ledger for columns, indexes, relations, …
-	 * Data is plugin-owned; this panel only renders sections.
+	 * Object structure — columns, indexes, relations, and engine metadata.
+	 * Plugin-owned data; this panel only renders sections.
 	 */
+	import type { IconName } from '$icons'
 	import type { ObjectStructure, StructureSection } from '$lib/api/engines'
 	import {
+		Alert,
 		Button,
-		Checkbox,
 		EmptyState,
 		Icon,
 		IconButton,
-		Input,
 		Pill,
 		StatusBar,
 	} from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 	import { copyTextToClipboard } from '$lib/utils/exportTable'
+	import { fetchedLabel } from '$lib/utils/fetchedLabel'
+	import { onDestroy } from 'svelte'
+	import { SvelteSet } from 'svelte/reactivity'
+	import CatalogIcon from './CatalogIcon.svelte'
+	import { iconToneForName, type CatalogIconName } from './catalogIcon'
+	import ExplorerSearch from './explorer/ExplorerSearch.svelte'
 
 	interface Props {
 		structure: ObjectStructure | null
 		loading?: boolean
 		error?: string | null
+		/** Epoch ms of the last engine structure fetch. */
+		lastFetchedAt?: number | null
 		onretry?: () => void
+		onopentable?: () => void
 	}
 
 	let {
 		structure = null,
 		loading = false,
 		error = null,
+		lastFetchedAt = null,
 		onretry,
+		onopentable,
 	}: Props = $props()
 
 	let activeSection = $state<string | null>(null)
 	let filter = $state('')
-	let expandedCells = $state<Set<string>>(new Set())
+	const expandedCells = new SvelteSet<string>()
 	let copyMsg = $state<string | null>(null)
+	let copyTimer: ReturnType<typeof setTimeout> | null = null
 
-	$effect(() => {
-		// Reset chrome when the object changes.
-		void structure?.title
-		filter = ''
-		expandedCells = new Set()
-		copyMsg = null
-	})
-
-	$effect(() => {
-		const first = structure?.sections?.[0]?.id ?? null
-		if (!structure) {
-			activeSection = null
-			return
-		}
-		if (
-			!activeSection ||
-			!structure.sections.some((s) => s.id === activeSection)
-		) {
-			activeSection = first
-		}
+	onDestroy(() => {
+		if (copyTimer) clearTimeout(copyTimer)
 	})
 
 	const section = $derived(
 		structure?.sections.find((s) => s.id === activeSection) ??
 			structure?.sections[0] ??
 			null,
-	)
-
-	const totalFacts = $derived(
-		structure?.sections.reduce((n, s) => n + s.rows.length, 0) ?? 0,
 	)
 
 	const filteredRows = $derived.by(() => {
@@ -77,26 +67,51 @@
 		)
 	})
 
+	const kindIcon = $derived.by((): CatalogIconName => {
+		const k = structure?.objectKind?.toLowerCase()
+		if (k === 'view') return 'view'
+		if (k === 'collection') return 'collection'
+		if (k === 'table') return 'table'
+		return 'structure'
+	})
+
+	const openTableLabel = $derived.by(() => {
+		const k = structure?.objectKind?.toLowerCase()
+		if (k === 'collection') return 'Collection'
+		if (k === 'view') return 'View'
+		return 'Table'
+	})
+
+	const openTableIcon = $derived.by((): IconName => {
+		const k = structure?.objectKind?.toLowerCase()
+		if (k === 'view') return 'view'
+		if (k === 'collection') return 'collection'
+		return 'table'
+	})
+
+	let now = $state(Date.now())
+
+	$effect(() => {
+		const id = window.setInterval(() => {
+			now = Date.now()
+		}, 15_000)
+		return () => window.clearInterval(id)
+	})
+
 	function selectSection(id: string) {
 		activeSection = id
 		filter = ''
-		expandedCells = new Set()
+		expandedCells.clear()
 	}
 
 	function cellKey(ri: number, ci: number): string {
 		return `${ri}:${ci}`
 	}
 
-	function isExpanded(ri: number, ci: number): boolean {
-		return expandedCells.has(cellKey(ri, ci))
-	}
-
 	function toggleExpand(ri: number, ci: number) {
 		const k = cellKey(ri, ci)
-		const next = new Set(expandedCells)
-		if (next.has(k)) next.delete(k)
-		else next.add(k)
-		expandedCells = next
+		if (expandedCells.has(k)) expandedCells.delete(k)
+		else expandedCells.add(k)
 	}
 
 	function isNullableHeader(h: string): boolean {
@@ -112,6 +127,11 @@
 			s === 'sparse' ||
 			s === 'id'
 		)
+	}
+
+	function isPkHeader(h: string): boolean {
+		const s = h.toLowerCase()
+		return s === 'pk' || s === 'primary' || s === 'id'
 	}
 
 	function isTypeHeader(h: string): boolean {
@@ -135,26 +155,26 @@
 		return v.length > 72 || v.includes('\n')
 	}
 
-	function sectionIcon(id: string): string {
+	function sectionIcon(id: string): IconName {
 		switch (id) {
 			case 'columns':
 			case 'fields':
-				return '∷'
+				return 'table'
 			case 'indexes':
-				return '⌘'
+				return 'sort'
 			case 'foreign_keys':
 			case 'referenced_by':
-				return '→'
+				return 'external'
 			case 'triggers':
-				return '⚡'
+				return 'code'
 			case 'checks':
-				return '✓'
+				return 'check'
 			case 'options':
-				return '⚙'
+				return 'settings'
 			case 'stats':
-				return '∑'
+				return 'info'
 			default:
-				return '·'
+				return 'structure'
 		}
 	}
 
@@ -166,8 +186,9 @@
 				? res.error
 				: null
 		copyMsg = msg
+		if (copyTimer) clearTimeout(copyTimer)
 		if (msg) {
-			setTimeout(() => {
+			copyTimer = setTimeout(() => {
 				if (copyMsg === msg) copyMsg = null
 			}, 1600)
 		}
@@ -201,46 +222,68 @@
 			selectSection(ids[ids.length - 1]!)
 		}
 	}
+
+	function onFindKeydown(e: KeyboardEvent) {
+		const find =
+			e.key === '/' ||
+			((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f')
+		if (!find) return
+		const t = e.target
+		if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
+			return
+		}
+		e.preventDefault()
+		document.getElementById('structure-filter')?.focus()
+	}
 </script>
+
+<svelte:window onkeydown={onFindKeydown} />
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 	{#if loading && !structure}
-		<div class="flex min-h-0 flex-1 flex-col">
-			<div class="shrink-0 border-b border-line bg-panel px-4 py-3">
-				<div class="h-4 w-48 animate-pulse rounded-sm bg-input"></div>
-				<div class="mt-2 h-3 w-32 animate-pulse rounded-sm bg-input/80"></div>
+		<div class="flex min-h-0 flex-1 flex-col" aria-busy="true">
+			<div
+				class="flex h-control shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5"
+			>
+				<div class="size-6 animate-pulse rounded-md bg-input"></div>
+				<div class="h-3 w-36 animate-pulse rounded-sm bg-input"></div>
+				<div class="ml-auto h-control-sm w-52 animate-pulse rounded-md bg-input"></div>
 			</div>
 			<div
-				class="flex shrink-0 gap-1.5 overflow-hidden border-b border-line bg-panel px-3 py-2"
+				class="flex h-control-sm shrink-0 items-stretch overflow-hidden border-b border-line bg-panel"
 			>
-				{#each [1, 2, 3, 4, 5] as i (i)}
+				{#each [1, 2, 3, 4] as i (i)}
 					<div
-						class="h-control-sm w-20 shrink-0 animate-pulse rounded-md bg-input"
+						class="flex items-center gap-1.5 border-r border-line px-2.5"
 						style="animation-delay: {i * 40}ms"
-					></div>
+					>
+						<div class="h-3 w-16 animate-pulse rounded-sm bg-input"></div>
+					</div>
 				{/each}
 			</div>
-			<div class="min-w-0 flex-1 space-y-2 p-4">
-				<div class="h-3 w-40 animate-pulse rounded-sm bg-input"></div>
-				<div class="overflow-hidden rounded-md border border-line bg-elevated">
-					{#each [1, 2, 3, 4, 5, 6, 7, 8] as r (r)}
-						<div
-							class="flex gap-3 border-b border-line px-3 py-2 last:border-b-0"
-						>
-							<div class="h-3 w-24 animate-pulse rounded-sm bg-input"></div>
-							<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
-							<div
-								class="h-3 flex-1 animate-pulse rounded-sm bg-input/50"
-							></div>
-						</div>
-					{/each}
+			<div class="min-h-0 flex-1">
+				<div class="flex gap-3 border-b border-line bg-panel px-2.5 py-1.5">
+					<div class="h-3 w-8 animate-pulse rounded-sm bg-input"></div>
+					<div class="h-3 w-24 animate-pulse rounded-sm bg-input"></div>
+					<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
+					<div class="h-3 flex-1 animate-pulse rounded-sm bg-input/50"></div>
 				</div>
+				{#each [1, 2, 3, 4, 5, 6, 7, 8] as r (r)}
+					<div
+						class="flex min-h-grid-row items-center gap-3 border-b border-line px-2.5"
+					>
+						<div class="h-3 w-6 animate-pulse rounded-sm bg-input/60"></div>
+						<div class="h-3 w-28 animate-pulse rounded-sm bg-input"></div>
+						<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
+						<div class="h-3 w-12 animate-pulse rounded-sm bg-input/50"></div>
+					</div>
+				{/each}
 			</div>
-			<div
-				class="flex min-h-statusbar shrink-0 items-center border-t border-line bg-panel px-3 text-caption text-fg-muted"
-			>
-				Reading structure from the engine…
-			</div>
+			<StatusBar ariaLabel="Structure status">
+				{#snippet left()}
+					<span class="text-fg-muted">Reading structure from the engine…</span>
+				{/snippet}
+			</StatusBar>
 		</div>
 	{:else if error && !structure}
 		<div class="flex flex-1 items-center justify-center p-8">
@@ -255,83 +298,64 @@
 			</EmptyState>
 		</div>
 	{:else if structure}
-		<!-- Identity header -->
-		<header class="relative shrink-0 border-b border-line bg-panel">
-			<span class="absolute inset-y-0 left-0 w-0.5 bg-conn" aria-hidden="true"
+		<header
+			class="relative flex shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5 py-2"
+		>
+			<span
+				class="absolute inset-x-0 top-0 h-0.5 bg-conn"
+				aria-hidden="true"
 			></span>
-			<div class="flex items-start gap-3 px-4 py-3 pl-4">
-				<div class="min-w-0 flex-1">
-					<div class="flex flex-wrap items-center gap-2">
-						<h1
-							class="m-0 min-w-0 truncate font-mono text-body-lg font-semibold tracking-tight text-fg"
-							title={structure.title}
-						>
-							{structure.title}
-						</h1>
-						{#if structure.objectKind}
-							<Pill tone="neutral" uppercase>{structure.objectKind}</Pill>
-						{/if}
-						{#if loading}
-							<span class="text-caption text-fg-muted">Refreshing…</span>
-						{/if}
-					</div>
-					<div
-						class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-fg-muted"
-					>
-						{#if structure.subtitle}
-							<span>{structure.subtitle}</span>
-							<span aria-hidden="true" class="text-fg-muted">·</span>
-						{/if}
-						<span class="font-mono tabular-nums">
-							{structure.sections.length} section{structure.sections.length ===
-							1
-								? ''
-								: 's'}
-						</span>
-						<span aria-hidden="true" class="text-fg-muted">·</span>
-						<span class="font-mono tabular-nums">
-							{totalFacts} fact{totalFacts === 1 ? '' : 's'}
-						</span>
-						{#if section}
-							<span aria-hidden="true" class="text-fg-muted">·</span>
-							<span>{section.title}</span>
-						{/if}
-					</div>
-					{#if error}
-						<p class="mt-1.5 mb-0 text-caption text-danger" role="alert">
-							{error}
-							{#if onretry}
-								<button
-									type="button"
-									class="ml-1 border-none bg-transparent p-0 text-accent underline"
-									onclick={onretry}
-								>
-									Retry
-								</button>
-							{/if}
-						</p>
-					{/if}
-				</div>
-				{#if section && section.rows.length > 0}
-					<div class="flex shrink-0 items-center gap-1">
-						<Button
-							variant="ghost"
-							size="sm"
-							title="Copy this section as TSV"
-							onclick={() =>
-								void flashCopy('Section copied', sectionAsTsv(section))}
-						>
-							Copy section
-						</Button>
-					</div>
+			<span
+				class="grid size-6 shrink-0 place-items-center rounded-md bg-input"
+				aria-hidden="true"
+			>
+				<CatalogIcon
+					name={kindIcon}
+					tone={iconToneForName(kindIcon)}
+					class="size-3.5"
+				/>
+			</span>
+			<div class="flex min-w-0 flex-1 items-center gap-1.5">
+				<h1
+					class="m-0 min-w-0 truncate font-mono text-label font-semibold text-fg"
+					title={structure.title}
+				>
+					{structure.title}
+				</h1>
+				{#if structure.objectKind}
+					<Pill tone="neutral" uppercase>{structure.objectKind}</Pill>
 				{/if}
+			</div>
+			<div class="w-52 shrink-0">
+				<ExplorerSearch
+					bind:value={filter}
+					id="structure-filter"
+					placeholder={section
+						? `Filter ${section.title.toLowerCase()}…`
+						: 'Filter…'}
+					label={section
+						? `Filter ${section.title.toLowerCase()}`
+						: 'Filter structure'}
+				/>
 			</div>
 		</header>
 
-		<!-- Horizontal catalog (avoids a third vertical list panel) -->
+		{#if error}
+			<div class="shrink-0 px-2.5 pt-2">
+				<Alert tone="danger">
+					<div class="flex items-center justify-between gap-2">
+						<span class="min-w-0 truncate">{error}</span>
+						{#if onretry}
+							<Button variant="ghost" size="sm" onclick={onretry}>Retry</Button>
+						{/if}
+					</div>
+				</Alert>
+			</div>
+		{/if}
+
 		{#if structure.sections.length > 0}
 			<div
-				class="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-panel px-3 py-1.5"
+				class="scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto border-b border-line bg-panel"
 				role="tablist"
 				aria-label="Structure sections"
 				aria-orientation="horizontal"
@@ -344,29 +368,30 @@
 						aria-selected={active}
 						tabindex={active ? 0 : -1}
 						class={cn(
-							'inline-flex h-control-sm shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-label font-medium transition-colors',
+							'relative inline-flex shrink-0 items-center gap-1.5 border-r border-line px-2.5 text-label font-medium transition-colors',
 							active
-								? 'border-accent/40 bg-accent-muted text-accent'
-								: 'border-transparent bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
+								? 'bg-app-wash text-fg'
+								: 'bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
 						)}
 						onclick={() => selectSection(sec.id)}
 						onkeydown={onSectionKeydown}
 					>
-						<span
+						{#if active}
+							<span
+								class="absolute inset-x-0 top-0 h-0.5 bg-accent"
+								aria-hidden="true"
+							></span>
+						{/if}
+						<Icon
+							name={sectionIcon(sec.id)}
 							class={cn(
-								'font-mono text-micro',
+								'size-3.5',
 								active ? 'text-accent' : 'text-fg-muted',
 							)}
-							aria-hidden="true"
-						>
-							{sectionIcon(sec.id)}
-						</span>
+						/>
 						{sec.title}
 						<span
-							class={cn(
-								'font-mono text-micro tabular-nums',
-								active ? 'text-accent' : 'text-fg-muted',
-							)}
+							class="rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
 						>
 							{sec.rows.length}
 						</span>
@@ -377,205 +402,193 @@
 
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			{#if section}
-				<div
-					class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2"
-				>
-					<div class="min-w-0 flex-1">
-						<div class="text-label font-semibold text-fg">{section.title}</div>
-						{#if section.description}
-							<div class="mt-0.5 text-caption text-fg-muted">
-								{section.description}
-							</div>
-						{/if}
-					</div>
-					{#if section.rows.length > 4}
-						<div class="w-48 shrink-0">
-							<Input
-								type="search"
-								placeholder="Filter {section.title.toLowerCase()}…"
-								bind:value={filter}
-								inputSize="sm"
+				{#if section.rows.length === 0}
+					<div class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+						<span
+							class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+							aria-hidden="true"
+						>
+							<Icon
+								name={sectionIcon(section.id)}
+								class="size-4 text-fg-muted"
 							/>
-						</div>
-					{/if}
-				</div>
-
-				<div class="min-h-0 flex-1 overflow-auto p-3">
-					{#if section.rows.length === 0}
-						<div
-							class="flex min-h-40 flex-col items-center justify-center rounded-md border border-dashed border-line bg-elevated/60 px-4 py-8 text-center"
+						</span>
+						<p class="m-0 text-label font-medium text-fg">
+							No {section.title.toLowerCase()}
+						</p>
+						<p class="mt-1 mb-0 max-w-prose-ui text-caption text-fg-muted">
+							{section.emptyMessage ||
+								`No ${section.title.toLowerCase()} on this object.`}
+						</p>
+					</div>
+				{:else if filteredRows.length === 0}
+					<div class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+						<span
+							class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+							aria-hidden="true"
 						>
-							<p class="m-0 text-label font-medium text-fg-secondary">
-								Nothing here
-							</p>
-							<p class="mt-1 mb-0 max-w-prose-ui text-caption text-fg-muted">
-								{section.emptyMessage ||
-									`No ${section.title.toLowerCase()} on this object.`}
-							</p>
-						</div>
-					{:else if filteredRows.length === 0}
-						<div
-							class="flex min-h-32 flex-col items-center justify-center rounded-md border border-dashed border-line bg-elevated/60 px-4 py-6 text-center"
+							<Icon name="search" class="size-4 text-fg-muted" />
+						</span>
+						<p class="m-0 text-label font-medium text-fg">No matches</p>
+						<p class="mt-1 mb-3 text-caption text-fg-muted">
+							Nothing in {section.title.toLowerCase()} matches “{filter.trim()}”
+						</p>
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => {
+								filter = ''
+							}}
 						>
-							<p class="m-0 text-label text-fg-secondary">
-								No matches for “{filter.trim()}”
-							</p>
-							<button
-								type="button"
-								class="mt-2 border-none bg-transparent text-caption text-accent underline"
-								onclick={() => {
-									filter = ''
-								}}
-							>
-								Clear filter
-							</button>
-						</div>
-					{:else}
-						<div
-							class="overflow-hidden rounded-md border border-line bg-elevated shadow-sm"
-						>
-							<table class="w-full border-collapse text-left">
-								<thead class="sticky top-0 z-10">
-									<tr class="border-b border-line bg-panel">
+							Clear filter
+						</Button>
+					</div>
+				{:else}
+					<div class="min-h-0 flex-1 overflow-auto">
+						<table class="w-full border-collapse text-left">
+							<thead class="sticky top-0 z-10">
+								<tr class="border-b border-line bg-panel">
+									<th
+										class="w-8 px-2 py-1.5 text-center text-micro font-medium text-fg-muted"
+										scope="col"
+									>
+										#
+									</th>
+									{#each section.columns as col (col)}
 										<th
-											class="w-8 px-2 py-1.5 text-center text-micro font-medium text-fg-muted"
+											class="px-2.5 py-1.5 text-label font-semibold text-fg-muted"
 											scope="col"
 										>
-											#
+											{col}
 										</th>
-										{#each section.columns as col (col)}
-											<th
-												class="px-2.5 py-1.5 text-label font-semibold tracking-wide text-fg-muted"
-												scope="col"
-											>
-												{col}
-											</th>
-										{/each}
-										<th class="w-10 px-1 py-1.5" scope="col">
-											<span class="sr-only">Copy</span>
-										</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each filteredRows as row, ri (ri)}
-										<tr
-											class={cn(
-												'group/row border-b border-line last:border-b-0',
-												'hover:bg-hover/80',
-												ri % 2 === 1 && 'bg-input/30',
-											)}
-										>
-											<td
-												class="px-2 py-1.5 text-center font-mono text-micro text-fg-muted tabular-nums"
-											>
-												{ri + 1}
-											</td>
-											{#each row as cell, ci (ci)}
-												{@const header = section.columns[ci] ?? ''}
-												{@const long = isLong(cell)}
-												{@const expanded = isExpanded(ri, ci)}
-												<td
-													class={cn(
-														'max-w-md px-2.5 py-1.5 align-top text-caption text-fg',
-														ci === 0 && 'font-medium',
-													)}
-												>
-													{#if isEmptyish(cell)}
-														<span class="text-fg-muted">—</span>
-													{:else if isNullableHeader(header) && (isYes(cell) || isNo(cell))}
-														<span
-															class="inline-flex"
-															title={isYes(cell) ? 'Nullable' : 'Not nullable'}
-														>
-															<Checkbox
-																checked={isYes(cell)}
-																disabled
-																aria-label={isYes(cell)
-																	? 'Nullable'
-																	: 'Not nullable'}
-																class="cursor-default opacity-100"
-															/>
-														</span>
-													{:else if isBoolHeader(header) && (isYes(cell) || isNo(cell))}
-														{#if isYes(cell)}
-															<span
-																class={cn(
-																	'inline-flex rounded-sm border px-1.5 py-px font-mono text-micro font-semibold uppercase tracking-wide',
-																	header.toLowerCase() === 'pk' ||
-																		header.toLowerCase() === 'primary' ||
-																		header.toLowerCase() === 'id'
-																		? 'border-accent/35 bg-accent-muted text-accent'
-																		: 'border-success/35 bg-success/15 text-success',
-																)}
-															>
-																{header.toLowerCase() === 'pk' ||
-																header.toLowerCase() === 'primary'
-																	? 'pk'
-																	: 'yes'}
-															</span>
-														{:else}
-															<span
-																class="inline-flex rounded-sm border border-line bg-input px-1.5 py-px font-mono text-micro text-fg-muted uppercase tracking-wide"
-															>
-																no
-															</span>
-														{/if}
-													{:else if isTypeHeader(header)}
-														<code
-															class="rounded-sm border border-line bg-input px-1.5 py-0.5 font-mono text-caption text-fg-secondary"
-														>
-															{cell}
-														</code>
-													{:else if long}
-														<div class="min-w-0">
-															<pre
-																class={cn(
-																	'm-0 max-w-xl overflow-x-auto rounded-sm border border-line bg-input/60 p-1.5 font-mono text-caption leading-relaxed text-fg whitespace-pre-wrap break-all',
-																	!expanded && 'line-clamp-3',
-																)}>{cell}</pre>
-															<button
-																type="button"
-																class="mt-1 border-none bg-transparent p-0 text-micro text-accent underline"
-																onclick={() => toggleExpand(ri, ci)}
-															>
-																{expanded ? 'Collapse' : 'Expand'}
-															</button>
-														</div>
-													{:else if ci === 0}
-														<span
-															class="font-mono text-label font-medium text-fg"
-															title={cell}>{cell}</span
-														>
-													{:else}
-														<span
-															class="font-mono text-caption text-fg-secondary"
-															title={cell}>{cell}</span
-														>
-													{/if}
-												</td>
-											{/each}
-											<td class="px-1 py-1 align-top">
-												<div
-													class="opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100"
-												>
-													<IconButton
-														label="Copy row"
-														size="sm"
-														variant="ghost"
-														onclick={() =>
-															void flashCopy('Row copied', row.join('\t'))}
-													>
-														<Icon name="copy" />
-													</IconButton>
-												</div>
-											</td>
-										</tr>
 									{/each}
-								</tbody>
-							</table>
-						</div>
-					{/if}
-				</div>
+									<th class="w-9 px-1 py-1.5" scope="col">
+										<span class="sr-only">Copy</span>
+									</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each filteredRows as row, ri (ri)}
+									<tr
+										class={cn(
+											'group/row border-b border-line last:border-b-0',
+											'hover:bg-hover/80',
+											ri % 2 === 1 && 'bg-input/30',
+										)}
+									>
+										<td
+											class="min-h-grid-row px-2 py-1.5 text-center font-mono text-micro text-fg-muted tabular-nums"
+										>
+											{ri + 1}
+										</td>
+										{#each row as cell, ci (ci)}
+											{@const header = section.columns[ci] ?? ''}
+											{@const long = isLong(cell)}
+											{@const expanded = expandedCells.has(cellKey(ri, ci))}
+											<td
+												class={cn(
+													'max-w-md px-2.5 py-1.5 align-middle text-caption text-fg',
+													ci === 0 && 'font-medium',
+												)}
+											>
+												{#if isEmptyish(cell)}
+													<span class="text-fg-muted">—</span>
+												{:else if isNullableHeader(header) && (isYes(cell) || isNo(cell))}
+													{#if isYes(cell)}
+														<span
+															class="inline-flex items-center"
+															title="Nullable"
+														>
+															<Icon
+																name="check"
+																class="size-3.5 text-fg-secondary"
+															/>
+															<span class="sr-only">Nullable</span>
+														</span>
+													{:else}
+														<span class="text-fg-muted" title="Not nullable"
+															>—</span
+														>
+														<span class="sr-only">Not nullable</span>
+													{/if}
+												{:else if isBoolHeader(header) && (isYes(cell) || isNo(cell))}
+													{#if isYes(cell)}
+														<span
+															class={cn(
+																'inline-flex rounded-sm border px-1.5 py-px font-mono text-micro font-semibold uppercase tracking-wide',
+																isPkHeader(header)
+																	? 'border-accent/35 bg-accent-muted text-accent'
+																	: 'border-success/35 bg-success/15 text-success',
+															)}
+														>
+															{isPkHeader(header) ? 'pk' : 'yes'}
+														</span>
+													{:else}
+														<span class="text-fg-muted">—</span>
+														<span class="sr-only">No</span>
+													{/if}
+												{:else if isTypeHeader(header)}
+													<code
+														class="rounded-sm border border-line bg-input px-1.5 py-0.5 font-mono text-caption text-fg-secondary"
+													>
+														{cell}
+													</code>
+												{:else if long}
+													<div class="flex min-w-0 items-start gap-1 py-1">
+														<pre
+															class={cn(
+																'm-0 min-w-0 flex-1 overflow-x-auto rounded-sm border border-line bg-input/60 p-1.5 font-mono text-caption leading-relaxed text-fg whitespace-pre-wrap break-all',
+																!expanded && 'line-clamp-3',
+															)}>{cell}</pre>
+														<IconButton
+															label={expanded ? 'Collapse' : 'Expand'}
+															size="sm"
+															variant="quiet"
+															onclick={() => toggleExpand(ri, ci)}
+														>
+															<Icon
+																name="chevron-down"
+																class={cn(
+																	'size-3.5 transition-transform duration-150',
+																	expanded && 'rotate-180',
+																)}
+															/>
+														</IconButton>
+													</div>
+												{:else if ci === 0}
+													<span
+														class="font-mono text-label font-medium text-fg"
+														title={cell}>{cell}</span
+													>
+												{:else}
+													<span
+														class="font-mono text-caption text-fg-secondary"
+														title={cell}>{cell}</span
+													>
+												{/if}
+											</td>
+										{/each}
+										<td class="px-1 align-middle">
+											<div
+												class="opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100"
+											>
+												<IconButton
+													label="Copy row"
+													size="sm"
+													variant="quiet"
+													onclick={() =>
+														void flashCopy('Row copied', row.join('\t'))}
+												>
+													<Icon name="copy" />
+												</IconButton>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 			{:else}
 				<div class="flex flex-1 items-center justify-center p-8">
 					<p class="m-0 text-caption text-fg-muted">No structure sections.</p>
@@ -583,43 +596,79 @@
 			{/if}
 		</div>
 
-		<StatusBar ariaLabel="Structure status">
+		<StatusBar class="!pl-1" ariaLabel="Structure status">
 			{#snippet left()}
-				<span class="min-w-0 truncate">
-					<span class="font-mono text-fg-secondary">{structure.title}</span>
-					{#if section}
-						<span class="text-fg-muted" aria-hidden="true"> · </span>
-						<span class="text-fg-secondary">{section.title}</span>
-						<span class="text-fg-muted" aria-hidden="true"> · </span>
-						<span class="font-mono tabular-nums text-fg-muted">
-							{filter.trim()
-								? `${filteredRows.length} of ${section.rows.length}`
-								: section.rows.length}
-						</span>
-					{/if}
-				</span>
+				{#if onopentable}
+					<Button
+						variant="ghost"
+						size="sm"
+						class="!px-1.5"
+						onclick={onopentable}
+						title="Open {openTableLabel.toLowerCase()} data in a new tab"
+					>
+						<Icon name={openTableIcon} class="size-3.5" />
+						{openTableLabel}
+					</Button>
+				{/if}
+				{#if lastFetchedAt != null}
+					<span
+						class="inline-flex min-w-0 items-center gap-1 truncate text-caption text-fg-muted"
+						title={new Date(lastFetchedAt).toLocaleString()}
+					>
+						<Icon name="history" class="size-3.5 shrink-0" />
+						<span class="truncate tabular-nums"
+							>{fetchedLabel(lastFetchedAt, now)}</span
+						>
+					</span>
+				{/if}
+				{#if filter.trim() && section}
+					<span class="truncate font-mono tabular-nums text-fg-muted">
+						{filteredRows.length} filtered
+					</span>
+				{/if}
+				{#if copyMsg}
+					<span class="shrink-0 truncate text-success">{copyMsg}</span>
+				{/if}
 			{/snippet}
 			{#snippet right()}
-				{#if copyMsg}
-					<span class="text-success">{copyMsg}</span>
-				{:else if onretry}
-					<button
-						type="button"
-						class="border-none bg-transparent p-0 text-caption text-fg-muted hover:text-accent"
+				<IconButton
+					label="Copy this section as TSV"
+					size="sm"
+					variant="quiet"
+					disabled={!section || section.rows.length === 0}
+					onclick={() => {
+						if (section) void flashCopy('Section copied', sectionAsTsv(section))
+					}}
+				>
+					<Icon name="copy" />
+				</IconButton>
+				{#if onretry}
+					<IconButton
+						label={loading ? 'Refreshing structure' : 'Refresh structure'}
+						size="sm"
+						variant="quiet"
+						disabled={loading}
+						aria-busy={loading}
 						onclick={onretry}
-						title="Reload structure from the engine"
+						class={loading ? 'opacity-45' : ''}
 					>
-						Refresh
-					</button>
+						<Icon name="refresh" class={cn(loading && 'animate-spin')} />
+					</IconButton>
 				{/if}
 			{/snippet}
 		</StatusBar>
 	{:else}
-		<div class="flex flex-1 items-center justify-center p-8">
-			<EmptyState
-				title="Object structure"
-				description="Right-click a table or collection and choose View structure to inspect columns, indexes, and related metadata."
-			/>
+		<div class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+			<span
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				aria-hidden="true"
+			>
+				<Icon name="structure" class="size-4 text-info" />
+			</span>
+			<p class="m-0 text-label font-medium text-fg">Object structure</p>
+			<p class="mt-1 mb-0 max-w-prose-ui text-caption text-fg-muted">
+				Right-click a table or collection and choose View structure.
+			</p>
 		</div>
 	{/if}
 </div>

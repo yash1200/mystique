@@ -1978,6 +1978,12 @@
 		structure={activeStructure?.data ?? null}
 		{structureLoading}
 		{structureError}
+		structureFetchedAt={activeStructure?.rev ?? null}
+		onopentable={
+			structureTableMeta
+				? () => void openTable(structureTableMeta)
+				: undefined
+		}
 		{gridTable}
 		{tableLoading}
 		{rowSelectionIndex}
