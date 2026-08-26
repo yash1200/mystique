@@ -1,14 +1,14 @@
 <script lang="ts">
 	/**
-	 * Windowed (virtualized) results table.
-	 * Large directional overscan keeps rows ahead of the scroll so spacers
-	 * rarely flash empty while the user is moving through big result sets.
+	 * Windowed results grid.
+	 * The mounted row window only moves when the viewport nears its edge.
+	 * Everyday scrolling is native compositing of already-painted rows, so
+	 * the pane does not go blank while Svelte mounts the next slice.
 	 */
 	import type { QueryResult } from '$lib/api/engines'
 	import { ContextMenu, type ContextMenuItem } from '$lib/components/core'
 	import { isMacPlatform, labelForKey } from '$lib/data/appShortcuts'
 	import { appPrefs } from '$lib/stores/app-prefs.svelte'
-	import { cn } from '$lib/utils/cn'
 	import {
 		buildCsv,
 		buildJson,
@@ -19,20 +19,16 @@
 	import { onMount, untrack } from 'svelte'
 	import CellValueModal from '../grid/CellValueModal.svelte'
 	import { valueToEditorText } from '../grid/cellView'
+	import {
+		RESULT_HEADER_H,
+		cellDisplay,
+		computeResultWindow,
+		measureColLayout,
+	} from './queryResultsVirtual'
 
 	/** Virtualization row height — follows density pref / `--grid-row-height`. */
 	const ROW_H = $derived(appPrefs.gridRowHeightPx)
-	const HEADER_H = 32
-	/** Minimum rows buffered on each side of the viewport. */
-	const OVERSCAN_MIN = 200
-	/**
-	 * Extra buffer as multiples of the visible row count.
-	 * ~2.5 screens ahead of motion absorbs fast wheel / trackpad flings
-	 * without mounting tens of thousands of nodes.
-	 */
-	const OVERSCAN_VIEWPORTS = 2.5
-	/** Extra multiplier applied in the direction the user is scrolling. */
-	const DIRECTION_BIAS = 1.75
+	const HEADER_H = RESULT_HEADER_H
 
 	interface Props {
 		columns: QueryResult['columns']
@@ -49,14 +45,30 @@
 	const copyShortcut = `${labelForKey('mod', mac)}+C`
 
 	let scrollEl = $state<HTMLDivElement | null>(null)
-	let scrollTop = $state(0)
-	let viewportH = $state(360)
-	/** +1 scrolling down, -1 scrolling up. */
-	let scrollDir = $state(1)
+	/** First mounted local row (inclusive). */
+	let winStart = $state(0)
+	/** Last mounted local row (exclusive). Seeded so the first paint is not empty. */
+	let winEnd = $state(128)
+	/** +1 scrolling down, -1 scrolling up. Not $state — must not retrigger effects. */
+	let scrollDir: 1 | -1 = 1
+	let lastTop = 0
 
-	const colCount = $derived(columns.length + 1)
 	const totalRows = $derived(rows.length)
 	const exportCols = $derived(columns.map((c) => ({ name: c.name })))
+	const colLayout = $derived.by(() =>
+		measureColLayout(columns, rows, pageStart),
+	)
+	const windowIndices = $derived.by(() => {
+		const start = Math.min(winStart, totalRows)
+		const end = Math.min(winEnd, totalRows)
+		const n = Math.max(0, end - start)
+		const out = new Array<number>(n)
+		for (let i = 0; i < n; i++) out[i] = start + i
+		return out
+	})
+	const bodyH = $derived(totalRows * ROW_H)
+	const innerH = $derived(HEADER_H + bodyH)
+	const windowY = $derived(winStart * ROW_H)
 
 	type CellRef = { row: number; col: number }
 	let selectedCell = $state<CellRef | null>(null)
@@ -75,68 +87,47 @@
 	let rowMenu = $state<{ row: number; x: number; y: number } | null>(null)
 	let cellModal = $state<CellRef | null>(null)
 
-	const windowRange = $derived.by(() => {
-		const n = totalRows
-		if (n === 0) return { start: 0, end: 0, padTop: 0, padBottom: 0 }
-
-		const usable = Math.max(
-			viewportH > HEADER_H ? viewportH - HEADER_H : viewportH,
-			ROW_H * 8,
-		)
-		const first = Math.max(0, Math.floor(scrollTop / ROW_H))
-		const visibleCount = Math.ceil(usable / ROW_H) + 1
-
-		const baseOverscan = Math.max(
-			OVERSCAN_MIN,
-			Math.ceil(visibleCount * OVERSCAN_VIEWPORTS),
-		)
-		// Prefer buffer ahead of the scroll so fling/trackpad lag stays covered.
-		const overscanBefore =
-			scrollDir < 0 ? Math.ceil(baseOverscan * DIRECTION_BIAS) : baseOverscan
-		const overscanAfter =
-			scrollDir > 0 ? Math.ceil(baseOverscan * DIRECTION_BIAS) : baseOverscan
-
-		const start = Math.max(0, first - overscanBefore)
-		const end = Math.min(n, first + visibleCount + overscanAfter)
-		return {
-			start,
-			end,
-			padTop: start * ROW_H,
-			padBottom: Math.max(0, (n - end) * ROW_H),
-		}
-	})
-
-	const windowRows = $derived.by(() => {
-		const { start, end } = windowRange
-		const out: { absolute: number; cells: unknown[] }[] = []
-		for (let i = start; i < end; i++) {
-			out.push({ absolute: pageStart + i, cells: rows[i]! })
-		}
-		return out
-	})
+	function applyWindow(scrollTop: number, viewH: number, dir: 1 | -1) {
+		const next = computeResultWindow({
+			totalRows,
+			scrollTop,
+			viewportH: viewH,
+			rowH: ROW_H,
+			headerH: HEADER_H,
+			scrollDir: dir,
+			current: { start: winStart, end: winEnd },
+		})
+		if (next.start !== winStart) winStart = next.start
+		if (next.end !== winEnd) winEnd = next.end
+	}
 
 	function onScroll() {
 		const el = scrollEl
 		if (!el) return
-		const next = el.scrollTop
-		// Ignore sub-pixel jitter; still update direction on meaningful moves.
-		if (next > scrollTop + 1) scrollDir = 1
-		else if (next < scrollTop - 1) scrollDir = -1
-		// Apply immediately so the window moves with the thumb, not a frame later.
-		scrollTop = next
+		const top = el.scrollTop
+		if (top > lastTop + 1) scrollDir = 1
+		else if (top < lastTop - 1) scrollDir = -1
+		lastTop = top
+		// Apply in the scroll event — not rAF — so the next compositor frame
+		// already has rows for the new position.
+		applyWindow(top, el.clientHeight, scrollDir)
 	}
 
 	$effect(() => {
 		const el = scrollEl
 		if (!el) return
+		el.addEventListener('scroll', onScroll, { passive: true })
 		const measure = () => {
-			viewportH = el.clientHeight
+			untrack(() => applyWindow(el.scrollTop, el.clientHeight, scrollDir))
 		}
-		measure()
-		if (typeof ResizeObserver === 'undefined') return
-		const ro = new ResizeObserver(measure)
-		ro.observe(el)
-		return () => ro.disconnect()
+		untrack(measure)
+		const ro =
+			typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+		ro?.observe(el)
+		return () => {
+			el.removeEventListener('scroll', onScroll)
+			ro?.disconnect()
+		}
 	})
 
 	// Reset window when page / dataset changes
@@ -144,27 +135,64 @@
 		void pageStart
 		void totalRows
 		void columns.length
-		scrollTop = 0
-		scrollDir = 1
-		clearAllSelection()
-		cellMenu = null
-		rowMenu = null
-		cellModal = null
+		void rows
 		untrack(() => {
-			if (scrollEl) scrollEl.scrollTop = 0
+			scrollDir = 1
+			lastTop = 0
+			clearAllSelection()
+			cellMenu = null
+			rowMenu = null
+			cellModal = null
+			const el = scrollEl
+			if (el) el.scrollTop = 0
+			applyWindow(0, el?.clientHeight ?? 360, 1)
 		})
 	})
 
-	function cellDisplay(v: unknown): string {
-		if (v === null || v === undefined) return 'NULL'
-		if (typeof v === 'object') {
-			try {
-				return JSON.stringify(v)
-			} catch {
-				return String(v)
+	function pointerTarget(
+		e: Event,
+	):
+		| { kind: 'cell'; row: number; col: number }
+		| { kind: 'index'; row: number }
+		| null {
+		const t = e.target
+		if (!(t instanceof Element)) return null
+		const cell = t.closest('[data-result-cell]')
+		if (cell instanceof HTMLElement && scrollEl?.contains(cell)) {
+			const row = Number(cell.dataset.resultRow)
+			const col = Number(cell.dataset.resultCol)
+			if (Number.isFinite(row) && Number.isFinite(col)) {
+				return { kind: 'cell', row, col }
 			}
 		}
-		return String(v)
+		const idx = t.closest('[data-result-index]')
+		if (idx instanceof HTMLElement && scrollEl?.contains(idx)) {
+			const row = Number(idx.dataset.resultRow)
+			if (Number.isFinite(row)) return { kind: 'index', row }
+		}
+		return null
+	}
+
+	function onGridClick(e: MouseEvent) {
+		const hit = pointerTarget(e)
+		if (!hit) return
+		e.stopPropagation()
+		if (hit.kind === 'index') applyRowPointer(hit.row, e)
+		else applyCellPointer(hit.row, hit.col, e)
+	}
+
+	function onGridDblClick(e: MouseEvent) {
+		const hit = pointerTarget(e)
+		if (hit?.kind !== 'cell') return
+		e.stopPropagation()
+		openCellModal(hit.row, hit.col)
+	}
+
+	function onGridContextMenu(e: MouseEvent) {
+		const hit = pointerTarget(e)
+		if (!hit) return
+		if (hit.kind === 'index') openRowMenu(hit.row, e)
+		else openCellMenu(hit.row, hit.col, e)
 	}
 
 	function localIndex(absRow: number): number {
@@ -197,6 +225,7 @@
 		const viewBottom = viewTop + viewH
 		if (top < viewTop) el.scrollTop = top
 		else if (bottom > viewBottom) el.scrollTop = Math.max(0, bottom - viewH)
+		applyWindow(el.scrollTop, el.clientHeight, scrollDir)
 
 		if (col === undefined) return
 		// First data column (and row-index selection): pin to the left so
@@ -752,117 +781,104 @@
 	)
 </script>
 
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-	class="min-h-0 flex-1 overflow-auto outline-none"
+	class="qrg-scroll min-h-0 flex-1 outline-none"
+	style="--qrg-row-h: {ROW_H}px; --qrg-cols: {colLayout.template}; --qrg-min-w: {colLayout.total}px"
 	bind:this={scrollEl}
-	onscroll={onScroll}
 	tabindex="0"
 	role="grid"
+	aria-rowcount={totalRows}
+	aria-colcount={columns.length + 1}
 	aria-label="Query results"
 	data-query-results-scroll
+	onclick={onGridClick}
+	ondblclick={onGridDblClick}
+	oncontextmenu={onGridContextMenu}
 >
-	<table class="w-max min-w-full border-collapse text-left">
-		<thead class="sticky top-0 z-10 bg-elevated">
-			<tr style="height: {HEADER_H}px">
-				<th
-					data-result-index-col
-					class="border-b border-r border-line px-2 py-1.5 font-mono text-caption font-semibold text-fg-muted"
-					>#</th
+	<div class="qrg-inner" style="height: {innerH}px">
+		<div class="qrg-head bg-elevated" role="row" style="height: {HEADER_H}px">
+			<div
+				data-result-index-col
+				role="columnheader"
+				class="qrg-cell qrg-idx border-b border-r border-line px-2 font-mono text-caption font-semibold text-fg-muted"
+			>
+				#
+			</div>
+			{#each columns as col, ci (col.name + '\0' + ci)}
+				<div
+					data-result-col={ci}
+					role="columnheader"
+					class="qrg-cell border-b border-line px-2.5 font-mono text-caption font-semibold text-fg-secondary"
+					title={col.dataType ?? undefined}
 				>
-				{#each columns as col, ci (col.name + '\0' + ci)}
-					<th
-						data-result-col={ci}
-						class="border-b border-line px-2.5 py-1.5 font-mono text-caption font-semibold whitespace-nowrap text-fg-secondary"
-						title={col.dataType ?? undefined}
-					>
-						{col.name}
-						{#if col.dataType}
-							<span class="ml-1 font-normal text-fg-muted">{col.dataType}</span>
-						{/if}
-					</th>
-				{/each}
-			</tr>
-		</thead>
-		<tbody>
-			{#if windowRange.padTop > 0}
-				<tr aria-hidden="true" class="pointer-events-none">
-					<td
-						colspan={colCount}
-						class="border-0 p-0"
-						style="height: {windowRange.padTop}px; line-height: 0; font-size: 0"
-					>
-						<div style="height: {windowRange.padTop}px"></div>
-					</td>
-				</tr>
-			{/if}
-
-			{#each windowRows as item (item.absolute)}
-				{@const rowSelected = isRowSelected(item.absolute)}
-				<tr
-					class={cn(rowSelected ? 'bg-selected' : 'hover:bg-hover')}
-					style="height: {ROW_H}px"
-					aria-selected={rowSelected}
-				>
-					<td
-						class="cursor-pointer select-none border-b border-line/60 border-r border-r-line px-2 align-middle font-mono text-caption text-fg-muted tabular-nums hover:bg-hover"
-						style="height: {ROW_H}px; max-height: {ROW_H}px; padding-top: 0; padding-bottom: 0"
-						onclick={(e) => {
-							e.stopPropagation()
-							applyRowPointer(item.absolute, e)
-						}}
-						oncontextmenu={(e) => openRowMenu(item.absolute, e)}
-					>
-						{item.absolute + 1}
-					</td>
-					{#each item.cells as cell, ci (ci)}
-						{@const isNull = cell === null || cell === undefined}
-						{@const text = cellDisplay(cell)}
-						{@const isFocused =
-							selectedCell?.row === item.absolute && selectedCell.col === ci}
-						{@const cellSelected = isCellSelected(item.absolute, ci)}
-						<td
-							data-result-cell
-							data-result-col={ci}
-							role="gridcell"
-							aria-selected={isFocused || cellSelected}
-							class={cn(
-								'max-w-xs cursor-pointer truncate border-b border-line/60 px-2.5 align-middle font-mono text-label select-none',
-								isNull ? 'italic text-fg-muted' : 'text-fg',
-								isFocused && 'bg-selected ring-2 ring-inset ring-accent',
-								cellSelected && !isFocused && 'bg-selected',
-								!isFocused && !cellSelected && !rowSelected && 'hover:bg-hover',
-							)}
-							style="height: {ROW_H}px; max-height: {ROW_H}px; padding-top: 0; padding-bottom: 0"
-							title={text}
-							onclick={(e) => {
-								e.stopPropagation()
-								applyCellPointer(item.absolute, ci, e)
-							}}
-							ondblclick={(e) => {
-								e.stopPropagation()
-								openCellModal(item.absolute, ci)
-							}}
-							oncontextmenu={(e) => openCellMenu(item.absolute, ci, e)}
+					<span class="min-w-0 truncate">{col.name}</span>
+					{#if col.dataType}
+						<span class="ml-1 shrink-0 font-normal text-fg-muted"
+							>{col.dataType}</span
 						>
-							{text}
-						</td>
-					{/each}
-				</tr>
+					{/if}
+				</div>
 			{/each}
+		</div>
 
-			{#if windowRange.padBottom > 0}
-				<tr aria-hidden="true" class="pointer-events-none">
-					<td
-						colspan={colCount}
-						class="border-0 p-0"
-						style="height: {windowRange.padBottom}px; line-height: 0; font-size: 0"
+		<div
+			class="qrg-body"
+			style="height: {bodyH}px"
+			aria-hidden={totalRows === 0}
+		>
+			<div class="qrg-window" style="transform: translate3d(0, {windowY}px, 0)">
+				{#each windowIndices as local (pageStart + local)}
+					{@const absolute = pageStart + local}
+					{@const cells = rows[local]}
+					{@const rowSelected = isRowSelected(absolute)}
+					<div
+						class="qrg-row {rowSelected ? 'bg-selected' : 'hover:bg-hover'}"
+						style="height: {ROW_H}px"
+						role="row"
+						aria-rowindex={absolute + 1}
+						aria-selected={rowSelected}
 					>
-						<div style="height: {windowRange.padBottom}px"></div>
-					</td>
-				</tr>
-			{/if}
-		</tbody>
-	</table>
+						<div
+							data-result-index
+							data-result-row={absolute}
+							role="rowheader"
+							class="qrg-cell qrg-idx cursor-pointer select-none border-b border-r border-line/60 border-r-line px-2 font-mono text-caption text-fg-muted tabular-nums hover:bg-hover"
+						>
+							{absolute + 1}
+						</div>
+						{#each columns as col, ci (col.name + '\0' + ci)}
+							{@const cell = cells?.[ci]}
+							{@const isNull = cell === null || cell === undefined}
+							{@const text = cellDisplay(cell)}
+							{@const isFocused =
+								selectedCell?.row === absolute && selectedCell.col === ci}
+							{@const cellSelected = isCellSelected(absolute, ci)}
+							<div
+								data-result-cell
+								data-result-col={ci}
+								data-result-row={absolute}
+								role="gridcell"
+								aria-selected={isFocused || cellSelected}
+								class="qrg-cell cursor-pointer border-b border-line/60 px-2.5 font-mono text-label select-none {isNull}
+									? 'italic text-fg-muted'
+									: 'text-fg'} {isFocused
+									? 'bg-selected ring-2 ring-inset ring-accent'
+									: cellSelected
+										? 'bg-selected'
+										: rowSelected
+											? ''
+											: 'hover:bg-hover'}"
+								title={text}
+							>
+								<span class="min-w-0 truncate">{text}</span>
+							</div>
+						{/each}
+					</div>
+				{/each}
+			</div>
+		</div>
+	</div>
 </div>
 
 {#if cellModal}
@@ -897,3 +913,59 @@
 		onclose={() => (cellMenu = null)}
 	/>
 {/if}
+
+<style>
+	.qrg-scroll {
+		overflow: auto;
+	}
+
+	.qrg-inner {
+		position: relative;
+		width: max(100%, var(--qrg-min-w));
+		min-width: 100%;
+	}
+
+	.qrg-head,
+	.qrg-row {
+		display: grid;
+		grid-template-columns: var(--qrg-cols);
+		width: 100%;
+	}
+
+	.qrg-head {
+		position: sticky;
+		top: 0;
+		z-index: 10;
+	}
+
+	.qrg-body {
+		position: relative;
+		background-image: repeating-linear-gradient(
+			to bottom,
+			transparent 0,
+			transparent calc(var(--qrg-row-h) - 1px),
+			var(--color-line) calc(var(--qrg-row-h) - 1px),
+			var(--color-line) var(--qrg-row-h)
+		);
+	}
+
+	.qrg-window {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+	}
+
+	.qrg-row {
+		contain: layout style paint;
+	}
+
+	.qrg-cell {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		overflow: hidden;
+		box-sizing: border-box;
+		height: 100%;
+	}
+</style>
