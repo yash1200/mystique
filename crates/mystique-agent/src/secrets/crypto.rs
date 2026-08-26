@@ -11,7 +11,7 @@ use mystique_core::{AppError, AppResult};
 // Historical key id — do not change; existing wrapped secrets depend on it.
 const PEPPER: &[u8; 32] = b"mystique-db.ai.secret.v1.pepper!";
 
-pub(crate) fn encrypt(plain: &str) -> AppResult<String> {
+pub(super) fn encrypt(plain: &str) -> AppResult<String> {
     let cipher = Aes256Gcm::new_from_slice(PEPPER)
         .map_err(|e| AppError::Internal(format!("aes key: {e}")))?;
     let mut nonce_bytes = [0u8; 12];
@@ -26,7 +26,7 @@ pub(crate) fn encrypt(plain: &str) -> AppResult<String> {
     Ok(format!("v1:{}", B64.encode(packed)))
 }
 
-pub(crate) fn decrypt(blob: &str) -> AppResult<String> {
+pub(super) fn decrypt(blob: &str) -> AppResult<String> {
     let raw = blob
         .strip_prefix("v1:")
         .ok_or_else(|| AppError::Internal("unsupported secret encoding".into()))?;
@@ -44,4 +44,30 @@ pub(crate) fn decrypt(blob: &str) -> AppResult<String> {
         .decrypt(nonce, ct)
         .map_err(|_| AppError::Internal("could not decrypt API key".into()))?;
     String::from_utf8(plain).map_err(|_| AppError::Internal("API key is not UTF-8".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decrypt, encrypt};
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let blob = encrypt("sk-test-key").unwrap();
+        assert!(blob.starts_with("v1:"));
+        assert_ne!(blob, "sk-test-key");
+        assert_eq!(decrypt(&blob).unwrap(), "sk-test-key");
+    }
+
+    #[test]
+    fn encrypt_uses_fresh_nonce() {
+        let a = encrypt("same").unwrap();
+        let b = encrypt("same").unwrap();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn decrypt_rejects_garbage() {
+        assert!(decrypt("nope").is_err());
+        assert!(decrypt("v1:%%%%").is_err());
+    }
 }

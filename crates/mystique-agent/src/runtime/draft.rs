@@ -1,4 +1,4 @@
-pub(crate) fn extract_draft(text: &str) -> Option<String> {
+pub(super) fn extract_draft(text: &str) -> Option<String> {
     for fence in ["```sql", "```mql", "```mongodb"] {
         if let Some(rest) = text.split_once(fence) {
             let body = rest.1.split_once("```").map(|(b, _)| b).unwrap_or(rest.1);
@@ -21,4 +21,21 @@ pub(crate) fn extract_draft(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_draft;
+
+    #[test]
+    fn prefers_sql_fence() {
+        let text = "Here you go:\n```sql\nselect 1\n```\n";
+        assert_eq!(extract_draft(text).as_deref(), Some("select 1"));
+    }
+
+    #[test]
+    fn accepts_mql_fence() {
+        let text = "```mql\ndb.users.find({})\n```";
+        assert_eq!(extract_draft(text).as_deref(), Some("db.users.find({})"));
+    }
 }

@@ -1,6 +1,6 @@
-pub(crate) mod chat;
-pub(crate) mod draft;
-pub(crate) mod prompt;
+mod chat;
+mod draft;
+mod prompt;
 
 use mystique_core::{
     AgentChat, AgentMessage, AppError, AppResult, AppServices, AppendAgentMessageInput,

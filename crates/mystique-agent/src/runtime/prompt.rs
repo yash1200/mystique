@@ -33,7 +33,7 @@ fn editor_block(engine: &str, raw: &str) -> String {
     format!("Current query tab editor (live buffer):\n```{fence}\n{body}{note}\n```")
 }
 
-pub(crate) fn workspace_context(
+pub(super) fn workspace_context(
     name: &str,
     engine: &str,
     database: &str,
@@ -53,4 +53,32 @@ pub(crate) fn workspace_context(
          {}",
         editor_block(engine, editor_query)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_context;
+
+    #[test]
+    fn context_includes_workspace_fields() {
+        let c = workspace_context("prod", "postgres", "app", "select 1");
+        assert!(c.contains("prod"));
+        assert!(c.contains("postgres"));
+        assert!(c.contains("app"));
+        assert!(c.contains("select 1"));
+        assert!(c.contains("```sql"));
+    }
+
+    #[test]
+    fn context_marks_empty_editor_and_default_catalog() {
+        let c = workspace_context("local", "sqlite", "", "");
+        assert!(c.contains("(empty)"));
+        assert!(c.contains("(default catalog)"));
+    }
+
+    #[test]
+    fn context_uses_mql_fence_for_mongo() {
+        let c = workspace_context("atlas", "mongodb", "shop", "db.x.find()");
+        assert!(c.contains("```mql"));
+    }
 }

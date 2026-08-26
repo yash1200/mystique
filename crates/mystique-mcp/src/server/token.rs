@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-pub fn ensure_token(existing: Option<&str>) -> String {
+pub(crate) fn ensure_token(existing: Option<&str>) -> String {
     let t = existing.map(str::trim).unwrap_or("");
     if t.len() >= 16 {
         t.to_string()

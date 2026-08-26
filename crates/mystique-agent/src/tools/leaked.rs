@@ -270,3 +270,49 @@ fn collapse_blank_lines(text: &str) -> String {
     }
     out.trim().to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_leaked_tool_calls, strip_leaked_tool_calls};
+
+    #[test]
+    fn extracts_ollama_style_name_arguments() {
+        let text = r#"{"name": "list_objects", "arguments": {"database": "qna_common_db"}}"#;
+        let calls = extract_leaked_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "list_objects");
+        assert_eq!(calls[0].args["database"], "qna_common_db");
+    }
+
+    #[test]
+    fn extracts_empty_arguments_object() {
+        let text = r#"{"name": "list_saved_queries", "arguments": {}}"#;
+        let calls = extract_leaked_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "list_saved_queries");
+    }
+
+    #[test]
+    fn extracts_tool_json_mixed_with_prose() {
+        let text = "Hi\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"qna_common_db\"}}\nCan you write a query?\n{\"name\": \"list_saved_queries\", \"arguments\": {}}";
+        let calls = extract_leaked_tool_calls(text);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].name, "list_objects");
+        assert_eq!(calls[1].name, "list_saved_queries");
+    }
+
+    #[test]
+    fn ignores_unrelated_json() {
+        let text = r#"{"name": "users", "columns": ["id"]}"#;
+        assert!(extract_leaked_tool_calls(text).is_empty());
+    }
+
+    #[test]
+    fn strips_leaked_json_leaving_prose() {
+        let text = "Hi\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"qna_common_db\"}}\nCan you write a query?";
+        let cleaned = strip_leaked_tool_calls(text);
+        assert!(cleaned.contains("Hi"));
+        assert!(cleaned.contains("Can you write a query?"));
+        assert!(!cleaned.contains("list_objects"));
+    }
+}

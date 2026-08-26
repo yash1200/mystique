@@ -13,7 +13,6 @@ pub enum AgentProvider {
     Google,
     Deepseek,
     Openrouter,
-    /// xAI Grok (console.x.ai API key).
     Xai,
     Ollama,
 }
@@ -55,7 +54,6 @@ impl AgentProvider {
             Self::Deepseek => "deepseek-v4-flash",
             Self::Openrouter => "openai/gpt-5.6-terra",
             Self::Xai => "grok-4.6",
-            // Live list from the local daemon — never invent a pulled model.
             Self::Ollama => "",
         }
     }

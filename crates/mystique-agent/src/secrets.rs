@@ -3,7 +3,7 @@
 //! No OS keychain — macOS Keychain Access prompts on every read. Keys are
 //! AES-256-GCM blobs. The frontend never sees plaintext.
 
-pub(crate) mod crypto;
+mod crypto;
 mod legacy;
 
 use std::path::PathBuf;
@@ -148,5 +148,37 @@ impl SecretStore {
             map.remove(&id);
         }
         let _ = legacy::write(path, &map);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn sqlite_roundtrip_and_status() {
+        let app = Arc::new(AppServices::new(
+            mystique_core::AppDatabase::open_in_memory().unwrap(),
+        ));
+        let store = SecretStore::new(app.clone());
+        assert!(
+            !store
+                .status()
+                .iter()
+                .find(|s| s.provider == "openai")
+                .unwrap()
+                .has_key
+        );
+        store.set(AgentProvider::Openai, " sk-live ").unwrap();
+        assert_eq!(
+            store.get(AgentProvider::Openai).unwrap().as_deref(),
+            Some("sk-live")
+        );
+        let row = app.ai_secrets().get("openai").unwrap().expect("row");
+        assert!(row.ciphertext.starts_with("v1:"));
+        assert!(!row.ciphertext.contains("sk-live"));
+        store.delete(AgentProvider::Openai).unwrap();
+        assert!(store.get(AgentProvider::Openai).unwrap().is_none());
     }
 }

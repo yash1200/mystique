@@ -16,7 +16,7 @@ use crate::settings::DEFAULT_MCP_PORT;
 
 use self::http::{router, HttpState};
 
-pub use token::ensure_token;
+pub(crate) use token::ensure_token;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +50,7 @@ struct Running {
 }
 
 #[derive(Clone, Default)]
-pub struct McpController {
+pub(crate) struct McpController {
     inner: Arc<Mutex<Option<Running>>>,
 }
 

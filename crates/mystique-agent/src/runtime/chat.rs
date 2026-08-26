@@ -19,7 +19,7 @@ use super::prompt::SYSTEM_PROMPT;
 const DEFAULT_MAX_TURNS: usize = 16;
 pub(super) const AGENT_TIMEOUT_SECS: u64 = 180;
 
-pub(crate) fn history_from(prior: &[AgentMessage], context: &str) -> Vec<Message> {
+fn history_from(prior: &[AgentMessage], context: &str) -> Vec<Message> {
     let mut out = Vec::new();
     let start = prior.len().saturating_sub(20);
     for msg in &prior[start..] {
@@ -159,4 +159,38 @@ async fn execute_leaked_tools(bound: &BoundTools, calls: Vec<LeakedToolCall>) ->
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_from;
+    use super::super::prompt::workspace_context;
+    use mystique_core::AgentMessage;
+    use rig::completion::Message;
+
+    fn prior(role: &str, content: &str) -> AgentMessage {
+        AgentMessage {
+            id: "m1".into(),
+            chat_id: "c1".into(),
+            role: role.into(),
+            content: content.into(),
+            tool_name: None,
+            draft_body: None,
+            created_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn history_puts_workspace_context_before_current_turn() {
+        let ctx = workspace_context("prod", "postgres", "app", "select 1");
+        let history = history_from(&[prior("user", "hello")], &ctx);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].rag_text().as_deref(), Some("hello"));
+        match history.last() {
+            Some(Message::User { .. }) => {
+                assert_eq!(history[1].rag_text().as_deref(), Some(ctx.as_str()));
+            }
+            other => panic!("expected trailing user context, got {other:?}"),
+        }
+    }
 }
