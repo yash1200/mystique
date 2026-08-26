@@ -1,26 +1,27 @@
+//! Pooled MySQL / MariaDB session — thin [`ConnectorSession`] facade over focused modules.
+
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 
 use async_trait::async_trait;
 use mysql_async::prelude::*;
-use mysql_async::{Pool, Value};
+use mysql_async::Pool;
 use mystique_connector_api::{
-    cell_bool, compile_delete, compile_insert, compile_update, export_object_with_preview,
-    import_chunk_sql, import_object_from_file, preview_import_with_describe, preview_sort_sql,
-    qualify_table, quote_ident, split_sql_statements, sql_preview_where, ApplyTableEditsInput,
-    ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship,
-    ColumnInfo, ColumnReference, ConnectorError, ConnectorResult, ConnectorSession,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
+    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchTablePreviewInput,
     ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure,
-    PoolStatus, PreviewImportInput, PreviewImportResult, QueryColumn, QueryMode, QueryResult,
-    SqlIdentStyle, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TableObjectKind, TablePreviewResult, ValidatedQuery,
+    PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult, TableAdminInput,
+    TableAdminResult, TablePreviewResult, ValidatedQuery,
 };
-use serde_json::Value as JsonValue;
 
+mod admin;
+mod catalog;
+mod edits;
 mod encode;
-use encode::*;
-
+mod preview;
+mod query;
+mod structure;
+mod transfer;
 
 pub struct MysqlSession {
     pool: Pool,
@@ -36,8 +37,22 @@ impl MysqlSession {
             closed: AtomicBool::new(false),
         }
     }
-}
 
+    pub(super) fn ensure_open(&self) -> ConnectorResult<()> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        Ok(())
+    }
+
+    pub(super) async fn conn(&self) -> ConnectorResult<mysql_async::Conn> {
+        self.ensure_open()?;
+        self.pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))
+    }
+}
 
 #[async_trait]
 impl ConnectorSession for MysqlSession {
@@ -50,14 +65,7 @@ impl ConnectorSession for MysqlSession {
     }
 
     async fn ping(&self) -> ConnectorResult<()> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+        let mut conn = self.conn().await?;
         conn.query_drop("SELECT 1")
             .await
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
@@ -81,7 +89,6 @@ impl ConnectorSession for MysqlSession {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            // Dropping remaining connections is best-effort; disconnect drains the pool.
             let pool = self.pool.clone();
             let _ = pool.disconnect().await;
         }
@@ -89,147 +96,7 @@ impl ConnectorSession for MysqlSession {
     }
 
     async fn execute_query(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-
-        // Multi-statement batches: run each in order; return only the last result.
-        let start = Instant::now();
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-
-        let max_rows = query.max_rows as usize;
-        let mode = query.mode;
-
-        let timeout = query.timeout_ms.max(1);
-        let _ = conn
-            .query_drop(format!("SET SESSION max_execution_time = {timeout}"))
-            .await;
-
-        let stmts = split_sql_statements(&query.text);
-        if stmts.is_empty() {
-            return Err(ConnectorError::Query("Query is empty.".into()));
-        }
-
-        let batch_n = stmts.len();
-        let mut last: Option<QueryResult> = None;
-
-        for (i, sql) in stmts.iter().enumerate() {
-            let lower = sql.to_ascii_lowercase();
-            let is_select_like = lower.starts_with("select")
-                || lower.starts_with("with")
-                || lower.starts_with("show")
-                || lower.starts_with("describe")
-                || lower.starts_with("desc")
-                || lower.starts_with("explain")
-                || lower.starts_with("values");
-
-            let result = if is_select_like {
-                let result_set = conn
-                    .query_iter(sql.as_str())
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-                let columns: Vec<QueryColumn> = result_set
-                    .columns_ref()
-                    .iter()
-                    .map(|c| QueryColumn {
-                        name: c.name_str().into_owned(),
-                        data_type: Some(mysql_type_label(c.column_type()).to_string()),
-                    })
-                    .collect();
-
-                let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
-                let mut truncated = false;
-                let mut result_set = result_set;
-                while let Some(row) = result_set
-                    .next()
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
-                {
-                    if out_rows.len() >= max_rows {
-                        truncated = true;
-                        break;
-                    }
-                    let mut cells = Vec::with_capacity(columns.len());
-                    for j in 0..columns.len() {
-                        let v: Value = row.as_ref(j).cloned().unwrap_or(Value::NULL);
-                        cells.push(value_json(v));
-                    }
-                    out_rows.push(cells);
-                }
-                while result_set
-                    .next()
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
-                    .is_some()
-                {
-                    truncated = true;
-                }
-
-                let mut message = if truncated {
-                    Some(format!("Result truncated to {max_rows} rows."))
-                } else {
-                    None
-                };
-                if batch_n > 1 && i + 1 == batch_n {
-                    let note = format!("Last of {batch_n} statements.");
-                    message = Some(match message {
-                        Some(m) => format!("{m} {note}"),
-                        None => note,
-                    });
-                }
-
-                QueryResult {
-                    engine: "mysql".into(),
-                    mode,
-                    columns,
-                    row_count: out_rows.len() as u64,
-                    rows: out_rows,
-                    truncated,
-                    duration_ms: 0,
-                    message,
-                }
-            } else {
-                conn.query_drop(sql.as_str())
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-                let mut message = Some(format!(
-                    "Statement executed ({}). Tabular rows only for SELECT-like queries.",
-                    match mode {
-                        QueryMode::Read => "read",
-                        QueryMode::Write => "write",
-                    }
-                ));
-                if batch_n > 1 && i + 1 == batch_n {
-                    message = Some(format!(
-                        "{}; last of {batch_n} statements.",
-                        message.unwrap_or_default().trim_end_matches('.')
-                    ));
-                }
-
-                QueryResult {
-                    engine: "mysql".into(),
-                    mode,
-                    columns: Vec::new(),
-                    row_count: 0,
-                    rows: Vec::new(),
-                    truncated: false,
-                    duration_ms: 0,
-                    message,
-                }
-            };
-
-            last = Some(result);
-        }
-
-        let mut out = last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))?;
-        out.duration_ms = start.elapsed().as_millis() as u64;
-        Ok(out)
+        query::execute_query(self, query).await
     }
 
     async fn describe_table(
@@ -238,86 +105,7 @@ impl ConnectorSession for MysqlSession {
         schema: Option<&str>,
         table: &str,
     ) -> ConnectorResult<Vec<ColumnInfo>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = database.or(schema).ok_or_else(|| {
-            ConnectorError::InvalidConfig("MySQL describe_table requires database/schema".into())
-        })?;
-        let db = db_name.replace('\'', "''");
-        let tbl = table.replace('\'', "''");
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-
-        // column_type is already DDL-style (varchar(255), datetime, timestamp, …)
-        let sql = format!(
-            "SELECT column_name, column_type, is_nullable, column_key, column_default, extra \
-             FROM information_schema.columns \
-             WHERE table_schema = '{db}' AND table_name = '{tbl}' \
-             ORDER BY ordinal_position"
-        );
-        let rows: Vec<(String, String, String, String, Option<String>, String)> = conn
-            .query(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let mut out = Vec::with_capacity(rows.len());
-        for (name, column_type, is_nullable, column_key, column_default, extra) in rows {
-            let enum_values = parse_mysql_enum_values(&column_type);
-            let default_value = mysql_default_display(column_default.as_deref(), &extra);
-            out.push(ColumnInfo {
-                name,
-                data_type: column_type,
-                nullable: is_nullable.to_ascii_uppercase() != "NO",
-                pk: column_key.to_ascii_uppercase() == "PRI",
-                enum_values,
-                default_value,
-                references: None,
-            });
-        }
-
-        // Attach FK targets for grid jump-to-row navigation.
-        let fks: Vec<(String, Option<String>, String, String)> = conn
-            .exec_map(
-                r#"
-                SELECT
-                  COLUMN_NAME,
-                  REFERENCED_TABLE_SCHEMA,
-                  REFERENCED_TABLE_NAME,
-                  REFERENCED_COLUMN_NAME
-                FROM information_schema.KEY_COLUMN_USAGE
-                WHERE TABLE_SCHEMA = ?
-                  AND TABLE_NAME = ?
-                  AND REFERENCED_TABLE_NAME IS NOT NULL
-                ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
-                "#,
-                (db_name, table),
-                |(col, rschema, rtable, rcol): (String, Option<String>, String, String)| {
-                    (col, rschema, rtable, rcol)
-                },
-            )
-            .await
-            .unwrap_or_default();
-        use std::collections::HashMap;
-        let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
-        for (col, rschema, rtable, rcol) in fks {
-            by_col.entry(col).or_insert(ColumnReference {
-                database: rschema.or_else(|| Some(db_name.to_string())),
-                schema: None,
-                table: rtable,
-                column: rcol,
-            });
-        }
-        for col in &mut out {
-            if let Some(r) = by_col.remove(&col.name) {
-                col.references = Some(r);
-            }
-        }
-
-        Ok(out)
+        catalog::describe_table(self, database, schema, table).await
     }
 
     async fn list_catalog_columns(
@@ -325,207 +113,21 @@ impl ConnectorSession for MysqlSession {
         database: Option<&str>,
         schema: Option<&str>,
     ) -> ConnectorResult<Vec<CatalogColumnRow>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-
-        let sql = if let Some(db) = database.or(schema) {
-            let db = db.replace('\'', "''");
-            format!(
-                "SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
-                 FROM information_schema.columns \
-                 WHERE table_schema = '{db}' \
-                 ORDER BY table_schema, table_name, ordinal_position"
-            )
-        } else {
-            "SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
-             FROM information_schema.columns \
-             WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
-             ORDER BY table_schema, table_name, ordinal_position"
-                .to_string()
-        };
-
-        let rows: Vec<(String, String, String, String, String, String)> = conn
-            .query(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(table_schema, table_name, column_name, column_type, is_nullable, column_key)| {
-                    CatalogColumnRow {
-                        database: Some(table_schema.clone()),
-                        schema: Some(table_schema),
-                        table: table_name,
-                        column: column_name,
-                        data_type: column_type,
-                        nullable: is_nullable.to_ascii_uppercase() != "NO",
-                        pk: column_key.to_ascii_uppercase() == "PRI",
-                    }
-                },
-            )
-            .collect())
+        catalog::list_catalog_columns(self, database, schema).await
     }
 
     async fn apply_table_edits(
         &self,
         edits: &ApplyTableEditsInput,
     ) -> ConnectorResult<ApplyTableEditsResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-
-        let mut updated = 0u32;
-        let mut inserted = 0u32;
-        let mut deleted = 0u32;
-        for u in &edits.updates {
-            let sql = compile_update(SqlIdentStyle::Mysql, edits, u)?;
-            conn.query_drop(sql.as_str())
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            updated += 1;
-        }
-        for i in &edits.inserts {
-            let sql = compile_insert(SqlIdentStyle::Mysql, edits, i)?;
-            conn.query_drop(sql.as_str())
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            inserted += 1;
-        }
-        for d in &edits.deletes {
-            let sql = compile_delete(SqlIdentStyle::Mysql, edits, d)?;
-            conn.query_drop(sql.as_str())
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            deleted += 1;
-        }
-        Ok(ApplyTableEditsResult {
-            updated,
-            inserted,
-            deleted,
-        })
+        edits::apply_table_edits(self, edits).await
     }
 
     async fn fetch_table_preview(
         &self,
         input: &FetchTablePreviewInput,
     ) -> ConnectorResult<TablePreviewResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let start = Instant::now();
-        let columns = self
-            .describe_table(
-                input.database.as_deref(),
-                input.schema.as_deref(),
-                &input.table,
-            )
-            .await?;
-        let target = qualify_table(
-            SqlIdentStyle::Mysql,
-            input.database.as_deref(),
-            input.schema.as_deref(),
-            &input.table,
-        );
-        let order = preview_sort_sql(
-            SqlIdentStyle::Mysql,
-            &columns,
-            input.sort_column.as_deref(),
-            input.sort_dir.as_deref(),
-        )
-        .unwrap_or_else(|| {
-            let pks: Vec<String> = columns
-                .iter()
-                .filter(|c| c.pk)
-                .map(|c| quote_ident(SqlIdentStyle::Mysql, &c.name))
-                .collect();
-            if !pks.is_empty() {
-                format!(" ORDER BY {}", pks.join(", "))
-            } else if let Some(first) = columns.first() {
-                format!(
-                    " ORDER BY {}",
-                    quote_ident(SqlIdentStyle::Mysql, &first.name)
-                )
-            } else {
-                String::new()
-            }
-        });
-        let limit = input.max_rows;
-        let select_list = if columns.is_empty() {
-            "*".into()
-        } else {
-            columns
-                .iter()
-                .map(|c| quote_ident(SqlIdentStyle::Mysql, &c.name))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        let offset = input.offset;
-        let where_sql = sql_preview_where(
-            SqlIdentStyle::Mysql,
-            &input.filters,
-            input.code_filter.as_deref(),
-        )?;
-        let sql = format!(
-            "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
-        );
-
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        let total_rows: u64 = conn
-            .query_first(&format!("SELECT COUNT(*) FROM {target}{where_sql}"))
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-            .unwrap_or(0);
-        let result_set = conn
-            .query_iter(sql.as_str())
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let col_count = result_set.columns_ref().len();
-        let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
-        let mut result_set = result_set;
-        while let Some(row) = result_set
-            .next()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            if out_rows.len() >= input.max_rows as usize {
-                break;
-            }
-            let mut cells = Vec::with_capacity(col_count);
-            for j in 0..col_count {
-                let v: Value = row.as_ref(j).cloned().unwrap_or(Value::NULL);
-                cells.push(value_json(v));
-            }
-            out_rows.push(cells);
-        }
-
-        let row_count = out_rows.len() as u64;
-        let truncated = input.offset as u64 + row_count < total_rows;
-        Ok(TablePreviewResult {
-            engine: "mysql".into(),
-            columns,
-            rows: out_rows,
-            row_count,
-            total_rows,
-            truncated,
-            duration_ms: start.elapsed().as_millis() as u64,
-        })
+        preview::fetch_table_preview(self, input).await
     }
 
     async fn list_catalog(
@@ -533,351 +135,46 @@ impl ConnectorSession for MysqlSession {
         preferred_database: Option<&str>,
         include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        let mut by_db: std::collections::BTreeMap<String, Vec<CatalogObject>> =
-            std::collections::BTreeMap::new();
-        // Include empty databases (no tables yet) so the picker can switch to them.
-        if let Ok(schemas) = conn
-            .query::<String, _>(
-                "SELECT schema_name FROM information_schema.schemata \
-                 WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys') \
-                 ORDER BY schema_name",
-            )
-            .await
-        {
-            for name in schemas {
-                by_db.entry(name).or_default();
-            }
-        }
-        let rows: Vec<(String, String, String, i64)> = if include_objects {
-            let sql =
-                "SELECT table_schema, table_name, table_type, COALESCE(table_rows, 0) AS table_rows \
-                 FROM information_schema.tables \
-                 WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
-                 ORDER BY table_schema, table_name";
-            conn.query(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-        } else {
-            Vec::new()
-        };
-        for (schema, name, raw_type, approx) in rows {
-            let kind = if raw_type.to_ascii_lowercase().contains("view") {
-                "view"
-            } else {
-                "table"
-            };
-            by_db
-                .entry(schema.clone())
-                .or_default()
-                .push(CatalogObject {
-                    name,
-                    schema: Some(schema.clone()),
-                    database: Some(schema),
-                    kind: kind.into(),
-                    row_count: approx.max(0) as u64,
-                });
-        }
-        if let Some(pref) = preferred_database.map(str::trim).filter(|s| !s.is_empty()) {
-            by_db.entry(pref.to_string()).or_default();
-        }
-        let pref = preferred_database.map(str::trim).unwrap_or("");
-        let mut names: Vec<String> = by_db.keys().cloned().collect();
-        names.sort_by(|a, b| {
-            if !pref.is_empty() && a == pref {
-                return std::cmp::Ordering::Less;
-            }
-            if !pref.is_empty() && b == pref {
-                return std::cmp::Ordering::Greater;
-            }
-            if a == "mystique" {
-                return std::cmp::Ordering::Less;
-            }
-            if b == "mystique" {
-                return std::cmp::Ordering::Greater;
-            }
-            a.cmp(b)
-        });
-        Ok(names
-            .into_iter()
-            .map(|name| {
-                let objects = by_db.remove(&name).unwrap_or_default();
-                let meta = if objects.is_empty() {
-                    Some("empty".into())
-                } else {
-                    Some(format!("{} tables", objects.len()))
-                };
-                CatalogDatabase {
-                    name,
-                    meta,
-                    system: false,
-                    objects,
-                }
-            })
-            .collect())
+        catalog::list_catalog(self, preferred_database, include_objects).await
     }
 
     async fn list_relationships(
         &self,
         database: Option<&str>,
     ) -> ConnectorResult<Vec<CatalogRelationship>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        let sql = if let Some(db) = database.map(str::trim).filter(|s| !s.is_empty()) {
-            let db = db.replace('\'', "''");
-            format!(
-                "SELECT table_name, column_name, referenced_table_name, referenced_column_name, constraint_name \
-                 FROM information_schema.key_column_usage \
-                 WHERE table_schema = '{db}' AND referenced_table_name IS NOT NULL \
-                 ORDER BY table_name, ordinal_position"
-            )
-        } else {
-            "SELECT table_schema, table_name, column_name, referenced_table_schema, referenced_table_name, referenced_column_name, constraint_name \
-             FROM information_schema.key_column_usage \
-             WHERE referenced_table_name IS NOT NULL \
-               AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
-             ORDER BY table_schema, table_name"
-                .into()
-        };
-        if database.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-            let rows: Vec<(String, String, String, String, String)> = conn
-                .query(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let schema = database.unwrap().trim().to_string();
-            return Ok(rows
-                .into_iter()
-                .map(
-                    |(from_table, from_column, to_table, to_column, name)| CatalogRelationship {
-                        from_schema: Some(schema.clone()),
-                        from_table,
-                        from_column,
-                        to_schema: Some(schema.clone()),
-                        to_table,
-                        to_column,
-                        name: Some(name),
-                    },
-                )
-                .collect());
-        }
-        let rows: Vec<(
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            String,
-            String,
-        )> = conn
-            .query(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(from_schema, from_table, from_column, to_schema, to_table, to_column, name)| {
-                    CatalogRelationship {
-                        from_schema: Some(from_schema),
-                        from_table,
-                        from_column,
-                        to_schema,
-                        to_table,
-                        to_column,
-                        name: Some(name),
-                    }
-                },
-            )
-            .collect())
+        catalog::list_relationships(self, database).await
     }
 
     async fn apply_table_admin(
         &self,
         input: &TableAdminInput,
     ) -> ConnectorResult<TableAdminResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        let qname = qualify_table(
-            SqlIdentStyle::Mysql,
-            input.database.as_deref(),
-            input.schema.as_deref(),
-            &input.name,
-        );
-        let is_view = input.kind == TableObjectKind::View;
-
-        match input.op {
-            TableAdminOp::CreateStatement => {
-                let kw = if is_view { "VIEW" } else { "TABLE" };
-                let sql = format!("SHOW CREATE {kw} {qname}");
-                let row: Option<mysql_async::Row> = conn
-                    .query_first(sql)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let row = row.ok_or_else(|| {
-                    ConnectorError::Query(format!("Object {qname} was not found."))
-                })?;
-                let create: Option<String> = row.get(1);
-                let statement = create
-                    .filter(|s| !s.trim().is_empty())
-                    .ok_or_else(|| ConnectorError::Query(format!("No CREATE text for {qname}.")))?;
-                let statement = if statement.trim_end().ends_with(';') {
-                    format!("{}\n", statement.trim_end())
-                } else {
-                    format!("{};\n", statement.trim_end())
-                };
-                Ok(TableAdminResult::statement(input.op, statement))
-            }
-            TableAdminOp::CreateGroup => Err(ConnectorError::NotSupported(
-                "MySQL does not use schemas; create a database instead.".into(),
-            )),
-            TableAdminOp::CreateObject => {
-                let sql =
-                    format!("CREATE TABLE {qname} (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY)");
-                conn.query_drop(sql)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Created table {qname}."),
-                ))
-            }
-            TableAdminOp::Rename => {
-                let new_name = input.new_name.as_deref().unwrap_or("").trim();
-                let dest = qualify_table(
-                    SqlIdentStyle::Mysql,
-                    input.database.as_deref(),
-                    input.schema.as_deref(),
-                    new_name,
-                );
-                let sql = format!("RENAME TABLE {qname} TO {dest}");
-                conn.query_drop(sql)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Renamed {qname} to {dest}."),
-                ))
-            }
-            TableAdminOp::Drop => {
-                let kw = if is_view { "VIEW" } else { "TABLE" };
-                let sql = format!("DROP {kw} IF EXISTS {qname}");
-                conn.query_drop(sql)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Dropped {qname}."),
-                ))
-            }
-            TableAdminOp::Truncate => {
-                if is_view {
-                    return Err(ConnectorError::NotSupported(
-                        "Cannot truncate a view.".into(),
-                    ));
-                }
-                let sql = format!("TRUNCATE TABLE {qname}");
-                conn.query_drop(sql)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Truncated {qname}."),
-                ))
-            }
-            TableAdminOp::Duplicate => {
-                if is_view {
-                    return Err(ConnectorError::NotSupported(
-                        "Duplicate is not supported for views.".into(),
-                    ));
-                }
-                let new_name = input.new_name.as_deref().unwrap_or("").trim();
-                let dest = qualify_table(
-                    SqlIdentStyle::Mysql,
-                    input.database.as_deref(),
-                    input.schema.as_deref(),
-                    new_name,
-                );
-                conn.query_drop(format!("CREATE TABLE {dest} LIKE {qname}"))
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                conn.query_drop(format!("INSERT INTO {dest} SELECT * FROM {qname}"))
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Duplicated {qname} to {dest}."),
-                ))
-            }
-        }
+        admin::apply_table_admin(self, input).await
     }
 
     async fn export_object(
         &self,
         input: &ExportObjectInput,
     ) -> ConnectorResult<ExportObjectResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        export_object_with_preview(self, input, Some(SqlIdentStyle::Mysql)).await
+        transfer::export_object(self, input).await
     }
 
     async fn preview_import(
         &self,
         input: &PreviewImportInput,
     ) -> ConnectorResult<PreviewImportResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        preview_import_with_describe(self, input).await
+        transfer::preview_import(self, input).await
     }
 
     async fn import_object(
         &self,
         input: &ImportObjectInput,
     ) -> ConnectorResult<ImportObjectResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        import_object_from_file(self, input).await
+        transfer::import_object(self, input).await
     }
 
     async fn import_chunk(&self, input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let (statements, counts) = import_chunk_sql(SqlIdentStyle::Mysql, input)?;
-        if statements.is_empty() {
-            return Ok(counts);
-        }
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-        for sql in statements {
-            conn.query_drop(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        }
-        Ok(counts)
+        transfer::import_chunk(self, input).await
     }
 
     async fn describe_object_structure(
@@ -887,238 +184,6 @@ impl ConnectorSession for MysqlSession {
         table: &str,
         kind: Option<&str>,
     ) -> ConnectorResult<ObjectStructure> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db = database
-            .or(schema)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig(
-                    "MySQL object structure requires database/schema".into(),
-                )
-            })?;
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-
-        let cols = self.describe_table(Some(db), schema, table).await?;
-        let col_rows: Vec<Vec<String>> = cols
-            .iter()
-            .map(|c| {
-                vec![
-                    c.name.clone(),
-                    c.data_type.clone(),
-                    cell_bool(c.nullable),
-                    cell_bool(c.pk),
-                    c.default_value
-                        .clone()
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "—".into()),
-                    c.enum_values
-                        .as_ref()
-                        .map(|v| v.join(", "))
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "—".into()),
-                ]
-            })
-            .collect();
-        let columns_sec = StructureSection::table(
-            "columns",
-            "Columns",
-            vec![
-                "Name".into(),
-                "Type".into(),
-                "Nullable".into(),
-                "PK".into(),
-                "Default".into(),
-                "Enum".into(),
-            ],
-            col_rows,
-        )
-        .with_empty_message("No columns found.");
-
-        let idx: Vec<(String, String, String, i64, String)> = conn
-            .exec_map(
-                r#"
-                SELECT
-                  INDEX_NAME,
-                  COLUMN_NAME,
-                  NON_UNIQUE,
-                  SEQ_IN_INDEX,
-                  INDEX_TYPE
-                FROM information_schema.STATISTICS
-                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-                ORDER BY INDEX_NAME, SEQ_IN_INDEX
-                "#,
-                (db, table),
-                |(name, col, non_unique, seq, itype): (String, String, i64, i64, String)| {
-                    (
-                        name,
-                        col,
-                        if non_unique == 0 {
-                            "yes".into()
-                        } else {
-                            "no".into()
-                        },
-                        seq,
-                        itype,
-                    )
-                },
-            )
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let index_rows: Vec<Vec<String>> = idx
-            .into_iter()
-            .map(|(name, col, unique, seq, itype)| vec![name, col, unique, seq.to_string(), itype])
-            .collect();
-        let indexes_sec = StructureSection::table(
-            "indexes",
-            "Indexes",
-            vec![
-                "Name".into(),
-                "Column".into(),
-                "Unique".into(),
-                "Seq".into(),
-                "Type".into(),
-            ],
-            index_rows,
-        )
-        .with_empty_message("No indexes.");
-
-        let fks: Vec<(String, String, String, String, String)> = conn
-            .exec_map(
-                r#"
-                SELECT
-                  CONSTRAINT_NAME,
-                  COLUMN_NAME,
-                  REFERENCED_TABLE_SCHEMA,
-                  REFERENCED_TABLE_NAME,
-                  REFERENCED_COLUMN_NAME
-                FROM information_schema.KEY_COLUMN_USAGE
-                WHERE TABLE_SCHEMA = ?
-                  AND TABLE_NAME = ?
-                  AND REFERENCED_TABLE_NAME IS NOT NULL
-                ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
-                "#,
-                (db, table),
-                |(c, col, rschema, rtable, rcol): (
-                    String,
-                    String,
-                    Option<String>,
-                    String,
-                    String,
-                )| {
-                    (
-                        c,
-                        col,
-                        rschema.unwrap_or_else(|| db.to_string()),
-                        rtable,
-                        rcol,
-                    )
-                },
-            )
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let fk_rows: Vec<Vec<String>> = fks
-            .into_iter()
-            .map(|(c, col, rschema, rtable, rcol)| {
-                vec![c, col, format!("{rschema}.{rtable}"), rcol]
-            })
-            .collect();
-        let fks_sec = StructureSection::table(
-            "foreign_keys",
-            "Foreign keys",
-            vec![
-                "Constraint".into(),
-                "Column".into(),
-                "References".into(),
-                "Ref column".into(),
-            ],
-            fk_rows,
-        )
-        .with_empty_message("No foreign keys.");
-
-        let inbound: Vec<(String, String, String, String)> = conn
-            .exec_map(
-                r#"
-                SELECT
-                  CONSTRAINT_NAME,
-                  TABLE_SCHEMA,
-                  TABLE_NAME,
-                  COLUMN_NAME
-                FROM information_schema.KEY_COLUMN_USAGE
-                WHERE REFERENCED_TABLE_SCHEMA = ?
-                  AND REFERENCED_TABLE_NAME = ?
-                ORDER BY TABLE_SCHEMA, TABLE_NAME
-                "#,
-                (db, table),
-                |(c, tschema, tname, col): (String, String, String, String)| {
-                    (c, tschema, tname, col)
-                },
-            )
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let inbound_rows: Vec<Vec<String>> = inbound
-            .into_iter()
-            .map(|(c, tschema, tname, col)| vec![c, format!("{tschema}.{tname}"), col])
-            .collect();
-        let refs_sec = StructureSection::table(
-            "referenced_by",
-            "Referenced by",
-            vec![
-                "Constraint".into(),
-                "From table".into(),
-                "From column".into(),
-            ],
-            inbound_rows,
-        )
-        .with_empty_message("No inbound foreign keys.");
-
-        let triggers: Vec<(String, String, String, String)> = conn
-            .exec_map(
-                r#"
-                SELECT
-                  TRIGGER_NAME,
-                  ACTION_TIMING,
-                  EVENT_MANIPULATION,
-                  ACTION_STATEMENT
-                FROM information_schema.TRIGGERS
-                WHERE EVENT_OBJECT_SCHEMA = ?
-                  AND EVENT_OBJECT_TABLE = ?
-                ORDER BY TRIGGER_NAME
-                "#,
-                (db, table),
-                |(n, t, e, a): (String, String, String, String)| (n, t, e, a),
-            )
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let trigger_rows: Vec<Vec<String>> = triggers
-            .into_iter()
-            .map(|(n, t, e, a)| vec![n, t, e, a])
-            .collect();
-        let triggers_sec = StructureSection::table(
-            "triggers",
-            "Triggers",
-            vec![
-                "Name".into(),
-                "Timing".into(),
-                "Event".into(),
-                "Action".into(),
-            ],
-            trigger_rows,
-        )
-        .with_empty_message("No triggers.");
-
-        let object_kind = kind.unwrap_or("table").to_string();
-        Ok(ObjectStructure::new(
-            format!("{db}.{table}"),
-            vec![columns_sec, indexes_sec, fks_sec, refs_sec, triggers_sec],
-        )
-        .with_subtitle(format!("MySQL · {object_kind}"))
-        .with_object_kind(object_kind))
+        structure::describe_object_structure(self, database, schema, table, kind).await
     }
 }

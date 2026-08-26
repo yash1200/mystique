@@ -1,3 +1,5 @@
+//! Cell encoding for SQLite query / preview results.
+
 use rusqlite::types::ValueRef;
 use serde_json::{json, Value as JsonValue};
 

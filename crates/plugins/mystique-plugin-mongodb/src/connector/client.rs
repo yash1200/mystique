@@ -12,7 +12,9 @@ use super::url::database_from_mongo_uri;
 /// 1. explicit `pluginConfig.database`
 /// 2. path segment in the connection URI (`…/mystique?…`)
 /// 3. `None` (caller / explorer must pick a database)
-pub(super) async fn build_client(config: &ConnectionConfig) -> ConnectorResult<(Client, Option<String>)> {
+pub(super) async fn build_client(
+    config: &ConnectionConfig,
+) -> ConnectorResult<(Client, Option<String>)> {
     let mut options = if let Some(uri) = config.str_field("uri") {
         ClientOptions::parse(&uri)
             .await

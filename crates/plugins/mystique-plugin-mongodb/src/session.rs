@@ -1,27 +1,27 @@
+//! MongoDB session — thin [`ConnectorSession`] facade over focused modules.
+
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 
 use async_trait::async_trait;
-use mongodb::bson::{doc, Bson, Document};
+use mongodb::bson::doc;
 use mongodb::Client;
 use mystique_connector_api::{
-    cell_bool, export_object_with_preview, import_object_from_file, preview_import_with_describe,
-    preview_sort_field, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow,
-    CatalogDatabase, CatalogObject, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchTablePreviewInput,
-    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, ImportOnDuplicate,
-    ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult, QueryColumn, QueryMode,
-    QueryResult, StructureSection, TableAdminInput, TableAdminOp, TableAdminResult,
-    TablePreviewResult, ValidatedQuery,
+    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, ColumnInfo,
+    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
+    ExportObjectResult, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput,
+    PreviewImportResult, QueryResult, TableAdminInput, TableAdminResult, TablePreviewResult,
+    ValidatedQuery,
 };
-use serde_json::{json, Value as JsonValue};
 
+mod admin;
+mod catalog;
+mod edits;
 mod encode;
-use encode::*;
-
-use crate::preview_filter::compile_mongo_preview_predicate;
-use crate::shell_filter::json_to_document;
-use crate::shell_query::parse_read_query;
+mod preview;
+mod query;
+mod structure;
+mod transfer;
 
 pub struct MongoSession {
     client: Client,
@@ -39,6 +39,26 @@ impl MongoSession {
             closed: AtomicBool::new(false),
         }
     }
+
+    pub(super) fn ensure_open(&self) -> ConnectorResult<()> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ConnectorError::Connect("session closed".into()));
+        }
+        Ok(())
+    }
+
+    pub(super) fn resolve_database(&self, explicit: Option<&str>) -> ConnectorResult<String> {
+        if let Some(db) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
+            return Ok(db.to_string());
+        }
+        if let Some(db) = self.default_db.as_deref().filter(|s| !s.is_empty()) {
+            return Ok(db.to_string());
+        }
+        Err(ConnectorError::InvalidConfig(
+            "No MongoDB database selected. Put `/dbname` in the connection URI, set pluginConfig.database, or pass a database."
+                .into(),
+        ))
+    }
 }
 
 #[async_trait]
@@ -52,9 +72,7 @@ impl ConnectorSession for MongoSession {
     }
 
     async fn ping(&self) -> ConnectorResult<()> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
+        self.ensure_open()?;
         self.client
             .database("admin")
             .run_command(doc! { "ping": 1 })
@@ -85,479 +103,38 @@ impl ConnectorSession for MongoSession {
     }
 
     async fn execute_query(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        if is_mongo_write_command(&query.text) {
-            if query.mode == QueryMode::Read {
-                return Err(ConnectorError::Policy(
-                    "Write operation blocked. This connection is read-only.".into(),
-                ));
-            }
-            return self.execute_write(query).await;
-        }
-
-        let start = Instant::now();
-        let text_key = normalize_meta_command(&query.text);
-
-        if matches!(
-            text_key.as_str(),
-            "listdatabases" | "showdatabases" | "showdbs"
-        ) {
-            return self.list_databases(query.mode, start).await;
-        }
-        if matches!(text_key.as_str(), "listcollections" | "showcollections") {
-            let db_name = resolve_db_name(self, query)?;
-            return self
-                .list_collections(&db_name, query.mode, query.max_rows, start)
-                .await;
-        }
-
-        let db_name = resolve_db_name(self, query)?;
-        let parsed = parse_read_query(&query.text)?;
-        let coll_name = parsed
-            .collection
-            .clone()
-            .or_else(|| {
-                query
-                    .collection
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-            })
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig(
-                    "Mongo queries need a collection (use the Collection field or db.collection.find(...))."
-                        .into(),
-                )
-            })?;
-
-        let coll = self
-            .client
-            .database(&db_name)
-            .collection::<Document>(&coll_name);
-        let limit = parsed
-            .limit
-            .unwrap_or(query.max_rows as i64)
-            .clamp(1, query.max_rows as i64);
-        let mut find = coll.find(parsed.filter);
-        if let Some(proj) = parsed.projection {
-            find = find.projection(proj);
-        }
-        if let Some(sort) = parsed.sort {
-            find = find.sort(sort);
-        }
-        if let Some(skip) = parsed.skip {
-            find = find.skip(skip);
-        }
-        let mut cursor = find
-            .limit(limit)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let mut docs = Vec::new();
-        while cursor
-            .advance()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            let d = cursor
-                .deserialize_current()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            docs.push(d);
-            if docs.len() >= query.max_rows as usize {
-                break;
-            }
-        }
-
-        // Flatten documents into a table: union of keys
-        let mut key_set: Vec<String> = Vec::new();
-        for d in &docs {
-            for k in d.keys() {
-                if !key_set.iter().any(|x| x == k) {
-                    key_set.push(k.clone());
-                }
-            }
-        }
-        // Prefer _id first
-        if let Some(i) = key_set.iter().position(|k| k == "_id") {
-            let id = key_set.remove(i);
-            key_set.insert(0, id);
-        }
-
-        let columns: Vec<QueryColumn> = key_set
-            .iter()
-            .map(|k| {
-                let sample = docs.iter().find_map(|d| d.get(k)).cloned();
-                QueryColumn {
-                    name: k.clone(),
-                    data_type: Some(bson_type_label(sample.as_ref())),
-                }
-            })
-            .collect();
-
-        let mut rows = Vec::new();
-        for d in docs {
-            let mut cells = Vec::with_capacity(key_set.len());
-            for k in &key_set {
-                let v = d.get(k).cloned().unwrap_or(Bson::Null);
-                cells.push(bson_to_json(v));
-            }
-            rows.push(cells);
-        }
-
-        let truncated = rows.len() as u32 >= query.max_rows;
-        Ok(QueryResult {
-            engine: "mongodb".into(),
-            mode: query.mode,
-            columns,
-            row_count: rows.len() as u64,
-            rows,
-            truncated,
-            duration_ms: start.elapsed().as_millis() as u64,
-            message: Some(format!("find on {db_name}.{coll_name}")),
-        })
+        query::execute_query(self, query).await
     }
 
     async fn describe_table(
         &self,
         database: Option<&str>,
-        _schema: Option<&str>,
+        schema: Option<&str>,
         table: &str,
     ) -> ConnectorResult<Vec<ColumnInfo>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = database
-            .map(str::to_string)
-            .or_else(|| self.default_db.clone())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo describe_table requires database".into())
-            })?;
-        let coll = self.client.database(&db_name).collection::<Document>(table);
-
-        let mut cursor = coll
-            .find(doc! {})
-            .limit(50)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let mut keys: Vec<String> = Vec::new();
-        let mut samples: std::collections::HashMap<String, Bson> = std::collections::HashMap::new();
-        while cursor
-            .advance()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            let d = cursor
-                .deserialize_current()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            for (k, v) in d {
-                if !keys.iter().any(|x| x == &k) {
-                    keys.push(k.clone());
-                }
-                samples.entry(k).or_insert(v);
-            }
-        }
-        if let Some(i) = keys.iter().position(|k| k == "_id") {
-            let id = keys.remove(i);
-            keys.insert(0, id);
-        }
-
-        Ok(keys
-            .into_iter()
-            .map(|name| {
-                let pk = name == "_id";
-                let sample = samples.get(&name);
-                ColumnInfo {
-                    name,
-                    data_type: bson_type_label(sample),
-                    nullable: !pk,
-                    pk,
-                    enum_values: None,
-                    // Documents have no column defaults; leave unset.
-                    default_value: None,
-                    // No declared FKs in MongoDB.
-                    references: None,
-                }
-            })
-            .collect())
+        catalog::describe_table(self, database, schema, table).await
     }
 
     async fn list_catalog_columns(
         &self,
         database: Option<&str>,
-        _schema: Option<&str>,
+        schema: Option<&str>,
     ) -> ConnectorResult<Vec<CatalogColumnRow>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = database
-            .map(str::to_string)
-            .or_else(|| self.default_db.clone())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo list_catalog_columns requires database".into())
-            })?;
-        let names = self
-            .client
-            .database(&db_name)
-            .list_collection_names()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let mut out = Vec::new();
-        for name in names {
-            let cols = self
-                .describe_table(Some(&db_name), None, &name)
-                .await
-                .unwrap_or_default();
-            for c in cols {
-                out.push(CatalogColumnRow {
-                    database: Some(db_name.clone()),
-                    schema: None,
-                    table: name.clone(),
-                    column: c.name,
-                    data_type: c.data_type,
-                    nullable: c.nullable,
-                    pk: c.pk,
-                });
-            }
-        }
-        Ok(out)
+        catalog::list_catalog_columns(self, database, schema).await
     }
 
     async fn apply_table_edits(
         &self,
         edits: &ApplyTableEditsInput,
     ) -> ConnectorResult<ApplyTableEditsResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = edits
-            .database
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| self.default_db.clone())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo apply_table_edits requires database".into())
-            })?;
-        let coll = self
-            .client
-            .database(&db_name)
-            .collection::<Document>(&edits.table);
-
-        let mut updated = 0u32;
-        let mut inserted = 0u32;
-        let mut deleted = 0u32;
-
-        for u in &edits.updates {
-            let id = u
-                .original
-                .get("_id")
-                .or_else(|| u.original.get("id"))
-                .ok_or_else(|| {
-                    ConnectorError::Query("Cannot update document: missing _id.".into())
-                })?;
-            if matches!(id, JsonValue::Null) || id.as_str() == Some("") {
-                return Err(ConnectorError::Query(
-                    "Cannot update document: missing _id.".into(),
-                ));
-            }
-            let mut set_obj = serde_json::Map::new();
-            for (k, v) in &u.values {
-                if k == "_id" {
-                    continue;
-                }
-                set_obj.insert(k.clone(), coerce_mongo_json(v));
-            }
-            if set_obj.is_empty() {
-                continue;
-            }
-            let filter = json_to_document(&json!({ "_id": mongo_id_json(id) }))?;
-            let update = json_to_document(&json!({ "$set": JsonValue::Object(set_obj) }))?;
-            coll.update_one(filter, update)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            updated += 1;
-        }
-
-        for row in &edits.inserts {
-            let mut doc_map = serde_json::Map::new();
-            for (k, v) in &row.values {
-                if matches!(v, JsonValue::Null) || v.as_str() == Some("") {
-                    continue;
-                }
-                if k == "_id" {
-                    doc_map.insert(k.clone(), mongo_id_json(v));
-                } else {
-                    doc_map.insert(k.clone(), coerce_mongo_json(v));
-                }
-            }
-            if doc_map.is_empty() {
-                return Err(ConnectorError::Query(
-                    "New document is empty — fill at least one field before saving.".into(),
-                ));
-            }
-            let doc = json_to_document(&JsonValue::Object(doc_map))?;
-            coll.insert_one(doc)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            inserted += 1;
-        }
-
-        for d in &edits.deletes {
-            let id = d
-                .original
-                .get("_id")
-                .or_else(|| d.original.get("id"))
-                .ok_or_else(|| {
-                    ConnectorError::Query("Cannot delete document: missing _id.".into())
-                })?;
-            if matches!(id, JsonValue::Null) || id.as_str() == Some("") {
-                return Err(ConnectorError::Query(
-                    "Cannot delete document: missing _id.".into(),
-                ));
-            }
-            let filter = json_to_document(&json!({ "_id": mongo_id_json(id) }))?;
-            coll.delete_one(filter)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            deleted += 1;
-        }
-
-        Ok(ApplyTableEditsResult {
-            updated,
-            inserted,
-            deleted,
-        })
+        edits::apply_table_edits(self, edits).await
     }
 
     async fn fetch_table_preview(
         &self,
         input: &FetchTablePreviewInput,
     ) -> ConnectorResult<TablePreviewResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let start = Instant::now();
-        let db_name = input
-            .database
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| self.default_db.clone())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo fetch_table_preview requires database".into())
-            })?;
-        let columns = self
-            .describe_table(Some(&db_name), None, &input.table)
-            .await?;
-        let coll = self
-            .client
-            .database(&db_name)
-            .collection::<Document>(&input.table);
-        let filter = compile_mongo_preview_predicate(&input.filters, input.code_filter.as_deref())?;
-        let total_rows = if filter.is_empty() {
-            coll.estimated_document_count().await.unwrap_or(0)
-        } else {
-            coll.count_documents(filter.clone())
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-        };
-        let sort = match preview_sort_field(
-            &columns,
-            input.sort_column.as_deref(),
-            input.sort_dir.as_deref(),
-        ) {
-            Some((field, dir)) => doc! { field: dir },
-            None => doc! { "_id": 1 },
-        };
-        let mut find = coll.find(filter).sort(sort);
-        if input.offset > 0 {
-            find = find.skip(input.offset as u64);
-        }
-        if input.max_rows > 0 {
-            find = find.limit(input.max_rows as i64);
-        }
-        let mut cursor = find
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let mut docs = Vec::new();
-        while cursor
-            .advance()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            let d = cursor
-                .deserialize_current()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            docs.push(d);
-            if docs.len() >= input.max_rows as usize {
-                break;
-            }
-        }
-
-        let key_set: Vec<String> = if columns.is_empty() {
-            let mut keys = Vec::new();
-            for d in &docs {
-                for k in d.keys() {
-                    if !keys.iter().any(|x| x == k) {
-                        keys.push(k.clone());
-                    }
-                }
-            }
-            if let Some(i) = keys.iter().position(|k| k == "_id") {
-                let id = keys.remove(i);
-                keys.insert(0, id);
-            }
-            keys
-        } else {
-            columns.iter().map(|c| c.name.clone()).collect()
-        };
-
-        let mut rows = Vec::new();
-        for d in &docs {
-            let mut cells = Vec::with_capacity(key_set.len());
-            for k in &key_set {
-                let v = d.get(k).cloned().unwrap_or(Bson::Null);
-                cells.push(bson_to_json(v));
-            }
-            rows.push(cells);
-        }
-
-        let preview_columns = if columns.is_empty() {
-            key_set
-                .iter()
-                .map(|k| ColumnInfo {
-                    name: k.clone(),
-                    data_type: "mixed".into(),
-                    nullable: k != "_id",
-                    pk: k == "_id",
-                    enum_values: None,
-                    default_value: None,
-                    references: None,
-                })
-                .collect()
-        } else {
-            columns
-        };
-
-        let row_count = rows.len() as u64;
-        let truncated = input.offset as u64 + row_count < total_rows;
-        Ok(TablePreviewResult {
-            engine: "mongodb".into(),
-            columns: preview_columns,
-            rows,
-            row_count,
-            total_rows,
-            truncated,
-            duration_ms: start.elapsed().as_millis() as u64,
-        })
+        preview::fetch_table_preview(self, input).await
     }
 
     async fn list_catalog(
@@ -565,753 +142,51 @@ impl ConnectorSession for MongoSession {
         preferred_database: Option<&str>,
         include_objects: bool,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let mut names = self
-            .client
-            .list_database_names()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        names.sort();
-        const SYSTEM: &[&str] = &["admin", "local", "config"];
-        let pref = preferred_database.map(str::trim).unwrap_or("");
-        names.sort_by(|a, b| {
-            let asys = SYSTEM.contains(&a.as_str());
-            let bsys = SYSTEM.contains(&b.as_str());
-            if asys != bsys {
-                return asys.cmp(&bsys);
-            }
-            if !pref.is_empty() && a == pref {
-                return std::cmp::Ordering::Less;
-            }
-            if !pref.is_empty() && b == pref {
-                return std::cmp::Ordering::Greater;
-            }
-            a.cmp(b)
-        });
-        if !pref.is_empty() && !names.iter().any(|n| n == pref) {
-            names.insert(0, pref.to_string());
-        }
-
-        let mut out = Vec::new();
-        for db_name in names {
-            let is_system = SYSTEM.contains(&db_name.as_str());
-            let mut objects = Vec::new();
-            if include_objects && !is_system {
-                if let Ok(mut colls) = self.client.database(&db_name).list_collection_names().await
-                {
-                    colls.sort();
-                    for name in colls {
-                        let count = self
-                            .client
-                            .database(&db_name)
-                            .collection::<Document>(&name)
-                            .estimated_document_count()
-                            .await
-                            .unwrap_or(0);
-                        objects.push(CatalogObject {
-                            name,
-                            schema: None,
-                            database: Some(db_name.clone()),
-                            kind: "collection".into(),
-                            row_count: count,
-                        });
-                    }
-                }
-            }
-            let meta = if is_system {
-                Some("system".into())
-            } else if objects.is_empty() {
-                None
-            } else {
-                Some(format!("{} collections", objects.len()))
-            };
-            out.push(CatalogDatabase {
-                name: db_name,
-                meta,
-                system: is_system,
-                objects,
-            });
-        }
-        Ok(out)
+        catalog::list_catalog(self, preferred_database, include_objects).await
     }
 
     async fn apply_table_admin(
         &self,
         input: &TableAdminInput,
     ) -> ConnectorResult<TableAdminResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = input
-            .database
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .or(self.default_db.as_deref().filter(|s| !s.is_empty()))
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig(
-                    "No MongoDB database selected for this collection action.".into(),
-                )
-            })?
-            .to_string();
-        let db = self.client.database(&db_name);
-        let name = input.name.trim();
-        let coll = db.collection::<Document>(name);
-
-        match input.op {
-            TableAdminOp::CreateStatement => {
-                let statement = format!(
-                    "// Collection {name} in database {db_name}\ndb.createCollection({});\n",
-                    json!(name)
-                );
-                Ok(TableAdminResult::statement(input.op, statement))
-            }
-            TableAdminOp::CreateGroup => Err(ConnectorError::NotSupported(
-                "MongoDB does not use schemas; create a collection instead.".into(),
-            )),
-            TableAdminOp::CreateObject => {
-                db.create_collection(name)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Created collection {name} in {db_name}."),
-                ))
-            }
-            TableAdminOp::Rename => {
-                let new_name = input.new_name.as_deref().unwrap_or("").trim();
-                mongo_rename_collection(&self.client, &db_name, name, new_name).await?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Renamed {name} to {new_name}."),
-                ))
-            }
-            TableAdminOp::Drop => {
-                coll.drop()
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Dropped collection {name}."),
-                ))
-            }
-            TableAdminOp::Truncate => {
-                // Native clear: delete every document, keep the collection + indexes.
-                coll.delete_many(doc! {})
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Truncated collection {name}."),
-                ))
-            }
-            TableAdminOp::Duplicate => {
-                let new_name = input.new_name.as_deref().unwrap_or("").trim();
-                mongo_copy_collection(&db, name, new_name).await?;
-                Ok(TableAdminResult::executed(
-                    input.op,
-                    format!("Duplicated {name} to {new_name}."),
-                ))
-            }
-        }
+        admin::apply_table_admin(self, input).await
     }
 
     async fn export_object(
         &self,
         input: &ExportObjectInput,
     ) -> ConnectorResult<ExportObjectResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        export_object_with_preview(self, input, None).await
+        transfer::export_object(self, input).await
     }
 
     async fn preview_import(
         &self,
         input: &PreviewImportInput,
     ) -> ConnectorResult<PreviewImportResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        preview_import_with_describe(self, input).await
+        transfer::preview_import(self, input).await
     }
 
     async fn import_object(
         &self,
         input: &ImportObjectInput,
     ) -> ConnectorResult<ImportObjectResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        import_object_from_file(self, input).await
+        transfer::import_object(self, input).await
     }
 
     async fn import_chunk(&self, input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = input
-            .database
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| self.default_db.clone())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo import requires a database.".into())
-            })?;
-        let coll = self
-            .client
-            .database(&db_name)
-            .collection::<Document>(&input.name);
-        let mut inserted = 0u64;
-        let mut updated = 0u64;
-        for row in &input.rows {
-            let mut doc_map = serde_json::Map::new();
-            for (k, v) in row {
-                if matches!(v, JsonValue::Null) || v.as_str() == Some("") {
-                    continue;
-                }
-                if k == "_id" {
-                    doc_map.insert(k.clone(), mongo_id_json(v));
-                } else {
-                    doc_map.insert(k.clone(), coerce_mongo_json(v));
-                }
-            }
-            if doc_map.is_empty() {
-                continue;
-            }
-            match input.on_duplicate {
-                ImportOnDuplicate::StopOnError => {
-                    let doc = json_to_document(&JsonValue::Object(doc_map))?;
-                    coll.insert_one(doc)
-                        .await
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    inserted += 1;
-                }
-                ImportOnDuplicate::UpdateOnDuplicate => {
-                    let id = row
-                        .get("_id")
-                        .or_else(|| row.get("id"))
-                        .cloned()
-                        .unwrap_or(JsonValue::Null);
-                    if matches!(id, JsonValue::Null) || id.as_str() == Some("") {
-                        let doc = json_to_document(&JsonValue::Object(doc_map))?;
-                        coll.insert_one(doc)
-                            .await
-                            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                        inserted += 1;
-                    } else {
-                        let filter = json_to_document(&json!({ "_id": mongo_id_json(&id) }))?;
-                        let replacement = json_to_document(&JsonValue::Object(doc_map))?;
-                        coll.replace_one(filter, replacement)
-                            .upsert(true)
-                            .await
-                            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                        updated += 1;
-                    }
-                }
-            }
-        }
-        Ok(ImportChunkResult { inserted, updated })
+        transfer::import_chunk(self, input).await
     }
 
     async fn describe_object_structure(
         &self,
         database: Option<&str>,
-        _schema: Option<&str>,
+        schema: Option<&str>,
         table: &str,
         kind: Option<&str>,
     ) -> ConnectorResult<ObjectStructure> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ConnectorError::Connect("session closed".into()));
-        }
-        let db_name = database
-            .map(str::to_string)
-            .or_else(|| self.default_db.clone())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo object structure requires database".into())
-            })?;
-        let db = self.client.database(&db_name);
-        let coll = db.collection::<Document>(table);
-
-        let cols = self.describe_table(Some(&db_name), None, table).await?;
-        let field_rows: Vec<Vec<String>> = cols
-            .iter()
-            .map(|c| {
-                vec![
-                    c.name.clone(),
-                    c.data_type.clone(),
-                    cell_bool(c.nullable),
-                    cell_bool(c.pk),
-                ]
-            })
-            .collect();
-        let fields_sec = StructureSection::table(
-            "fields",
-            "Fields",
-            vec![
-                "Name".into(),
-                "Sample type".into(),
-                "Nullable".into(),
-                "Id".into(),
-            ],
-            field_rows,
-        )
-        .with_description("Inferred from up to 50 sample documents.")
-        .with_empty_message("No fields sampled (empty collection).");
-
-        let mut index_rows = Vec::new();
-        let mut cursor = coll
-            .list_indexes()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        while cursor
-            .advance()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            let model = cursor
-                .deserialize_current()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let opts = model.options.as_ref();
-            let name = opts
-                .and_then(|o| o.name.clone())
-                .unwrap_or_else(|| "—".into());
-            let key = model
-                .keys
-                .iter()
-                .map(|(k, v)| format!("{k}: {v}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let unique = opts.and_then(|o| o.unique).unwrap_or(false);
-            let sparse = opts.and_then(|o| o.sparse).unwrap_or(false);
-            index_rows.push(vec![
-                name,
-                if key.is_empty() { "—".into() } else { key },
-                cell_bool(unique),
-                cell_bool(sparse),
-            ]);
-        }
-        let indexes_sec = StructureSection::table(
-            "indexes",
-            "Indexes",
-            vec![
-                "Name".into(),
-                "Key".into(),
-                "Unique".into(),
-                "Sparse".into(),
-            ],
-            index_rows,
-        )
-        .with_empty_message("No indexes.");
-
-        // Collection options / validator from listCollections.
-        let mut validation_rows = Vec::new();
-        let mut listed = db
-            .list_collections()
-            .filter(doc! { "name": table })
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        while listed
-            .advance()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
-        {
-            let spec = listed
-                .deserialize_current()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            validation_rows.push(vec!["type".into(), format!("{:?}", spec.collection_type)]);
-            let options = &spec.options;
-            if let Some(validator) = &options.validator {
-                validation_rows.push(vec![
-                    "validator".into(),
-                    serde_json::to_string_pretty(validator)
-                        .unwrap_or_else(|_| format!("{validator:?}")),
-                ]);
-            }
-            if let Some(level) = &options.validation_level {
-                validation_rows.push(vec!["validationLevel".into(), format!("{level:?}")]);
-            }
-            if let Some(action) = &options.validation_action {
-                validation_rows.push(vec!["validationAction".into(), format!("{action:?}")]);
-            }
-            if let Some(capped) = options.capped {
-                validation_rows.push(vec!["capped".into(), cell_bool(capped)]);
-            }
-        }
-        let options_sec = StructureSection::table(
-            "options",
-            "Collection options",
-            vec!["Property".into(), "Value".into()],
-            validation_rows,
-        )
-        .with_empty_message("No special options / validator.");
-
-        let mut stats_rows = Vec::new();
-        let count = coll
-            .estimated_document_count()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        stats_rows.push(vec!["estimatedDocumentCount".into(), count.to_string()]);
-        let stats_sec = StructureSection::table(
-            "stats",
-            "Stats",
-            vec!["Metric".into(), "Value".into()],
-            stats_rows,
-        );
-
-        let object_kind = kind.unwrap_or("collection").to_string();
-        Ok(ObjectStructure::new(
-            format!("{db_name}.{table}"),
-            vec![fields_sec, indexes_sec, options_sec, stats_sec],
-        )
-        .with_subtitle(format!("MongoDB · {object_kind}"))
-        .with_object_kind(object_kind))
-    }
-}
-
-async fn mongo_rename_collection(
-    client: &Client,
-    db_name: &str,
-    from: &str,
-    to: &str,
-) -> ConnectorResult<()> {
-    let renamed = client
-        .database("admin")
-        .run_command(doc! {
-            "renameCollection": format!("{db_name}.{from}"),
-            "to": format!("{db_name}.{to}"),
-            "dropTarget": false,
-        })
-        .await;
-    if renamed.is_ok() {
-        return Ok(());
-    }
-    // Atlas / restricted users often cannot run renameCollection on admin.
-    // Fall back to copy + drop so the SPI still works.
-    let db = client.database(db_name);
-    mongo_copy_collection(&db, from, to).await?;
-    db.collection::<Document>(from)
-        .drop()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-    Ok(())
-}
-
-async fn mongo_copy_collection(
-    db: &mongodb::Database,
-    from: &str,
-    to: &str,
-) -> ConnectorResult<()> {
-    if to.is_empty() || to == from {
-        return Err(ConnectorError::InvalidConfig(
-            "Duplicate/rename target name is invalid.".into(),
-        ));
-    }
-    let src = db.collection::<Document>(from);
-    let dest = db.collection::<Document>(to);
-    let _ = db.create_collection(to).await;
-    let mut cursor = src
-        .find(doc! {})
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-    let mut batch: Vec<Document> = Vec::new();
-    while cursor
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let doc = cursor
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        batch.push(doc);
-        if batch.len() >= 500 {
-            dest.insert_many(std::mem::take(&mut batch))
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        }
-    }
-    if !batch.is_empty() {
-        dest.insert_many(batch)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-    }
-    Ok(())
-}
-
-impl MongoSession {
-    async fn execute_write(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
-        let start = Instant::now();
-        let cmd: MongoWriteCmd = serde_json::from_str(query.text.trim()).map_err(|e| {
-            ConnectorError::Query(format!(
-                "Mongo write expects JSON {{ op, filter?, update?, doc? }}: {e}"
-            ))
-        })?;
-        let op = cmd.op.to_ascii_lowercase();
-        let db_name = resolve_db_name(self, query)?;
-        let coll_name = query
-            .collection
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                ConnectorError::InvalidConfig("Mongo write requires collection".into())
-            })?;
-        let coll = self
-            .client
-            .database(&db_name)
-            .collection::<Document>(coll_name);
-
-        let message = match op.as_str() {
-            "updateone" => {
-                let filter_v = cmd
-                    .filter
-                    .ok_or_else(|| ConnectorError::Query("updateOne requires `filter`".into()))?;
-                let update_v = cmd
-                    .update
-                    .ok_or_else(|| ConnectorError::Query("updateOne requires `update`".into()))?;
-                let filter = json_to_document(&filter_v)?;
-                let update = json_to_document(&update_v)?;
-                let result = coll
-                    .update_one(filter, update)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                format!(
-                    "updateOne on {db_name}.{coll_name} matched={} modified={}",
-                    result.matched_count, result.modified_count
-                )
-            }
-            "insertone" => {
-                let doc_v = cmd
-                    .doc
-                    .ok_or_else(|| ConnectorError::Query("insertOne requires `doc`".into()))?;
-                let doc = json_to_document(&doc_v)?;
-                let result = coll
-                    .insert_one(doc)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                format!(
-                    "insertOne on {db_name}.{coll_name} id={:?}",
-                    result.inserted_id
-                )
-            }
-            "deleteone" => {
-                let filter_v = cmd
-                    .filter
-                    .ok_or_else(|| ConnectorError::Query("deleteOne requires `filter`".into()))?;
-                let filter = json_to_document(&filter_v)?;
-                let result = coll
-                    .delete_one(filter)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                format!(
-                    "deleteOne on {db_name}.{coll_name} deleted={}",
-                    result.deleted_count
-                )
-            }
-            "deletemany" => {
-                let filter_v = cmd
-                    .filter
-                    .ok_or_else(|| ConnectorError::Query("deleteMany requires `filter`".into()))?;
-                let filter = json_to_document(&filter_v)?;
-                let result = coll
-                    .delete_many(filter)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                format!(
-                    "deleteMany on {db_name}.{coll_name} deleted={}",
-                    result.deleted_count
-                )
-            }
-            other => {
-                return Err(ConnectorError::NotSupported(format!(
-                    "Mongo write op `{other}` is not implemented."
-                )));
-            }
-        };
-
-        Ok(QueryResult {
-            engine: "mongodb".into(),
-            mode: query.mode,
-            columns: Vec::new(),
-            row_count: 0,
-            rows: Vec::new(),
-            truncated: false,
-            duration_ms: start.elapsed().as_millis() as u64,
-            message: Some(message),
-        })
-    }
-
-    async fn list_databases(
-        &self,
-        mode: QueryMode,
-        start: Instant,
-    ) -> ConnectorResult<QueryResult> {
-        let names = self
-            .client
-            .list_database_names()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-
-        let columns = vec![QueryColumn {
-            name: "name".into(),
-            data_type: Some("string".into()),
-        }];
-        let rows: Vec<Vec<JsonValue>> = names
-            .into_iter()
-            .map(|n| vec![JsonValue::String(n)])
-            .collect();
-        let count = rows.len() as u64;
-
-        Ok(QueryResult {
-            engine: "mongodb".into(),
-            mode,
-            columns,
-            row_count: count,
-            rows,
-            truncated: false,
-            duration_ms: start.elapsed().as_millis() as u64,
-            message: Some("listDatabases".into()),
-        })
-    }
-
-    async fn list_collections(
-        &self,
-        db_name: &str,
-        mode: QueryMode,
-        max_rows: u32,
-        start: Instant,
-    ) -> ConnectorResult<QueryResult> {
-        let mut names = self
-            .client
-            .database(db_name)
-            .list_collection_names()
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
-        names.sort();
-        let truncated = names.len() as u32 > max_rows;
-        if truncated {
-            names.truncate(max_rows as usize);
-        }
-
-        // Estimated counts (best-effort; empty on error)
-        let mut rows = Vec::with_capacity(names.len());
-        for name in &names {
-            let count = self
-                .client
-                .database(db_name)
-                .collection::<Document>(name)
-                .estimated_document_count()
-                .await
-                .ok();
-            rows.push(vec![
-                JsonValue::String(name.clone()),
-                count.map(|c| json!(c)).unwrap_or(JsonValue::Null),
-            ]);
-        }
-
-        Ok(QueryResult {
-            engine: "mongodb".into(),
-            mode,
-            columns: vec![
-                QueryColumn {
-                    name: "name".into(),
-                    data_type: Some("string".into()),
-                },
-                QueryColumn {
-                    name: "estimatedCount".into(),
-                    data_type: Some("number".into()),
-                },
-            ],
-            row_count: rows.len() as u64,
-            rows,
-            truncated,
-            duration_ms: start.elapsed().as_millis() as u64,
-            message: Some(format!("listCollections on {db_name}")),
-        })
+        structure::describe_object_structure(self, database, schema, table, kind).await
     }
 }
 
 #[cfg(test)]
-mod catalog_live_tests {
-    use super::*;
-    use mongodb::Client;
-    use mystique_connector_api::{QueryMode, ValidatedQuery};
-
-    #[tokio::test]
-    async fn list_databases_and_find_users_on_mystique() {
-        let uri = "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin";
-        let client = match Client::with_uri_str(uri).await {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("skip: {e}");
-                return;
-            }
-        };
-        if client
-            .database("admin")
-            .run_command(doc! { "ping": 1 })
-            .await
-            .is_err()
-        {
-            eprintln!("skip: mongo not reachable");
-            return;
-        }
-        let session = MongoSession::new(client, 2, Some("mystique".into()));
-        let dbs = session
-            .execute_query(&ValidatedQuery {
-                text: "listDatabases".into(),
-                mode: QueryMode::Read,
-                max_rows: 50,
-                timeout_ms: 5000,
-                collection: None,
-                database: None,
-            })
-            .await
-            .expect("listDatabases");
-        let names: Vec<String> = dbs
-            .rows
-            .iter()
-            .map(|r| r[0].as_str().unwrap_or("").to_string())
-            .collect();
-        assert!(names.iter().any(|n| n == "mystique"), "names={names:?}");
-
-        let colls = session
-            .execute_query(&ValidatedQuery {
-                text: "listCollections".into(),
-                mode: QueryMode::Read,
-                max_rows: 50,
-                timeout_ms: 5000,
-                collection: None,
-                database: Some("mystique".into()),
-            })
-            .await
-            .expect("listCollections");
-        assert!(
-            colls.row_count >= 6,
-            "expected seed collections, got {}",
-            colls.row_count
-        );
-
-        let users = session
-            .execute_query(&ValidatedQuery {
-                text: "{}".into(),
-                mode: QueryMode::Read,
-                max_rows: 10,
-                timeout_ms: 5000,
-                collection: Some("users".into()),
-                database: Some("mystique".into()),
-            })
-            .await
-            .expect("find users");
-        assert!(users.row_count >= 1, "expected user docs");
-        assert!(users.columns.iter().any(|c| c.name == "_id"));
-        println!(
-            "ok: dbs={:?} collections={} sample_users={}",
-            names, colls.row_count, users.row_count
-        );
-    }
-}
+mod live_tests;

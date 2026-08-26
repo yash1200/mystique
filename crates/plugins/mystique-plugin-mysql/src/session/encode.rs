@@ -1,3 +1,5 @@
+//! Cell encoding and MySQL type labels for query / preview results.
+
 use mysql_async::consts::ColumnType;
 use mysql_async::Value;
 use serde_json::{json, Value as JsonValue};

@@ -60,7 +60,9 @@ pub(super) fn build_opts(config: &ConnectionConfig) -> ConnectorResult<mysql_asy
     Ok(builder.into())
 }
 
-pub(super) async fn connect_once(config: &ConnectionConfig) -> ConnectorResult<(mysql_async::Conn, Pool)> {
+pub(super) async fn connect_once(
+    config: &ConnectionConfig,
+) -> ConnectorResult<(mysql_async::Conn, Pool)> {
     let opts = build_opts(config)?;
     let pool = Pool::new(opts);
     let conn = pool

@@ -1,3 +1,5 @@
+//! Cell encoding and Postgres type labels for query / preview results.
+
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use mystique_connector_api::{quote_ident, ColumnInfo, SqlIdentStyle};
 use serde_json::{json, Value as JsonValue};

@@ -1,5 +1,7 @@
+//! BSON / JSON encoding and Mongo write-command helpers.
+
 use mongodb::bson::Bson;
-use mystique_connector_api::{ConnectorError, ConnectorResult, ValidatedQuery};
+use mystique_connector_api::{ConnectorResult, ValidatedQuery};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
@@ -83,22 +85,11 @@ pub(super) fn normalize_meta_command(text: &str) -> String {
         .to_ascii_lowercase()
 }
 
-pub(super) fn resolve_db_name(session: &MongoSession, query: &ValidatedQuery) -> ConnectorResult<String> {
-    if let Some(db) = query
-        .database
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(db.to_string());
-    }
-    if let Some(db) = session.default_db.as_deref().filter(|s| !s.is_empty()) {
-        return Ok(db.to_string());
-    }
-    Err(ConnectorError::InvalidConfig(
-        "No MongoDB database selected. Put `/dbname` in the connection URI, set pluginConfig.database, or pass database on the query."
-            .into(),
-    ))
+pub(super) fn resolve_db_name(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+) -> ConnectorResult<String> {
+    session.resolve_database(query.database.as_deref())
 }
 
 #[derive(Debug, Deserialize)]

@@ -35,7 +35,9 @@ pub(super) fn encode_url_component(s: &str) -> String {
 }
 
 /// Prefer stored URI; otherwise assemble `mongodb://` from discrete fields.
-pub(crate) fn format_mongo_url(config: &ConnectionConfig) -> ConnectorResult<FormattedConnectionUrl> {
+pub(crate) fn format_mongo_url(
+    config: &ConnectionConfig,
+) -> ConnectorResult<FormattedConnectionUrl> {
     if let Some(uri) = config.str_field("uri") {
         let uri = uri.trim().to_string();
         if uri.is_empty() {
@@ -109,8 +111,10 @@ mod tests {
     #[test]
     fn database_from_uri_path() {
         assert_eq!(
-            database_from_mongo_uri("mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin")
-                .as_deref(),
+            database_from_mongo_uri(
+                "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin"
+            )
+            .as_deref(),
             Some("mystique")
         );
         assert_eq!(

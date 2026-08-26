@@ -28,9 +28,8 @@ pub(crate) fn parse_mysql_url(url: &str) -> ConnectorResult<ParsedConnectionUrl>
     }
 
     let normalized = normalize_mysql_url(trimmed);
-    let opts = Opts::from_url(&normalized).map_err(|e| {
-        ConnectorError::InvalidConfig(format!("invalid MySQL connection URL: {e}"))
-    })?;
+    let opts = Opts::from_url(&normalized)
+        .map_err(|e| ConnectorError::InvalidConfig(format!("invalid MySQL connection URL: {e}")))?;
 
     let host = opts.ip_or_hostname().to_string();
     let port = opts.tcp_port();
@@ -62,7 +61,9 @@ pub(crate) fn parse_mysql_url(url: &str) -> ConnectorResult<ParsedConnectionUrl>
 }
 
 /// Format discrete plugin config into a `mysql://` URL (clipboard / share).
-pub(crate) fn format_mysql_url(config: &ConnectionConfig) -> ConnectorResult<FormattedConnectionUrl> {
+pub(crate) fn format_mysql_url(
+    config: &ConnectionConfig,
+) -> ConnectorResult<FormattedConnectionUrl> {
     let host = config
         .str_field("host")
         .unwrap_or_else(|| "127.0.0.1".into());
@@ -100,9 +101,8 @@ pub(crate) fn format_mysql_url(config: &ConnectionConfig) -> ConnectorResult<For
     let url = format!("mysql://{authority}{path}{qs}");
 
     // Round-trip through mysql_async so we never emit an unusable URL.
-    let _ = Opts::from_url(&url).map_err(|e| {
-        ConnectorError::InvalidConfig(format!("failed to format MySQL URL: {e}"))
-    })?;
+    let _ = Opts::from_url(&url)
+        .map_err(|e| ConnectorError::InvalidConfig(format!("failed to format MySQL URL: {e}")))?;
 
     Ok(FormattedConnectionUrl {
         engine: "mysql".into(),
@@ -130,9 +130,8 @@ mod tests {
 
     #[test]
     fn parse_connection_url_mysql_scheme() {
-        let parsed =
-            parse_mysql_url("mysql://admin:123@127.0.0.1:3307/appdb?require_ssl=true")
-                .expect("parse");
+        let parsed = parse_mysql_url("mysql://admin:123@127.0.0.1:3307/appdb?require_ssl=true")
+            .expect("parse");
         assert_eq!(parsed.engine, "mysql");
         assert_eq!(parsed.password.as_deref(), Some("123"));
         let cfg = &parsed.plugin_config;
@@ -174,7 +173,11 @@ mod tests {
             pool: PoolConfig::default(),
         };
         let formatted = format_mysql_url(&config).expect("format");
-        assert!(formatted.url.starts_with("mysql://"), "url={}", formatted.url);
+        assert!(
+            formatted.url.starts_with("mysql://"),
+            "url={}",
+            formatted.url
+        );
         let parsed = parse_mysql_url(&formatted.url).expect("re-parse");
         assert_eq!(parsed.plugin_config["host"], "127.0.0.1");
         assert_eq!(parsed.plugin_config["port"], 3307);
