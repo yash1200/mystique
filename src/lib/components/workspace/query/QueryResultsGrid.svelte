@@ -52,6 +52,15 @@
 	/** +1 scrolling down, -1 scrolling up. Not $state — must not retrigger effects. */
 	let scrollDir: 1 | -1 = 1
 	let lastTop = 0
+	/**
+	 * Cached viewport height. Read from the ResizeObserver, never from the
+	 * scroll handler: `clientHeight` there forces a synchronous layout of the
+	 * rows mounted by the previous scroll event, which is a long frame right
+	 * in the middle of the gesture.
+	 */
+	let viewH = 360
+	/** Movement against `scrollDir` needed before the buffer flips sides. */
+	let dirAccum = 0
 
 	const totalRows = $derived(rows.length)
 	const exportCols = $derived(columns.map((c) => ({ name: c.name })))
@@ -87,7 +96,7 @@
 	let rowMenu = $state<{ row: number; x: number; y: number } | null>(null)
 	let cellModal = $state<CellRef | null>(null)
 
-	function applyWindow(scrollTop: number, viewH: number, dir: 1 | -1) {
+	function applyWindow(scrollTop: number, dir: 1 | -1) {
 		const next = computeResultWindow({
 			totalRows,
 			scrollTop,
@@ -105,12 +114,24 @@
 		const el = scrollEl
 		if (!el) return
 		const top = el.scrollTop
-		if (top > lastTop + 1) scrollDir = 1
-		else if (top < lastTop - 1) scrollDir = -1
+		const delta = top - lastTop
 		lastTop = top
+		if (delta !== 0) {
+			if (delta > 0 === scrollDir > 0) {
+				dirAccum = 0
+			} else {
+				// Trackpads emit small counter-deltas mid-fling; flipping the
+				// buffer on those would remount the window for nothing.
+				dirAccum += Math.abs(delta)
+				if (dirAccum > ROW_H * 3) {
+					scrollDir = delta > 0 ? 1 : -1
+					dirAccum = 0
+				}
+			}
+		}
 		// Apply in the scroll event — not rAF — so the next compositor frame
 		// already has rows for the new position.
-		applyWindow(top, el.clientHeight, scrollDir)
+		applyWindow(top, scrollDir)
 	}
 
 	$effect(() => {
@@ -118,7 +139,8 @@
 		if (!el) return
 		el.addEventListener('scroll', onScroll, { passive: true })
 		const measure = () => {
-			untrack(() => applyWindow(el.scrollTop, el.clientHeight, scrollDir))
+			viewH = el.clientHeight
+			untrack(() => applyWindow(el.scrollTop, scrollDir))
 		}
 		untrack(measure)
 		const ro =
@@ -144,8 +166,12 @@
 			rowMenu = null
 			cellModal = null
 			const el = scrollEl
-			if (el) el.scrollTop = 0
-			applyWindow(0, el?.clientHeight ?? 360, 1)
+			if (el) {
+				el.scrollTop = 0
+				viewH = el.clientHeight
+			}
+			dirAccum = 0
+			applyWindow(0, 1)
 		})
 	})
 
@@ -221,11 +247,13 @@
 		const top = local * ROW_H
 		const bottom = top + ROW_H
 		const viewTop = el.scrollTop
-		const viewH = Math.max(0, el.clientHeight - HEADER_H)
-		const viewBottom = viewTop + viewH
+		viewH = el.clientHeight
+		const viewSpan = Math.max(0, viewH - HEADER_H)
+		const viewBottom = viewTop + viewSpan
 		if (top < viewTop) el.scrollTop = top
-		else if (bottom > viewBottom) el.scrollTop = Math.max(0, bottom - viewH)
-		applyWindow(el.scrollTop, el.clientHeight, scrollDir)
+		else if (bottom > viewBottom) el.scrollTop = Math.max(0, bottom - viewSpan)
+		lastTop = el.scrollTop
+		applyWindow(el.scrollTop, scrollDir)
 
 		if (col === undefined) return
 		// First data column (and row-index selection): pin to the left so
@@ -805,7 +833,7 @@
 			>
 				#
 			</div>
-			{#each columns as col, ci (col.name + '\0' + ci)}
+			{#each columns as col, ci}
 				<div
 					data-result-col={ci}
 					role="columnheader"
@@ -831,47 +859,38 @@
 				{#each windowIndices as local (pageStart + local)}
 					{@const absolute = pageStart + local}
 					{@const cells = rows[local]}
-					{@const rowSelected = isRowSelected(absolute)}
 					<div
-						class="qrg-row {rowSelected ? 'bg-selected' : 'hover:bg-hover'}"
+						class="qrg-row"
 						style="height: {ROW_H}px"
 						role="row"
 						aria-rowindex={absolute + 1}
-						aria-selected={rowSelected}
+						aria-selected={isRowSelected(absolute)}
 					>
 						<div
 							data-result-index
 							data-result-row={absolute}
 							role="rowheader"
-							class="qrg-cell qrg-idx cursor-pointer select-none border-b border-r border-line/60 border-r-line px-2 font-mono text-caption text-fg-muted tabular-nums hover:bg-hover"
+							class="qrg-cell qrg-idx border-b border-r border-line/60 border-r-line px-2 font-mono text-caption text-fg-muted tabular-nums"
 						>
 							{absolute + 1}
 						</div>
-						{#each columns as col, ci (col.name + '\0' + ci)}
+						{#each columns as _col, ci}
 							{@const cell = cells?.[ci]}
-							{@const isNull = cell === null || cell === undefined}
 							{@const text = cellDisplay(cell)}
 							{@const isFocused =
 								selectedCell?.row === absolute && selectedCell.col === ci}
-							{@const cellSelected = isCellSelected(absolute, ci)}
 							<div
 								data-result-cell
 								data-result-col={ci}
 								data-result-row={absolute}
+								data-null={cell === null || cell === undefined ? '' : undefined}
+								data-focus={isFocused ? '' : undefined}
 								role="gridcell"
-								aria-selected={isFocused || cellSelected}
-								class="qrg-cell cursor-pointer border-b border-line/60 px-2.5 font-mono text-label select-none {isNull}
-									? 'italic text-fg-muted'
-									: 'text-fg'} {isFocused
-									? 'bg-selected ring-2 ring-inset ring-accent'
-									: cellSelected
-										? 'bg-selected'
-										: rowSelected
-											? ''
-											: 'hover:bg-hover'}"
+								aria-selected={isFocused || isCellSelected(absolute, ci)}
+								class="qrg-cell qrg-data border-b border-line/60 px-2.5 font-mono text-label"
 								title={text}
 							>
-								<span class="min-w-0 truncate">{text}</span>
+								{text}
 							</div>
 						{/each}
 					</div>
@@ -938,15 +957,13 @@
 		z-index: 10;
 	}
 
+	/*
+	 * No striping on the body box: it is `totalRows * rowH` tall (140k px on a
+	 * full page) and a background there is the one paint cost in the grid that
+	 * grows with the result size. Rows draw their own bottom border instead.
+	 */
 	.qrg-body {
 		position: relative;
-		background-image: repeating-linear-gradient(
-			to bottom,
-			transparent 0,
-			transparent calc(var(--qrg-row-h) - 1px),
-			var(--color-line) calc(var(--qrg-row-h) - 1px),
-			var(--color-line) var(--qrg-row-h)
-		);
 	}
 
 	.qrg-window {
@@ -960,12 +977,54 @@
 		contain: layout style paint;
 	}
 
+	.qrg-row[aria-selected='true'] {
+		background-color: var(--color-selected);
+	}
+
+	.qrg-row:not([aria-selected='true']):hover {
+		background-color: var(--color-hover);
+	}
+
+	/*
+	 * One node per cell: `line-height` centers the single text line, so the
+	 * flex box and the inner truncating <span> every cell used to mount are
+	 * both gone. Selection and NULL state are attributes styled below rather
+	 * than a rebuilt class string, so a click patches one attribute per cell
+	 * instead of a fresh class list.
+	 */
 	.qrg-cell {
-		display: flex;
 		min-width: 0;
-		align-items: center;
-		overflow: hidden;
-		box-sizing: border-box;
 		height: 100%;
+		box-sizing: border-box;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		line-height: calc(var(--qrg-row-h) - 1px);
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.qrg-head .qrg-cell {
+		display: flex;
+		align-items: center;
+		line-height: normal;
+		cursor: default;
+	}
+
+	.qrg-data {
+		color: var(--color-fg);
+	}
+
+	.qrg-data[data-null] {
+		font-style: italic;
+		color: var(--color-fg-muted);
+	}
+
+	.qrg-data[aria-selected='true'] {
+		background-color: var(--color-selected);
+	}
+
+	.qrg-data[data-focus] {
+		box-shadow: inset 0 0 0 2px var(--color-accent);
 	}
 </style>
