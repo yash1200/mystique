@@ -4,11 +4,8 @@ use std::sync::Arc;
 
 use mystique_core::{AppResult, AppServices};
 
-use crate::server::{ensure_token, McpController, McpStatus, DEFAULT_MCP_PORT};
-
-pub const SETTING_MCP_ENABLED: &str = "mcp.enabled";
-pub const SETTING_MCP_PORT: &str = "mcp.port";
-pub const SETTING_MCP_TOKEN: &str = "mcp.token";
+use crate::server::{ensure_token, McpController, McpStatus};
+use crate::settings::{DEFAULT_MCP_PORT, SETTING_MCP_ENABLED, SETTING_MCP_PORT, SETTING_MCP_TOKEN};
 
 /// Host-facing MCP service. Uses [`AppServices`] for tools + settings only.
 #[derive(Clone)]
