@@ -329,21 +329,17 @@
 				0,
 				40_000,
 			)
-			const result = await withTimeout(
-				sendAgentMessage({
-					connectionId,
-					connectionName,
-					engine,
-					database,
-					chatId,
-					provider,
-					model,
-					text,
-					editorQuery,
-				}),
-				55_000,
-				'The model did not reply in time. It may still be running — try again, or pick a smaller Ollama model.',
-			)
+			const result = await sendAgentMessage({
+				connectionId,
+				connectionName,
+				engine,
+				database,
+				chatId,
+				provider,
+				model,
+				text,
+				editorQuery,
+			})
 			if (gen !== sendGen) return
 			chatId = result.chat.id
 			try {
@@ -443,26 +439,6 @@
 			}
 			error = 'Stopped waiting. Send again if you still want a reply.'
 		})()
-	}
-
-	function withTimeout<T>(
-		promise: Promise<T>,
-		ms: number,
-		message: string,
-	): Promise<T> {
-		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(message)), ms)
-			promise.then(
-				(value) => {
-					clearTimeout(timer)
-					resolve(value)
-				},
-				(err) => {
-					clearTimeout(timer)
-					reject(err)
-				},
-			)
-		})
 	}
 
 	function applyDraft(sql: string) {
