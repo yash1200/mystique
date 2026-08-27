@@ -138,11 +138,17 @@
 	let savedQueries = $state<SavedQueryListItem[]>([])
 	let querySaving = $state(false)
 
-	/** Live ER / model diagrams keyed by connectionId::database */
+	/** Live ER / model diagrams keyed by connectionId::database::tableId */
 	let liveModels = $state<
 		Record<
 			string,
-			{ diagram: ErDiagramState; title: string; summary: string; rev: number }
+			{
+				diagram: ErDiagramState
+				title: string
+				summary: string
+				rev: number
+				focusNodeId: string
+			}
 		>
 	>({})
 	let modelLoading = $state(false)
@@ -929,7 +935,7 @@
 			return
 		}
 		if (action === 'erd') {
-			void openModelDiagram(false)
+			void openModelDiagram(false, { table })
 			return
 		}
 		if (action === 'structure') {
@@ -1282,28 +1288,56 @@
 		}
 	}
 
-	/** Open live ER / model diagram for the currently selected database. */
+	const modelTableMeta = $derived.by(() => {
+		if (
+			!activeTab ||
+			activeTab.kind !== 'model' ||
+			!activeTab.tableId ||
+			!activeId
+		) {
+			return null
+		}
+		const cat = catalogs[activeId] ?? []
+		for (const d of cat) {
+			const t = d.tables.find((x) => x.id === activeTab.tableId)
+			if (t) return t
+		}
+		return null
+	})
+
+	/** Open live ER for one table and the tables directly linked to it. */
 	async function openModelDiagram(
 		force = false,
-		databaseOverride?: string | null,
+		opts?: { database?: string | null; table?: TableMeta | null },
 	) {
 		if (!activeSession || !activeId) return
+		const table = opts?.table ?? modelTableMeta
+		if (!table) {
+			modelError = 'Pick a table to open its ER diagram.'
+			return
+		}
 		sideMode = 'explorer'
 		const engine = String(activeSession.profile.engine)
-		const database = (databaseOverride ?? currentDatabaseName ?? '').trim()
+		const database = (
+			opts?.database ??
+			table.database ??
+			currentDatabaseName ??
+			''
+		).trim()
 		const title = modelTabTitle(
 			resolveCapabilities(engine, activeSession.capabilities),
 			database,
+			table.name,
 		)
 
-		const key = modelCacheKey(activeId, database)
+		const key = modelCacheKey(activeId, database, table.id)
 		const alreadyOpen =
 			activeTab?.kind === 'model' &&
-			(activeTab.modelDatabase ?? '') === database
-		workspaceSession.openModel(activeId, database, title)
+			(activeTab.modelDatabase ?? '') === database &&
+			(activeTab.tableId ?? '') === table.id
+		workspaceSession.openModel(activeId, database, title, table.id)
 
-		// Reuse cache when switching back to the tab; force rebuild when user
-		// clicks “ER diagram” while already viewing this model.
+		// Reuse cache when switching back to the tab; force rebuild on refresh.
 		if (!force && !alreadyOpen && liveModels[key]?.diagram?.nodes?.length) {
 			modelError = null
 			return
@@ -1330,6 +1364,7 @@
 				engine,
 				database || null,
 				activeSession.capabilities,
+				{ schema: table.schema, name: table.name },
 			)
 			liveModels = {
 				...liveModels,
@@ -1338,9 +1373,10 @@
 					title: loaded.title,
 					summary: loaded.summary,
 					rev: Date.now(),
+					focusNodeId: loaded.focusNodeId,
 				},
 			}
-			workspaceSession.openModel(activeId, database, loaded.title)
+			workspaceSession.openModel(activeId, database, loaded.title, table.id)
 		} catch (e) {
 			// Session missing — reopen once
 			if (isSessionMissingError(e)) {
@@ -1354,6 +1390,7 @@
 						engine,
 						database || null,
 						activeSession.capabilities,
+						{ schema: table.schema, name: table.name },
 					)
 					liveModels = {
 						...liveModels,
@@ -1362,9 +1399,15 @@
 							title: loaded.title,
 							summary: loaded.summary,
 							rev: Date.now(),
+							focusNodeId: loaded.focusNodeId,
 						},
 					}
-					workspaceSession.openModel(activeId, database, loaded.title)
+					workspaceSession.openModel(
+						activeId,
+						database,
+						loaded.title,
+						table.id,
+					)
 					modelError = null
 					return
 				} catch (retryErr) {
@@ -1382,7 +1425,7 @@
 	const activeModel = $derived.by(() => {
 		if (!activeTab || activeTab.kind !== 'model' || !activeId) return null
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
-		return liveModels[modelCacheKey(activeId, db)] ?? null
+		return liveModels[modelCacheKey(activeId, db, activeTab.tableId)] ?? null
 	})
 
 	// Rebuild when a model tab is focused without a cached diagram
@@ -1393,14 +1436,19 @@
 			!activeSession ||
 			!activeTab ||
 			activeTab.kind !== 'model' ||
+			!activeTab.tableId ||
 			modelLoading ||
 			modelError
 		) {
 			return
 		}
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
-		if (liveModels[modelCacheKey(activeId, db)]?.diagram) return
-		void openModelDiagram(true, db)
+		if (liveModels[modelCacheKey(activeId, db, activeTab.tableId)]?.diagram) {
+			return
+		}
+		const table = modelTableMeta
+		if (!table) return
+		void openModelDiagram(true, { database: db, table })
 	})
 
 	async function refreshDatabases() {
@@ -1940,7 +1988,6 @@
 		{currentDatabaseName}
 		activeTableId={activeTableIdForExplorer}
 		{refreshing}
-		{modelLoading}
 		{queryHistory}
 		{savedQueries}
 		{selectedQueryId}
@@ -1957,7 +2004,6 @@
 		{createBusy}
 		createError={null}
 		onopen={openTable}
-		onopenmodel={() => void openModelDiagram(false)}
 		ontableaction={(action, table, extra) =>
 			void onTableExplorerAction(action, table, extra)}
 		onsavedaction={(action, id) => void onSavedQueryAction(action, id)}
@@ -1994,7 +2040,9 @@
 		onhistory={(item) => prependHistoryItem(item)}
 		onbaselinechange={onGridBaselineChange}
 		onselectrow={onSelectGridRow}
-		onopenmodelretry={() => void openModelDiagram(true)}
+		onopenmodelretry={() => {
+			if (modelTableMeta) void openModelDiagram(true, { table: modelTableMeta })
+		}}
 		onopenstructureretry={() => {
 			if (structureTableMeta) void openObjectStructure(structureTableMeta, true)
 		}}

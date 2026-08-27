@@ -45,7 +45,6 @@
 		selectedDatabase: string
 		activeTableId: string | null
 		refreshing?: boolean
-		modelLoading?: boolean
 		readOnly?: boolean
 		capabilities?: EngineCapabilities | null
 		createBusy?: boolean
@@ -60,7 +59,6 @@
 		/** Create leaf object (table / collection). Optional group = schema. */
 		oncreateobject?: (name: string, group?: string) => void
 		onopen: (table: TableMeta) => void
-		onopenmodel?: () => void
 		ontableaction?: (
 			action: TableExplorerAction,
 			table: TableMeta,
@@ -75,7 +73,6 @@
 		activeTableId,
 		refreshing = false,
 		refreshingTables = false,
-		modelLoading = false,
 		readOnly = false,
 		capabilities = null,
 		createBusy = false,
@@ -87,7 +84,6 @@
 		oncreategroup,
 		oncreateobject,
 		onopen,
-		onopenmodel,
 		ontableaction,
 	}: Props = $props()
 
@@ -555,23 +551,6 @@
 				role="group"
 				aria-label="{presentation.databaseLabel} actions"
 			>
-				{#if onopenmodel && showModel}
-					<IconButton
-						label={caps.supportsErDiagram
-							? 'ER diagram for this database'
-							: 'Model for this database'}
-						size="sm"
-						variant="quiet"
-						disabled={modelLoading || !currentDb}
-						onclick={() => onopenmodel?.()}
-					>
-						<CatalogIcon
-							name="model"
-							tone="info"
-							class={cn('size-3.5', modelLoading && 'opacity-50')}
-						/>
-					</IconButton>
-				{/if}
 				<IconButton
 					label="Refresh databases"
 					size="sm"

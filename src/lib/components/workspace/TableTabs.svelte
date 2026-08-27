@@ -130,6 +130,8 @@
 			return tab.title.replace(/^Structure\s*[·.]\s*/, '').trim()
 		}
 		if (tab.kind === 'model') {
+			const fromId = tab.tableId?.split('.').pop()?.trim()
+			if (fromId) return fromId
 			return (tab.modelDatabase || tab.title).trim()
 		}
 		return tab.title.trim()

@@ -394,10 +394,16 @@ class WorkspaceSessionStore {
 		this.schedulePersist(connectionId)
 	}
 
-	/** Open / focus live ER · Model diagram tab for a connection (+ optional database). */
-	openModel(connectionId: string, database: string, title = 'ER diagram') {
+	/** Open / focus a table-scoped live ER tab. */
+	openModel(
+		connectionId: string,
+		database: string,
+		title = 'ER diagram',
+		tableId?: string,
+	) {
 		const dbKey = database?.trim() || '_'
-		const id = `${connectionId}::model::${dbKey}`
+		const objectKey = tableId?.trim() || '_'
+		const id = `${connectionId}::model::${dbKey}::${objectKey}`
 		if (!this.openTabs.some((t) => t.id === id)) {
 			this.openTabs = [
 				...this.openTabs,
@@ -405,6 +411,7 @@ class WorkspaceSessionStore {
 					id,
 					connectionId,
 					kind: 'model',
+					tableId: tableId?.trim() || undefined,
 					modelDatabase: database?.trim() || '',
 					title,
 					dirty: false,

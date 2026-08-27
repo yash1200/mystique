@@ -47,17 +47,6 @@ export function isEditableTarget(t: EventTarget | null): boolean {
 	return Boolean(t.closest("input, textarea, select, [contenteditable='true']"))
 }
 
-export function filterErNavNodes(nodes: ErNode[], query: string): ErNode[] {
-	const q = query.trim().toLowerCase()
-	const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name))
-	if (!q) return sorted
-	return sorted.filter(
-		(n) =>
-			n.name.toLowerCase().includes(q) ||
-			n.columns.some((c) => c.name.toLowerCase().includes(q)),
-	)
-}
-
 export function erNodeKindShort(kind: ErNode['kind']): string {
 	if (kind === 'collection') return 'Coll'
 	if (kind === 'key_pattern') return 'Key'

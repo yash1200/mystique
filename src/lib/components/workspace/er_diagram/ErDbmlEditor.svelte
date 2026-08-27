@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/core'
+	import { Button, Icon, IconButton, Pill, Textarea } from '$lib/components/core'
 
 	interface Props {
 		text: string
@@ -22,45 +22,55 @@
 	}: Props = $props()
 </script>
 
-<div
-	class="flex h-control shrink-0 items-center justify-between gap-2 border-b border-line px-3"
+<header
+	class="flex shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5 py-2"
 >
-	<div class="min-w-0">
-		<p class="text-label font-semibold tracking-wider text-fg-muted uppercase">
-			DBML editor
-		</p>
-		<p class="truncate text-caption text-fg-muted">Text → diagram</p>
+	<span
+		class="grid size-6 shrink-0 place-items-center rounded-md bg-input"
+		aria-hidden="true"
+	>
+		<Icon name="code-slash" class="size-3.5 text-info" />
+	</span>
+	<div class="flex min-w-0 flex-1 items-center gap-1.5">
+		<h2 class="m-0 min-w-0 truncate font-mono text-label font-semibold text-fg">
+			DBML
+		</h2>
+		<Pill tone="neutral" uppercase>Editor</Pill>
 	</div>
-	<Button variant="ghost" size="sm" onclick={onclose}>Close</Button>
-</div>
-<div class="flex min-h-0 flex-1 flex-col gap-2 p-3">
-	<div class="flex flex-wrap gap-1.5">
-		<Button variant="primary" size="sm" onclick={onapply}>Apply to canvas</Button>
-		<Button variant="secondary" size="sm" onclick={onfromcanvas}>
+	<IconButton label="Close DBML editor" size="sm" variant="quiet" onclick={onclose}>
+		<Icon name="close" />
+	</IconButton>
+</header>
+<div class="flex min-h-0 flex-1 flex-col">
+	<div
+		class="flex shrink-0 items-center gap-1.5 border-b border-line bg-elevated px-2.5 py-1.5"
+	>
+		<Button variant="primary" size="sm" onclick={onapply}>Apply</Button>
+		<Button variant="ghost" size="sm" onclick={onfromcanvas}>
 			From canvas
 		</Button>
 		<Button variant="ghost" size="sm" onclick={oncopy}>
 			{copied ? 'Copied' : 'Copy'}
 		</Button>
 	</div>
-	<textarea
-		class="min-h-0 w-full flex-1 resize-none rounded-md border border-line bg-input p-2.5 font-mono text-caption leading-relaxed text-fg placeholder:text-fg-muted focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted"
+	<Textarea
+		class="!min-h-0 flex-1 rounded-none border-0 bg-input font-mono text-caption leading-relaxed"
 		bind:value={text}
-		spellcheck="false"
+		resize="none"
+		spellcheck={false}
 		aria-label="DBML source"
-		placeholder="Table users &#123;&#10;  id integer [primary key]&#10;&#125;"
-	></textarea>
+		placeholder={'Table users {\n  id integer [primary key]\n}'}
+	/>
 	{#if parseError}
 		<p
-			class="rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5 text-caption text-danger"
+			class="shrink-0 border-t border-danger/40 bg-danger/10 px-2.5 py-1.5 text-caption text-danger"
 			role="alert"
 		>
 			{parseError}
 		</p>
 	{/if}
-	<p class="text-caption text-fg-muted">
-		Write DBML, then <strong class="text-fg-secondary">Apply</strong>. The
-		snapshot panel stays hidden in this mode.
+	<p class="shrink-0 border-t border-line px-2.5 py-1.5 text-caption text-fg-muted">
+		Write DBML, then Apply to rebuild the canvas.
 		<a
 			class="text-accent hover:underline"
 			href="https://dbml.dbdiagram.io/docs"

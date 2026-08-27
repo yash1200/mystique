@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { EmptyState } from '$lib/components/core'
 	import type { DataFamily, ErDiagramState, ErEdge, ErPoint } from '$lib/types/er'
 	import { ER_GRID } from '$lib/types/er'
 	import { isBrokenEdge, type ErFocusedLink } from './erConstants'
@@ -10,11 +11,11 @@
 		geom: ErGeometry
 		edgeSpines: Map<string, EdgeSpine>
 		canvasEl: HTMLDivElement | null
-		worldW: number
-		worldH: number
 		canvasW: number
 		canvasH: number
 		viewZoom: number
+		/** Live drag positions (unsnapped). Cards use this so committed state stays still. */
+		dragPreview?: Record<string, { x: number; y: number }> | null
 		showGrid: boolean
 		readOnly: boolean
 		arrowTool: 'normal' | 'broken' | null
@@ -58,11 +59,10 @@
 		geom,
 		edgeSpines,
 		canvasEl = $bindable<HTMLDivElement | null>(null),
-		worldW,
-		worldH,
 		canvasW,
 		canvasH,
 		viewZoom,
+		dragPreview = null,
 		showGrid,
 		readOnly,
 		arrowTool,
@@ -101,9 +101,45 @@
 		onaddcolumn,
 	}: Props = $props()
 
+	let viewW = $state(0)
+	let viewH = $state(0)
+
+	$effect(() => {
+		const el = canvasEl
+		if (!el) return
+		const apply = () => {
+			viewW = el.clientWidth
+			viewH = el.clientHeight
+		}
+		apply()
+		const ro = new ResizeObserver(apply)
+		ro.observe(el)
+		return () => ro.disconnect()
+	})
+
+	const displayDiagram = $derived.by(() => {
+		if (!dragPreview) return diagram
+		return {
+			...diagram,
+			nodes: diagram.nodes.map((n) => {
+				const p = dragPreview[n.id]
+				return p ? { ...n, x: p.x, y: p.y } : n
+			}),
+		}
+	})
+
+	const layerW = $derived(
+		Math.max(canvasW, viewZoom > 0 ? viewW / viewZoom : viewW, 1),
+	)
+	const layerH = $derived(
+		Math.max(canvasH, viewZoom > 0 ? viewH / viewZoom : viewH, 1),
+	)
+	const worldW = $derived(Math.max(1, Math.round(layerW * viewZoom)))
+	const worldH = $derived(Math.max(1, Math.round(layerH * viewZoom)))
+
 	const previewPath = $derived(
 		linkFrom && cursorPt
-			? geom.previewPolyline(diagram, linkFrom, draftWaypoints, cursorPt)
+			? geom.previewPolyline(displayDiagram, linkFrom, draftWaypoints, cursorPt)
 			: '',
 	)
 </script>
@@ -113,7 +149,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
-		class="absolute inset-0 overflow-auto overscroll-none bg-app"
+		class="absolute inset-0 touch-none overflow-auto overscroll-none bg-app-wash"
 		style="cursor: {readOnly ? 'default' : arrowTool ? 'crosshair' : 'default'};"
 		bind:this={canvasEl}
 		role="application"
@@ -123,12 +159,15 @@
 		{onpointermove}
 		oncontextmenu={oncanvascontextmenu}
 	>
-		<div class="relative" style="width: {worldW}px; height: {worldH}px;">
+		<div
+			class="relative min-h-full min-w-full"
+			style="width: {worldW}px; height: {worldH}px;"
+		>
 			<div
 				class="absolute top-0 left-0 origin-top-left"
 				style="
-					width: {canvasW}px;
-					height: {canvasH}px;
+					width: {layerW}px;
+					height: {layerH}px;
 					transform: scale({viewZoom});
 					background-image: {showGrid
 					? `linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
@@ -139,7 +178,7 @@
 			>
 				<svg
 					class="absolute top-0 left-0"
-					style="width: {canvasW}px; height: {canvasH}px; pointer-events: none;"
+					style="width: {layerW}px; height: {layerH}px; pointer-events: none;"
 				>
 					<defs>
 						<marker
@@ -200,7 +239,7 @@
 					{#each edgesDrawOrder as edge (edge.id)}
 						{@const selected = selectedEdgeId === edge.id}
 						{@const edgeDim = !!focusedLink && !selected}
-						{@const d = geom.edgePolyline(diagram, edgeSpines, edge)}
+						{@const d = geom.edgePolyline(displayDiagram, edgeSpines, edge)}
 						<path
 							data-er-edge-hit
 							{d}
@@ -236,7 +275,7 @@
 						/>
 
 						{#if selected && !arrowTool}
-							{#each geom.segmentMids(diagram, edgeSpines, edge) as mid (mid.insertAt + '-' + mid.x + '-' + mid.y)}
+							{#each geom.segmentMids(displayDiagram, edgeSpines, edge) as mid (mid.insertAt + '-' + mid.x + '-' + mid.y)}
 								<g
 									role="button"
 									tabindex="-1"
@@ -323,6 +362,7 @@
 					{@const inLinkFocus = !!focusedLink?.tableIds.has(node.id)}
 					<ErTableCard
 						{node}
+						preview={dragPreview?.[node.id] ?? null}
 						tableW={geom.tableW}
 						headerH={geom.headerH}
 						rowH={geom.rowH}
@@ -359,11 +399,14 @@
 
 		{#if diagram.nodes.length === 0}
 			<div
-				class="pointer-events-none absolute inset-0 flex items-center justify-center"
+				class="pointer-events-none absolute inset-0 flex items-center justify-center p-8"
 			>
-				<p class="text-caption text-fg-muted">
-					No {entityWord}s to map in this database.
-				</p>
+				<EmptyState
+					title="No {entityWord}s to map"
+					description={readOnly
+						? 'This table has no columns or related objects to draw yet.'
+						: `Add a ${entityWord} from the toolbar, or open the DBML editor and apply a schema.`}
+				/>
 			</div>
 		{/if}
 	</div>

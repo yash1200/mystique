@@ -479,10 +479,13 @@ export function connectionKindFromCaps(
 export function modelTabTitle(
 	caps: EngineCapabilities,
 	database?: string | null,
+	table?: string | null,
 ): string {
+	const object = (table ?? '').trim()
 	const db = (database ?? '').trim()
+	const label = object || db
 	if (caps.supportsErDiagram || caps.modelViewKind === 'ER') {
-		return db ? `ER · ${db}` : 'ER diagram'
+		return label ? `ER · ${label}` : 'ER diagram'
 	}
-	return `Model · ${db || 'db'}`
+	return `Model · ${label || 'db'}`
 }

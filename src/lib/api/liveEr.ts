@@ -42,14 +42,33 @@ export type LiveErLoadResult = {
   diagram: ErDiagramState;
   title: string;
   summary: string;
+  focusNodeId: string;
 };
+
+/** Table that roots a live ER tab (that table + directly related tables). */
+export type LiveErFocus = {
+  schema?: string | null;
+  name: string;
+};
+
+export function erNodeIdFor(
+  schema: string | null | undefined,
+  name: string,
+): string {
+  return nodeId((schema ?? "").trim(), name);
+}
 
 export async function loadLiveErDiagram(
   sessionId: string,
   engine: string,
   database: string | null | undefined,
   caps?: EngineCapabilities | null,
+  focus?: LiveErFocus | null,
 ): Promise<LiveErLoadResult> {
+  if (!focus?.name?.trim()) {
+    throw new Error("Pick a table to open its ER diagram.");
+  }
+
   const resolved = resolveCapabilities(engine, caps);
   const family = familyFromCaps(resolved);
   const db = (database ?? "").trim() || null;
@@ -61,10 +80,31 @@ export async function loadLiveErDiagram(
     sessionId,
     database: db,
   });
-  const diagram = buildFromCatalogColumns(family, catalogCols, db);
-  addRelationshipEdges(diagram, rels);
+  const defaultSchema = db;
+  const keep = neighborhoodKeys(focus, rels, defaultSchema);
+  const focusedCols = catalogCols.filter((row) => {
+    if (!row.table) return false;
+    const schema = row.schema?.trim() || defaultSchema || "";
+    return keep.has(tableKey(schema, row.table));
+  });
+  const focusedRels = rels.filter((rel) => {
+    const fromSchema = rel.fromSchema?.trim() || defaultSchema || "";
+    const toSchema = rel.toSchema?.trim() || defaultSchema || "";
+    return (
+      keep.has(tableKey(fromSchema, rel.fromTable)) &&
+      keep.has(tableKey(toSchema, rel.toTable))
+    );
+  });
 
-  const title = modelTabTitle(resolved, db);
+  const diagram = buildFromCatalogColumns(family, focusedCols, defaultSchema);
+  ensureFocusNode(diagram, family, focus, defaultSchema);
+  addRelationshipEdges(diagram, focusedRels, defaultSchema);
+
+  const focusNodeId = erNodeIdFor(
+    (focus.schema ?? "").trim() || defaultSchema,
+    focus.name,
+  );
+  const title = modelTabTitle(resolved, db, focus.name);
   const noun =
     resolved.explorer.objectLabel ||
     (family === "nosql"
@@ -84,7 +124,53 @@ export async function loadLiveErDiagram(
     },
     title,
     summary: `${diagram.nodes.length} ${noun} · ${relLabel}`,
+    focusNodeId,
   };
+}
+
+function tableKey(schema: string, name: string): string {
+  return `${schema}::${name}`;
+}
+
+function neighborhoodKeys(
+  focus: LiveErFocus,
+  rels: CatalogRelationship[],
+  defaultSchema: string | null,
+): Set<string> {
+  const focusSchema = (focus.schema ?? "").trim() || defaultSchema || "";
+  const focusName = focus.name.trim();
+  const keep = new Set<string>([tableKey(focusSchema, focusName)]);
+  for (const rel of rels) {
+    const fromSchema = rel.fromSchema?.trim() || defaultSchema || "";
+    const toSchema = rel.toSchema?.trim() || defaultSchema || "";
+    const fromKey = tableKey(fromSchema, rel.fromTable);
+    const toKey = tableKey(toSchema, rel.toTable);
+    if (fromKey === tableKey(focusSchema, focusName)) keep.add(toKey);
+    if (toKey === tableKey(focusSchema, focusName)) keep.add(fromKey);
+  }
+  return keep;
+}
+
+function ensureFocusNode(
+  diagram: ErDiagramState,
+  family: DataFamily,
+  focus: LiveErFocus,
+  defaultSchema: string | null,
+) {
+  const schema = (focus.schema ?? "").trim() || defaultSchema || "";
+  const id = nodeId(schema, focus.name);
+  if (diagram.nodes.some((n) => n.id === id)) return;
+  diagram.nodes.push({
+    id,
+    kind: family === "nosql" ? "collection" : "table",
+    name:
+      schema && schema !== "public" && schema !== "main"
+        ? `${schema}.${focus.name}`
+        : focus.name,
+    columns: [],
+    x: 0,
+    y: 0,
+  });
 }
 
 function buildFromCatalogColumns(
@@ -133,13 +219,14 @@ function buildFromCatalogColumns(
 function addRelationshipEdges(
   diagram: ErDiagramState,
   rels: CatalogRelationship[],
+  defaultSchema: string | null = null,
 ) {
   const nodeIds = new Set(diagram.nodes.map((n) => n.id));
   const edges: ErEdge[] = [];
   let i = 0;
   for (const rel of rels) {
-    const fromSchema = rel.fromSchema?.trim() || "";
-    const toSchema = rel.toSchema?.trim() || "";
+    const fromSchema = rel.fromSchema?.trim() || defaultSchema || "";
+    const toSchema = rel.toSchema?.trim() || defaultSchema || "";
     const fromId = nodeId(fromSchema, rel.fromTable);
     const toId = nodeId(toSchema, rel.toTable);
     if (!nodeIds.has(fromId) || !nodeIds.has(toId)) continue;

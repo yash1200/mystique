@@ -21,16 +21,11 @@
 		emptyDiagram,
 		snapToGrid,
 	} from '$lib/types/er'
-	import { cn } from '$lib/utils/cn'
 	import { currentUiScale, onUiScaleChange } from '$lib/utils/uiScale'
 	import { onMount, tick } from 'svelte'
 	import { dbmlToDiagram, diagramToDbml } from './dbml'
 	import ErCanvas from './ErCanvas.svelte'
-	import ErDbmlEditor from './ErDbmlEditor.svelte'
-	import ErDbmlSnapshot from './ErDbmlSnapshot.svelte'
-	import ErObjectRail from './ErObjectRail.svelte'
-	import ErStatusBar from './ErStatusBar.svelte'
-	import ErToolsPanel from './ErToolsPanel.svelte'
+	import ErCanvasToolbar from './ErCanvasToolbar.svelte'
 	import {
 		ER_HEADER_H_BASE,
 		ER_MAX_HISTORY,
@@ -43,14 +38,16 @@
 		erEdgesDrawOrder,
 		erFkColumnIds,
 		erFocusedLink,
-		filterErNavNodes,
 		isEditableTarget,
 		nearestErZoomStop,
 		uid,
 	} from './erConstants'
 	import { erCtxMenuItems, type ErCtxMenu } from './erContextMenu'
+	import ErDbmlEditor from './ErDbmlEditor.svelte'
+	import ErDbmlSnapshot from './ErDbmlSnapshot.svelte'
 	import { createErGeometry } from './erGeometry'
-	import { erContentBounds, layoutErNodes } from './erLayout'
+	import { erContentBounds, layoutErNodes, placeErNodesInView } from './erLayout'
+	import ErStatusBar from './ErStatusBar.svelte'
 
 	interface Props {
 		family: DataFamily
@@ -62,6 +59,8 @@
 		initialName?: string
 		/** Workspace embed: live schema (read-only chrome). */
 		embedded?: boolean
+		/** Select this table when a live neighborhood diagram loads. */
+		focusNodeId?: string | null
 		/** Live schema: reload tables / FKs from the database. */
 		onrefresh?: () => void
 		refreshing?: boolean
@@ -72,6 +71,7 @@
 		initialDiagram = null,
 		initialName = '',
 		embedded = true,
+		focusNodeId = null,
 		onrefresh,
 		refreshing = false,
 	}: Props = $props()
@@ -118,8 +118,6 @@
 	let dbmlSourceMode = $state(false)
 	let dbmlEditorText = $state('')
 	let dbmlParseError = $state<string | null>(null)
-	let tableQuery = $state('')
-	let tableSearchWrap: HTMLDivElement | null = $state(null)
 	/** Canvas view zoom (independent of app UI scale). */
 	let viewZoom = $state(1)
 
@@ -140,10 +138,15 @@
 
 	// table drag (supports multi-drag)
 	let dragTableId = $state<string | null>(null)
+	let dragPreview = $state<Record<string, { x: number; y: number }> | null>(
+		null,
+	)
 	let dragOffX = 0
 	let dragOffY = 0
 	let didDrag = false
 	let multiDragOrigins: Record<string, { x: number; y: number }> | null = null
+	let dragRaf = 0
+	let pendingDrag: Record<string, { x: number; y: number }> | null = null
 	let canvasEl: HTMLDivElement | null = $state(null)
 
 	let dragWaypoint = $state<{ edgeId: string; index: number } | null>(null)
@@ -183,26 +186,28 @@
 	/** Right panel only when snapshot view is on AND source editor is off. */
 	const showRightDbml = $derived(showDbml && !dbmlSourceMode)
 	const entityWord = $derived(meta.nodeLabel.toLowerCase())
-	const navNodes = $derived(
-		diagram ? filterErNavNodes(diagram.nodes, tableQuery) : [],
-	)
 	const fkColumnIds = $derived(erFkColumnIds(diagram?.edges ?? []))
 	/** When a link is selected, only its two tables stay bright. */
 	const focusedLink = $derived(erFocusedLink(diagram, selectedEdgeId))
 	const edgesDrawOrder = $derived(
 		erEdgesDrawOrder(diagram?.edges ?? [], selectedEdgeId),
 	)
+	const displayDiagram = $derived.by(() => {
+		if (!diagram) return null
+		if (!dragPreview) return diagram
+		return {
+			...diagram,
+			nodes: diagram.nodes.map((n) => {
+				const p = dragPreview![n.id]
+				return p ? { ...n, x: p.x, y: p.y } : n
+			}),
+		}
+	})
 	const edgeSpines = $derived.by(() =>
-		diagram ? geom.assignEdgeSpines(diagram) : new Map(),
+		displayDiagram ? geom.assignEdgeSpines(displayDiagram) : new Map(),
 	)
 	const canvasBounds = $derived.by(() =>
-		erContentBounds(diagram?.nodes ?? [], uiScale),
-	)
-	const worldW = $derived(
-		Math.max(1, Math.round(canvasBounds.width * viewZoom)),
-	)
-	const worldH = $derived(
-		Math.max(1, Math.round(canvasBounds.height * viewZoom)),
+		erContentBounds(displayDiagram?.nodes ?? [], uiScale),
 	)
 	const zoomLabel = $derived(`${Math.round(viewZoom * 100)}%`)
 	const canZoomOut = $derived(viewZoom > ER_ZOOM_MIN + 0.001)
@@ -221,7 +226,7 @@
 		const nameHint = initialName?.trim() || ''
 		// Key: family + live node/edge counts + name (cheap identity for reloads)
 		const liveKey = live
-			? `live:${live.nodes.length}:${live.edges.length}:${nameHint}`
+			? `live:${live.nodes.length}:${live.edges.length}:${nameHint}:${focusNodeId ?? ''}`
 			: 'empty'
 		const key = `${f}::${liveKey}`
 		if (lastInitKey === key) return
@@ -241,7 +246,7 @@
 			diagramName =
 				nameHint ||
 				(embedded
-					? 'Live schema diagram'
+					? 'Table diagram'
 					: `Untitled ${FAMILY_META[f].short} diagram`)
 			toolMsg = null
 		} else {
@@ -250,7 +255,10 @@
 			toolMsg =
 				'DBML editor (left) builds the diagram from text · Show DBML for a copyable export.'
 		}
-		selectedTableIds = []
+		selectedTableIds =
+			focusNodeId && live?.nodes.some((n) => n.id === focusNodeId)
+				? [focusNodeId]
+				: []
 		selectedEdgeId = null
 		arrowTool = null
 		linkFrom = null
@@ -270,11 +278,46 @@
 		dbmlBusy = false
 		dbmlStale = true
 		dbmlGen += 1
-		tableQuery = ''
 		viewZoom = 1
+		dragPreview = null
+		pendingDrag = null
+		if (dragRaf) {
+			cancelAnimationFrame(dragRaf)
+			dragRaf = 0
+		}
 		clearHistory()
 		renameHistoryPushed = false
+		requestCenterInCanvas()
 	})
+
+	let centerTries = 0
+
+	function requestCenterInCanvas() {
+		centerTries = 0
+		void tick().then(() => {
+			requestAnimationFrame(() => applyCenterInCanvas())
+		})
+	}
+
+	function applyCenterInCanvas() {
+		if (!diagram || diagram.nodes.length === 0) return
+		const el = canvasEl
+		if (!el || el.clientWidth < 8 || el.clientHeight < 8) {
+			if (centerTries++ < 12) requestAnimationFrame(() => applyCenterInCanvas())
+			return
+		}
+		centerTries = 0
+		const placed = placeErNodesInView(diagram.nodes, {
+			viewW: el.clientWidth,
+			viewH: el.clientHeight,
+			zoom: viewZoom,
+			scale: uiScale,
+		})
+		diagram = { ...diagram, nodes: placed.nodes }
+		void tick().then(() => {
+			canvasEl?.scrollTo({ left: placed.scrollLeft, top: placed.scrollTop })
+		})
+	}
 
 	function clearHistory() {
 		undoStack = []
@@ -391,12 +434,14 @@
 		}
 	}
 
+	let zoomWrite = 0
+
 	async function setViewZoom(
 		next: number,
 		origin?: { clientX: number; clientY: number },
 	) {
 		const z = clampErZoom(next)
-		if (Math.abs(z - viewZoom) < 0.001) return
+		if (Math.abs(z - viewZoom) < 0.0005) return
 		const el = canvasEl
 		let worldX = 0
 		let worldY = 0
@@ -414,9 +459,10 @@
 			worldX = (ox + el.scrollLeft) / viewZoom
 			worldY = (oy + el.scrollTop) / viewZoom
 		}
+		const write = ++zoomWrite
 		viewZoom = z
 		await tick()
-		if (!el) return
+		if (write !== zoomWrite || !el) return
 		el.scrollLeft = worldX * z - ox
 		el.scrollTop = worldY * z - oy
 	}
@@ -441,17 +487,67 @@
 	$effect(() => {
 		const el = canvasEl
 		if (!el) return
+
+		let raf = 0
+		let pending: { z: number; clientX: number; clientY: number } | null = null
+		let gestureBase = 1
+
+		const flush = () => {
+			raf = 0
+			const p = pending
+			pending = null
+			if (p) void setViewZoom(p.z, { clientX: p.clientX, clientY: p.clientY })
+		}
+
+		const queueZoom = (z: number, clientX: number, clientY: number) => {
+			pending = { z: clampErZoom(z), clientX, clientY }
+			if (!raf) raf = requestAnimationFrame(flush)
+		}
+
 		const onWheel = (e: WheelEvent) => {
 			if (!(e.ctrlKey || e.metaKey)) return
 			e.preventDefault()
-			const next =
-				e.deltaY > 0
-					? nearestErZoomStop(viewZoom, -1)
-					: nearestErZoomStop(viewZoom, 1)
-			void setViewZoom(next, { clientX: e.clientX, clientY: e.clientY })
+			let dy = e.deltaY
+			if (e.deltaMode === 1) dy *= 16
+			else if (e.deltaMode === 2) dy *= 800
+			const current = pending?.z ?? viewZoom
+			queueZoom(current * Math.exp(-dy * 0.01), e.clientX, e.clientY)
 		}
+
+		const onGestureStart = (e: Event) => {
+			e.preventDefault()
+			gestureBase = pending?.z ?? viewZoom
+		}
+
+		const onGestureChange = (e: Event) => {
+			e.preventDefault()
+			const ge = e as Event & {
+				scale?: number
+				clientX?: number
+				clientY?: number
+			}
+			queueZoom(
+				gestureBase * (ge.scale ?? 1),
+				ge.clientX ?? 0,
+				ge.clientY ?? 0,
+			)
+		}
+
+		const onGestureEnd = (e: Event) => {
+			e.preventDefault()
+		}
+
 		el.addEventListener('wheel', onWheel, { passive: false })
-		return () => el.removeEventListener('wheel', onWheel)
+		el.addEventListener('gesturestart', onGestureStart, { passive: false })
+		el.addEventListener('gesturechange', onGestureChange, { passive: false })
+		el.addEventListener('gestureend', onGestureEnd, { passive: false })
+		return () => {
+			if (raf) cancelAnimationFrame(raf)
+			el.removeEventListener('wheel', onWheel)
+			el.removeEventListener('gesturestart', onGestureStart)
+			el.removeEventListener('gesturechange', onGestureChange)
+			el.removeEventListener('gestureend', onGestureEnd)
+		}
 	})
 
 	function setSelection(ids: string[]) {
@@ -586,7 +682,7 @@
 			selectOnly(tableId)
 			const node = diagram?.nodes.find((n) => n.id === tableId)
 			const col = node?.columns.find((c) => c.id === columnId)
-			toolMsg = `From ${node?.name ?? '?'}.${col?.name ?? '?'}. Click target column (or same table for self-loop). Path is always 90° grid corridors — click empty grid for square bends.`
+			toolMsg = `From ${node?.name ?? '?'}.${col?.name ?? '?'}. Click target column (or same table for self-loop).`
 			return
 		}
 
@@ -631,32 +727,10 @@
 		const label = `${fromNode?.name}.${fromCol?.name} → ${toNode?.name}.${toCol?.name}`
 		const kind: ErEdgeKind = arrowTool === 'broken' ? 'broken' : 'normal'
 
-		let wps = draftWaypoints.map((p) => ({
+		const wps = draftWaypoints.map((p) => ({
 			x: snapToGrid(p.x),
 			y: snapToGrid(p.y),
 		}))
-
-		const lane = diagram.edges.filter(
-			(e) => e.from === linkFrom!.tableId && e.to === toTableId,
-		).length
-
-		if (wps.length === 0 && fromNode && toNode) {
-			const { fromSide, toSide } = geom.pickLinkSides(fromNode, toNode, [])
-			const start = geom.columnSideAnchor(fromNode, linkFrom.columnId, fromSide)
-			const end = geom.columnSideAnchor(toNode, toColumnId, toSide)
-			if (isSelfLoop) {
-				wps = geom
-					.autoSelfLoopWaypoints(fromNode, linkFrom.columnId, toColumnId)
-					.map((p) => ({
-						x: snapToGrid(
-							p.x + (fromSide === 'right' ? lane : -lane) * ER_GRID,
-						),
-						y: p.y,
-					}))
-			} else {
-				wps = geom.defaultManhattanWaypoints(start, end, fromSide, toSide)
-			}
-		}
 
 		const edge: ErEdge = {
 			id: uid('e'),
@@ -672,8 +746,8 @@
 		snapshotBeforeChange()
 		diagram = { ...diagram, edges: [...diagram.edges, edge] }
 		toolMsg = isSelfLoop
-			? `Self-loop: ${label}. 90° path. Arrow tool cleared.`
-			: `Linked: ${label}. 90° grid path. Arrow tool cleared.`
+			? `Self-loop: ${label}. Arrow tool cleared.`
+			: `Linked: ${label}. Arrow tool cleared.`
 
 		linkFrom = null
 		draftWaypoints = []
@@ -701,18 +775,10 @@
 		if (arrowTool && linkFrom) {
 			const pt = canvasPoint(e)
 			if (!pt || !diagram) return
-			const last = geom.linkDraftLast(
-				diagram,
-				linkFrom,
-				draftWaypoints,
-				cursorPt,
-			)
-			const snapped = last
-				? geom.orthoGridSnapFrom(last, pt)
-				: { x: snapToGrid(pt.x), y: snapToGrid(pt.y) }
+			const snapped = { x: snapToGrid(pt.x), y: snapToGrid(pt.y) }
+			const last = draftWaypoints[draftWaypoints.length - 1]
 			if (last && geom.samePoint(last, snapped)) return
 			draftWaypoints = [...draftWaypoints, snapped]
-			toolMsg = `Square bend ${draftWaypoints.length} (90°). Click more grid points or the target column.`
 			return
 		}
 
@@ -759,61 +825,98 @@
 		if (!dragTableId || !diagram || !canvasEl) return
 		const pt = canvasPoint(e)
 		if (!pt) return
-		const x = snapToGrid(Math.max(0, pt.x - dragOffX))
-		const y = snapToGrid(Math.max(0, pt.y - dragOffY))
+		scheduleTableDrag(pt)
+	}
 
+	function previewFromPointer(
+		pt: ErPoint,
+	): Record<string, { x: number; y: number }> | null {
+		if (!dragTableId || !diagram) return null
+		const x = Math.max(0, pt.x - dragOffX)
+		const y = Math.max(0, pt.y - dragOffY)
 		if (
 			multiDragOrigins &&
 			selectedTableIds.includes(dragTableId) &&
 			selectedTableIds.length > 1
 		) {
 			const origin = multiDragOrigins[dragTableId]
-			if (!origin) return
+			if (!origin) return null
 			const dx = x - origin.x
 			const dy = y - origin.y
-			if (dx !== 0 || dy !== 0) {
-				if (!dragHistoryPushed) {
-					snapshotBeforeChange()
-					dragHistoryPushed = true
+			const next: Record<string, { x: number; y: number }> = {}
+			for (const n of diagram.nodes) {
+				if (!selectedTableIds.includes(n.id)) continue
+				const o = multiDragOrigins[n.id]
+				if (!o) continue
+				next[n.id] = {
+					x: Math.max(0, o.x + dx),
+					y: Math.max(0, o.y + dy),
 				}
-				didDrag = true
 			}
-			diagram = {
-				...diagram,
-				nodes: diagram.nodes.map((n) => {
-					if (!selectedTableIds.includes(n.id)) return n
-					const o = multiDragOrigins![n.id]
-					if (!o) return n
-					return {
-						...n,
-						x: snapToGrid(Math.max(0, o.x + dx)),
-						y: snapToGrid(Math.max(0, o.y + dy)),
-					}
-				}),
-			}
-			return
+			return next
 		}
+		return { [dragTableId]: { x, y } }
+	}
 
-		const cur = diagram.nodes.find((n) => n.id === dragTableId)
-		if (cur && (cur.x !== x || cur.y !== y)) {
+	function scheduleTableDrag(pt: ErPoint) {
+		const next = previewFromPointer(pt)
+		if (!next) return
+		const moved = Object.entries(next).some(([id, p]) => {
+			const n = diagram?.nodes.find((node) => node.id === id)
+			return !n || n.x !== p.x || n.y !== p.y
+		})
+		if (moved && !didDrag) {
 			if (!dragHistoryPushed) {
 				snapshotBeforeChange()
 				dragHistoryPushed = true
 			}
 			didDrag = true
 		}
-		diagram = {
-			...diagram,
-			nodes: diagram.nodes.map((n) =>
-				n.id === dragTableId ? { ...n, x, y } : n,
-			),
+		pendingDrag = next
+		if (dragRaf) return
+		dragRaf = requestAnimationFrame(() => {
+			dragRaf = 0
+			if (pendingDrag) {
+				dragPreview = pendingDrag
+				pendingDrag = null
+			}
+		})
+	}
+
+	function commitTableDrag() {
+		if (dragRaf) {
+			cancelAnimationFrame(dragRaf)
+			dragRaf = 0
 		}
+		const preview = pendingDrag ?? dragPreview
+		pendingDrag = null
+		if (preview && diagram && didDrag) {
+			diagram = {
+				...diagram,
+				nodes: diagram.nodes.map((n) => {
+					const p = preview[n.id]
+					if (!p) return n
+					return {
+						...n,
+						x: snapToGrid(p.x),
+						y: snapToGrid(p.y),
+					}
+				}),
+			}
+		}
+		dragPreview = null
 	}
 
 	function onWindowPointerUp() {
 		if (dragWaypoint) {
 			markDirty({ structure: false })
 			dragWaypoint = null
+		}
+		if (dragTableId) {
+			commitTableDrag()
+			if (didDrag) markDirty({ structure: false })
+			dragTableId = null
+			multiDragOrigins = null
 		}
 	}
 
@@ -857,6 +960,7 @@
 
 	function onTablePointerUp(e: PointerEvent) {
 		if (dragTableId) {
+			commitTableDrag()
 			if (didDrag) markDirty({ structure: false })
 			try {
 				;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
@@ -1021,11 +1125,6 @@
 			if (e.key === 'Backspace' || e.code === 'Backspace') return
 		}
 
-		if (e.key === '/' && !isEditableTarget(e.target)) {
-			e.preventDefault()
-			tableSearchWrap?.querySelector('input')?.focus()
-			return
-		}
 		if (mod && e.shiftKey && key === 'l') {
 			e.preventDefault()
 			autoLayout()
@@ -1059,7 +1158,6 @@
 				ctxMenu = null
 				selectedTableIds = []
 				selectedEdgeId = null
-				tableQuery = ''
 			}
 			return
 		}
@@ -1206,15 +1304,6 @@
 		markDirty()
 	}
 
-	function edgeEndpointLabel(edge: ErEdge, which: 'from' | 'to'): string {
-		if (!diagram) return '?'
-		const node = diagram.nodes.find((n) => n.id === edge[which])
-		const colId = which === 'from' ? edge.fromColumnId : edge.toColumnId
-		const col = node?.columns.find((c) => c.id === colId)
-		if (!node) return '?'
-		return col ? `${node.name}.${col.name}` : node.name
-	}
-
 	function selectEdge(edgeId: string, e?: Event) {
 		e?.stopPropagation()
 		e?.preventDefault()
@@ -1222,13 +1311,6 @@
 		selectedTableIds = []
 		showAddCol = false
 		ctxMenu = null
-		const edge = diagram?.edges.find((ed) => ed.id === edgeId)
-		if (edge) {
-			toolMsg = `${edgeEndpointLabel(edge, 'from')} → ${edgeEndpointLabel(edge, 'to')} · other tables dimmed. Click canvas to clear.`
-		} else if (!arrowTool) {
-			toolMsg =
-				'Link selected. Drag handles to reshape. Delete key removes the link.'
-		}
 	}
 
 	function onWaypointDown(edgeId: string, index: number, e: PointerEvent) {
@@ -1261,11 +1343,14 @@
 		if (!edge) return
 		const pts = geom.edgePoints(diagram, edgeSpines, edge)
 		if (insertAt < 0 || insertAt >= pts.length - 1) return
+		const sampled = geom
+			.segmentMids(diagram, edgeSpines, edge)
+			.find((m) => m.insertAt === insertAt)
 		const a = pts[insertAt]!
 		const b = pts[insertAt + 1]!
 		const mid = {
-			x: snapToGrid((a.x + b.x) / 2),
-			y: snapToGrid((a.y + b.y) / 2),
+			x: snapToGrid(sampled?.x ?? (a.x + b.x) / 2),
+			y: snapToGrid(sampled?.y ?? (a.y + b.y) / 2),
 		}
 		const seeded = [
 			...pts.slice(0, insertAt + 1),
@@ -1306,16 +1391,11 @@
 				wps.splice(index, 1)
 				return {
 					...ed,
-					waypoints: geom.normalizeEdgeWaypoints(
-						diagram!,
-						edgeSpines,
-						ed,
-						wps,
-					),
+					waypoints: geom.normalizeEdgeWaypoints(diagram!, edgeSpines, ed, wps),
 				}
 			}),
 		}
-		toolMsg = 'Bend point removed (path stays 90°).'
+		toolMsg = 'Bend point removed.'
 		markDirty()
 	}
 
@@ -1324,24 +1404,11 @@
 		snapshotBeforeChange()
 		diagram = {
 			...diagram,
-			edges: diagram.edges.map((ed) => {
-				if (ed.id !== selectedEdgeId) return ed
-				const raw = geom.edgeAnchorsAndWaypoints(diagram!, {
-					...ed,
-					waypoints: [],
-				})
-				if (!raw) return { ...ed, waypoints: [] }
-				const wps = geom.defaultManhattanWaypoints(
-					raw.start,
-					raw.end,
-					raw.fromSide,
-					raw.toSide,
-					geom.edgeSpine(diagram!, edgeSpines, ed),
-				)
-				return { ...ed, waypoints: wps }
-			}),
+			edges: diagram.edges.map((ed) =>
+				ed.id === selectedEdgeId ? { ...ed, waypoints: [] } : ed,
+			),
 		}
-		toolMsg = 'Path reset to default 90° corridor.'
+		toolMsg = 'Path reset.'
 		markDirty()
 	}
 
@@ -1376,19 +1443,7 @@
 			diagram.edges.length > 0
 				? 'Auto-layout · parents left, children right.'
 				: 'Auto-layout · packed grid.'
-		requestAnimationFrame(() => {
-			canvasEl?.scrollTo({ left: 0, top: 0 })
-		})
-	}
-
-	function focusTable(id: string) {
-		if (!diagram || !canvasEl) return
-		const node = diagram.nodes.find((n) => n.id === id)
-		if (!node) return
-		selectOnly(id)
-		const left = Math.max(0, node.x * viewZoom - ER_GRID * 2)
-		const top = Math.max(0, node.y * viewZoom - ER_GRID * 2)
-		canvasEl.scrollTo({ left, top, behavior: 'smooth' })
+		requestCenterInCanvas()
 	}
 
 	function openDbmlSourceEditor() {
@@ -1426,6 +1481,7 @@
 		}
 		snapshotBeforeChange()
 		diagram = result.diagram
+		requestCenterInCanvas()
 		selectedTableIds = []
 		selectedEdgeId = null
 		arrowTool = null
@@ -1453,7 +1509,6 @@
 			toolMsg = 'Could not copy DBML — select text manually.'
 		}
 	}
-
 </script>
 
 <svelte:window
@@ -1464,120 +1519,91 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex min-h-0 flex-1">
-		{#if !readOnly}
+		{#if !readOnly && dbmlSourceMode}
 			<aside
-				class={cn(
-					'flex shrink-0 flex-col border-r border-line bg-panel',
-					dbmlSourceMode ? 'w-[min(22rem,38vw)]' : 'w-56',
-				)}
+				class="flex w-[min(22rem,38vw)] shrink-0 flex-col border-r border-line bg-panel"
 			>
-				{#if dbmlSourceMode}
-					<ErDbmlEditor
-						bind:text={dbmlEditorText}
-						parseError={dbmlParseError}
-						copied={dbmlCopied}
-						onclose={closeDbmlSourceEditor}
-						onapply={applyDbmlToCanvas}
-						onfromcanvas={pullCanvasIntoEditor}
-						oncopy={() => void copyDbml()}
-					/>
-				{:else}
-					<ErToolsPanel
-						{entityWord}
-						nodeLabel={meta.nodeLabel}
-						bind:tableQuery
-						bind:searchWrap={tableSearchWrap}
-						{navNodes}
-						{showGrid}
-						{showDbml}
-						{canUndo}
-						{canRedo}
-						{arrowTool}
-						linkFrom={!!linkFrom}
-						{selectedEdgeId}
-						{toolMsg}
-						edges={diagram?.edges ?? []}
-						{hasNodes}
-						onfocus={focusTable}
-						onaddtable={addTable}
-						onundo={undo}
-						onredo={redo}
-						ontogglegrid={toggleGrid}
-						onopendbmleditor={openDbmlSourceEditor}
-						ontoggledbml={toggleDbml}
-						onautolayout={autoLayout}
-						onsetarrow={setArrowTool}
-						oncancellink={cancelLink}
-						onstraighten={straightenSelectedEdge}
-						onselectedge={selectEdge}
-						ondeleteedge={deleteEdge}
-					/>
-				{/if}
+				<ErDbmlEditor
+					bind:text={dbmlEditorText}
+					parseError={dbmlParseError}
+					copied={dbmlCopied}
+					onclose={closeDbmlSourceEditor}
+					onapply={applyDbmlToCanvas}
+					onfromcanvas={pullCanvasIntoEditor}
+					oncopy={() => void copyDbml()}
+				/>
 			</aside>
-		{:else}
-			<ErObjectRail
-				nodeLabel={meta.nodeLabel}
-				{entityWord}
-				bind:tableQuery
-				bind:searchWrap={tableSearchWrap}
-				{navNodes}
-				totalCount={diagram?.nodes.length ?? 0}
-				{selectedTableIds}
-				onfocus={focusTable}
-			/>
 		{/if}
 
-		{#if diagram}
-			<ErCanvas
-				{diagram}
-				{geom}
-				{edgeSpines}
-				bind:canvasEl
-				{worldW}
-				{worldH}
-				canvasW={canvasBounds.width}
-				canvasH={canvasBounds.height}
-				{viewZoom}
-				{showGrid}
-				{readOnly}
-				{arrowTool}
-				{entityWord}
-				{selectedTableIds}
-				{selectedEdgeId}
-				{focusedLink}
-				{fkColumnIds}
-				{edgesDrawOrder}
-				{dragTableId}
-				{primaryTableId}
-				{linkFrom}
-				{cursorPt}
-				{draftWaypoints}
-				{typeOptions}
-				{family}
-				bind:showAddCol
-				bind:newColName
-				bind:newColType
-				bind:newColPk
-				oncanvasclick={onCanvasClick}
-				onpointermove={onCanvasPointerMove}
-				oncanvascontextmenu={onCanvasContextMenu}
-				onselectedge={selectEdge}
-				onmidhandledown={onMidHandleDown}
-				onwaypointdown={onWaypointDown}
-				onwaypointup={onWaypointUp}
-				onremovewaypoint={removeWaypoint}
-				ontablepointerdown={onTablePointerDown}
-				ontablepointerup={onTablePointerUp}
-				ontablecontextmenu={onTableContextMenu}
-				oncolumnclick={onColumnClick}
-				onrename={renameTable}
-				onupdatetype={updateColumnType}
-				ondeletecolumn={deleteColumn}
-				onaddcolumn={addColumn}
-			/>
-		{:else}
-			<div class="relative min-h-0 min-w-0 flex-1"></div>
-		{/if}
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+			{#if !readOnly && !dbmlSourceMode}
+				<ErCanvasToolbar
+					nodeLabel={meta.nodeLabel}
+					{canUndo}
+					{canRedo}
+					{arrowTool}
+					linkFrom={!!linkFrom}
+					{selectedEdgeId}
+					onaddtable={addTable}
+					onundo={undo}
+					onredo={redo}
+					onsetarrow={setArrowTool}
+					oncancellink={cancelLink}
+					onstraighten={straightenSelectedEdge}
+				/>
+			{/if}
+
+			{#if diagram}
+				<ErCanvas
+					{diagram}
+					{geom}
+					{edgeSpines}
+					bind:canvasEl
+					canvasW={canvasBounds.width}
+					canvasH={canvasBounds.height}
+					{viewZoom}
+					{dragPreview}
+					{showGrid}
+					{readOnly}
+					{arrowTool}
+					{entityWord}
+					{selectedTableIds}
+					{selectedEdgeId}
+					{focusedLink}
+					{fkColumnIds}
+					{edgesDrawOrder}
+					{dragTableId}
+					{primaryTableId}
+					{linkFrom}
+					{cursorPt}
+					{draftWaypoints}
+					{typeOptions}
+					{family}
+					bind:showAddCol
+					bind:newColName
+					bind:newColType
+					bind:newColPk
+					oncanvasclick={onCanvasClick}
+					onpointermove={onCanvasPointerMove}
+					oncanvascontextmenu={onCanvasContextMenu}
+					onselectedge={selectEdge}
+					onmidhandledown={onMidHandleDown}
+					onwaypointdown={onWaypointDown}
+					onwaypointup={onWaypointUp}
+					onremovewaypoint={removeWaypoint}
+					ontablepointerdown={onTablePointerDown}
+					ontablepointerup={onTablePointerUp}
+					ontablecontextmenu={onTableContextMenu}
+					oncolumnclick={onColumnClick}
+					onrename={renameTable}
+					onupdatetype={updateColumnType}
+					ondeletecolumn={deleteColumn}
+					onaddcolumn={addColumn}
+				/>
+			{:else}
+				<div class="relative min-h-0 min-w-0 flex-1"></div>
+			{/if}
+		</div>
 
 		{#if showRightDbml}
 			<ErDbmlSnapshot
@@ -1585,12 +1611,14 @@
 				busy={dbmlBusy}
 				copied={dbmlCopied}
 				oncopy={() => void copyDbml()}
+				onclose={() => {
+					showDbml = false
+				}}
 			/>
 		{/if}
 	</div>
 
 	<ErStatusBar
-		bind:diagramName
 		{dirty}
 		{readOnly}
 		{entityWord}

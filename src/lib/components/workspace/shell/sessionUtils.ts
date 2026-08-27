@@ -75,6 +75,10 @@ export function isSessionMissingError(err: unknown): boolean {
 	return isStaleEngineError(err)
 }
 
-export function modelCacheKey(connectionId: string, database: string): string {
-	return `${connectionId}::${database.trim() || '_'}`
+export function modelCacheKey(
+	connectionId: string,
+	database: string,
+	tableId?: string | null,
+): string {
+	return `${connectionId}::${database.trim() || '_'}::${(tableId ?? '').trim() || '_'}`
 }

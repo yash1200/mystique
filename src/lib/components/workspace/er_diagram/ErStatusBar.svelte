@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { Button, Icon, IconButton, Input, StatusBar } from '$lib/components/core'
+	import { Button, Icon, IconButton, StatusBar } from '$lib/components/core'
 	import { cn } from '$lib/utils/cn'
 
 	interface Props {
-		diagramName: string
 		dirty: boolean
 		readOnly: boolean
 		entityWord: string
@@ -33,7 +32,6 @@
 	}
 
 	let {
-		diagramName = $bindable(''),
 		dirty,
 		readOnly,
 		entityWord,
@@ -63,8 +61,19 @@
 	}: Props = $props()
 </script>
 
-<StatusBar ariaLabel="ER diagram status">
+<StatusBar class="!pl-1" ariaLabel="ER diagram status">
 	{#snippet left()}
+		<Button
+			variant="ghost"
+			size="sm"
+			class="!px-1.5"
+			onclick={onAutoLayout}
+			disabled={!hasNodes}
+			title="Arrange tables on the canvas"
+		>
+			<Icon name="expand-all" class="size-3.5" />
+			Layout
+		</Button>
 		{#if hasDiagram}
 			<span class="truncate font-mono tabular-nums">
 				{nodeCount}
@@ -74,7 +83,7 @@
 				{/if}
 			</span>
 		{:else}
-			<span>No diagram</span>
+			<span class="truncate font-mono tabular-nums text-fg-muted">No diagram</span>
 		{/if}
 		{#if selectionCount > 0}
 			<span class="shrink-0 text-fg-muted">{selectionCount} selected</span>
@@ -94,33 +103,24 @@
 				Unsaved
 			</span>
 		{/if}
-		{#if !readOnly}
-			<Input
-				bind:value={diagramName}
-				class="max-w-40"
-				inputSize="sm"
-				aria-label="Diagram name"
-			/>
-		{/if}
 		{#if toolMsg}
-			<span class="min-w-0 truncate text-fg-muted" role="status">{toolMsg}</span
-			>
+			<span class="min-w-0 truncate text-fg-muted" role="status">{toolMsg}</span>
 		{/if}
 	{/snippet}
 	{#snippet center()}
-		<div class="flex items-center gap-0.5">
+		<div class="flex items-center gap-1.5" role="group" aria-label="Canvas zoom">
 			<IconButton
 				label="Zoom out"
 				size="sm"
-				variant="ghost"
+				variant="quiet"
 				onclick={onZoomOut}
 				disabled={!canZoomOut}
 			>
-				−
+				<span class="text-title leading-none">−</span>
 			</IconButton>
 			<button
 				type="button"
-				class="h-control-sm rounded-md border border-line bg-input px-1.5 font-mono text-caption text-fg hover:border-line-strong"
+				class="min-w-12 shrink-0 border-none bg-transparent px-1.5 text-center font-mono text-caption text-fg-secondary tabular-nums whitespace-nowrap hover:text-fg"
 				onclick={onResetZoom}
 				title="Reset zoom to 100%"
 				aria-label="Reset zoom to 100%"
@@ -130,28 +130,20 @@
 			<IconButton
 				label="Zoom in"
 				size="sm"
-				variant="ghost"
+				variant="quiet"
 				onclick={onZoomIn}
 				disabled={!canZoomIn}
 			>
-				+
+				<span class="text-title leading-none">+</span>
 			</IconButton>
 		</div>
 	{/snippet}
 	{#snippet right()}
-		<Button
-			variant="ghost"
-			size="sm"
-			onclick={onAutoLayout}
-			disabled={!hasNodes}
-		>
-			Auto-layout
-		</Button>
 		{#if onRefresh}
 			<IconButton
 				label={refreshing ? 'Refreshing diagram' : 'Refresh diagram'}
 				size="sm"
-				variant="ghost"
+				variant="quiet"
 				onclick={onRefresh}
 				disabled={refreshing}
 				aria-busy={refreshing}
@@ -163,31 +155,33 @@
 		<IconButton
 			label={showGrid ? 'Hide grid' : 'Show grid'}
 			size="sm"
-			variant="ghost"
+			variant="quiet"
 			active={showGrid}
 			onclick={onToggleGrid}
 		>
 			<Icon name="grid" />
 		</IconButton>
 		{#if !readOnly}
-			<Button
-				variant={dbmlSourceMode ? 'secondary' : 'ghost'}
+			<IconButton
+				label={dbmlSourceMode ? 'Close DBML editor' : 'Open DBML editor'}
 				size="sm"
+				variant="quiet"
+				active={dbmlSourceMode}
 				onclick={onToggleDbmlEditor}
-				aria-pressed={dbmlSourceMode}
 			>
-				{dbmlSourceMode ? 'Close editor' : 'DBML editor'}
-			</Button>
+				<Icon name="code-slash" />
+			</IconButton>
 		{/if}
 		{#if !dbmlSourceMode}
-			<Button
-				variant={showDbml ? 'secondary' : 'ghost'}
+			<IconButton
+				label={showDbml ? 'Hide DBML snapshot' : 'Show DBML snapshot'}
 				size="sm"
+				variant="quiet"
+				active={showDbml}
 				onclick={onToggleDbml}
-				aria-pressed={showDbml}
 			>
-				{showDbml ? 'Hide DBML' : 'Show DBML'}
-			</Button>
+				<Icon name="code" />
+			</IconButton>
 		{/if}
 	{/snippet}
 </StatusBar>

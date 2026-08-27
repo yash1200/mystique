@@ -251,6 +251,48 @@ export function layoutErDiagram(
 	}
 }
 
+/** Shift a packed layout so its bounding box sits in the view center. */
+export function placeErNodesInView(
+	nodes: ErNode[],
+	opts: { viewW: number; viewH: number; zoom?: number; scale?: number },
+): { nodes: ErNode[]; scrollLeft: number; scrollTop: number } {
+	if (nodes.length === 0 || opts.viewW < 8 || opts.viewH < 8) {
+		return { nodes, scrollLeft: 0, scrollTop: 0 }
+	}
+	const zoom = opts.zoom && opts.zoom > 0 ? opts.zoom : 1
+	const g = geomForScale(opts.scale ?? 1)
+	let minX = Infinity
+	let minY = Infinity
+	let maxX = -Infinity
+	let maxY = -Infinity
+	for (const n of nodes) {
+		const h = heightOf(n, g)
+		minX = Math.min(minX, n.x)
+		minY = Math.min(minY, n.y)
+		maxX = Math.max(maxX, n.x + g.tableW)
+		maxY = Math.max(maxY, n.y + h)
+	}
+	const cx = (minX + maxX) / 2
+	const cy = (minY + maxY) / 2
+	let dx = 0
+	let dy = 0
+	const rawScrollLeft = cx * zoom - opts.viewW / 2
+	const rawScrollTop = cy * zoom - opts.viewH / 2
+	if (rawScrollLeft < 0) dx = -rawScrollLeft / zoom
+	if (rawScrollTop < 0) dy = -rawScrollTop / zoom
+	dx = snapToGrid(dx)
+	dy = snapToGrid(dy)
+	const next =
+		Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5
+			? nodes
+			: nodes.map((n) => ({ ...n, x: n.x + dx, y: n.y + dy }))
+	return {
+		nodes: next,
+		scrollLeft: Math.max(0, Math.round((cx + dx) * zoom - opts.viewW / 2)),
+		scrollTop: Math.max(0, Math.round((cy + dy) * zoom - opts.viewH / 2)),
+	}
+}
+
 export function erContentBounds(
 	nodes: ErNode[],
 	scale = 1,

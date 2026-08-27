@@ -40,6 +40,7 @@
 			title: string
 			summary: string
 			rev: number
+			focusNodeId?: string
 		} | null
 		structure?: ObjectStructure | null
 		structureLoading?: boolean
@@ -237,6 +238,7 @@
 								)}
 							initialDiagram={activeModel.diagram}
 							initialName={activeModel.title}
+							focusNodeId={activeModel.focusNodeId}
 							embedded={true}
 							onrefresh={onopenmodelretry}
 							refreshing={modelLoading}
@@ -251,7 +253,7 @@
 							).supportsErDiagram
 								? 'ER diagram'
 								: 'Model'}
-							description="Click the diagram action in the explorer to build a live schema map for this database."
+							description="Click the diagram icon on a table, or right-click and choose View ERD."
 						/>
 					</div>
 				{/if}

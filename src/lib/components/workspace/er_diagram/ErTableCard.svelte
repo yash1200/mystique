@@ -1,12 +1,17 @@
 <script lang="ts">
-	import { Button, Icon, Input, Select } from '$lib/components/core'
+	import { Button, Checkbox, Icon, IconButton, Input, Pill, Select } from '$lib/components/core'
 	import type { DataFamily, ErNode } from '$lib/types/er'
 	import { defaultColumnType } from '$lib/types/er'
 	import { cn } from '$lib/utils/cn'
+	import type { CatalogIconName } from '../catalogIcon'
+	import { iconToneForName } from '../catalogIcon'
+	import CatalogIcon from '../CatalogIcon.svelte'
 	import { erNodeKindShort } from './erConstants'
 
 	interface Props {
 		node: ErNode
+		/** Unsnapped live position while this table is being dragged. */
+		preview?: { x: number; y: number } | null
 		tableW: number
 		headerH: number
 		rowH: number
@@ -39,6 +44,7 @@
 
 	let {
 		node,
+		preview = null,
 		tableW,
 		headerH,
 		rowH,
@@ -70,25 +76,37 @@
 	}: Props = $props()
 
 	const editing = $derived(!readOnly && isPrimary && !arrowTool)
+	const dragDx = $derived((preview?.x ?? node.x) - node.x)
+	const dragDy = $derived((preview?.y ?? node.y) - node.y)
+
+	const iconName = $derived<CatalogIconName>(
+		node.kind === 'collection'
+			? 'collection'
+			: node.kind === 'key_pattern'
+				? 'schema'
+				: 'table',
+	)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	data-er-table
 	class={cn(
-		'absolute overflow-hidden rounded-lg border border-l-2 bg-panel shadow-sm transition-opacity duration-150',
+		'absolute overflow-hidden rounded-lg border bg-panel shadow-sm transition-opacity duration-150',
 		isSelected || inLinkFocus
-			? 'border-accent ring-2 ring-accent/30'
+			? 'border-accent ring-1 ring-accent/25'
 			: 'border-line hover:border-line-strong',
 		dimmed && 'opacity-25',
 		arrowTool ? 'cursor-default' : '',
 		isDragging && 'cursor-grabbing',
 	)}
-	style="left: {node.x}px; top: {node.y}px; width: {tableW}px; z-index: {inLinkFocus
-		? 4
-		: dimmed
-			? 1
-			: 2}; border-left-color: var(--connection-color, var(--accent));"
+	style="left: {node.x}px; top: {node.y}px; width: {tableW}px; transform: translate({dragDx}px, {dragDy}px); z-index: {isDragging
+		? 5
+		: inLinkFocus
+			? 4
+			: dimmed
+				? 1
+				: 2}; {isDragging ? 'will-change: transform;' : ''}"
 	{onpointerdown}
 	{onpointermove}
 	{onpointerup}
@@ -97,30 +115,48 @@
 >
 	<div
 		class={cn(
-			'flex min-w-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-elevated px-2.5',
+			'relative flex min-w-0 items-center gap-1.5 overflow-hidden border-b border-line bg-elevated px-2',
 			!arrowTool && 'cursor-grab',
 			isDragging && 'cursor-grabbing',
 		)}
 		style="height: {headerH}px"
 	>
+		<span
+			class="absolute inset-x-0 top-0 h-0.5 bg-conn"
+			aria-hidden="true"
+		></span>
+		<span
+			class={cn(
+				'grid size-5 shrink-0 place-items-center rounded-sm',
+				isSelected || inLinkFocus ? 'bg-accent-muted' : 'bg-input',
+			)}
+			aria-hidden="true"
+		>
+			<CatalogIcon
+				name={iconName}
+				class="size-3"
+				tone={iconToneForName(iconName, isSelected || inLinkFocus)}
+			/>
+		</span>
 		{#if editing}
-			<input
-				class="box-border h-control-sm min-w-0 max-w-full flex-1 cursor-text truncate rounded-md border border-line bg-input px-2 text-body font-semibold leading-none text-fg"
+			<Input
+				class="min-w-0 flex-1 font-mono text-label font-semibold"
 				value={node.name}
+				inputSize="sm"
 				data-no-drag
+				aria-label="Table name"
 				oninput={(e) => onrename((e.currentTarget as HTMLInputElement).value)}
 				onclick={(e) => e.stopPropagation()}
 			/>
 		{:else}
-			<span class="min-w-0 flex-1 truncate text-body font-semibold leading-tight text-fg"
-				>{node.name}</span
+			<span
+				class="min-w-0 flex-1 truncate font-mono text-label font-semibold leading-tight text-fg"
+				title={node.name}
 			>
+				{node.name}
+			</span>
 		{/if}
-		<span
-			class="shrink-0 text-micro font-semibold tracking-wider text-fg-muted uppercase"
-		>
-			{erNodeKindShort(node.kind)}
-		</span>
+		<Pill tone="neutral" uppercase>{erNodeKindShort(node.kind)}</Pill>
 	</div>
 
 	<ul class="m-0 list-none overflow-hidden p-0">
@@ -166,17 +202,18 @@
 								onchange={(v) => onupdatetype(col.id, v)}
 							/>
 						</div>
-						<button
-							type="button"
-							class="flex size-control-sm shrink-0 cursor-pointer items-center justify-center rounded text-body leading-none text-danger hover:bg-danger/10"
-							onclick={(e) => {
+						<IconButton
+							label="Delete column"
+							size="sm"
+							variant="quiet"
+							class="text-fg-muted hover:bg-danger/10 hover:text-danger"
+							onclick={(e: MouseEvent) => {
 								e.stopPropagation()
 								ondeletecolumn(col.id)
 							}}
-							aria-label="Delete column"
 						>
-							<Icon name="close" class="size-4" />
-						</button>
+							<Icon name="close" class="size-3" />
+						</IconButton>
 					</div>
 				{:else}
 					<button
@@ -220,26 +257,28 @@
 	</ul>
 
 	{#if editing}
-		<div class="cursor-default border-t border-line p-2.5" data-no-drag>
+		<div class="cursor-default border-t border-line p-2" data-no-drag>
 			{#if !showAddCol}
-				<button
-					type="button"
-					class="h-control-sm w-full cursor-pointer rounded-md border border-dashed border-line text-caption font-medium text-accent hover:bg-accent-muted"
-					onclick={(e) => {
+				<Button
+					variant="ghost"
+					size="sm"
+					fullWidth
+					onclick={(e: MouseEvent) => {
 						e.stopPropagation()
 						newColType = defaultColumnType(family)
 						showAddCol = true
 					}}
 				>
-					+ Add column
-				</button>
+					<Icon name="plus" class="size-3.5" />
+					Add column
+				</Button>
 			{:else}
 				<div class="flex flex-col gap-2">
 					<Input
 						bind:value={newColName}
 						placeholder="column_name"
-						inputSize="md"
-						class="cursor-text font-mono text-body"
+						inputSize="sm"
+						class="cursor-text font-mono"
 					/>
 					<div
 						class="cursor-pointer"
@@ -250,23 +289,14 @@
 						<Select
 							bind:value={newColType}
 							options={typeOptions}
-							inputSize="md"
+							inputSize="sm"
 							placeholder="Column type"
 						/>
 					</div>
-					<label
-						class="flex cursor-pointer items-center gap-2 text-body text-fg-secondary"
-					>
-						<input
-							type="checkbox"
-							class="size-3.5 shrink-0 cursor-pointer accent-accent"
-							bind:checked={newColPk}
-						/>
-						Primary key
-					</label>
-					<div class="flex gap-2 pt-0.5">
+					<Checkbox bind:checked={newColPk} label="Primary key" class="text-label" />
+					<div class="flex gap-1.5">
 						<Button
-							size="md"
+							size="sm"
 							variant="primary"
 							onclick={(e: MouseEvent) => {
 								e.stopPropagation()
@@ -276,7 +306,7 @@
 							Add
 						</Button>
 						<Button
-							size="md"
+							size="sm"
 							variant="ghost"
 							onclick={(e: MouseEvent) => {
 								e.stopPropagation()

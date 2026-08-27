@@ -22,7 +22,6 @@
 		currentDatabaseName: string
 		activeTableId: string | null
 		refreshing: boolean
-		modelLoading: boolean
 		queryHistory: QueryHistoryEntry[]
 		savedQueries: SavedQueryListItem[]
 		selectedQueryId: string | null
@@ -39,7 +38,6 @@
 		createBusy?: boolean
 		createError?: string | null
 		onopen: (table: TableMeta) => void
-		onopenmodel: () => void
 		ontableaction?: (
 			action:
 				| 'open'
@@ -68,7 +66,6 @@
 		currentDatabaseName,
 		activeTableId,
 		refreshing,
-		modelLoading,
 		queryHistory,
 		savedQueries,
 		selectedQueryId,
@@ -85,7 +82,6 @@
 		createBusy = false,
 		createError = null,
 		onopen,
-		onopenmodel,
 		ontableaction,
 		onsavedaction,
 	}: Props = $props()
@@ -135,7 +131,6 @@
 					selectedDatabase={currentDatabaseName}
 					{activeTableId}
 					{refreshing}
-					{modelLoading}
 					{onselectdatabase}
 					{onrefresh}
 					{onrefreshtables}
@@ -146,7 +141,6 @@
 					{createBusy}
 					{createError}
 					{onopen}
-					{onopenmodel}
 					{ontableaction}
 					readOnly={!!activeSession.profile.readOnly}
 					capabilities={activeSession.capabilities}

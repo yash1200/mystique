@@ -75,7 +75,7 @@ export type WorkspaceTab = {
 	id: string
 	connectionId: string
 	kind: WorkspaceTabKind
-	/** Present when kind === "table" or "structure". */
+	/** Present when kind === "table", "structure", or a table-scoped "model" tab. */
 	tableId?: string
 	/**
 	 * Database name the model/ER tab was opened for (kind === "model").

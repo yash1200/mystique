@@ -1,11 +1,141 @@
 /**
- * Canvas geometry for ER tables and Manhattan (90°) relationship paths.
- * Sizes are already UI-scaled; callers pass `tableW` / `headerH` / `rowH`.
+ * Canvas geometry for ER tables and free-flowing relationship curves.
+ * Default links are cubic S/C curves with horizontal ports. User waypoints
+ * become through-points on a smooth spline. Sizes are already UI-scaled.
  */
 import type { ErDiagramState, ErEdge, ErNode, ErPoint } from '$lib/types/er'
 import { ER_GRID, snapToGrid } from '$lib/types/er'
 
 export type TableSide = 'left' | 'right'
+
+function fmtCoord(n: number): string {
+	return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+function sideDir(side: TableSide): number {
+	return side === 'right' ? 1 : -1
+}
+
+type CubicSeg = { p0: ErPoint; c1: ErPoint; c2: ErPoint; p1: ErPoint }
+
+function cubicAt(
+	p0: ErPoint,
+	c1: ErPoint,
+	c2: ErPoint,
+	p1: ErPoint,
+	t: number,
+): ErPoint {
+	const u = 1 - t
+	const a = u * u * u
+	const b = 3 * u * u * t
+	const c = 3 * u * t * t
+	const d = t * t * t
+	return {
+		x: a * p0.x + b * c1.x + c * c2.x + d * p1.x,
+		y: a * p0.y + b * c1.y + c * c2.y + d * p1.y,
+	}
+}
+
+function flowingPull(
+	start: ErPoint,
+	end: ErPoint,
+	fromSide: TableSide,
+	toSide: TableSide,
+	lane: number,
+): number {
+	const dx = Math.abs(end.x - start.x)
+	const dy = Math.abs(end.y - start.y)
+	const laneBoost = lane * 18
+
+	if (fromSide === toSide) {
+		return Math.max(72, Math.min(240, 56 + dy * 0.42 + dx * 0.12)) + laneBoost
+	}
+
+	const facingAway = sideDir(fromSide) * (end.x - start.x) < 0
+	if (facingAway) {
+		return Math.max(80, Math.min(260, 64 + dx * 0.3 + dy * 0.28)) + laneBoost
+	}
+
+	return Math.max(48, Math.min(200, dx * 0.42 + dy * 0.06)) + laneBoost
+}
+
+function flowingSegments(
+	pts: ErPoint[],
+	fromSide: TableSide,
+	toSide: TableSide,
+	lane = 0,
+	yNudge = 0,
+): CubicSeg[] {
+	if (pts.length < 2) return []
+	const start = pts[0]!
+	const end = pts[pts.length - 1]!
+	const pull = flowingPull(start, end, fromSide, toSide, lane)
+
+	if (pts.length === 2) {
+		return [
+			{
+				p0: start,
+				c1: { x: start.x + sideDir(fromSide) * pull, y: start.y + yNudge },
+				c2: { x: end.x + sideDir(toSide) * pull, y: end.y + yNudge },
+				p1: end,
+			},
+		]
+	}
+
+	const n = pts.length
+	const tangents: ErPoint[] = []
+	for (let i = 0; i < n; i++) {
+		if (i === 0) {
+			tangents.push({ x: sideDir(fromSide) * pull, y: 0 })
+		} else if (i === n - 1) {
+			tangents.push({ x: -sideDir(toSide) * pull, y: 0 })
+		} else {
+			const prev = pts[i - 1]!
+			const next = pts[i + 1]!
+			tangents.push({
+				x: (next.x - prev.x) / 2,
+				y: (next.y - prev.y) / 2,
+			})
+		}
+	}
+
+	const segs: CubicSeg[] = []
+	for (let i = 0; i < n - 1; i++) {
+		const p0 = pts[i]!
+		const p1 = pts[i + 1]!
+		const t0 = tangents[i]!
+		const t1 = tangents[i + 1]!
+		segs.push({
+			p0,
+			c1: { x: p0.x + t0.x / 3, y: p0.y + t0.y / 3 },
+			c2: { x: p1.x - t1.x / 3, y: p1.y - t1.y / 3 },
+			p1,
+		})
+	}
+	return segs
+}
+
+function segmentsToPath(segs: CubicSeg[]): string {
+	if (!segs.length) return ''
+	const first = segs[0]!
+	let d = `M ${fmtCoord(first.p0.x)} ${fmtCoord(first.p0.y)}`
+	for (const s of segs) {
+		d += ` C ${fmtCoord(s.c1.x)} ${fmtCoord(s.c1.y)} ${fmtCoord(s.c2.x)} ${fmtCoord(s.c2.y)} ${fmtCoord(s.p1.x)} ${fmtCoord(s.p1.y)}`
+	}
+	return d
+}
+
+/** Old default paths stored a vertical spine (same X, start/end Y). Treat as auto. */
+function isLegacyCorridor(start: ErPoint, end: ErPoint, wps: ErPoint[]): boolean {
+	if (wps.length !== 2) return false
+	const a = wps[0]!
+	const b = wps[1]!
+	const sameX = Math.abs(a.x - b.x) < 1
+	const matchesY =
+		(Math.abs(a.y - start.y) < 1 && Math.abs(b.y - end.y) < 1) ||
+		(Math.abs(a.y - end.y) < 1 && Math.abs(b.y - start.y) < 1)
+	return sameX && matchesY
+}
 
 export type EdgeSpine = {
 	lane: number
@@ -405,49 +535,53 @@ export function createErGeometry(sizes: ErGeomSizes) {
 		}
 	}
 
+	function edgeCurveParts(
+		diagram: ErDiagramState,
+		spines: Map<string, EdgeSpine>,
+		edge: ErEdge,
+	): {
+		pts: ErPoint[]
+		segs: CubicSeg[]
+	} | null {
+		const raw = edgeAnchorsAndWaypoints(diagram, edge)
+		if (!raw) return null
+		const spine = edgeSpine(diagram, spines, edge)
+		const wps = isLegacyCorridor(raw.start, raw.end, raw.wps) ? [] : raw.wps
+		const pts = [raw.start, ...wps, raw.end]
+		return {
+			pts,
+			segs: flowingSegments(
+				pts,
+				raw.fromSide,
+				raw.toSide,
+				spine.lane,
+				spine.yNudge,
+			),
+		}
+	}
+
 	function edgePoints(
 		diagram: ErDiagramState,
 		spines: Map<string, EdgeSpine>,
 		edge: ErEdge,
 	): ErPoint[] {
-		const raw = edgeAnchorsAndWaypoints(diagram, edge)
-		if (!raw) return []
-		const spine = edgeSpine(diagram, spines, edge)
-		let { start, end, wps, fromSide, toSide } = raw
-
-		if (wps.length === 0 || wps.length <= 2) {
-			wps = defaultManhattanWaypoints(start, end, fromSide, toSide, spine)
-		}
-
-		const orth = toOrthogonal([start, ...wps, end])
-		return ensureHorizontalPorts(orth, fromSide, toSide, spine.lane)
+		return edgeCurveParts(diagram, spines, edge)?.pts ?? []
 	}
 
 	function normalizeEdgeWaypoints(
-		diagram: ErDiagramState,
-		spines: Map<string, EdgeSpine>,
-		edge: ErEdge,
+		_diagram: ErDiagramState,
+		_spines: Map<string, EdgeSpine>,
+		_edge: ErEdge,
 		wps: ErPoint[],
 	): ErPoint[] {
-		const a = diagram.nodes.find((n) => n.id === edge.from)
-		const b = diagram.nodes.find((n) => n.id === edge.to)
-		if (!a || !b) return wps
-		const { fromSide, toSide } = pickLinkSides(a, b, wps)
-		const start = columnSideAnchor(a, edge.fromColumnId, fromSide)
-		const end = columnSideAnchor(b, edge.toColumnId, toSide)
-		const lane = edgeSpine(diagram, spines, edge).lane
-		const full = ensureHorizontalPorts(
-			toOrthogonal([
-				start,
-				...wps.map((p) => ({ x: snapToGrid(p.x), y: snapToGrid(p.y) })),
-				end,
-			]),
-			fromSide,
-			toSide,
-			lane,
-		)
-		if (full.length <= 2) return []
-		return full.slice(1, -1)
+		const out: ErPoint[] = []
+		for (const p of wps) {
+			const q = { x: snapToGrid(p.x), y: snapToGrid(p.y) }
+			const last = out[out.length - 1]
+			if (last && samePoint(last, q)) continue
+			out.push(q)
+		}
+		return out
 	}
 
 	function edgePolyline(
@@ -455,9 +589,8 @@ export function createErGeometry(sizes: ErGeomSizes) {
 		spines: Map<string, EdgeSpine>,
 		edge: ErEdge,
 	): string {
-		const pts = edgePoints(diagram, spines, edge)
-		if (!pts.length) return ''
-		return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+		const parts = edgeCurveParts(diagram, spines, edge)
+		return parts ? segmentsToPath(parts.segs) : ''
 	}
 
 	function segmentMids(
@@ -465,19 +598,12 @@ export function createErGeometry(sizes: ErGeomSizes) {
 		spines: Map<string, EdgeSpine>,
 		edge: ErEdge,
 	): { x: number; y: number; insertAt: number }[] {
-		const pts = edgePoints(diagram, spines, edge)
-		const mids: { x: number; y: number; insertAt: number }[] = []
-		for (let i = 0; i < pts.length - 1; i++) {
-			const a = pts[i]!
-			const b = pts[i + 1]!
-			if (samePoint(a, b)) continue
-			mids.push({
-				x: (a.x + b.x) / 2,
-				y: (a.y + b.y) / 2,
-				insertAt: Math.max(0, i),
-			})
-		}
-		return mids
+		const parts = edgeCurveParts(diagram, spines, edge)
+		if (!parts) return []
+		return parts.segs.map((s, i) => {
+			const p = cubicAt(s.p0, s.c1, s.c2, s.p1, 0.5)
+			return { x: p.x, y: p.y, insertAt: i }
+		})
 	}
 
 	function linkDraftStart(
@@ -511,10 +637,15 @@ export function createErGeometry(sizes: ErGeomSizes) {
 	): string {
 		const p0 = linkDraftStart(diagram, linkFrom, draftWaypoints, cursorPt)
 		if (!p0) return ''
-		const last = linkDraftLast(diagram, linkFrom, draftWaypoints, cursorPt) ?? p0
-		const tip = orthoGridSnapFrom(last, cursorPt)
-		const pts = toOrthogonal([p0, ...draftWaypoints, tip])
-		return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+		const node = diagram.nodes.find((n) => n.id === linkFrom.tableId)
+		const fromSide = node
+			? sideToward(node, draftWaypoints[0]?.x ?? cursorPt.x)
+			: 'right'
+		const lastX = draftWaypoints[draftWaypoints.length - 1]?.x ?? p0.x
+		const toSide: TableSide = cursorPt.x >= lastX ? 'left' : 'right'
+		return segmentsToPath(
+			flowingSegments([p0, ...draftWaypoints, cursorPt], fromSide, toSide),
+		)
 	}
 
 	return {
