@@ -119,7 +119,7 @@
 	})
 
 	function tabLabel(tab: WorkspaceTab): string {
-		if (tab.kind === 'structure') return entityName(tab)
+		if (tab.kind === 'structure' || tab.kind === 'model') return entityName(tab)
 		return tab.title
 	}
 
@@ -132,7 +132,13 @@
 		if (tab.kind === 'model') {
 			const fromId = tab.tableId?.split('.').pop()?.trim()
 			if (fromId) return fromId
-			return (tab.modelDatabase || tab.title).trim()
+			const db = tab.modelDatabase?.trim()
+			if (db) return db
+			return tab.title
+				.replace(/^ER\s*[·.]\s*/, '')
+				.replace(/^Model\s*[·.]\s*/, '')
+				.replace(/^ER diagram$/i, '')
+				.trim() || tab.title.trim()
 		}
 		return tab.title.trim()
 	}

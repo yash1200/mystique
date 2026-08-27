@@ -93,9 +93,9 @@
 		<button
 			type="button"
 			class={cn(
-				'relative flex h-control-sm w-full min-w-0 items-center gap-1.5 rounded-md border-none bg-transparent px-1.5 text-left transition-colors duration-150',
+				'relative flex h-control-sm w-full items-center gap-1.5 rounded-md border-none px-1.5 text-left transition-colors duration-150',
 				'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
-				active ? 'bg-accent-muted' : 'hover:bg-hover',
+				active ? 'bg-accent-muted' : 'bg-transparent hover:bg-hover',
 			)}
 			aria-label="{t.name}, {t.kind}"
 			title={t.schema ? `${t.schema}.${t.name}` : t.name}
