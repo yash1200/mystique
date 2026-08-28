@@ -5,6 +5,7 @@ use mystique_connector_api::{
     TableAdminOp, TableAdminResult, TableObjectKind,
 };
 
+use super::query_failed;
 use super::PostgresSession;
 
 pub(super) async fn apply_table_admin(
@@ -30,10 +31,7 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::CreateGroup => {
             let qschema = quote_ident(SqlIdentStyle::Postgres, input.name.trim());
             let sql = format!("CREATE SCHEMA {qschema}");
-            client
-                .batch_execute(&sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Created schema {qschema}."),
@@ -42,10 +40,7 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::CreateObject => {
             // Minimal empty table with a PK so CREATE TABLE is valid.
             let sql = format!("CREATE TABLE {qname} (id bigserial PRIMARY KEY)");
-            client
-                .batch_execute(&sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Created table {qname}."),
@@ -56,10 +51,7 @@ pub(super) async fn apply_table_admin(
             let dest = quote_ident(SqlIdentStyle::Postgres, new_name);
             let kw = if is_view { "VIEW" } else { "TABLE" };
             let sql = format!("ALTER {kw} {qname} RENAME TO {dest}");
-            client
-                .batch_execute(&sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Renamed {qname} to {dest}."),
@@ -68,10 +60,7 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::Drop => {
             let kw = if is_view { "VIEW" } else { "TABLE" };
             let sql = format!("DROP {kw} IF EXISTS {qname}");
-            client
-                .batch_execute(&sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Dropped {qname}."),
@@ -84,10 +73,7 @@ pub(super) async fn apply_table_admin(
                 ));
             }
             let sql = format!("TRUNCATE TABLE {qname}");
-            client
-                .batch_execute(&sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Truncated {qname}."),
@@ -104,10 +90,7 @@ pub(super) async fn apply_table_admin(
             let sql = format!(
                 "CREATE TABLE {dest} (LIKE {qname} INCLUDING ALL); INSERT INTO {dest} SELECT * FROM {qname}"
             );
-            client
-                .batch_execute(&sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Duplicated {qname} to {dest}."),
@@ -133,7 +116,7 @@ async fn pg_create_statement(
             &[&schema, &name],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let Some(row) = found else {
         return Err(ConnectorError::Query(format!(
             "Object `{schema}.{name}` was not found."
@@ -148,7 +131,7 @@ async fn pg_create_statement(
         let def: String = client
             .query_one("SELECT pg_get_viewdef($1::oid, true)", &[&oid])
             .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
+            .map_err(query_failed)?
             .get(0);
         let kw = if relkind == "m" {
             "MATERIALIZED VIEW"
@@ -171,7 +154,7 @@ async fn pg_create_statement(
             &[&oid],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let mut lines: Vec<String> = cols
         .iter()
         .map(|c| {
@@ -188,7 +171,7 @@ async fn pg_create_statement(
         &[&oid],
     )
     .await
-    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    .map_err(query_failed)?;
     if let Some(row) = pk {
         let def: String = row.get(0);
         lines.push(format!("  {def}"));

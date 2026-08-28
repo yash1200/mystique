@@ -18,10 +18,13 @@ mod admin;
 mod catalog;
 mod edits;
 mod encode;
+mod error;
 mod preview;
 mod query;
 mod structure;
 mod transfer;
+
+pub(crate) use error::query_failed;
 
 pub struct SqliteSession {
     pool: Pool<SqliteConnectionManager>,
@@ -78,7 +81,7 @@ impl ConnectorSession for SqliteSession {
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
             conn.query_row("SELECT 1", [], |_| Ok(()))
-                .map_err(|e| ConnectorError::Query(e.to_string()))
+                .map_err(query_failed)
         })
         .await
     }

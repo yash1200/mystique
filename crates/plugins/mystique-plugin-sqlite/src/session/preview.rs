@@ -10,6 +10,7 @@ use serde_json::Value as JsonValue;
 
 use super::catalog;
 use super::encode::value_ref_json;
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn fetch_table_preview(
@@ -73,27 +74,18 @@ pub(super) async fn fetch_table_preview(
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
             let total_rows: i64 = conn
                 .query_row(&count_sql, [], |r| r.get(0))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
+            let mut stmt = conn.prepare(&sql).map_err(query_failed)?;
             let col_count = stmt.column_count();
-            let mut rows_iter = stmt
-                .query([])
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let mut rows_iter = stmt.query([]).map_err(query_failed)?;
             let mut out_rows = Vec::new();
-            while let Some(row) = rows_iter
-                .next()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-            {
+            while let Some(row) = rows_iter.next().map_err(query_failed)? {
                 if out_rows.len() >= max_rows {
                     break;
                 }
                 let mut cells = Vec::with_capacity(col_count);
                 for j in 0..col_count {
-                    let v = row
-                        .get_ref(j)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let v = row.get_ref(j).map_err(query_failed)?;
                     cells.push(value_ref_json(v));
                 }
                 out_rows.push(cells);

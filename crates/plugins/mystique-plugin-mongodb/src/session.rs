@@ -18,10 +18,13 @@ mod admin;
 mod catalog;
 mod edits;
 mod encode;
+mod error;
 mod preview;
 mod query;
 mod structure;
 mod transfer;
+
+pub(super) use error::query_failed;
 
 pub struct MongoSession {
     client: Client,

@@ -5,6 +5,7 @@ use mystique_connector_api::{
     ConnectorError, ConnectorResult, SqlIdentStyle,
 };
 
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn apply_table_edits(
@@ -32,8 +33,7 @@ pub(super) async fn apply_table_edits(
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
             for sql in &statements {
-                conn.execute(sql.as_str(), [])
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                conn.execute(sql.as_str(), []).map_err(query_failed)?;
             }
             Ok(ApplyTableEditsResult {
                 updated: update_n as u32,

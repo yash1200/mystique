@@ -23,6 +23,8 @@ mod query;
 mod structure;
 mod transfer;
 
+pub(super) use crate::connector::pool::query_failed;
+
 pub struct MysqlSession {
     pool: Pool,
     max_size: u32,
@@ -66,9 +68,7 @@ impl ConnectorSession for MysqlSession {
 
     async fn ping(&self) -> ConnectorResult<()> {
         let mut conn = self.conn().await?;
-        conn.query_drop("SELECT 1")
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        conn.query_drop("SELECT 1").await.map_err(query_failed)?;
         Ok(())
     }
 

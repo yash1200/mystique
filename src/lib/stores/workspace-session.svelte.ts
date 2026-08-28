@@ -32,6 +32,8 @@ class WorkspaceSessionStore {
 	openTabs = $state<WorkspaceTab[]>([])
 	activeTabId = $state<string | null>(null)
 	selectedRow = $state<SelectedRow | null>(null)
+	/** Prompt waiting for the query agent pane to send. */
+	pendingAgentPrompt = $state<string | null>(null)
 
 	/** Draft SQL/MQL text per query tab id. */
 	queryDrafts = $state<Record<string, string>>({})
@@ -658,6 +660,18 @@ class WorkspaceSessionStore {
 
 	clearRowSelection() {
 		this.selectedRow = null
+	}
+
+	queueAgentPrompt(text: string) {
+		const next = text.trim()
+		if (!next) return
+		this.pendingAgentPrompt = next
+	}
+
+	takePendingAgentPrompt(): string | null {
+		const next = this.pendingAgentPrompt
+		this.pendingAgentPrompt = null
+		return next
 	}
 }
 

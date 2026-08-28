@@ -48,7 +48,10 @@ pub fn set_ai_enabled(state: State<'_, AppState>, enabled: bool) -> Result<AiSet
 }
 
 #[tauri::command]
-pub fn set_ai_ollama_url(state: State<'_, AppState>, url: String) -> Result<AiSettingsView, String> {
+pub fn set_ai_ollama_url(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<AiSettingsView, String> {
     let url = url.trim();
     if url.is_empty() {
         let _ = state.services.settings().delete(SETTING_OLLAMA_URL);

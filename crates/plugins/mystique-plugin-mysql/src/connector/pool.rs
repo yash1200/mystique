@@ -1,9 +1,27 @@
 use mysql_async::{OptsBuilder, Pool, PoolConstraints, PoolOpts, SslOpts};
 use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult};
 
-pub(super) fn format_error(err: impl std::fmt::Display) -> String {
-    err.to_string()
+pub(crate) fn format_error(err: &mysql_async::Error) -> String {
+    match err {
+        mysql_async::Error::Server(s) => {
+            let msg = s.message.trim();
+            if msg.is_empty() {
+                format!("MySQL error {} ({})", s.code, s.state)
+            } else {
+                msg.to_string()
+            }
+        }
+        mysql_async::Error::Io(io) => format!("Could not reach MySQL: {io}"),
+        mysql_async::Error::Driver(d) => d.to_string(),
+        mysql_async::Error::Url(u) => u.to_string(),
+        mysql_async::Error::Other(o) => o.to_string(),
+    }
 }
+
+pub(crate) fn query_failed(err: mysql_async::Error) -> ConnectorError {
+    ConnectorError::Query(format_error(&err))
+}
+
 pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {
     if config.bool_field("ssl", false) {
         return true;
@@ -68,6 +86,25 @@ pub(super) async fn connect_once(
     let conn = pool
         .get_conn()
         .await
-        .map_err(|e| ConnectorError::Connect(format_error(e)))?;
+        .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
     Ok((conn, pool))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_error;
+    use mysql_async::{Error, ServerError};
+
+    #[test]
+    fn server_error_uses_mysql_message() {
+        let err = Error::Server(ServerError {
+            code: 1064,
+            message: "You have an error in your SQL syntax near 'SELEC'".into(),
+            state: "42000".into(),
+        });
+        assert_eq!(
+            format_error(&err),
+            "You have an error in your SQL syntax near 'SELEC'"
+        );
+    }
 }

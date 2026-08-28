@@ -8,6 +8,7 @@ use mystique_connector_api::{
 };
 
 use super::encode::cell_json;
+use super::query_failed;
 use super::PostgresSession;
 
 pub(super) async fn execute_query(
@@ -47,7 +48,7 @@ pub(super) async fn execute_query(
             let rows = client
                 .query(sql.as_str(), &[])
                 .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
 
             let truncated = rows.len() > limit;
             let take = rows.len().min(limit);
@@ -102,7 +103,7 @@ pub(super) async fn execute_query(
             client
                 .batch_execute(sql.as_str())
                 .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
 
             let mut message = Some(format!(
                 "Statement executed ({}). Tabular rows only for SELECT-like queries.",

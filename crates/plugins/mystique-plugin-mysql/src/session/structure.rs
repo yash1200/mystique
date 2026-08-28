@@ -6,6 +6,7 @@ use mystique_connector_api::{
 };
 
 use super::catalog;
+use super::query_failed;
 use super::MysqlSession;
 
 pub(super) async fn describe_object_structure(
@@ -90,7 +91,7 @@ pub(super) async fn describe_object_structure(
             },
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let index_rows: Vec<Vec<String>> = idx
         .into_iter()
         .map(|(name, col, unique, seq, itype)| vec![name, col, unique, seq.to_string(), itype])
@@ -136,7 +137,7 @@ pub(super) async fn describe_object_structure(
             },
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let fk_rows: Vec<Vec<String>> = fks
         .into_iter()
         .map(|(c, col, rschema, rtable, rcol)| vec![c, col, format!("{rschema}.{rtable}"), rcol])
@@ -171,7 +172,7 @@ pub(super) async fn describe_object_structure(
             |(c, tschema, tname, col): (String, String, String, String)| (c, tschema, tname, col),
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let inbound_rows: Vec<Vec<String>> = inbound
         .into_iter()
         .map(|(c, tschema, tname, col)| vec![c, format!("{tschema}.{tname}"), col])
@@ -205,7 +206,7 @@ pub(super) async fn describe_object_structure(
             |(n, t, e, a): (String, String, String, String)| (n, t, e, a),
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let trigger_rows: Vec<Vec<String>> = triggers
         .into_iter()
         .map(|(n, t, e, a)| vec![n, t, e, a])

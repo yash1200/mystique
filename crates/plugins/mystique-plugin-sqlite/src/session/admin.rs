@@ -6,6 +6,7 @@ use mystique_connector_api::{
 };
 use rusqlite::OptionalExtension;
 
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn apply_table_admin(
@@ -34,7 +35,7 @@ pub(super) async fn apply_table_admin(
                             |row| row.get(0),
                         )
                         .optional()
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        .map_err(query_failed)?;
                     let statement = sql.filter(|s| !s.trim().is_empty()).ok_or_else(|| {
                         ConnectorError::Query(format!("No CREATE text for {qname}."))
                     })?;
@@ -53,7 +54,7 @@ pub(super) async fn apply_table_admin(
                         &format!("CREATE TABLE {qname} (id INTEGER PRIMARY KEY)"),
                         [],
                     )
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(
                         op,
                         format!("Created table {qname}."),
@@ -65,7 +66,7 @@ pub(super) async fn apply_table_admin(
                         new_name.as_deref().unwrap_or("").trim(),
                     );
                     conn.execute(&format!("ALTER TABLE {qname} RENAME TO {dest}"), [])
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(
                         op,
                         format!("Renamed {qname} to {dest}."),
@@ -74,7 +75,7 @@ pub(super) async fn apply_table_admin(
                 TableAdminOp::Drop => {
                     let kw = if is_view { "VIEW" } else { "TABLE" };
                     conn.execute(&format!("DROP {kw} IF EXISTS {qname}"), [])
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(op, format!("Dropped {qname}.")))
                 }
                 TableAdminOp::Truncate => {
@@ -84,7 +85,7 @@ pub(super) async fn apply_table_admin(
                         ));
                     }
                     conn.execute(&format!("DELETE FROM {qname}"), [])
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(
                         op,
                         format!("Truncated {qname}."),
@@ -101,7 +102,7 @@ pub(super) async fn apply_table_admin(
                         new_name.as_deref().unwrap_or("").trim(),
                     );
                     conn.execute(&format!("CREATE TABLE {dest} AS SELECT * FROM {qname}"), [])
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(
                         op,
                         format!("Duplicated {qname} to {dest}."),

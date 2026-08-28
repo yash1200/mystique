@@ -5,13 +5,14 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    preview_sort_sql, qualify_table, quote_ident, sql_preview_where, ConnectorError,
-    ConnectorResult, FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult,
+    preview_sort_sql, qualify_table, quote_ident, sql_preview_where, ConnectorResult,
+    FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult,
 };
 use serde_json::Value as JsonValue;
 
 use super::catalog;
 use super::encode::value_json;
+use super::query_failed;
 use super::MysqlSession;
 
 pub(super) async fn fetch_table_preview(
@@ -80,21 +81,14 @@ pub(super) async fn fetch_table_preview(
     let total_rows: u64 = conn
         .query_first(format!("SELECT COUNT(*) FROM {target}{where_sql}"))
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
+        .map_err(query_failed)?
         .unwrap_or(0);
-    let result_set = conn
-        .query_iter(sql.as_str())
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let result_set = conn.query_iter(sql.as_str()).await.map_err(query_failed)?;
 
     let col_count = result_set.columns_ref().len();
     let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
     let mut result_set = result_set;
-    while let Some(row) = result_set
-        .next()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
+    while let Some(row) = result_set.next().await.map_err(query_failed)? {
         if out_rows.len() >= input.max_rows as usize {
             break;
         }

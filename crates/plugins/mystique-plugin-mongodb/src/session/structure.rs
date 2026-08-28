@@ -1,11 +1,10 @@
 //! Collection structure sections (fields, indexes, options, stats).
 
 use mongodb::bson::{doc, Document};
-use mystique_connector_api::{
-    cell_bool, ConnectorError, ConnectorResult, ObjectStructure, StructureSection,
-};
+use mystique_connector_api::{cell_bool, ConnectorResult, ObjectStructure, StructureSection};
 
 use super::catalog;
+use super::query_failed;
 use super::MongoSession;
 
 pub(super) async fn describe_object_structure(
@@ -47,18 +46,9 @@ pub(super) async fn describe_object_structure(
     .with_empty_message("No fields sampled (empty collection).");
 
     let mut index_rows = Vec::new();
-    let mut cursor = coll
-        .list_indexes()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-    while cursor
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let model = cursor
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let mut cursor = coll.list_indexes().await.map_err(query_failed)?;
+    while cursor.advance().await.map_err(query_failed)? {
+        let model = cursor.deserialize_current().map_err(query_failed)?;
         let opts = model.options.as_ref();
         let name = opts
             .and_then(|o| o.name.clone())
@@ -97,15 +87,9 @@ pub(super) async fn describe_object_structure(
         .list_collections()
         .filter(doc! { "name": table })
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-    while listed
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let spec = listed
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
+    while listed.advance().await.map_err(query_failed)? {
+        let spec = listed.deserialize_current().map_err(query_failed)?;
         validation_rows.push(vec!["type".into(), format!("{:?}", spec.collection_type)]);
         let options = &spec.options;
         if let Some(validator) = &options.validator {
@@ -137,7 +121,7 @@ pub(super) async fn describe_object_structure(
     let count = coll
         .estimated_document_count()
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     stats_rows.push(vec!["estimatedDocumentCount".into(), count.to_string()]);
     let stats_sec = StructureSection::table(
         "stats",

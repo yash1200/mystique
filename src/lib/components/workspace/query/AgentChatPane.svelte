@@ -294,8 +294,8 @@
 		messages = []
 	}
 
-	async function send() {
-		const text = draft.trim()
+	async function send(preset?: string) {
+		const text = (preset ?? draft).trim()
 		if (!text || sending) return
 		const gen = ++sendGen
 		sending = true
@@ -311,7 +311,7 @@
 			void reconcileInFlight(gen, knownAssistantIds)
 		}, 800)
 		error = null
-		draft = ''
+		if (!preset) draft = ''
 		const optimisticId = `local-${crypto.randomUUID()}`
 		const optimistic: AgentMessage = {
 			id: optimisticId,
@@ -463,6 +463,15 @@
 	$effect(() => {
 		void provider
 		if (desktop) untrack(() => void loadModels())
+	})
+
+	$effect(() => {
+		const queued = workspaceSession.pendingAgentPrompt
+		if (!queued || sending || !desktop || !settings) return
+		untrack(() => {
+			const text = workspaceSession.takePendingAgentPrompt()
+			if (text) void send(text)
+		})
 	})
 
 	onMount(() => {

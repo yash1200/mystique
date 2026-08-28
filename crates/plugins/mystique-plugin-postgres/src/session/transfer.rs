@@ -2,11 +2,12 @@
 
 use mystique_connector_api::{
     export_object_with_preview, import_chunk_sql, import_object_from_file,
-    preview_import_with_describe, ConnectorError, ConnectorResult, ExportObjectInput,
-    ExportObjectResult, ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult,
-    PreviewImportInput, PreviewImportResult, SqlIdentStyle,
+    preview_import_with_describe, ConnectorResult, ExportObjectInput, ExportObjectResult,
+    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, PreviewImportInput,
+    PreviewImportResult, SqlIdentStyle,
 };
 
+use super::query_failed;
 use super::PostgresSession;
 
 pub(super) async fn export_object(
@@ -44,10 +45,7 @@ pub(super) async fn import_chunk(
     }
     let client = session.client().await?;
     for sql in statements {
-        client
-            .batch_execute(&sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        client.batch_execute(&sql).await.map_err(query_failed)?;
     }
     Ok(counts)
 }

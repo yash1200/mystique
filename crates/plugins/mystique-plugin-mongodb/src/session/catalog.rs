@@ -2,10 +2,11 @@
 
 use mongodb::bson::{doc, Bson, Document};
 use mystique_connector_api::{
-    CatalogColumnRow, CatalogDatabase, CatalogObject, ColumnInfo, ConnectorError, ConnectorResult,
+    CatalogColumnRow, CatalogDatabase, CatalogObject, ColumnInfo, ConnectorResult,
 };
 
 use super::encode::bson_type_label;
+use super::query_failed;
 use super::MongoSession;
 
 pub(super) async fn describe_table(
@@ -21,22 +22,12 @@ pub(super) async fn describe_table(
         .database(&db_name)
         .collection::<Document>(table);
 
-    let mut cursor = coll
-        .find(doc! {})
-        .limit(50)
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let mut cursor = coll.find(doc! {}).limit(50).await.map_err(query_failed)?;
 
     let mut keys: Vec<String> = Vec::new();
     let mut samples: std::collections::HashMap<String, Bson> = std::collections::HashMap::new();
-    while cursor
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let d = cursor
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    while cursor.advance().await.map_err(query_failed)? {
+        let d = cursor.deserialize_current().map_err(query_failed)?;
         for (k, v) in d {
             if !keys.iter().any(|x| x == &k) {
                 keys.push(k.clone());
@@ -81,7 +72,7 @@ pub(super) async fn list_catalog_columns(
         .database(&db_name)
         .list_collection_names()
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
 
     let mut out = Vec::new();
     for name in names {
@@ -113,7 +104,7 @@ pub(super) async fn list_catalog(
         .client
         .list_database_names()
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     names.sort();
     const SYSTEM: &[&str] = &["admin", "local", "config"];
     let pref = preferred_database.map(str::trim).unwrap_or("");

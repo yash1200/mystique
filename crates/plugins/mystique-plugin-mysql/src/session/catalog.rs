@@ -7,6 +7,7 @@ use mystique_connector_api::{
 };
 
 use super::encode::{mysql_default_display, parse_mysql_enum_values};
+use super::query_failed;
 use super::MysqlSession;
 
 type RelationshipRow = (
@@ -40,10 +41,8 @@ pub(super) async fn describe_table(
          WHERE table_schema = '{db}' AND table_name = '{tbl}' \
          ORDER BY ordinal_position"
     );
-    let rows: Vec<(String, String, String, String, Option<String>, String)> = conn
-        .query(sql)
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let rows: Vec<(String, String, String, String, Option<String>, String)> =
+        conn.query(sql).await.map_err(query_failed)?;
 
     let mut out = Vec::with_capacity(rows.len());
     for (name, column_type, is_nullable, column_key, column_default, extra) in rows {
@@ -125,10 +124,8 @@ pub(super) async fn list_catalog_columns(
             .to_string()
     };
 
-    let rows: Vec<(String, String, String, String, String, String)> = conn
-        .query(sql)
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let rows: Vec<(String, String, String, String, String, String)> =
+        conn.query(sql).await.map_err(query_failed)?;
 
     Ok(rows
         .into_iter()
@@ -176,9 +173,7 @@ pub(super) async fn list_catalog(
              FROM information_schema.tables \
              WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
              ORDER BY table_schema, table_name";
-        conn.query(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
+        conn.query(sql).await.map_err(query_failed)?
     } else {
         Vec::new()
     };
@@ -261,10 +256,8 @@ pub(super) async fn list_relationships(
             .into()
     };
     if database.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-        let rows: Vec<(String, String, String, String, String)> = conn
-            .query(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let rows: Vec<(String, String, String, String, String)> =
+            conn.query(sql).await.map_err(query_failed)?;
         let schema = database.unwrap().trim().to_string();
         return Ok(rows
             .into_iter()
@@ -281,10 +274,7 @@ pub(super) async fn list_relationships(
             )
             .collect());
     }
-    let rows: Vec<RelationshipRow> = conn
-        .query(sql)
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let rows: Vec<RelationshipRow> = conn.query(sql).await.map_err(query_failed)?;
     Ok(rows
         .into_iter()
         .map(

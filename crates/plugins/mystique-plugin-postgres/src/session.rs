@@ -22,6 +22,8 @@ mod query;
 mod structure;
 mod transfer;
 
+pub(super) use crate::connector::pool::query_failed;
+
 pub struct PostgresSession {
     pool: Pool,
     max_size: u32,
@@ -49,7 +51,7 @@ impl PostgresSession {
         self.pool
             .get()
             .await
-            .map_err(|e| ConnectorError::Pool(e.to_string()))
+            .map_err(|e| ConnectorError::Pool(crate::connector::pool::format_error(&e)))
     }
 }
 
@@ -68,7 +70,7 @@ impl ConnectorSession for PostgresSession {
         client
             .simple_query("SELECT 1")
             .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            .map_err(query_failed)?;
         Ok(())
     }
 

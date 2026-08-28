@@ -2,10 +2,11 @@
 
 use mystique_connector_api::{
     CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
-    ColumnReference, ConnectorError, ConnectorResult,
+    ColumnReference, ConnectorResult,
 };
 
 use super::encode::{pg_opt_i32, pg_type_label};
+use super::query_failed;
 use super::PostgresSession;
 
 pub(super) async fn describe_table(
@@ -56,7 +57,7 @@ pub(super) async fn describe_table(
     let rows = client
         .query(sql, &[&schema, &table])
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
@@ -220,15 +221,9 @@ pub(super) async fn list_catalog_columns(
     };
 
     let rows = if let Some(ref sch) = params_schema {
-        client
-            .query(sql, &[sch])
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
+        client.query(sql, &[sch]).await.map_err(query_failed)?
     } else {
-        client
-            .query(sql, &[])
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
+        client.query(sql, &[]).await.map_err(query_failed)?
     };
 
     let mut out = Vec::with_capacity(rows.len());
@@ -270,7 +265,7 @@ pub(super) async fn list_catalog(
     let db_row = client
         .query_one("SELECT current_database()", &[])
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let current: String = db_row.get(0);
 
     // Postgres connections are per-database; still list every connectable
@@ -288,7 +283,7 @@ pub(super) async fn list_catalog(
             &[],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let mut names: Vec<String> = db_rows.iter().map(|row| row.get(0)).collect();
     if !names.iter().any(|n| n == &current) {
         names.push(current.clone());
@@ -312,7 +307,7 @@ pub(super) async fn list_catalog(
                 &[],
             )
             .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            .map_err(query_failed)?;
         for row in table_rows {
             let schema: String = row.get(0);
             let name: String = row.get(1);
@@ -407,7 +402,7 @@ pub(super) async fn list_relationships(
             &[],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(CatalogRelationship {

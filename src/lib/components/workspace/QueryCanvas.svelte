@@ -11,6 +11,7 @@
 	import { appendQueryHistory, type QueryHistoryItem } from '$lib/api/history'
 	import { isTauri } from '$lib/api/tauri'
 	import { Resizable } from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type { EngineCapabilities } from '$lib/types/engineCaps'
 	import {
@@ -22,6 +23,7 @@
 		exportRowsAsExcel,
 		exportRowsAsJson,
 	} from '$lib/utils/exportTable'
+	import { userFacingQueryError } from '$lib/utils/queryDisplay'
 	import {
 		queryLanguageFor,
 		queryPlaceholder,
@@ -379,7 +381,9 @@
 			const elapsedMs = Math.round(performance.now() - start)
 			runState = {
 				status: isPolicy ? 'blocked' : 'error',
-				message: msg.replace(/^policy:\s*/i, ''),
+				message: isPolicy
+					? msg.replace(/^policy:\s*/i, '')
+					: userFacingQueryError(msg),
 				mode,
 				elapsedMs,
 			}
@@ -391,6 +395,16 @@
 				body: sqlText,
 			})
 		}
+	}
+
+	function askAiAboutError(errorMessage: string) {
+		const error = errorMessage.trim()
+		workspaceSession.queueAgentPrompt(
+			error
+				? `The query in the editor failed with this error. Debug it and fix it.\n\n${error}`
+				: 'The query in the editor failed. Debug it and fix it.',
+		)
+		appPrefs.setAgentChatOpen(true)
 	}
 
 	function clampSplit(pct: number): number {
@@ -477,6 +491,7 @@
 				onprev={goResultPrev}
 				onnext={goResultNext}
 				onrefresh={() => void runQuery()}
+				onaskai={askAiAboutError}
 			/>
 		</div>
 	</div>

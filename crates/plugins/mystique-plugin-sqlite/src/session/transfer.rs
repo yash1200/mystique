@@ -7,6 +7,7 @@ use mystique_connector_api::{
     PreviewImportInput, PreviewImportResult, SqlIdentStyle,
 };
 
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn export_object(
@@ -49,8 +50,7 @@ pub(super) async fn import_chunk(
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
             for sql in statements {
-                conn.execute(&sql, [])
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                conn.execute(&sql, []).map_err(query_failed)?;
             }
             Ok(counts)
         })

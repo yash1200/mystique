@@ -117,13 +117,13 @@ impl DatabaseConnector for MysqlConnector {
         let version: Option<String> = conn
             .query_first("SELECT VERSION()")
             .await
-            .map_err(|e| ConnectorError::Query(format_error(e)))?;
+            .map_err(|e| ConnectorError::Query(format_error(&e)))?;
         let latency_ms = start.elapsed().as_millis() as u64;
 
         drop(conn);
         pool.disconnect()
             .await
-            .map_err(|e| ConnectorError::Connect(format_error(e)))?;
+            .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
 
         Ok(TestResult {
             ok: true,
@@ -145,10 +145,10 @@ impl DatabaseConnector for MysqlConnector {
             let mut conn = pool
                 .get_conn()
                 .await
-                .map_err(|e| ConnectorError::Connect(format_error(e)))?;
+                .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
             conn.query_drop("SELECT 1")
                 .await
-                .map_err(|e| ConnectorError::Connect(format_error(e)))?;
+                .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
         }
 
         Ok(Box::new(MysqlSession::new(pool, config.pool.max_size)))

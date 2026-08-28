@@ -7,6 +7,7 @@ use mystique_connector_api::{
 use serde_json::{json, Value as JsonValue};
 
 use super::encode::{coerce_mongo_json, mongo_id_json};
+use super::query_failed;
 use super::MongoSession;
 use crate::shell_filter::json_to_document;
 
@@ -50,7 +51,7 @@ pub(super) async fn apply_table_edits(
         let update = json_to_document(&json!({ "$set": JsonValue::Object(set_obj) }))?;
         coll.update_one(filter, update)
             .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            .map_err(query_failed)?;
         updated += 1;
     }
 
@@ -72,9 +73,7 @@ pub(super) async fn apply_table_edits(
             ));
         }
         let doc = json_to_document(&JsonValue::Object(doc_map))?;
-        coll.insert_one(doc)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        coll.insert_one(doc).await.map_err(query_failed)?;
         inserted += 1;
     }
 
@@ -90,9 +89,7 @@ pub(super) async fn apply_table_edits(
             ));
         }
         let filter = json_to_document(&json!({ "_id": mongo_id_json(id) }))?;
-        coll.delete_one(filter)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        coll.delete_one(filter).await.map_err(query_failed)?;
         deleted += 1;
     }
 

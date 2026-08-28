@@ -4,12 +4,12 @@ use std::time::Instant;
 
 use mongodb::bson::{doc, Bson, Document};
 use mystique_connector_api::{
-    preview_sort_field, ColumnInfo, ConnectorError, ConnectorResult, FetchTablePreviewInput,
-    TablePreviewResult,
+    preview_sort_field, ColumnInfo, ConnectorResult, FetchTablePreviewInput, TablePreviewResult,
 };
 
 use super::catalog;
 use super::encode::bson_to_json;
+use super::query_failed;
 use super::MongoSession;
 use crate::preview_filter::compile_mongo_preview_predicate;
 
@@ -31,7 +31,7 @@ pub(super) async fn fetch_table_preview(
     } else {
         coll.count_documents(filter.clone())
             .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?
+            .map_err(query_failed)?
     };
     let sort = match preview_sort_field(
         &columns,
@@ -48,19 +48,11 @@ pub(super) async fn fetch_table_preview(
     if input.max_rows > 0 {
         find = find.limit(input.max_rows as i64);
     }
-    let mut cursor = find
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let mut cursor = find.await.map_err(query_failed)?;
 
     let mut docs = Vec::new();
-    while cursor
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let d = cursor
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    while cursor.advance().await.map_err(query_failed)? {
+        let d = cursor.deserialize_current().map_err(query_failed)?;
         docs.push(d);
         if docs.len() >= input.max_rows as usize {
             break;

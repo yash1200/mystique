@@ -3,11 +3,12 @@
 use mysql_async::prelude::*;
 use mystique_connector_api::{
     export_object_with_preview, import_chunk_sql, import_object_from_file,
-    preview_import_with_describe, ConnectorError, ConnectorResult, ExportObjectInput,
-    ExportObjectResult, ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult,
-    PreviewImportInput, PreviewImportResult, SqlIdentStyle,
+    preview_import_with_describe, ConnectorResult, ExportObjectInput, ExportObjectResult,
+    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, PreviewImportInput,
+    PreviewImportResult, SqlIdentStyle,
 };
 
+use super::query_failed;
 use super::MysqlSession;
 
 pub(super) async fn export_object(
@@ -45,9 +46,7 @@ pub(super) async fn import_chunk(
     }
     let mut conn = session.conn().await?;
     for sql in statements {
-        conn.query_drop(sql)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        conn.query_drop(sql).await.map_err(query_failed)?;
     }
     Ok(counts)
 }

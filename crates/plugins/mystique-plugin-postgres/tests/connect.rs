@@ -1,4 +1,6 @@
-use mystique_connector_api::{ConnectionConfig, DatabaseConnector, PoolConfig};
+use mystique_connector_api::{
+    ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
+};
 use mystique_plugin_postgres::PostgresConnector;
 use serde_json::json;
 
@@ -98,5 +100,47 @@ async fn test_connection_default_user_postgres_has_clear_error() {
                 || s.to_lowercase().contains("authentication")
                 || s.to_lowercase().contains("password")),
         "error should mention the real postgres failure, got: {s}"
+    );
+}
+
+#[tokio::test]
+async fn bad_sql_surfaces_postgres_message() {
+    let user = std::env::var("USER").unwrap_or_else(|_| "yashjohri".into());
+    let config = ConnectionConfig {
+        engine: "postgres".into(),
+        plugin_config: json!({
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "postgres",
+            "username": user
+        }),
+        password: None,
+        pool: PoolConfig {
+            max_size: 1,
+            min_idle: 0,
+            acquire_timeout_ms: 5000,
+            idle_timeout_secs: 10,
+        },
+    };
+    let session = PostgresConnector.connect(&config).await.expect("connect");
+    let err = session
+        .execute_query(&ValidatedQuery {
+            text: "SELEC 1".into(),
+            mode: QueryMode::Read,
+            max_rows: 10,
+            timeout_ms: 5_000,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("invalid SQL should fail");
+    let s = err.to_string();
+    assert!(
+        !s.to_ascii_lowercase().contains("db error"),
+        "must not hide the server message behind 'db error': {s}"
+    );
+    assert!(
+        s.to_ascii_lowercase().contains("syntax") || s.to_ascii_lowercase().contains("selec"),
+        "expected a descriptive Postgres syntax error, got: {s}"
     );
 }

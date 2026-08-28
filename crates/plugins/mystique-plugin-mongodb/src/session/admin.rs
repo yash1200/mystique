@@ -7,6 +7,7 @@ use mystique_connector_api::{
 };
 use serde_json::json;
 
+use super::query_failed;
 use super::MongoSession;
 
 pub(super) async fn apply_table_admin(
@@ -31,9 +32,7 @@ pub(super) async fn apply_table_admin(
             "MongoDB does not use schemas; create a collection instead.".into(),
         )),
         TableAdminOp::CreateObject => {
-            db.create_collection(name)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            db.create_collection(name).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Created collection {name} in {db_name}."),
@@ -48,9 +47,7 @@ pub(super) async fn apply_table_admin(
             ))
         }
         TableAdminOp::Drop => {
-            coll.drop()
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            coll.drop().await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Dropped collection {name}."),
@@ -58,9 +55,7 @@ pub(super) async fn apply_table_admin(
         }
         TableAdminOp::Truncate => {
             // Native clear: delete every document, keep the collection + indexes.
-            coll.delete_many(doc! {})
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            coll.delete_many(doc! {}).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Truncated collection {name}."),
@@ -101,7 +96,7 @@ async fn mongo_rename_collection(
     db.collection::<Document>(from)
         .drop()
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     Ok(())
 }
 
@@ -118,30 +113,19 @@ async fn mongo_copy_collection(
     let src = db.collection::<Document>(from);
     let dest = db.collection::<Document>(to);
     let _ = db.create_collection(to).await;
-    let mut cursor = src
-        .find(doc! {})
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let mut cursor = src.find(doc! {}).await.map_err(query_failed)?;
     let mut batch: Vec<Document> = Vec::new();
-    while cursor
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let doc = cursor
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    while cursor.advance().await.map_err(query_failed)? {
+        let doc = cursor.deserialize_current().map_err(query_failed)?;
         batch.push(doc);
         if batch.len() >= 500 {
             dest.insert_many(std::mem::take(&mut batch))
                 .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
         }
     }
     if !batch.is_empty() {
-        dest.insert_many(batch)
-            .await
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        dest.insert_many(batch).await.map_err(query_failed)?;
     }
     Ok(())
 }

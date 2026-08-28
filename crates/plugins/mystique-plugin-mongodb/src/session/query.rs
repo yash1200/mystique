@@ -12,6 +12,7 @@ use super::encode::{
     bson_to_json, bson_type_label, is_mongo_write_command, normalize_meta_command, resolve_db_name,
     MongoWriteCmd,
 };
+use super::query_failed;
 use super::MongoSession;
 use crate::shell_filter::json_to_document;
 use crate::shell_query::parse_read_query;
@@ -82,20 +83,11 @@ pub(super) async fn execute_query(
     if let Some(skip) = parsed.skip {
         find = find.skip(skip);
     }
-    let mut cursor = find
-        .limit(limit)
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    let mut cursor = find.limit(limit).await.map_err(query_failed)?;
 
     let mut docs = Vec::new();
-    while cursor
-        .advance()
-        .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
-    {
-        let d = cursor
-            .deserialize_current()
-            .map_err(|e| ConnectorError::Query(e.to_string()))?;
+    while cursor.advance().await.map_err(query_failed)? {
+        let d = cursor.deserialize_current().map_err(query_failed)?;
         docs.push(d);
         if docs.len() >= query.max_rows as usize {
             break;
@@ -187,7 +179,7 @@ pub(super) async fn execute_write(
             let result = coll
                 .update_one(filter, update)
                 .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             format!(
                 "updateOne on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
@@ -198,10 +190,7 @@ pub(super) async fn execute_write(
                 .doc
                 .ok_or_else(|| ConnectorError::Query("insertOne requires `doc`".into()))?;
             let doc = json_to_document(&doc_v)?;
-            let result = coll
-                .insert_one(doc)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let result = coll.insert_one(doc).await.map_err(query_failed)?;
             format!(
                 "insertOne on {db_name}.{coll_name} id={:?}",
                 result.inserted_id
@@ -212,10 +201,7 @@ pub(super) async fn execute_write(
                 .filter
                 .ok_or_else(|| ConnectorError::Query("deleteOne requires `filter`".into()))?;
             let filter = json_to_document(&filter_v)?;
-            let result = coll
-                .delete_one(filter)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let result = coll.delete_one(filter).await.map_err(query_failed)?;
             format!(
                 "deleteOne on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
@@ -226,10 +212,7 @@ pub(super) async fn execute_write(
                 .filter
                 .ok_or_else(|| ConnectorError::Query("deleteMany requires `filter`".into()))?;
             let filter = json_to_document(&filter_v)?;
-            let result = coll
-                .delete_many(filter)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let result = coll.delete_many(filter).await.map_err(query_failed)?;
             format!(
                 "deleteMany on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
@@ -263,7 +246,7 @@ pub(super) async fn list_databases(
         .client
         .list_database_names()
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
 
     let columns = vec![QueryColumn {
         name: "name".into(),
@@ -299,7 +282,7 @@ pub(super) async fn list_collections(
         .database(db_name)
         .list_collection_names()
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     names.sort();
     let truncated = names.len() as u32 > max_rows;
     if truncated {

@@ -3,24 +3,82 @@ use std::time::Duration;
 
 use deadpool_postgres::{Config as PoolCfg, ManagerConfig, RecyclingMethod, Runtime, SslMode};
 use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult};
+use tokio_postgres::error::{DbError, ErrorPosition};
 use tokio_postgres::NoTls;
 
-/// Flatten nested error sources so users see the real Postgres FATAL, not deadpool's "db error".
-pub(super) fn format_error(err: &dyn StdError) -> String {
+/// Driver wrappers say "db error"; the useful text is on [`DbError`].
+pub(crate) fn format_error(err: &(dyn StdError + 'static)) -> String {
+    if let Some(db) = find_db_error(err) {
+        return format_db_error(db);
+    }
     let mut parts = Vec::new();
-    let mut cur: Option<&dyn StdError> = Some(err);
+    let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
     while let Some(e) = cur {
         let s = e.to_string();
-        if parts.last().map(|p: &String| p != &s).unwrap_or(true) {
+        if !is_noise(&s) && parts.last().map(|p: &String| p != &s).unwrap_or(true) {
             parts.push(s);
         }
         cur = e.source();
     }
     if parts.is_empty() {
-        "unknown error".into()
+        "PostgreSQL could not run this statement.".into()
     } else {
         parts.join(" — ")
     }
+}
+
+pub(crate) fn query_failed(err: tokio_postgres::Error) -> ConnectorError {
+    ConnectorError::Query(format_error(&err))
+}
+
+fn find_db_error<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a DbError> {
+    let mut cur = Some(err);
+    while let Some(e) = cur {
+        if let Some(pg) = e.downcast_ref::<tokio_postgres::Error>() {
+            if let Some(db) = pg.as_db_error() {
+                return Some(db);
+            }
+        }
+        if let Some(db) = e.downcast_ref::<DbError>() {
+            return Some(db);
+        }
+        cur = e.source();
+    }
+    None
+}
+
+fn format_db_error(db: &DbError) -> String {
+    let mut out = db.message().to_string();
+    if let Some(detail) = db.detail() {
+        let detail = detail.trim();
+        if !detail.is_empty() && !out.contains(detail) {
+            out.push_str(". ");
+            out.push_str(detail);
+        }
+    }
+    if let Some(hint) = db.hint() {
+        let hint = hint.trim();
+        if !hint.is_empty() {
+            out.push_str(" Hint: ");
+            out.push_str(hint);
+        }
+    }
+    if let Some(constraint) = db.constraint() {
+        out.push_str(" (constraint ");
+        out.push_str(constraint);
+        out.push(')');
+    }
+    if let Some(ErrorPosition::Original(pos)) = db.position() {
+        out.push_str(&format!(" at character {pos}"));
+    }
+    out
+}
+
+fn is_noise(s: &str) -> bool {
+    matches!(
+        s.trim().to_ascii_lowercase().as_str(),
+        "db error" | "error occurred in the database" | "unknown error"
+    )
 }
 
 pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {

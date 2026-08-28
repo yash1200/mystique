@@ -2,6 +2,7 @@
 	import type { QueryResult } from '$lib/api/engines'
 	import {
 		Badge,
+		Button,
 		ContextMenu,
 		Icon,
 		IconButton,
@@ -12,6 +13,7 @@
 	} from '$lib/components/core'
 	import { isMacPlatform, labelForKey } from '$lib/data/appShortcuts'
 	import { cn } from '$lib/utils/cn'
+	import { copyTextToClipboard } from '$lib/utils/exportTable'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
 	import type { RunState } from './types'
 
@@ -39,6 +41,7 @@
 		onprev: () => void
 		onnext: () => void
 		onrefresh: () => void
+		onaskai?: (message: string) => void
 	}
 
 	let {
@@ -58,11 +61,14 @@
 		onprev,
 		onnext,
 		onrefresh,
+		onaskai,
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
 	let gridMsg = $state<string | null>(null)
 	let gridMsgTimer: ReturnType<typeof setTimeout> | null = null
+	let copiedError = $state(false)
+	let copiedErrorTimer: ReturnType<typeof setTimeout> | null = null
 
 	function onGridStatus(message: string) {
 		gridMsg = message
@@ -88,13 +94,7 @@
 	const statusText = $derived.by(() => {
 		if (runState.status === 'idle') return 'No query run yet'
 		if (runState.status === 'running') return 'Running…'
-		if (
-			runState.status === 'ok' ||
-			runState.status === 'blocked' ||
-			runState.status === 'error'
-		) {
-			return runState.message
-		}
+		if (runState.status === 'ok') return runState.message
 		return ''
 	})
 
@@ -109,6 +109,15 @@
 	const hasRows = $derived(
 		runState.status === 'ok' && resultTotal > 0 && resultColumns.length > 0,
 	)
+	const errorParts = $derived.by(() => {
+		if (runState.status !== 'error' && runState.status !== 'blocked') {
+			return { body: '', hint: null as string | null }
+		}
+		const raw = runState.message.trim()
+		const hit = raw.match(/^(.*?)\s+Hint:\s+(.+)$/s)
+		if (!hit) return { body: raw, hint: null }
+		return { body: hit[1]!.trim(), hint: hit[2]!.trim() }
+	})
 	const mac = isMacPlatform()
 	const runMod = labelForKey('mod', mac)
 
@@ -146,6 +155,16 @@
 		if (!(t instanceof HTMLElement)) return
 		const rect = t.getBoundingClientRect()
 		menu = { x: rect.right, y: rect.top - 6 }
+	}
+
+	async function copyError(message: string) {
+		const result = await copyTextToClipboard(message)
+		if (!result.ok) return
+		copiedError = true
+		if (copiedErrorTimer) clearTimeout(copiedErrorTimer)
+		copiedErrorTimer = setTimeout(() => {
+			copiedError = false
+		}, 1600)
 	}
 
 	function onMenuPick(action: string) {
@@ -226,14 +245,50 @@
 					onstatus={onGridStatus}
 				/>
 			{/if}
-		{:else}
+		{:else if runState.status === 'blocked' || runState.status === 'error'}
 			<div
-				class="m-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-label text-danger"
-				role="status"
+				class="m-3 overflow-hidden rounded-lg border border-line bg-elevated shadow-sm"
+				role="alert"
 			>
-				{runState.status === 'blocked' || runState.status === 'error'
-					? runState.message
-					: ''}
+				<div class="flex items-center gap-2 px-3 py-2">
+					<p
+						class={cn(
+							'm-0 min-w-0 flex-1 truncate text-label font-semibold',
+							runState.status === 'blocked' ? 'text-warning' : 'text-danger',
+						)}
+					>
+						{runState.status === 'blocked' ? 'Query blocked' : 'Query failed'}
+					</p>
+					<IconButton
+						label={copiedError ? 'Copied' : 'Copy error'}
+						size="sm"
+						variant="quiet"
+						onclick={() => void copyError(runState.message)}
+					>
+						<Icon name={copiedError ? 'check' : 'copy'} />
+					</IconButton>
+					{#if onaskai}
+						<Button
+							size="sm"
+							variant="primary"
+							onclick={() => onaskai(runState.message)}
+						>
+							<Icon name="chat" class="size-3.5" />
+							Ask AI
+						</Button>
+					{/if}
+				</div>
+				{#if errorParts.body}
+					<pre
+						class="m-0 max-h-40 overflow-auto border-t border-line bg-input px-3 py-2.5 font-mono text-label leading-relaxed text-fg select-text whitespace-pre-wrap">{errorParts.body}</pre>
+				{/if}
+				{#if errorParts.hint}
+					<p
+						class="m-0 border-t border-line px-3 py-2 text-caption leading-relaxed text-fg-secondary"
+					>
+						{errorParts.hint}
+					</p>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -252,7 +307,11 @@
 							? 'Idle'
 							: runState.status === 'running'
 								? 'Running'
-								: '0 rows'}
+								: runState.status === 'blocked'
+									? 'Blocked'
+									: runState.status === 'error'
+										? 'Failed'
+										: '0 rows'}
 				</span>
 			{/if}
 			{#if durationMs != null}

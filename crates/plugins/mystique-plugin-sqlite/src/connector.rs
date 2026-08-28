@@ -7,7 +7,7 @@ use mystique_connector_api::{
     FormattedConnectionUrl, TestResult,
 };
 
-use crate::session::SqliteSession;
+use crate::session::{query_failed, SqliteSession};
 
 pub(crate) mod path;
 
@@ -71,7 +71,7 @@ impl DatabaseConnector for SqliteConnector {
                 .map_err(|e| ConnectorError::Connect(e.to_string()))?;
             let version: String = conn
                 .query_row("SELECT sqlite_version()", [], |r| r.get(0))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             Ok::<_, ConnectorError>(version)
         })
         .await

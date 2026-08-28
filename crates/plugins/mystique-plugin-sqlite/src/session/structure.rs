@@ -4,6 +4,7 @@ use mystique_connector_api::{
     cell_bool, ConnectorError, ConnectorResult, ObjectStructure, StructureSection,
 };
 
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn describe_object_structure(
@@ -26,7 +27,7 @@ pub(super) async fn describe_object_structure(
 
             let mut col_stmt = conn
                 .prepare(&format!("PRAGMA table_info('{safe}')"))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let col_rows: Vec<Vec<String>> = col_stmt
                 .query_map([], |row| {
                     let name: String = row.get(1)?;
@@ -46,9 +47,9 @@ pub(super) async fn describe_object_structure(
                         dflt.unwrap_or_else(|| "—".into()),
                     ])
                 })
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
+                .map_err(query_failed)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let columns_sec = StructureSection::table(
                 "columns",
                 "Columns",
@@ -65,7 +66,7 @@ pub(super) async fn describe_object_structure(
 
             let mut idx_list = conn
                 .prepare(&format!("PRAGMA index_list('{safe}')"))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let indexes_meta: Vec<(String, bool, String)> = idx_list
                 .query_map([], |row| {
                     let name: String = row.get(1)?;
@@ -73,24 +74,24 @@ pub(super) async fn describe_object_structure(
                     let origin: String = row.get(3).unwrap_or_else(|_| "c".into());
                     Ok((name, unique != 0, origin))
                 })
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
+                .map_err(query_failed)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
 
             let mut index_rows = Vec::new();
             for (name, unique, origin) in indexes_meta {
                 let safe_idx = name.replace('\'', "''");
                 let mut info = conn
                     .prepare(&format!("PRAGMA index_info('{safe_idx}')"))
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    .map_err(query_failed)?;
                 let cols: Vec<String> = info
                     .query_map([], |row| {
                         let cname: Option<String> = row.get(2)?;
                         Ok(cname.unwrap_or_else(|| "—".into()))
                     })
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
+                    .map_err(query_failed)?
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    .map_err(query_failed)?;
                 index_rows.push(vec![
                     name,
                     cell_bool(unique),
@@ -117,7 +118,7 @@ pub(super) async fn describe_object_structure(
 
             let mut fk_stmt = conn
                 .prepare(&format!("PRAGMA foreign_key_list('{safe}')"))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let fk_rows: Vec<Vec<String>> = fk_stmt
                 .query_map([], |row| {
                     let to_table: String = row.get(2)?;
@@ -127,9 +128,9 @@ pub(super) async fn describe_object_structure(
                     let on_delete: String = row.get(6).unwrap_or_else(|_| "—".into());
                     Ok(vec![from_col, to_table, to_col, on_update, on_delete])
                 })
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
+                .map_err(query_failed)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let fks_sec = StructureSection::table(
                 "foreign_keys",
                 "Foreign keys",
@@ -150,16 +151,16 @@ pub(super) async fn describe_object_structure(
                  WHERE type = 'trigger' AND tbl_name = ?1 \
                  ORDER BY name",
                 )
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let trigger_rows: Vec<Vec<String>> = trig_stmt
                 .query_map([&table_owned], |row| {
                     let name: String = row.get(0)?;
                     let sql: Option<String> = row.get(1)?;
                     Ok(vec![name, sql.unwrap_or_else(|| "—".into())])
                 })
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
+                .map_err(query_failed)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let triggers_sec = StructureSection::table(
                 "triggers",
                 "Triggers",

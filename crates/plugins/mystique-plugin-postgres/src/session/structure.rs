@@ -1,10 +1,9 @@
 //! Object structure sections (columns, indexes, FKs, triggers, checks).
 
-use mystique_connector_api::{
-    cell_bool, ConnectorError, ConnectorResult, ObjectStructure, StructureSection,
-};
+use mystique_connector_api::{cell_bool, ConnectorResult, ObjectStructure, StructureSection};
 
 use super::catalog;
+use super::query_failed;
 use super::PostgresSession;
 
 pub(super) async fn describe_object_structure(
@@ -74,7 +73,7 @@ pub(super) async fn describe_object_structure(
             &[&schema, &table],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let index_rows: Vec<Vec<String>> = idx_rows
         .iter()
         .map(|r| {
@@ -123,7 +122,7 @@ pub(super) async fn describe_object_structure(
             &[&schema, &table],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let fk_display: Vec<Vec<String>> = fk_rows
         .iter()
         .map(|r| {
@@ -174,7 +173,7 @@ pub(super) async fn describe_object_structure(
             &[&schema, &table],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let inbound_display: Vec<Vec<String>> = inbound
         .iter()
         .map(|r| {
@@ -217,7 +216,7 @@ pub(super) async fn describe_object_structure(
             &[&schema, &table],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let trigger_display: Vec<Vec<String>> = trig_rows
         .iter()
         .map(|r| {
@@ -260,7 +259,7 @@ pub(super) async fn describe_object_structure(
             &[&schema, &table],
         )
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
     let check_display: Vec<Vec<String>> = check_rows
         .iter()
         .map(|r| vec![r.get::<_, String>(0), r.get::<_, String>(1)])

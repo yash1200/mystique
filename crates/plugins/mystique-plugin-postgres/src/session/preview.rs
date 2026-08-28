@@ -3,12 +3,13 @@
 use std::time::Instant;
 
 use mystique_connector_api::{
-    preview_sort_sql, qualify_table, sql_preview_where, ConnectorError, ConnectorResult,
-    FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult,
+    preview_sort_sql, qualify_table, sql_preview_where, ConnectorResult, FetchTablePreviewInput,
+    SqlIdentStyle, TablePreviewResult,
 };
 
 use super::catalog;
 use super::encode::{cell_json, preview_order_sql, preview_select_list};
+use super::query_failed;
 use super::PostgresSession;
 
 pub(super) async fn fetch_table_preview(
@@ -53,12 +54,12 @@ pub(super) async fn fetch_table_preview(
     let total_rows: i64 = client
         .query_one(&format!("SELECT COUNT(*) FROM {target}{where_sql}"), &[])
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?
+        .map_err(query_failed)?
         .get(0);
     let rows = client
         .query(sql.as_str(), &[])
         .await
-        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+        .map_err(query_failed)?;
 
     let truncated = (input.offset as i64) + (rows.len() as i64) < total_rows;
     let take = rows.len().min(input.max_rows as usize);

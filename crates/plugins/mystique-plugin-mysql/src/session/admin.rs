@@ -6,6 +6,7 @@ use mystique_connector_api::{
     TableAdminResult, TableObjectKind,
 };
 
+use super::query_failed;
 use super::MysqlSession;
 
 pub(super) async fn apply_table_admin(
@@ -26,10 +27,8 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::CreateStatement => {
             let kw = if is_view { "VIEW" } else { "TABLE" };
             let sql = format!("SHOW CREATE {kw} {qname}");
-            let row: Option<mysql_async::Row> = conn
-                .query_first(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let row: Option<mysql_async::Row> =
+                conn.query_first(sql).await.map_err(query_failed)?;
             let row =
                 row.ok_or_else(|| ConnectorError::Query(format!("Object {qname} was not found.")))?;
             let create: Option<String> = row.get(1);
@@ -49,9 +48,7 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::CreateObject => {
             let sql =
                 format!("CREATE TABLE {qname} (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY)");
-            conn.query_drop(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            conn.query_drop(sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Created table {qname}."),
@@ -66,9 +63,7 @@ pub(super) async fn apply_table_admin(
                 new_name,
             );
             let sql = format!("RENAME TABLE {qname} TO {dest}");
-            conn.query_drop(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            conn.query_drop(sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Renamed {qname} to {dest}."),
@@ -77,9 +72,7 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::Drop => {
             let kw = if is_view { "VIEW" } else { "TABLE" };
             let sql = format!("DROP {kw} IF EXISTS {qname}");
-            conn.query_drop(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            conn.query_drop(sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Dropped {qname}."),
@@ -92,9 +85,7 @@ pub(super) async fn apply_table_admin(
                 ));
             }
             let sql = format!("TRUNCATE TABLE {qname}");
-            conn.query_drop(sql)
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            conn.query_drop(sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Truncated {qname}."),
@@ -115,10 +106,10 @@ pub(super) async fn apply_table_admin(
             );
             conn.query_drop(format!("CREATE TABLE {dest} LIKE {qname}"))
                 .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             conn.query_drop(format!("INSERT INTO {dest} SELECT * FROM {qname}"))
                 .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             Ok(TableAdminResult::executed(
                 input.op,
                 format!("Duplicated {qname} to {dest}."),

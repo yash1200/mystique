@@ -7,6 +7,7 @@ use mystique_connector_api::{
 };
 
 use super::encode::value_ref_json;
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn execute_query(
@@ -42,9 +43,7 @@ pub(super) async fn execute_query(
                     || lower.starts_with("values");
 
                 let result = if is_select_like {
-                    let mut stmt = conn
-                        .prepare(sql)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let mut stmt = conn.prepare(sql).map_err(query_failed)?;
 
                     let col_count = stmt.column_count();
                     // Declared affinity/type when available (CREATE TABLE).
@@ -60,25 +59,18 @@ pub(super) async fn execute_query(
                         })
                         .collect();
 
-                    let mut rows_iter = stmt
-                        .query([])
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let mut rows_iter = stmt.query([]).map_err(query_failed)?;
 
                     let mut out_rows = Vec::new();
                     let mut truncated = false;
-                    while let Some(row) = rows_iter
-                        .next()
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?
-                    {
+                    while let Some(row) = rows_iter.next().map_err(query_failed)? {
                         if out_rows.len() >= max_rows {
                             truncated = true;
                             break;
                         }
                         let mut cells = Vec::with_capacity(col_count);
                         for j in 0..col_count {
-                            let v = row
-                                .get_ref(j)
-                                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                            let v = row.get_ref(j).map_err(query_failed)?;
                             cells.push(value_ref_json(v));
                         }
                         out_rows.push(cells);
@@ -108,8 +100,7 @@ pub(super) async fn execute_query(
                         message,
                     }
                 } else {
-                    conn.execute(sql, [])
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    conn.execute(sql, []).map_err(query_failed)?;
 
                     let mut message = Some(
                         "Statement executed. Tabular rows only for SELECT-like queries.".into(),

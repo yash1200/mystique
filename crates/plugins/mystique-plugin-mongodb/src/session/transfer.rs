@@ -3,13 +3,14 @@
 use mongodb::bson::Document;
 use mystique_connector_api::{
     export_object_with_preview, import_object_from_file, preview_import_with_describe,
-    ConnectorError, ConnectorResult, ExportObjectInput, ExportObjectResult, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, ImportOnDuplicate,
-    PreviewImportInput, PreviewImportResult,
+    ConnectorResult, ExportObjectInput, ExportObjectResult, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, ImportOnDuplicate, PreviewImportInput,
+    PreviewImportResult,
 };
 use serde_json::{json, Value as JsonValue};
 
 use super::encode::{coerce_mongo_json, mongo_id_json};
+use super::query_failed;
 use super::MongoSession;
 use crate::shell_filter::json_to_document;
 
@@ -67,9 +68,7 @@ pub(super) async fn import_chunk(
         match input.on_duplicate {
             ImportOnDuplicate::StopOnError => {
                 let doc = json_to_document(&JsonValue::Object(doc_map))?;
-                coll.insert_one(doc)
-                    .await
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                coll.insert_one(doc).await.map_err(query_failed)?;
                 inserted += 1;
             }
             ImportOnDuplicate::UpdateOnDuplicate => {
@@ -80,9 +79,7 @@ pub(super) async fn import_chunk(
                     .unwrap_or(JsonValue::Null);
                 if matches!(id, JsonValue::Null) || id.as_str() == Some("") {
                     let doc = json_to_document(&JsonValue::Object(doc_map))?;
-                    coll.insert_one(doc)
-                        .await
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    coll.insert_one(doc).await.map_err(query_failed)?;
                     inserted += 1;
                 } else {
                     let filter = json_to_document(&json!({ "_id": mongo_id_json(&id) }))?;
@@ -90,7 +87,7 @@ pub(super) async fn import_chunk(
                     coll.replace_one(filter, replacement)
                         .upsert(true)
                         .await
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                        .map_err(query_failed)?;
                     updated += 1;
                 }
             }

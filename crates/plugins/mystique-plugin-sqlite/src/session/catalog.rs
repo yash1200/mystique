@@ -5,6 +5,7 @@ use mystique_connector_api::{
     ColumnReference, ConnectorError, ConnectorResult,
 };
 
+use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn describe_table(
@@ -32,32 +33,19 @@ pub(super) async fn describe_table(
             let safe = table.replace('\'', "''");
             let mut stmt = conn
                 .prepare(&format!("PRAGMA table_info('{safe}')"))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
-            let mut rows = stmt
-                .query([])
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
+            let mut rows = stmt.query([]).map_err(query_failed)?;
             let mut out = Vec::new();
-            while let Some(row) = rows
-                .next()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-            {
+            while let Some(row) = rows.next().map_err(query_failed)? {
                 // cid, name, type, notnull, dflt_value, pk
-                let name: String = row
-                    .get(1)
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let name: String = row.get(1).map_err(query_failed)?;
                 let ty: String = row
                     .get::<_, Option<String>>(2)
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
+                    .map_err(query_failed)?
                     .unwrap_or_else(|| "ANY".into());
-                let notnull: i64 = row
-                    .get(3)
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let dflt: Option<String> = row
-                    .get(4)
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let pk: i64 = row
-                    .get(5)
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                let notnull: i64 = row.get(3).map_err(query_failed)?;
+                let dflt: Option<String> = row.get(4).map_err(query_failed)?;
+                let pk: i64 = row.get(5).map_err(query_failed)?;
                 out.push(ColumnInfo {
                     name,
                     data_type: if ty.is_empty() { "ANY".into() } else { ty },
@@ -119,39 +107,28 @@ pub(super) async fn list_catalog_columns(
                  WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' \
                  ORDER BY name",
                 )
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let tables: Vec<String> = tables_stmt
                 .query_map([], |row| row.get(0))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
+                .map_err(query_failed)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
 
             let mut out = Vec::new();
             for table in tables {
                 let safe = table.replace('\'', "''");
                 let mut stmt = conn
                     .prepare(&format!("PRAGMA table_info('{safe}')"))
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let mut rows = stmt
-                    .query([])
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                while let Some(row) = rows
-                    .next()
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
-                {
-                    let name: String = row
-                        .get(1)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    .map_err(query_failed)?;
+                let mut rows = stmt.query([]).map_err(query_failed)?;
+                while let Some(row) = rows.next().map_err(query_failed)? {
+                    let name: String = row.get(1).map_err(query_failed)?;
                     let ty: String = row
                         .get::<_, Option<String>>(2)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?
+                        .map_err(query_failed)?
                         .unwrap_or_else(|| "ANY".into());
-                    let notnull: i64 = row
-                        .get(3)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    let pk: i64 = row
-                        .get(5)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let notnull: i64 = row.get(3).map_err(query_failed)?;
+                    let pk: i64 = row.get(5).map_err(query_failed)?;
                     out.push(CatalogColumnRow {
                         database: None,
                         schema: Some("main".into()),
@@ -188,20 +165,11 @@ pub(super) async fn list_catalog(
                      WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' \
                      ORDER BY name",
                     )
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let mut rows = stmt
-                    .query([])
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                while let Some(row) = rows
-                    .next()
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
-                {
-                    let name: String = row
-                        .get(0)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    let raw_type: String = row
-                        .get(1)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    .map_err(query_failed)?;
+                let mut rows = stmt.query([]).map_err(query_failed)?;
+                while let Some(row) = rows.next().map_err(query_failed)? {
+                    let name: String = row.get(0).map_err(query_failed)?;
+                    let raw_type: String = row.get(1).map_err(query_failed)?;
                     let kind = if raw_type.to_ascii_lowercase().contains("view") {
                         "view"
                     } else {
@@ -243,36 +211,25 @@ pub(super) async fn list_relationships(
                  WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
                  ORDER BY name",
                 )
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
             let tables: Vec<String> = tables_stmt
                 .query_map([], |row| row.get(0))
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
+                .map_err(query_failed)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                .map_err(query_failed)?;
 
             let mut out = Vec::new();
             for table in tables {
                 let safe = table.replace('\'', "''");
                 let mut fk_stmt = conn
                     .prepare(&format!("PRAGMA foreign_key_list('{safe}')"))
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                let mut rows = fk_stmt
-                    .query([])
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                while let Some(row) = rows
-                    .next()
-                    .map_err(|e| ConnectorError::Query(e.to_string()))?
-                {
+                    .map_err(query_failed)?;
+                let mut rows = fk_stmt.query([]).map_err(query_failed)?;
+                while let Some(row) = rows.next().map_err(query_failed)? {
                     // id, seq, table, from, to, on_update, on_delete, match
-                    let to_table: String = row
-                        .get(2)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    let from_col: String = row
-                        .get(3)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
-                    let to_col: String = row
-                        .get(4)
-                        .map_err(|e| ConnectorError::Query(e.to_string()))?;
+                    let to_table: String = row.get(2).map_err(query_failed)?;
+                    let from_col: String = row.get(3).map_err(query_failed)?;
+                    let to_col: String = row.get(4).map_err(query_failed)?;
                     out.push(CatalogRelationship {
                         from_schema: None,
                         from_table: table.clone(),

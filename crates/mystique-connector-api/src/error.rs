@@ -23,7 +23,7 @@ pub enum ConnectorError {
     #[error("not supported: {0}")]
     NotSupported(String),
 
-    #[error("query failed: {0}")]
+    #[error("{0}")]
     Query(String),
 
     #[error("policy: {0}")]

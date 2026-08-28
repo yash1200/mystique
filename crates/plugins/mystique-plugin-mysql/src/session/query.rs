@@ -11,6 +11,7 @@ use mystique_connector_api::{
 use serde_json::Value as JsonValue;
 
 use super::encode::{mysql_type_label, value_json};
+use super::query_failed;
 use super::MysqlSession;
 
 pub(super) async fn execute_query(
@@ -50,10 +51,7 @@ pub(super) async fn execute_query(
             || lower.starts_with("values");
 
         let result = if is_select_like {
-            let result_set = conn
-                .query_iter(sql.as_str())
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            let result_set = conn.query_iter(sql.as_str()).await.map_err(query_failed)?;
 
             let columns: Vec<QueryColumn> = result_set
                 .columns_ref()
@@ -67,11 +65,7 @@ pub(super) async fn execute_query(
             let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
             let mut truncated = false;
             let mut result_set = result_set;
-            while let Some(row) = result_set
-                .next()
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-            {
+            while let Some(row) = result_set.next().await.map_err(query_failed)? {
                 if out_rows.len() >= max_rows {
                     truncated = true;
                     break;
@@ -83,12 +77,7 @@ pub(super) async fn execute_query(
                 }
                 out_rows.push(cells);
             }
-            while result_set
-                .next()
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?
-                .is_some()
-            {
+            while result_set.next().await.map_err(query_failed)?.is_some() {
                 truncated = true;
             }
 
@@ -116,9 +105,7 @@ pub(super) async fn execute_query(
                 message,
             }
         } else {
-            conn.query_drop(sql.as_str())
-                .await
-                .map_err(|e| ConnectorError::Query(e.to_string()))?;
+            conn.query_drop(sql.as_str()).await.map_err(query_failed)?;
 
             let mut message = Some(format!(
                 "Statement executed ({}). Tabular rows only for SELECT-like queries.",
