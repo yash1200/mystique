@@ -9,11 +9,20 @@ src/lib/
 ├── styles/tokens.css          # Theme tokens only (no components)
 ├── types/                     # Shared TS models
 ├── data/                      # Mock / fixtures (UI-only for now)
-└── components/
-    ├── core/                  # Design-system primitives (Button, Modal, Input, …)
-    ├── home/                  # Home / connections + app chrome (settings, brand)
-    └── workspace/             # Connected studio
-        ├── er_diagram/        # ER / model canvas, DBML, layout
+├── utils/                     # Cross-cutting helpers (cn, export, format)
+├── helpers/                   # Feature logic — mirrors components/
+│   ├── home/
+│   │   └── connection-forms/
+│   └── workspace/
+│       ├── er_diagram/
+│       ├── grid/
+│       ├── query/
+│       └── shell/
+└── components/                # Svelte UI only
+    ├── core/
+    ├── home/
+    └── workspace/
+        ├── er_diagram/
         ├── explorer/
         ├── grid/
         ├── query/

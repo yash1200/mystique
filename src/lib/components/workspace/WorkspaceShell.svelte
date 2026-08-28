@@ -61,6 +61,13 @@
 	} from '$lib/types/workspace'
 	import { setAppTitle } from '$lib/utils/appTitle'
 	import { queryLanguageFor } from '$lib/utils/queryPolicyFe'
+	import {
+		engineBindsSessionToDatabase,
+		isSessionMissingError,
+		modelCacheKey,
+		mountWorkspaceShortcuts,
+		preferredDbForProfile,
+	} from '$lib/helpers/workspace/shell'
 	import { onDestroy, onMount } from 'svelte'
 	import ExportDataModal, {
 		type ExportDataSpec,
@@ -75,14 +82,7 @@
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
-	import {
-		engineBindsSessionToDatabase,
-		isSessionMissingError,
-		modelCacheKey,
-		preferredDbForProfile,
-	} from './shell/sessionUtils'
 	import WorkspaceMainPane from './shell/WorkspaceMainPane.svelte'
-	import { mountWorkspaceShortcuts } from './shell/workspaceShortcuts'
 	import WorkspaceSidePane from './shell/WorkspaceSidePane.svelte'
 	import UnsavedCloseModal from './UnsavedCloseModal.svelte'
 

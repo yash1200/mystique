@@ -4,7 +4,7 @@
 	import {
 		type CatalogIconName,
 		type CatalogIconTone,
-	} from './catalogIcon'
+	} from '$lib/helpers/workspace/catalogIcon'
 
 	interface Props {
 		name: CatalogIconName

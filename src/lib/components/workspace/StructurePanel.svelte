@@ -19,8 +19,8 @@
 	import { fetchedLabel } from '$lib/utils/fetchedLabel'
 	import { onDestroy } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
+	import { iconToneForName, type CatalogIconName } from '$lib/helpers/workspace/catalogIcon'
 	import CatalogIcon from './CatalogIcon.svelte'
-	import { iconToneForName, type CatalogIconName } from './catalogIcon'
 	import ExplorerSearch from './explorer/ExplorerSearch.svelte'
 
 	interface Props {

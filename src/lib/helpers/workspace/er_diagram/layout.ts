@@ -1,7 +1,7 @@
 /**
- * ER canvas layout shared by live catalog load and the designer.
+ * ER canvas layout for the live catalog diagram.
  *
- * Geometry must match `erConstants` BASE sizes (scale 1). The old packer
+ * Geometry must match `constants` BASE sizes (scale 1). The old packer
  * used each node's own height as the *row stride*, so a short table in
  * row 2 sat inside a tall table from row 1.
  *
@@ -15,7 +15,7 @@ import {
 	ER_HEADER_H_BASE,
 	ER_ROW_H_BASE,
 	ER_TABLE_W_BASE,
-} from './erConstants'
+} from './constants'
 
 export const ER_TABLE_W = ER_TABLE_W_BASE
 export const ER_HEADER_H = ER_HEADER_H_BASE

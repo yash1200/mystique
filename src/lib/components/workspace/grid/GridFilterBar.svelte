@@ -6,7 +6,7 @@
 		type FilterRule,
 		opNeedsValue,
 		opOptions,
-	} from './filterLogic'
+	} from '$lib/helpers/workspace/grid'
 
 	interface Props {
 		filterMode: FilterMode

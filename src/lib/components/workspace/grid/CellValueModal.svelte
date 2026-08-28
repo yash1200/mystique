@@ -9,7 +9,7 @@
 		minifyJson,
 		prettyJson,
 		type CellViewMode,
-	} from './cellView'
+	} from '$lib/helpers/workspace/grid'
 	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
 
 	interface Props {

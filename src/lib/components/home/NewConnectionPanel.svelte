@@ -29,13 +29,15 @@
 		defaultCapabilitiesForEngine,
 	} from '$lib/types/engineCaps'
 	import {
+		namePlaceholder,
+		validateDraftForSave,
+		validateDraftForTest,
+	} from '$lib/helpers/home/connection-forms'
+	import {
 		MongodbFields,
 		MysqlFields,
 		PostgresFields,
 		SqliteFields,
-		namePlaceholder,
-		validateDraftForSave,
-		validateDraftForTest,
 	} from './connection-forms'
 
 	interface Props {

@@ -38,8 +38,8 @@
 		QUERY_FETCH_MAX_ROWS,
 		RESULT_PAGE_SIZE_DEFAULT,
 		type RunState,
-	} from './query/types'
-	import { isSessionMissingError } from './shell/sessionUtils'
+	} from '$lib/helpers/workspace/query'
+	import { isSessionMissingError } from '$lib/helpers/workspace/shell'
 
 	interface Props {
 		tabId: string

@@ -15,7 +15,7 @@
 	import { cn } from '$lib/utils/cn'
 	import { copyTextToClipboard } from '$lib/utils/exportTable'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
-	import type { RunState } from './types'
+	import type { RunState } from '$lib/helpers/workspace/query'
 
 	export type ResultExportAction =
 		| 'download-csv'

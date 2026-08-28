@@ -1,39 +1,37 @@
 <script lang="ts">
 	/**
 	 * Live ER viewer — catalog schema, rearrange-only.
-	 * Geometry: `erGeometry`. Layout: `erLayout`. Chrome: sibling panes.
 	 */
 	import { ContextMenu, Toast } from '$lib/components/core'
-	import type { DataFamily, ErDiagramState, ErPoint } from '$lib/types/er'
-	import { FAMILY_META, snapToGrid } from '$lib/types/er'
-	import { exportPng } from '$lib/utils/exportTable'
-	import { currentUiScale, onUiScaleChange } from '$lib/utils/uiScale'
-	import { onMount, tick } from 'svelte'
-	import { diagramToDbml } from './dbml'
-	import ErCanvas from './ErCanvas.svelte'
 	import {
 		ER_HEADER_H_BASE,
 		ER_ROW_H_BASE,
 		ER_TABLE_W_BASE,
 		ER_ZOOM_MAX,
 		ER_ZOOM_MIN,
+		captureErDiagramPng,
 		clampErZoom,
 		cloneDiagram,
+		createErGeometry,
+		diagramToDbml,
+		erContentBounds,
+		erCtxMenuItems,
 		erEdgesDrawOrder,
 		erFkColumnIds,
 		erFocusedLink,
 		isEditableTarget,
-		nearestErZoomStop,
-	} from './erConstants'
-	import { erCtxMenuItems, type ErCtxMenu } from './erContextMenu'
-	import ErDbmlSnapshot from './ErDbmlSnapshot.svelte'
-	import { captureErDiagramPng } from './erExportPng'
-	import { createErGeometry } from './erGeometry'
-	import {
-		erContentBounds,
 		layoutErNodes,
+		nearestErZoomStop,
 		placeErNodesInView,
-	} from './erLayout'
+		type ErCtxMenu,
+	} from '$lib/helpers/workspace/er_diagram'
+	import type { DataFamily, ErDiagramState, ErPoint } from '$lib/types/er'
+	import { FAMILY_META, snapToGrid } from '$lib/types/er'
+	import { exportPng } from '$lib/utils/exportTable'
+	import { currentUiScale, onUiScaleChange } from '$lib/utils/uiScale'
+	import { onMount, tick } from 'svelte'
+	import ErCanvas from './ErCanvas.svelte'
+	import ErDbmlSnapshot from './ErDbmlSnapshot.svelte'
 	import ErStatusBar from './ErStatusBar.svelte'
 
 	interface Props {

@@ -7,7 +7,7 @@
 		selectOptionsForColumn,
 		usesSelectEditor,
 	} from '$lib/utils/columnEditor'
-	import { cellText } from './filterLogic'
+	import { cellText } from '$lib/helpers/workspace/grid'
 
 	export type CellRef = { row: number; col: string }
 

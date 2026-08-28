@@ -33,7 +33,7 @@
 		createMystiqueEditorTheme,
 		identPathHighlight,
 		mystiqueHighlight,
-	} from './cmTheme'
+	} from '$lib/helpers/workspace/query'
 
 	interface Props {
 		connectionId: string

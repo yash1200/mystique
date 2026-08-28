@@ -9,7 +9,7 @@ import {
 	replaceWorkspaceTabs,
 	workspaceTabToSaveInput,
 } from '$lib/api/workspaceTabs'
-import type { QueryRunCache } from '$lib/components/workspace/query/types'
+import type { QueryRunCache } from '$lib/helpers/workspace/query'
 import type { ConnectionProfile } from '$lib/types/connection'
 import {
 	normalizeCapabilities,

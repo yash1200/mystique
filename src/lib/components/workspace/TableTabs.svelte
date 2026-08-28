@@ -7,7 +7,7 @@
 	} from '$lib/components/core'
 	import type { CatalogObjectKind, WorkspaceTab } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
-	import { iconNameForTab, iconToneForName } from './catalogIcon'
+	import { iconNameForTab, iconToneForName } from '$lib/helpers/workspace/catalogIcon'
 	import CatalogIcon from './CatalogIcon.svelte'
 	import { tick } from 'svelte'
 	import { flip } from 'svelte/animate'

@@ -3,7 +3,7 @@
 	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
-	import { iconToneForName } from '../catalogIcon'
+	import { iconToneForName } from '$lib/helpers/workspace/catalogIcon'
 	import CatalogIcon from '../CatalogIcon.svelte'
 
 	interface Props {

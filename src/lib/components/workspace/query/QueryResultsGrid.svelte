@@ -17,14 +17,14 @@
 		copyTextToClipboard,
 	} from '$lib/utils/exportTable'
 	import { onMount, untrack } from 'svelte'
-	import CellValueModal from '../grid/CellValueModal.svelte'
-	import { valueToEditorText } from '../grid/cellView'
+	import { valueToEditorText } from '$lib/helpers/workspace/grid'
 	import {
 		RESULT_HEADER_H,
 		cellDisplay,
 		computeResultWindow,
 		measureColLayout,
-	} from './queryResultsVirtual'
+	} from '$lib/helpers/workspace/query'
+	import CellValueModal from '../grid/CellValueModal.svelte'
 
 	/** Virtualization row height — follows density pref / `--grid-row-height`. */
 	const ROW_H = $derived(appPrefs.gridRowHeightPx)

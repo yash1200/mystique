@@ -21,8 +21,6 @@
 		objectsToRows,
 	} from '$lib/utils/exportTable'
 	import { onMount } from 'svelte'
-	import CellValueModal from './grid/CellValueModal.svelte'
-	import { valueToEditorText } from './grid/cellView'
 	import {
 		cellText,
 		type FilterMode,
@@ -34,12 +32,14 @@
 		parseCodeFilters,
 		parseDraft,
 		rulesToCode,
+		valueToEditorText,
 		valuesEqual,
-	} from './grid/filterLogic'
+	} from '$lib/helpers/workspace/grid'
+	import { isSessionMissingError } from '$lib/helpers/workspace/shell'
+	import CellValueModal from './grid/CellValueModal.svelte'
 	import GridFilterBar from './grid/GridFilterBar.svelte'
 	import GridStatusBar from './grid/GridStatusBar.svelte'
 	import GridTable, { type CellRef } from './grid/GridTable.svelte'
-	import { isSessionMissingError } from './shell/sessionUtils'
 
 	interface Props {
 		table: TableMeta

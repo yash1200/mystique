@@ -2,10 +2,12 @@
 	import { Pill } from '$lib/components/core'
 	import type { ErNode } from '$lib/types/er'
 	import { cn } from '$lib/utils/cn'
-	import type { CatalogIconName } from '../catalogIcon'
-	import { iconToneForName } from '../catalogIcon'
+	import { erNodeKindShort } from '$lib/helpers/workspace/er_diagram'
+	import {
+		iconToneForName,
+		type CatalogIconName,
+	} from '$lib/helpers/workspace/catalogIcon'
 	import CatalogIcon from '../CatalogIcon.svelte'
-	import { erNodeKindShort } from './erConstants'
 
 	interface Props {
 		node: ErNode

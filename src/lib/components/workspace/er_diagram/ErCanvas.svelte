@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { EmptyState } from '$lib/components/core'
+	import {
+		isBrokenEdge,
+		type EdgeSpine,
+		type ErFocusedLink,
+		type ErGeometry,
+	} from '$lib/helpers/workspace/er_diagram'
 	import type { ErDiagramState, ErEdge } from '$lib/types/er'
 	import { ER_GRID } from '$lib/types/er'
-	import { isBrokenEdge, type ErFocusedLink } from './erConstants'
-	import type { EdgeSpine, ErGeometry } from './erGeometry'
 	import ErTableCard from './ErTableCard.svelte'
 
 	interface Props {
