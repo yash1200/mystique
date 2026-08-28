@@ -3,60 +3,50 @@
 	import { cn } from '$lib/utils/cn'
 
 	interface Props {
-		dirty: boolean
-		readOnly: boolean
 		entityWord: string
 		hasDiagram: boolean
 		nodeCount: number
 		edgeCount: number
 		selectionCount: number
-		arrowTool: 'normal' | 'broken' | null
-		linkFrom: boolean
 		hasNodes: boolean
 		showGrid: boolean
-		dbmlSourceMode: boolean
 		showDbml: boolean
 		canZoomOut: boolean
 		canZoomIn: boolean
 		zoomLabel: string
 		refreshing?: boolean
-		toolMsg: string | null
+		exportingPng?: boolean
 		onAutoLayout: () => void
+		onDownloadPng: () => void
 		onRefresh?: () => void
 		onZoomOut: () => void
 		onZoomIn: () => void
 		onResetZoom: () => void
 		onToggleGrid: () => void
-		onToggleDbmlEditor: () => void
 		onToggleDbml: () => void
 	}
 
 	let {
-		dirty,
-		readOnly,
 		entityWord,
 		hasDiagram,
 		nodeCount,
 		edgeCount,
 		selectionCount,
-		arrowTool,
-		linkFrom,
 		hasNodes,
 		showGrid,
-		dbmlSourceMode,
 		showDbml,
 		canZoomOut,
 		canZoomIn,
 		zoomLabel,
 		refreshing = false,
-		toolMsg,
+		exportingPng = false,
 		onAutoLayout,
+		onDownloadPng,
 		onRefresh,
 		onZoomOut,
 		onZoomIn,
 		onResetZoom,
 		onToggleGrid,
-		onToggleDbmlEditor,
 		onToggleDbml,
 	}: Props = $props()
 </script>
@@ -83,32 +73,20 @@
 				{/if}
 			</span>
 		{:else}
-			<span class="truncate font-mono tabular-nums text-fg-muted">No diagram</span>
+			<span class="truncate font-mono tabular-nums text-fg-muted"
+				>No diagram</span
+			>
 		{/if}
 		{#if selectionCount > 0}
 			<span class="shrink-0 text-fg-muted">{selectionCount} selected</span>
 		{/if}
-		{#if arrowTool}
-			<span class="shrink-0 text-accent">
-				{arrowTool === 'broken' ? 'Broken arrow' : 'Normal arrow'}
-				{#if linkFrom}
-					· pick target
-				{/if}
-			</span>
-		{/if}
-		{#if dirty && !readOnly}
-			<span
-				class="shrink-0 rounded-sm border border-warning/45 bg-warning/15 px-1 py-px text-micro font-medium text-warning"
-			>
-				Unsaved
-			</span>
-		{/if}
-		{#if toolMsg}
-			<span class="min-w-0 truncate text-fg-muted" role="status">{toolMsg}</span>
-		{/if}
 	{/snippet}
 	{#snippet center()}
-		<div class="flex items-center gap-1.5" role="group" aria-label="Canvas zoom">
+		<div
+			class="flex items-center gap-1.5"
+			role="group"
+			aria-label="Canvas zoom"
+		>
 			<IconButton
 				label="Zoom out"
 				size="sm"
@@ -153,6 +131,17 @@
 			</IconButton>
 		{/if}
 		<IconButton
+			label={exportingPng ? 'Downloading PNG…' : 'Download PNG'}
+			size="sm"
+			variant="quiet"
+			onclick={onDownloadPng}
+			disabled={!hasNodes || exportingPng}
+			aria-busy={exportingPng}
+			class={exportingPng ? 'opacity-45' : ''}
+		>
+			<Icon name="download" />
+		</IconButton>
+		<IconButton
 			label={showGrid ? 'Hide grid' : 'Show grid'}
 			size="sm"
 			variant="quiet"
@@ -161,27 +150,14 @@
 		>
 			<Icon name="grid" />
 		</IconButton>
-		{#if !readOnly}
-			<IconButton
-				label={dbmlSourceMode ? 'Close DBML editor' : 'Open DBML editor'}
-				size="sm"
-				variant="quiet"
-				active={dbmlSourceMode}
-				onclick={onToggleDbmlEditor}
-			>
-				<Icon name="code-slash" />
-			</IconButton>
-		{/if}
-		{#if !dbmlSourceMode}
-			<IconButton
-				label={showDbml ? 'Hide DBML snapshot' : 'Show DBML snapshot'}
-				size="sm"
-				variant="quiet"
-				active={showDbml}
-				onclick={onToggleDbml}
-			>
-				<Icon name="code" />
-			</IconButton>
-		{/if}
+		<IconButton
+			label={showDbml ? 'Hide DBML snapshot' : 'Show DBML snapshot'}
+			size="sm"
+			variant="quiet"
+			active={showDbml}
+			onclick={onToggleDbml}
+		>
+			<Icon name="code" />
+		</IconButton>
 	{/snippet}
 </StatusBar>

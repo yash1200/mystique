@@ -118,14 +118,13 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		id: 'model',
 		title: 'Model',
 		items: [
-			{ id: 'find', label: 'Find table', keys: ['/'] },
 			{ id: 'layout', label: 'Auto-layout', keys: ['mod', 'shift', 'L'] },
-			{ id: 'undo', label: 'Undo', keys: ['mod', 'Z'] },
-			{ id: 'redo', label: 'Redo', keys: ['mod', 'shift', 'Z'] },
+			{
+				id: 'download-png',
+				label: 'Download ERD as PNG',
+				keys: ['mod', 'shift', 'E'],
+			},
 			{ id: 'select-all', label: 'Select all tables', keys: ['mod', 'A'] },
-			{ id: 'copy-tables', label: 'Copy tables', keys: ['mod', 'C'] },
-			{ id: 'paste-tables', label: 'Paste tables', keys: ['mod', 'V'] },
-			{ id: 'del-sel', label: 'Delete selection', keys: ['delete'] },
 		],
 	},
 ]

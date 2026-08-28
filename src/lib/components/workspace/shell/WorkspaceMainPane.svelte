@@ -239,7 +239,6 @@
 							initialDiagram={activeModel.diagram}
 							initialName={activeModel.title}
 							focusNodeId={activeModel.focusNodeId}
-							embedded={true}
 							onrefresh={onopenmodelretry}
 							refreshing={modelLoading}
 						/>

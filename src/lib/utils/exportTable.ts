@@ -259,13 +259,14 @@ async function saveBytesWithPrompt(
 	defaultName: string,
 	filters: { name: string; extensions: string[] }[],
 	mimeType: string,
+	title = 'Export results',
 ): Promise<SaveResult> {
 	if (isTauri()) {
 		try {
 			const { save } = await import('@tauri-apps/plugin-dialog')
 			const { writeFile } = await import('@tauri-apps/plugin-fs')
 			const path = await save({
-				title: 'Export results',
+				title,
 				defaultPath: defaultName,
 				filters,
 			})
@@ -296,7 +297,9 @@ async function saveBytesWithPrompt(
 					? 'text/csv'
 					: f.extensions.includes('pdf')
 						? 'application/pdf'
-						: mimeType
+						: f.extensions.includes('png')
+							? 'image/png'
+							: mimeType
 				accept[mime] = f.extensions.map((ext) => `.${ext}`)
 			}
 			const handle = await w.showSaveFilePicker({
@@ -327,6 +330,19 @@ async function saveBytesWithPrompt(
 			error: e instanceof Error ? e.message : String(e),
 		}
 	}
+}
+
+export async function exportPng(
+	bytes: Uint8Array,
+	fileBase = 'diagram',
+): Promise<SaveResult> {
+	return saveBytesWithPrompt(
+		bytes,
+		`${safeFileBase(fileBase)}.png`,
+		[{ name: 'PNG', extensions: ['png'] }],
+		'image/png',
+		'Export ER diagram',
+	)
 }
 
 export async function exportRowsAsCsv(

@@ -4,7 +4,6 @@ import type { ErDiagramState, ErEdge, ErEdgeKind, ErNode } from '$lib/types/er'
 export const ER_TABLE_W_BASE = 280
 export const ER_HEADER_H_BASE = 40
 export const ER_ROW_H_BASE = 34
-export const ER_MAX_HISTORY = 80
 export const ER_ZOOM_MIN = 0.25
 export const ER_ZOOM_MAX = 2
 export const ER_ZOOM_STOPS = [0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 1.75, 2]
@@ -33,10 +32,6 @@ export function isBrokenEdge(kind: ErEdgeKind | string): boolean {
 
 export function cloneDiagram<T>(d: T): T {
 	return JSON.parse(JSON.stringify(d)) as T
-}
-
-export function uid(prefix: string): string {
-	return `${prefix}_${Math.random().toString(36).slice(2, 9)}`
 }
 
 export function isEditableTarget(t: EventTarget | null): boolean {
