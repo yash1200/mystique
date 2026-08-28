@@ -1,3 +1,5 @@
+import { isMacPlatform } from '$lib/data/appShortcuts'
+
 /**
  * Appearance + session prefs. State is reactive; values persist to localStorage.
  */
@@ -12,9 +14,8 @@ export type ConnectionListSort =
 
 const THEME_KEY = 'mystique-theme'
 const DENSITY_KEY = 'mystique-density'
-const LAST_CONN_KEY = 'mystique-last-connection-id'
-const REMEMBER_KEY = 'mystique-remember-last-connection'
 const INSPECT_ON_CLICK_KEY = 'mystique-inspect-on-row-click'
+const OPEN_TABLE_SINGLE_CLICK_KEY = 'mystique-open-table-on-single-click'
 const CONN_SORT_KEY = 'mystique-connection-sort'
 const EXPLORER_WIDTH_KEY = 'mystique-explorer-panel-width'
 const HOME_SIDEBAR_WIDTH_KEY = 'mystique-home-sidebar-width'
@@ -138,8 +139,10 @@ class AppPrefsStore {
 	theme = $state<ThemePref>(readTheme())
 	density = $state<DensityPref>(readDensity())
 	inspectOnRowClick = $state(readBool(INSPECT_ON_CLICK_KEY, true))
-	lastConnectionId = $state<string | null>(lsGet(LAST_CONN_KEY))
-	rememberLastConnection = $state(readBool(REMEMBER_KEY, true))
+	/** macOS defaults to single-click; other platforms default to double-click. */
+	openTableOnSingleClick = $state(
+		readBool(OPEN_TABLE_SINGLE_CLICK_KEY, isMacPlatform()),
+	)
 	connectionListSort = $state<ConnectionListSort>(readSort())
 	explorerPanelWidth = $state(readExplorerWidth())
 	homeSidebarWidth = $state(readHomeSidebarWidth())
@@ -186,14 +189,9 @@ class AppPrefsStore {
 		lsSet(INSPECT_ON_CLICK_KEY, on ? '1' : '0')
 	}
 
-	setLastConnectionId(id: string) {
-		this.lastConnectionId = id
-		lsSet(LAST_CONN_KEY, id)
-	}
-
-	setRememberLastConnection(on: boolean) {
-		this.rememberLastConnection = on
-		lsSet(REMEMBER_KEY, on ? '1' : '0')
+	setOpenTableOnSingleClick(on: boolean) {
+		this.openTableOnSingleClick = on
+		lsSet(OPEN_TABLE_SINGLE_CLICK_KEY, on ? '1' : '0')
 	}
 
 	setConnectionListSort(sort: ConnectionListSort) {

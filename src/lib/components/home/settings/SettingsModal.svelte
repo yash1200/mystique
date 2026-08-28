@@ -8,6 +8,7 @@
 	import AiSettings from './AiSettings.svelte'
 	import AppearanceSettings from './AppearanceSettings.svelte'
 	import McpSettings from './McpSettings.svelte'
+	import WorkspaceSettings from './WorkspaceSettings.svelte'
 
 	interface Props {
 		buttonSize?: 'sm' | 'md'
@@ -28,6 +29,14 @@
 			label: 'Appearance',
 			title: 'Appearance',
 			icon: 'grid',
+			description: 'Applies to the whole app.',
+		},
+		{
+			id: 'workspace',
+			label: 'Workspace',
+			title: 'Workspace',
+			icon: 'table',
+			description: 'Applies to the workspace.',
 		},
 		{
 			id: 'ai',
@@ -123,11 +132,16 @@
 			class="flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-3"
 		>
 			<div class="min-w-0">
-				<h2 class="m-0 text-title font-semibold tracking-tight text-fg">
+				<h2
+					id="settings-pane-title"
+					class="m-0 text-title font-semibold tracking-tight text-fg"
+				>
 					{current.title}
 				</h2>
 				{#if current.description}
-					<p class="mt-1 mb-0 max-w-prose-ui text-label leading-relaxed text-fg-secondary">
+					<p
+						class="mt-1 mb-0 max-w-prose-ui text-label leading-relaxed text-fg-secondary"
+					>
 						{current.description}
 					</p>
 				{/if}
@@ -145,6 +159,8 @@
 		<div class="min-h-0 flex-1 overflow-auto px-5 py-4">
 			{#if appSettingsUi.section === 'appearance'}
 				<AppearanceSettings />
+			{:else if appSettingsUi.section === 'workspace'}
+				<WorkspaceSettings />
 			{:else if appSettingsUi.section === 'ai'}
 				<AiSettings />
 			{:else}

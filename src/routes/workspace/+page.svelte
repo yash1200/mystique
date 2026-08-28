@@ -5,7 +5,6 @@
 	import { listProfiles } from '$lib/api/profiles'
 	import { isTauri } from '$lib/api/tauri'
 	import WorkspaceShell from '$lib/components/workspace/WorkspaceShell.svelte'
-	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type { ConnectionProfile } from '$lib/types/connection'
 	import {
@@ -36,7 +35,6 @@
 		)
 		if (existing) {
 			workspaceSession.setActiveConnection(connectionId)
-			appPrefs.setLastConnectionId(connectionId)
 			// Ensure live engine session if missing (e.g. soft reload).
 			if (isTauri() && !existing.engineSessionId) {
 				try {
@@ -101,7 +99,6 @@
 					return
 				}
 			}
-			appPrefs.setLastConnectionId(connectionId)
 			workspaceSession.connect(
 				{ ...profile, status: 'connected' },
 				engineSessionId,

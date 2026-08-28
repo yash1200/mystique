@@ -1,6 +1,11 @@
 <script lang="ts">
-	import { Checkbox, Field, Select, ThemeToggle } from '$lib/components/core'
-	import { appPrefs } from '$lib/stores/app-prefs.svelte'
+	import {
+		ControlGroup,
+		ControlRow,
+		Segmented,
+		type SegmentedOption,
+	} from '$lib/components/core'
+	import { appPrefs, type ThemePref } from '$lib/stores/app-prefs.svelte'
 	import {
 		applyUiScale,
 		currentUiScale,
@@ -9,20 +14,22 @@
 
 	let scale = $state(String(currentUiScale()))
 
-	const densityOptions = [
-		{ value: 'compact', label: 'Compact' },
-		{ value: 'comfortable', label: 'Comfortable' },
+	const themeOptions: SegmentedOption[] = [
+		{ value: 'light', label: 'Light', icon: '☀' },
+		{ value: 'dark', label: 'Dark', icon: '☾' },
+		{ value: 'system', label: 'System', icon: '◌' },
 	]
 
-	const scaleOptions = [
+	const scaleOptions: SegmentedOption[] = [
 		{ value: '1', label: '100%' },
 		{ value: '1.1', label: '110%' },
 		{ value: '1.25', label: '125%' },
 		{ value: '1.5', label: '150%' },
 	]
 
-	function onDensity(v: string) {
-		appPrefs.setDensity(v === 'comfortable' ? 'comfortable' : 'compact')
+	function onTheme(v: string) {
+		if (v !== 'light' && v !== 'dark' && v !== 'system') return
+		appPrefs.setTheme(v as ThemePref)
 	}
 
 	function onScale(v: string) {
@@ -34,42 +41,23 @@
 	}
 </script>
 
-<div class="flex max-w-panel-sm flex-col gap-5">
-	<Field label="Theme">
-		<ThemeToggle
-			preference={appPrefs.theme}
-			onchange={(pref) => appPrefs.setTheme(pref)}
-		/>
-	</Field>
-	<div class="grid grid-cols-2 gap-3">
-		<Field label="Density">
-			<Select
-				value={appPrefs.density}
-				options={densityOptions}
-				inputSize="sm"
-				onchange={onDensity}
+<div class="flex max-w-panel-md flex-col">
+	<ControlGroup labelledby="settings-pane-title">
+		<ControlRow label="Theme">
+			<Segmented
+				label="Theme"
+				value={appPrefs.theme}
+				options={themeOptions}
+				onchange={onTheme}
 			/>
-		</Field>
-		<Field label="UI scale">
-			<Select
+		</ControlRow>
+		<ControlRow label="UI scale">
+			<Segmented
+				label="UI scale"
 				value={scale}
 				options={scaleOptions}
-				inputSize="sm"
 				onchange={onScale}
 			/>
-		</Field>
-	</div>
-	<Field label="Row details">
-		<Checkbox
-			checked={appPrefs.inspectOnRowClick}
-			label="Open on row click"
-			onchange={(e) => {
-				const on = (e.currentTarget as HTMLInputElement).checked
-				appPrefs.setInspectOnRowClick(on)
-			}}
-		/>
-		<p class="mt-1 mb-0 text-caption text-fg-muted">
-			Off: open from the row menu (Show details).
-		</p>
-	</Field>
+		</ControlRow>
+	</ControlGroup>
 </div>

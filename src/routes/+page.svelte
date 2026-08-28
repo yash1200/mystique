@@ -17,7 +17,6 @@
 	import ConnectionSidebar from '$lib/components/home/ConnectionSidebar.svelte'
 	import HomeIllustration from '$lib/components/home/HomeIllustration.svelte'
 	import NewConnectionPanel from '$lib/components/home/NewConnectionPanel.svelte'
-	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import { workspaceSession } from '$lib/stores/workspace-session.svelte'
 	import type {
 		ConnectionFormDraft,
@@ -114,7 +113,6 @@
 		editing = false
 		testResult = null
 		selectedId = id
-		appPrefs.setLastConnectionId(id)
 	}
 
 	function startCreate() {
@@ -145,7 +143,6 @@
 		const profile = connections.find((c) => c.id === id)
 		if (!profile) return
 		selectedId = id
-		appPrefs.setLastConnectionId(id)
 		creating = false
 		editing = true
 		testResult = null

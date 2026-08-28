@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Icon } from '$lib/components/core'
+	import { appPrefs } from '$lib/stores/app-prefs.svelte'
 	import type { DatabaseMeta, TableMeta } from '$lib/types/workspace'
 	import { cn } from '$lib/utils/cn'
 	import { iconToneForName } from '../catalogIcon'
@@ -70,6 +71,25 @@
 			{ text: text.slice(i + needle.length), hit: false },
 		].filter((part) => part.text.length > 0)
 	}
+
+	function openFromClick(e: MouseEvent, table: TableMeta) {
+		if (e.detail > 1) return
+		// Keyboard activation reports detail 0; always open so Enter/Space work
+		// when the mouse gesture is double-click.
+		if (appPrefs.openTableOnSingleClick || e.detail === 0) onopen(table)
+	}
+
+	function openFromDblClick(table: TableMeta) {
+		if (!appPrefs.openTableOnSingleClick) onopen(table)
+	}
+
+	function objectTitle(table: TableMeta): string {
+		const name = table.schema ? `${table.schema}.${table.name}` : table.name
+		const hint = appPrefs.openTableOnSingleClick
+			? 'Click to open'
+			: 'Double-click to open'
+		return `${name} · ${hint}`
+	}
 </script>
 
 {#snippet highlighted(text: string)}
@@ -98,8 +118,9 @@
 				active ? 'bg-accent-muted' : 'bg-transparent hover:bg-hover',
 			)}
 			aria-label="{t.name}, {t.kind}"
-			title={t.schema ? `${t.schema}.${t.name}` : t.name}
-			ondblclick={() => onopen(t)}
+			title={objectTitle(t)}
+			onclick={(e) => openFromClick(e, t)}
+			ondblclick={() => openFromDblClick(t)}
 			oncontextmenu={(e) => {
 				e.preventDefault()
 				e.stopPropagation()

@@ -1,4 +1,4 @@
-export type SettingsSection = 'appearance' | 'mcp' | 'ai'
+export type SettingsSection = 'appearance' | 'workspace' | 'mcp' | 'ai'
 
 class AppSettingsUi {
 	open = $state(false)
