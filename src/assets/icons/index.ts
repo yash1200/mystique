@@ -1,4 +1,5 @@
 import arrowUp from './arrow-up.svg?raw'
+import bookmarkFilled from './bookmark-filled.svg?raw'
 import bookmark from './bookmark.svg?raw'
 import chat from './chat.svg?raw'
 import check from './check.svg?raw'
@@ -30,6 +31,8 @@ import sortAsc from './sort-asc.svg?raw'
 import sortDesc from './sort-desc.svg?raw'
 import sortNone from './sort-none.svg?raw'
 import sort from './sort.svg?raw'
+import starFilled from './star-filled.svg?raw'
+import star from './star.svg?raw'
 import structure from './structure.svg?raw'
 import table from './table.svg?raw'
 import trash from './trash.svg?raw'
@@ -44,7 +47,10 @@ const files = {
 	help,
 	info,
 	sort,
+	star,
+	'star-filled': starFilled,
 	bookmark,
+	'bookmark-filled': bookmarkFilled,
 	chat,
 	history,
 	funnel,

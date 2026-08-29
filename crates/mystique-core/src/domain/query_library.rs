@@ -10,6 +10,7 @@ pub struct SavedQuery {
     pub body: String,
     pub language: Option<String>,
     pub sort_order: i64,
+    pub favorite: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -24,4 +25,7 @@ pub struct SaveQueryInput {
     pub language: Option<String>,
     #[serde(default)]
     pub sort_order: i64,
+    /// `None` leaves the stored flag unchanged on update.
+    #[serde(default)]
+    pub favorite: Option<bool>,
 }

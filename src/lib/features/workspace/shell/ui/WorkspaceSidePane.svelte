@@ -59,9 +59,11 @@
 			extra?: string,
 		) => void
 		onsavedaction?: (
-			action: 'duplicate' | 'rename' | 'delete',
+			action: 'duplicate' | 'rename' | 'delete' | 'favorite',
 			id: string,
 		) => void
+		onrefreshsaved?: () => void | Promise<void>
+		onrefreshhistory?: () => void | Promise<void>
 	}
 
 	let {
@@ -89,6 +91,8 @@
 		onopen,
 		ontableaction,
 		onsavedaction,
+		onrefreshsaved,
+		onrefreshhistory,
 	}: Props = $props()
 
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
@@ -120,6 +124,7 @@
 						if (action === 'open') onselectquery(id)
 						else onsavedaction?.(action, id)
 					}}
+					onrefresh={onrefreshsaved}
 				/>
 			{:else if sideMode === 'history'}
 				<QueryListPanel
@@ -128,6 +133,7 @@
 					history={queryHistory}
 					selectedId={selectedHistoryId}
 					onselect={onselecthistory}
+					onrefresh={onrefreshhistory}
 				/>
 			{:else if activeSession}
 				<ObjectExplorer

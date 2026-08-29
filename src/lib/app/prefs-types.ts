@@ -7,3 +7,5 @@ export type ConnectionListSort =
 	| 'recent'
 	| 'engine'
 	| 'environment'
+
+export type SavedQueryListSort = 'name' | 'created' | 'recent'

@@ -1708,11 +1708,31 @@
 	let deleteBusy = $state(false)
 
 	async function onSavedQueryAction(
-		action: 'duplicate' | 'rename' | 'delete',
+		action: 'duplicate' | 'rename' | 'delete' | 'favorite',
 		id: string,
 	) {
 		const q = workspaceStudio.savedQueries.find((s) => s.id === id)
 		if (!q || !activeId) return
+
+		if (action === 'favorite') {
+			try {
+				await saveQuery({
+					id: q.id,
+					connectionId: q.connectionId || activeId,
+					name: q.name,
+					body: q.sql,
+					language: queryLanguageFor(
+						String(activeSession?.profile.engine ?? ''),
+						activeSession?.capabilities,
+					),
+					favorite: !q.favorite,
+				})
+				await refreshSavedQueries(activeId, true)
+			} catch (e) {
+				alert(e instanceof Error ? e.message : String(e))
+			}
+			return
+		}
 
 		if (action === 'duplicate') {
 			try {
@@ -1958,6 +1978,8 @@
 		selectedHistoryId={workspaceStudio.selectedHistoryId}
 		onselectquery={onSelectSavedQuery}
 		onselecthistory={onSelectHistory}
+		onrefreshsaved={() => void refreshSavedQueries(activeId, true)}
+		onrefreshhistory={() => void refreshHistory({ force: true })}
 		onselectdatabase={selectDatabase}
 		onrefresh={refreshDatabases}
 		onrefreshtables={() => void refreshCurrentTables()}

@@ -1022,12 +1022,6 @@
 		if (!quiet) flashStatus('Marked for delete — save to apply')
 	}
 
-	function undeleteRow(index: number) {
-		if (!deletedIndices.has(index)) return
-		deletedIndices = new Set([...deletedIndices].filter((i) => i !== index))
-		flashStatus('Delete undone')
-	}
-
 	const rowMenuItems = $derived.by((): ContextMenuItem[] => {
 		const ro = profileReadOnly
 		const primary = rowMenu?.row

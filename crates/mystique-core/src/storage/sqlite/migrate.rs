@@ -4,13 +4,43 @@ use crate::domain::now_iso;
 use crate::error::AppResult;
 
 const SCHEMA_SQL: &str = include_str!("../../../migrations/001_init.sql");
+const V2_SQL: &str = include_str!("../../../migrations/002_saved_query_favorite.sql");
 
-/// Baseline schema version. Fresh installs apply `001_init.sql` once.
-/// Older builds that ran incremental files 2–6 are already at this schema;
-/// their version stamp is collapsed back to 1 so future files can start at 2.
-const SCHEMA_VERSION: i32 = 1;
+/// Current schema version. Fresh installs apply 001 then 002.
+/// Older builds that ran incremental files 2–6 were already at the 001
+/// schema; their stamp is collapsed to 1 so 002 can apply.
+const SCHEMA_VERSION: i32 = 2;
 
-/// Apply the current schema to a new database. Existing databases are left as-is.
+fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        (version, now_iso()),
+    )?;
+    Ok(())
+}
+
+fn table_exists(conn: &Connection, table: &str) -> AppResult<bool> {
+    let n: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table],
+        |row| row.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> AppResult<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Apply the current schema. Existing databases receive pending versions only.
 pub fn migrate(conn: &Connection) -> AppResult<()> {
     conn.execute_batch(
         "
@@ -21,7 +51,7 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         ",
     )?;
 
-    let current: i32 = conn.query_row(
+    let mut current: i32 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
         [],
         |row| row.get(0),
@@ -29,19 +59,22 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
 
     if current == 0 {
         conn.execute_batch(SCHEMA_SQL)?;
-        conn.execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
-            (SCHEMA_VERSION, now_iso()),
-        )?;
-        return Ok(());
+        stamp(conn, 1)?;
+        current = 1;
+    } else if current > SCHEMA_VERSION {
+        // Pre-reset incremental stamps (2–6) already matched 001.
+        conn.execute("DELETE FROM schema_migrations", [])?;
+        stamp(conn, 1)?;
+        current = 1;
     }
 
-    if current > SCHEMA_VERSION {
-        conn.execute("DELETE FROM schema_migrations", [])?;
-        conn.execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
-            (SCHEMA_VERSION, now_iso()),
-        )?;
+    if current < 2 {
+        if table_exists(conn, "saved_queries")?
+            && !column_exists(conn, "saved_queries", "favorite")?
+        {
+            conn.execute_batch(V2_SQL)?;
+        }
+        stamp(conn, 2)?;
     }
 
     // Dropped leftover from earlier builds. Live ER is not stored here.
@@ -95,7 +128,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
 
         let groups: i32 = conn
             .query_row(
@@ -161,10 +194,55 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, 2);
+    }
+
+    #[test]
+    fn migrate_adds_saved_query_favorite_on_v1() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE schema_migrations (
+              version INTEGER PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_migrations (version, applied_at) VALUES (1, 't');
+            CREATE TABLE connections (
+              id INTEGER PRIMARY KEY,
+              name TEXT NOT NULL,
+              engine TEXT NOT NULL,
+              color_id TEXT NOT NULL,
+              environment TEXT NOT NULL,
+              read_only INTEGER NOT NULL,
+              plugin_config TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE saved_queries (
+              id INTEGER PRIMARY KEY,
+              connection_id INTEGER NOT NULL,
+              name TEXT NOT NULL,
+              body TEXT NOT NULL,
+              language TEXT,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            ",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        assert!(column_exists(&conn, "saved_queries", "favorite").unwrap());
+        let version: i32 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 2);
     }
 }

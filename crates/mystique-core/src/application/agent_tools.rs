@@ -108,6 +108,7 @@ impl AgentTools {
                     body: req_str(args, "body")?,
                     language: opt_str(args, "language"),
                     sort_order: args.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(0),
+                    favorite: args.get("favorite").and_then(|v| v.as_bool()),
                 };
                 let saved = self.save_query(input)?;
                 Ok(serde_json::to_value(saved)?)

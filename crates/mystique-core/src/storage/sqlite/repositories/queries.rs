@@ -13,6 +13,7 @@ fn map_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedQuery> {
         body: row.get("body")?,
         language: row.get("language")?,
         sort_order: row.get("sort_order")?,
+        favorite: row.get::<_, i64>("favorite")? != 0,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -34,9 +35,9 @@ fn ensure_connection_exists(conn: &Connection, connection_id: &str) -> AppResult
 pub fn list_all_queries(conn: &Connection) -> AppResult<Vec<SavedQuery>> {
     let mut stmt = conn.prepare(
         "
-        SELECT id, connection_id, name, body, language, sort_order, created_at, updated_at
+        SELECT id, connection_id, name, body, language, sort_order, favorite, created_at, updated_at
         FROM saved_queries
-        ORDER BY connection_id, sort_order, name COLLATE NOCASE
+        ORDER BY connection_id, favorite DESC, sort_order, name COLLATE NOCASE
         ",
     )?;
     let rows = stmt.query_map([], map_query)?;
@@ -51,10 +52,10 @@ pub fn list_queries(conn: &Connection, connection_id: &str) -> AppResult<Vec<Sav
     let connection_id = parse_id(connection_id)?;
     let mut stmt = conn.prepare(
         "
-        SELECT id, connection_id, name, body, language, sort_order, created_at, updated_at
+        SELECT id, connection_id, name, body, language, sort_order, favorite, created_at, updated_at
         FROM saved_queries
         WHERE connection_id = ?1
-        ORDER BY sort_order, name COLLATE NOCASE
+        ORDER BY favorite DESC, sort_order, name COLLATE NOCASE
         ",
     )?;
     let rows = stmt.query_map(params![connection_id], map_query)?;
@@ -69,7 +70,7 @@ pub fn get_query(conn: &Connection, id: &str) -> AppResult<SavedQuery> {
     let id_n = parse_id(id)?;
     conn.query_row(
         "
-        SELECT id, connection_id, name, body, language, sort_order, created_at, updated_at
+        SELECT id, connection_id, name, body, language, sort_order, favorite, created_at, updated_at
         FROM saved_queries WHERE id = ?1
         ",
         params![id_n],
@@ -95,6 +96,7 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
     let connection_id = parse_id(&input.connection_id)?;
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
         let id_n = parse_id(id)?;
+        let favorite: Option<i64> = input.favorite.map(|f| i64::from(f));
         let n = conn.execute(
             "
             UPDATE saved_queries SET
@@ -102,14 +104,16 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
               body = ?2,
               language = ?3,
               sort_order = ?4,
-              updated_at = ?5
-            WHERE id = ?6
+              favorite = COALESCE(?5, favorite),
+              updated_at = ?6
+            WHERE id = ?7
             ",
             params![
                 input.name.trim(),
                 input.body,
                 language,
                 input.sort_order,
+                favorite,
                 now,
                 id_n,
             ],
@@ -119,11 +123,12 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
         }
         get_query(conn, id)
     } else {
+        let favorite = i64::from(input.favorite.unwrap_or(false));
         conn.execute(
             "
             INSERT INTO saved_queries (
-              connection_id, name, body, language, sort_order, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+              connection_id, name, body, language, sort_order, favorite, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ",
             params![
                 connection_id,
@@ -131,6 +136,7 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
                 input.body,
                 language,
                 input.sort_order,
+                favorite,
                 now,
                 now,
             ],
@@ -193,12 +199,14 @@ mod tests {
                 body: "SELECT 1".into(),
                 language: Some("sql".into()),
                 sort_order: 0,
+                favorite: None,
             },
         )
         .unwrap();
         assert!(saved.id.parse::<i64>().is_ok(), "id should be numeric");
         assert_eq!(saved.name, "Active users");
         assert_eq!(saved.body, "SELECT 1");
+        assert!(!saved.favorite);
 
         let list = list_queries(&conn, &profile.id).unwrap();
         assert_eq!(list.len(), 1);
@@ -213,11 +221,13 @@ mod tests {
                 body: "SELECT 2".into(),
                 language: Some("sql".into()),
                 sort_order: 0,
+                favorite: Some(true),
             },
         )
         .unwrap();
         assert_eq!(updated.id, saved.id);
         assert_eq!(updated.name, "Active users v2");
+        assert!(updated.favorite);
         assert_eq!(list_queries(&conn, &profile.id).unwrap().len(), 1);
     }
 }

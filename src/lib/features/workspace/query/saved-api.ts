@@ -26,6 +26,7 @@ function normalizeSavedQuery(raw: Record<string, unknown>): SavedQuery {
 		body: String(g('body', 'body') ?? ''),
 		language: (g('language', 'language') as string | null | undefined) ?? null,
 		sortOrder: Number(g('sortOrder', 'sort_order') ?? 0) || 0,
+		favorite: Boolean(g('favorite', 'favorite')),
 		createdAt: String(g('createdAt', 'created_at') ?? ''),
 		updatedAt: String(g('updatedAt', 'updated_at') ?? ''),
 	}
@@ -68,6 +69,7 @@ export async function saveQuery(input: SaveQueryInput): Promise<SavedQuery> {
 		body: input.body,
 		language: input.language ?? null,
 		sortOrder: input.sortOrder ?? 0,
+		favorite: input.favorite,
 	}
 	if (!payload.connectionId) {
 		throw new Error('connectionId is required to save a query')
@@ -91,6 +93,7 @@ export async function saveQuery(input: SaveQueryInput): Promise<SavedQuery> {
 					body: payload.body,
 					language: payload.language,
 					sort_order: payload.sortOrder,
+					favorite: payload.favorite,
 				},
 			})
 			return normalizeSavedQuery(raw ?? {})
@@ -112,6 +115,8 @@ export function toListSavedQuery(q: SavedQuery): SavedQueryListItem {
 		id: q.id,
 		name: q.name,
 		sql: q.body,
+		favorite: q.favorite,
+		createdAt: q.createdAt,
 		updatedAt: q.updatedAt,
 		connectionId: q.connectionId,
 	}

@@ -2,10 +2,11 @@ import { isMacPlatform } from '$core/util'
 import type {
 	ConnectionListSort,
 	DensityPref,
+	SavedQueryListSort,
 	ThemePref,
 } from './prefs-types'
 
-export type { ConnectionListSort, DensityPref, ThemePref }
+export type { ConnectionListSort, DensityPref, SavedQueryListSort, ThemePref }
 
 /**
  * Appearance + session prefs. State is reactive; values persist to localStorage.
@@ -16,6 +17,7 @@ const DENSITY_KEY = 'mystique-density'
 const INSPECT_ON_CLICK_KEY = 'mystique-inspect-on-row-click'
 const OPEN_TABLE_SINGLE_CLICK_KEY = 'mystique-open-table-on-single-click'
 const CONN_SORT_KEY = 'mystique-connection-sort'
+const QUERY_SORT_KEY = 'mystique-saved-query-sort'
 const EXPLORER_WIDTH_KEY = 'mystique-explorer-panel-width'
 const HOME_SIDEBAR_WIDTH_KEY = 'mystique-home-sidebar-width'
 const AGENT_CHAT_OPEN_KEY = 'mystique-agent-chat-open'
@@ -87,6 +89,12 @@ function readSort(): ConnectionListSort {
 	return 'created'
 }
 
+function readQuerySort(): SavedQueryListSort {
+	const raw = lsGet(QUERY_SORT_KEY)
+	if (raw === 'name' || raw === 'created' || raw === 'recent') return raw
+	return 'created'
+}
+
 export function clampExplorerPanelWidth(px: number): number {
 	if (!Number.isFinite(px)) return EXPLORER_PANEL_WIDTH_DEFAULT
 	return Math.min(
@@ -143,6 +151,7 @@ class AppPrefsStore {
 		readBool(OPEN_TABLE_SINGLE_CLICK_KEY, isMacPlatform()),
 	)
 	connectionListSort = $state<ConnectionListSort>(readSort())
+	savedQueryListSort = $state<SavedQueryListSort>(readQuerySort())
 	explorerPanelWidth = $state(readExplorerWidth())
 	homeSidebarWidth = $state(readHomeSidebarWidth())
 	/** Session-only. Always starts closed; never written to localStorage. */
@@ -196,6 +205,11 @@ class AppPrefsStore {
 	setConnectionListSort(sort: ConnectionListSort) {
 		this.connectionListSort = sort
 		lsSet(CONN_SORT_KEY, sort)
+	}
+
+	setSavedQueryListSort(sort: SavedQueryListSort) {
+		this.savedQueryListSort = sort
+		lsSet(QUERY_SORT_KEY, sort)
 	}
 
 	setExplorerPanelWidth(px: number, persist = true) {
