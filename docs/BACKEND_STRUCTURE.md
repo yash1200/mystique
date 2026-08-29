@@ -45,8 +45,9 @@ mystique/
 1. Create `crates/plugins/mystique-plugin-<engine>` implementing `DatabaseConnector` + `ConnectorSession`.
 2. Implement **`EngineQueryPolicy` for that engine** (validation before any execute).
 3. Own pooling **inside** the session (`connect` builds the pool).
-4. Register connector **and** policy in `ConnectorRegistry::bootstrap()` — two lines, not a core rewrite.
-5. Expose via existing IPC (`list_engines`, `open_engine_session`, query commands, …).
+4. Implement **`fetch_server_metrics`** (and `terminate_backend_session` if the engine can kill sessions). Fill the shared snapshot; put engine-only facts in `overview.extras` / row `extras`. Set `supports_server_metrics` / `supports_terminate_session` on capabilities.
+5. Register connector **and** policy in `ConnectorRegistry::bootstrap()` — two lines, not a core rewrite.
+6. Expose via existing IPC (`list_engines`, `open_engine_session`, query commands, …).
 
 ## Connection pool API (IPC)
 
@@ -59,6 +60,8 @@ mystique/
 | `ping_engine_session` | Health check |
 | `engine_session_pool_status` | Active/idle/max snapshot |
 | `list_engine_sessions` / `get_engine_session` | Session inventory |
+| `fetch_engine_server_metrics` | Overview + live sessions + slow queries (plugin-owned) |
+| `terminate_engine_session` | Kill a backend pid / opid (denied when the profile is read-only) |
 
 Request body (`OpenSessionRequest`):
 

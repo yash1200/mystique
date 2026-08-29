@@ -332,6 +332,8 @@ pub fn run() {
             ipc::engines::preview_engine_import,
             ipc::engines::import_engine_object,
             ipc::engines::describe_engine_object_structure,
+            ipc::engines::fetch_engine_server_metrics,
+            ipc::engines::terminate_engine_session,
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

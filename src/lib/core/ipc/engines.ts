@@ -15,6 +15,7 @@ import type {
 	ExecuteQueryRequest,
 	ExportObjectRequest,
 	ExportObjectResult,
+	FetchServerMetricsRequest,
 	FetchTablePreviewRequest,
 	FormatConnectionUrlRequest,
 	FormattedConnectionUrl,
@@ -32,10 +33,13 @@ import type {
 	PreviewImportRequest,
 	PreviewImportResult,
 	QueryResult,
+	ServerMetricsSnapshot,
 	SessionInfo,
 	TableAdminRequest,
 	TableAdminResult,
 	TablePreviewResult,
+	TerminateSessionRequest,
+	TerminateSessionResult,
 	TestResult,
 } from '../contracts/engines'
 
@@ -203,4 +207,18 @@ export async function describeEngineObjectStructure(
 ): Promise<ObjectStructure> {
 	requireTauri()
 	return invoke('describe_engine_object_structure', { request })
+}
+
+export async function fetchEngineServerMetrics(
+	request: FetchServerMetricsRequest,
+): Promise<ServerMetricsSnapshot> {
+	requireTauri()
+	return invoke('fetch_engine_server_metrics', { request })
+}
+
+export async function terminateEngineSession(
+	request: TerminateSessionRequest,
+): Promise<TerminateSessionResult> {
+	requireTauri()
+	return invoke('terminate_engine_session', { request })
 }

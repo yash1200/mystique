@@ -290,3 +290,29 @@ pub async fn describe_engine_object_structure(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn fetch_engine_server_metrics(
+    state: State<'_, AppState>,
+    request: mystique_core::FetchServerMetricsRequest,
+) -> Result<mystique_core::ServerMetricsSnapshot, String> {
+    state
+        .services
+        .connections()
+        .fetch_server_metrics(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn terminate_engine_session(
+    state: State<'_, AppState>,
+    request: mystique_core::TerminateSessionRequest,
+) -> Result<mystique_core::TerminateSessionResult, String> {
+    state
+        .services
+        .connections()
+        .terminate_backend_session(request)
+        .await
+        .map_err(|e| e.to_string())
+}

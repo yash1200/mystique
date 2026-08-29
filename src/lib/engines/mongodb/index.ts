@@ -126,5 +126,7 @@ export const mongodb: EngineAdapter = {
 			viewStructure: true,
 		},
 		exportFormats: ['csv', 'json', 'jsonl'],
+		supportsServerMetrics: true,
+		supportsTerminateSession: true,
 	},
 }

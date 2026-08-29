@@ -31,6 +31,8 @@ impl EngineCapabilities {
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
             export_formats: sql_export_formats(),
+            supports_server_metrics: true,
+            supports_terminate_session: true,
         }
     }
 
@@ -59,6 +61,8 @@ impl EngineCapabilities {
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
             export_formats: sql_export_formats(),
+            supports_server_metrics: true,
+            supports_terminate_session: false,
         }
     }
 
@@ -87,6 +91,8 @@ impl EngineCapabilities {
             table_admin: TableAdminFeatures::mongodb(),
             code_filter_placeholder: r#"{ "email": "user@example.com" }"#.into(),
             export_formats: default_export_formats(),
+            supports_server_metrics: true,
+            supports_terminate_session: true,
         }
     }
 
@@ -115,6 +121,8 @@ impl EngineCapabilities {
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
             export_formats: sql_export_formats(),
+            supports_server_metrics: true,
+            supports_terminate_session: true,
         }
     }
 }
@@ -122,6 +130,22 @@ impl EngineCapabilities {
 #[cfg(test)]
 mod create_caps_tests {
     use super::*;
+
+    #[test]
+    fn server_metrics_flags_per_engine() {
+        let pg = EngineCapabilities::postgres_defaults();
+        assert!(pg.supports_server_metrics);
+        assert!(pg.supports_terminate_session);
+        let my = EngineCapabilities::mysql_defaults();
+        assert!(my.supports_server_metrics);
+        assert!(my.supports_terminate_session);
+        let mo = EngineCapabilities::mongodb_defaults();
+        assert!(mo.supports_server_metrics);
+        assert!(mo.supports_terminate_session);
+        let sq = EngineCapabilities::sqlite_defaults();
+        assert!(sq.supports_server_metrics);
+        assert!(!sq.supports_terminate_session);
+    }
 
     #[test]
     fn mongodb_explorer_can_create_object() {

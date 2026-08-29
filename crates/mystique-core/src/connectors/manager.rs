@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 mod catalog;
+mod metrics;
 mod query;
 mod table;
 mod transfer;

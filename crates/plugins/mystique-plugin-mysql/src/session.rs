@@ -8,16 +8,18 @@ use mysql_async::Pool;
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchTablePreviewInput,
-    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure,
-    PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult, TableAdminInput,
-    TableAdminResult, TablePreviewResult, ValidatedQuery,
+    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
+    FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
+    ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult,
+    QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
+    TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
 };
 
 mod admin;
 mod catalog;
 mod edits;
 mod encode;
+mod metrics;
 mod preview;
 mod query;
 mod structure;
@@ -185,5 +187,19 @@ impl ConnectorSession for MysqlSession {
         kind: Option<&str>,
     ) -> ConnectorResult<ObjectStructure> {
         structure::describe_object_structure(self, database, schema, table, kind).await
+    }
+
+    async fn fetch_server_metrics(
+        &self,
+        input: &FetchServerMetricsInput,
+    ) -> ConnectorResult<ServerMetricsSnapshot> {
+        metrics::fetch_server_metrics(self, input).await
+    }
+
+    async fn terminate_backend_session(
+        &self,
+        input: &TerminateSessionInput,
+    ) -> ConnectorResult<TerminateSessionResult> {
+        metrics::terminate_backend_session(self, input).await
     }
 }

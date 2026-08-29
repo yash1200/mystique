@@ -15,6 +15,7 @@
 	import { ErWorkspace } from '$features/workspace/er'
 	import { StructurePanel } from '$features/workspace/explorer'
 	import { DataGrid, RowInspector } from '$features/workspace/grid'
+	import { ServerMetricsView } from '$features/workspace/metrics'
 	import type { QueryHistoryItem } from '$features/workspace/query'
 	import { QueryCanvas } from '$features/workspace/query'
 	import { appPrefs } from '$lib/app'
@@ -257,6 +258,16 @@
 					</div>
 				{/if}
 			</div>
+		{:else if activeSession && activeTab?.kind === 'metrics'}
+			{#key activeTab.id}
+				<ServerMetricsView
+					engine={String(activeSession.profile.engine)}
+					engineSessionId={activeSession.engineSessionId}
+					profileReadOnly={!!activeSession.profile.readOnly}
+					capabilities={activeSession.capabilities}
+					production={activeSession.profile.environment === 'production'}
+				/>
+			{/key}
 		{:else if activeSession && activeTab?.kind === 'structure'}
 			{#key activeTab.id}
 				<StructurePanel

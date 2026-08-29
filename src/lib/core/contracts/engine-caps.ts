@@ -82,4 +82,8 @@ export interface EngineCapabilities {
 	codeFilterPlaceholder: string
 	/** Plugin-owned file export formats (`csv` / `json` / `jsonl` / `sql`). */
 	exportFormats: string[]
+	/** Session-rail “Server metrics” tab. */
+	supportsServerMetrics: boolean
+	/** Terminate a backend session from the metrics tab. */
+	supportsTerminateSession: boolean
 }

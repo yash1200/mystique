@@ -75,6 +75,8 @@ export function relationalCapabilities(
 		codeFilterPlaceholder: SQL_CODE_FILTER_PLACEHOLDER,
 		tableAdmin: { ...SQL_ADMIN },
 		exportFormats: [...SQL_EXPORT_FORMATS],
+		supportsServerMetrics: true,
+		supportsTerminateSession: true,
 		...over,
 		explorer,
 	}
@@ -154,6 +156,17 @@ export function mergeCapabilities(
 		exportFormats: asStringList(
 			c.exportFormats ?? (c as { export_formats?: unknown }).export_formats,
 			fallback.exportFormats,
+		),
+		supportsServerMetrics: asBool(
+			c.supportsServerMetrics ??
+				(c as { supports_server_metrics?: unknown }).supports_server_metrics,
+			fallback.supportsServerMetrics,
+		),
+		supportsTerminateSession: asBool(
+			c.supportsTerminateSession ??
+				(c as { supports_terminate_session?: unknown })
+					.supports_terminate_session,
+			fallback.supportsTerminateSession,
 		),
 		explorer: normalizeExplorer(c.explorer, fallback.explorer),
 		tableAdmin: {

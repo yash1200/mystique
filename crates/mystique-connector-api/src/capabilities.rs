@@ -143,6 +143,12 @@ pub struct EngineCapabilities {
     /// File formats this plugin can export (`csv` / `json` / `jsonl` / `sql`).
     #[serde(default = "default_export_formats")]
     pub export_formats: Vec<String>,
+    /// Session-rail “Server metrics” tab (plugin `fetch_server_metrics`).
+    #[serde(default)]
+    pub supports_server_metrics: bool,
+    /// Terminate a backend session from the metrics tab.
+    #[serde(default)]
+    pub supports_terminate_session: bool,
 }
 
 fn default_code_filter_placeholder() -> String {

@@ -390,6 +390,31 @@ class WorkspaceSessionStore {
 		this.schedulePersist(connectionId)
 	}
 
+	/** Open / focus the server metrics tab for this connection. */
+	openMetrics(connectionId: string, title = 'Server metrics') {
+		const id = `${connectionId}::metrics`
+		if (!this.openTabs.some((t) => t.id === id)) {
+			this.openTabs = [
+				...this.openTabs,
+				{
+					id,
+					connectionId,
+					kind: 'metrics',
+					title,
+					dirty: false,
+				},
+			]
+		} else {
+			this.openTabs = this.openTabs.map((t) =>
+				t.id === id ? { ...t, title } : t,
+			)
+		}
+		this.activeTabId = id
+		this.activeConnectionId = connectionId
+		this.selectedRow = null
+		this.schedulePersist(connectionId)
+	}
+
 	/** Open / focus a table-scoped live ER tab. */
 	openModel(
 		connectionId: string,

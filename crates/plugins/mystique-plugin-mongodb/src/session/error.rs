@@ -66,3 +66,17 @@ fn push_unique(parts: &mut Vec<String>, msg: &str) {
 pub(crate) fn query_failed(err: MongoError) -> ConnectorError {
     ConnectorError::Query(format_query_error(&err))
 }
+
+/// Privilege denial (code 13) or Atlas “not authorized on admin”.
+pub(crate) fn is_unauthorized(err: &MongoError) -> bool {
+    match err.kind.as_ref() {
+        ErrorKind::Command(cmd) => {
+            cmd.code == 13
+                || cmd.code_name.eq_ignore_ascii_case("Unauthorized")
+                || cmd.message.to_ascii_lowercase().contains("not authorized")
+        }
+        _ => format_query_error(err)
+            .to_ascii_lowercase()
+            .contains("not authorized"),
+    }
+}

@@ -8,6 +8,9 @@ use crate::catalog::{
 use crate::config::{ConnectionConfig, FormattedConnectionUrl, ParsedConnectionUrl};
 use crate::error::ConnectorResult;
 use crate::form::ConnectionFormSchema;
+use crate::metrics::{
+    FetchServerMetricsInput, ServerMetricsSnapshot, TerminateSessionInput, TerminateSessionResult,
+};
 use crate::object_structure::ObjectStructure;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
@@ -241,6 +244,29 @@ pub trait ConnectorSession: Send + Sync {
     ) -> ConnectorResult<ObjectStructure> {
         Err(crate::ConnectorError::NotSupported(format!(
             "object structure is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Server metrics snapshot (overview, live sessions, slow queries).
+    /// Plugins own the queries; the FE only renders the contract.
+    async fn fetch_server_metrics(
+        &self,
+        _input: &FetchServerMetricsInput,
+    ) -> ConnectorResult<ServerMetricsSnapshot> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "server metrics are not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Terminate a backend session (`pg_terminate_backend`, `KILL`, `killOp`).
+    async fn terminate_backend_session(
+        &self,
+        _input: &TerminateSessionInput,
+    ) -> ConnectorResult<TerminateSessionResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "terminating a session is not supported for engine `{}`",
             self.engine_id()
         )))
     }

@@ -17,7 +17,8 @@ export function iconToneForName(
 ): CatalogIconTone {
 	if (active) return 'accent'
 	if (name === 'query') return 'accent'
-	if (name === 'view' || name === 'model' || name === 'structure') return 'info'
+	if (name === 'view' || name === 'model' || name === 'structure' || name === 'metrics')
+		return 'info'
 	if (name === 'table' || name === 'collection') return 'success'
 	return 'muted'
 }

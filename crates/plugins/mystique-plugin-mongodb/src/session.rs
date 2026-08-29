@@ -8,9 +8,10 @@ use mongodb::Client;
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, ColumnInfo,
     ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
-    ExportObjectResult, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
-    ImportObjectInput, ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput,
-    PreviewImportResult, QueryResult, TableAdminInput, TableAdminResult, TablePreviewResult,
+    ExportObjectResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
+    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PoolStatus,
+    PreviewImportInput, PreviewImportResult, QueryResult, ServerMetricsSnapshot, TableAdminInput,
+    TableAdminResult, TablePreviewResult, TerminateSessionInput, TerminateSessionResult,
     ValidatedQuery,
 };
 
@@ -19,6 +20,7 @@ mod catalog;
 mod edits;
 mod encode;
 mod error;
+mod metrics;
 mod preview;
 mod query;
 mod structure;
@@ -188,6 +190,20 @@ impl ConnectorSession for MongoSession {
         kind: Option<&str>,
     ) -> ConnectorResult<ObjectStructure> {
         structure::describe_object_structure(self, database, schema, table, kind).await
+    }
+
+    async fn fetch_server_metrics(
+        &self,
+        input: &FetchServerMetricsInput,
+    ) -> ConnectorResult<ServerMetricsSnapshot> {
+        metrics::fetch_server_metrics(self, input).await
+    }
+
+    async fn terminate_backend_session(
+        &self,
+        input: &TerminateSessionInput,
+    ) -> ConnectorResult<TerminateSessionResult> {
+        metrics::terminate_backend_session(self, input).await
     }
 }
 

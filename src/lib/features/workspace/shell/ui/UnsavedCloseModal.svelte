@@ -3,7 +3,7 @@
 	interface Props {
 		open: boolean
 		tabTitle: string
-		tabKind: 'query' | 'table' | 'model' | 'structure'
+		tabKind: 'query' | 'table' | 'model' | 'structure' | 'metrics'
 		busy?: boolean
 		onsave: () => void
 		ondiscard: () => void

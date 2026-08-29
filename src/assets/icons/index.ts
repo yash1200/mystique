@@ -21,6 +21,7 @@ import grid from './grid.svg?raw'
 import help from './help.svg?raw'
 import history from './history.svg?raw'
 import info from './info.svg?raw'
+import metrics from './metrics.svg?raw'
 import model from './model.svg?raw'
 import plus from './plus.svg?raw'
 import refresh from './refresh.svg?raw'
@@ -46,6 +47,7 @@ const files = {
 	refresh,
 	help,
 	info,
+	metrics,
 	sort,
 	star,
 	'star-filled': starFilled,

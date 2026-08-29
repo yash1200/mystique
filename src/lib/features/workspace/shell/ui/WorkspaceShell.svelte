@@ -1956,6 +1956,7 @@
 		ondisconnect={handleDisconnect}
 		onrefresh={(id) => void refreshConnection(id)}
 		onnewquery={openNewQueryOn}
+		onmetrics={(id) => workspaceSession.openMetrics(id)}
 		onopen={() => {
 			pickerError = null
 			pickerOpen = true

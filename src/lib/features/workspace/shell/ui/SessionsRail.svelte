@@ -9,7 +9,7 @@
 		type ContextMenuItem,
 	} from '$core/ui'
 	import { cn, copyTextToClipboard } from '$core/util'
-	import { engineLabel } from '$engines'
+	import { engineLabel, normalizeCapabilities } from '$engines'
 	import { BrandMark, colorHex, connectionInitial } from '$features/connections'
 	import { showToast } from '$features/toast'
 	import { SettingsModal } from '$features/settings'
@@ -29,6 +29,7 @@
 		ondisconnect: (id: string) => void
 		onrefresh: (id: string) => void
 		onnewquery: (id: string) => void
+		onmetrics?: (id: string) => void
 		onopen: () => void
 		onmode: (mode: SideNavMode) => void
 		onreorder?: (movedId: string, beforeId: string | null) => void
@@ -42,6 +43,7 @@
 		ondisconnect,
 		onrefresh,
 		onnewquery,
+		onmetrics,
 		onopen,
 		onmode,
 		onreorder,
@@ -93,6 +95,14 @@
 		return sessions.find((s) => s.profile.id === id) ?? null
 	})
 
+	const supportsMetrics = $derived.by(() => {
+		if (!menuSession) return false
+		return normalizeCapabilities(
+			menuSession.capabilities,
+			String(menuSession.profile.engine),
+		).supportsServerMetrics
+	})
+
 	const menuItems = $derived.by((): ContextMenuItem[] => [
 		{
 			id: 'label',
@@ -102,6 +112,9 @@
 		{ id: 'info', label: 'Show info' },
 		{ id: 'refresh', label: 'Refresh catalog' },
 		{ id: 'new-query', label: 'New query' },
+		...(supportsMetrics
+			? [{ id: 'metrics', label: 'Server metrics' }]
+			: []),
 		{
 			id: 'copy-url',
 			label: 'Copy connection URL',
@@ -162,6 +175,7 @@
 		if (action === 'info') infoId = id
 		if (action === 'refresh') onrefresh(id)
 		if (action === 'new-query') onnewquery(id)
+		if (action === 'metrics') onmetrics?.(id)
 		if (action === 'copy-url') void copyConnectionUrl(id)
 		if (action === 'disconnect') ondisconnect(id)
 	}

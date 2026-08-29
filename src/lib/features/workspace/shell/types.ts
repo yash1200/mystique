@@ -1,7 +1,7 @@
 /** Workspace chrome types: what a tab is, and what row is selected. */
 
-/** Main workspace tab: query canvas, table data, ER / model, or object structure. */
-export type WorkspaceTabKind = 'query' | 'table' | 'model' | 'structure'
+/** Main workspace tab: query canvas, table data, ER / model, structure, or server metrics. */
+export type WorkspaceTabKind = 'query' | 'table' | 'model' | 'structure' | 'metrics'
 
 export type WorkspaceTab = {
 	id: string

@@ -387,3 +387,92 @@ export interface ObjectStructureRequest {
 }
 
 /** Plugin-owned object structure for “View structure”. */
+
+export type MetricKind =
+	| 'count'
+	| 'bytes'
+	| 'durationMs'
+	| 'percent'
+	| 'text'
+	| 'ratio'
+
+export interface MetricValue {
+	key: string
+	label: string
+	kind: MetricKind
+	value?: number | null
+	display?: string | null
+	unit?: string | null
+	max?: number | null
+	available: boolean
+	unavailableReason?: string | null
+}
+
+export interface ServerMetricsCapabilities {
+	overview: boolean
+	activeSessions: boolean
+	terminateSession: boolean
+	slowQueries: boolean
+	notes: string[]
+}
+
+export interface ServerOverview {
+	connections: MetricValue
+	cacheHitRatio: MetricValue
+	databaseSize: MetricValue
+	uptime: MetricValue
+	activeQueries: MetricValue
+	extras: MetricValue[]
+}
+
+export interface ActiveBackendSession {
+	id: string
+	user?: string | null
+	database?: string | null
+	state?: string | null
+	durationMs?: number | null
+	query?: string | null
+	canTerminate: boolean
+	extras: MetricValue[]
+}
+
+export interface SlowQuery {
+	id: string
+	query: string
+	durationMs?: number | null
+	meanMs?: number | null
+	calls?: number | null
+	database?: string | null
+	user?: string | null
+	source?: string | null
+	extras: MetricValue[]
+}
+
+export interface ServerMetricsSnapshot {
+	engine: string
+	collectedAt: string
+	capabilities: ServerMetricsCapabilities
+	overview: ServerOverview
+	sessions: ActiveBackendSession[]
+	slowQueries: SlowQuery[]
+}
+
+export interface FetchServerMetricsRequest {
+	sessionId: string
+	includeSessions?: boolean
+	includeSlowQueries?: boolean
+	slowQueryLimit?: number
+	minDurationMs?: number
+}
+
+export interface TerminateSessionRequest {
+	sessionId: string
+	backendSessionId: string
+	profileReadOnly?: boolean
+}
+
+export interface TerminateSessionResult {
+	ok: boolean
+	backendSessionId: string
+	message?: string | null
+}
