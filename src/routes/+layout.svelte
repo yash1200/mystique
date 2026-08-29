@@ -6,6 +6,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '$core/util'
+	import { ToastContext } from '$features/toast'
 	import { resetAppToHome } from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
 	import { onMount } from 'svelte'
@@ -80,4 +81,6 @@
 	})
 </script>
 
-{@render children()}
+<ToastContext>
+	{@render children()}
+</ToastContext>

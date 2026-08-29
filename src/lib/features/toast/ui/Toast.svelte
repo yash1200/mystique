@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { cn, toastSlide } from '$core/util'
-	type Tone = 'info' | 'success' | 'warning' | 'danger'
+	import type { ToastTone } from '../toast.svelte'
 
 	interface Props {
 		message: string
-		tone?: Tone
+		tone?: ToastTone
 	}
 
 	let { message, tone = 'info' }: Props = $props()
 
-	const edge: Record<Tone, string> = {
+	const edge: Record<ToastTone, string> = {
 		info: 'border-l-info',
 		success: 'border-l-success',
 		warning: 'border-l-warning',

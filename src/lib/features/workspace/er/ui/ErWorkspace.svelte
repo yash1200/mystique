@@ -3,8 +3,9 @@
 	 * Live ER viewer — catalog schema, rearrange-only.
 	 */
 	import type { DataFamily } from '$core/contracts'
-	import { ContextMenu, Toast } from '$core/ui'
+	import { ContextMenu } from '$core/ui'
 	import { currentUiScale, exportPng, onUiScaleChange } from '$core/util'
+	import { showToast } from '$features/toast'
 	import { onMount, tick } from 'svelte'
 	import {
 		ER_HEADER_H_BASE,
@@ -62,13 +63,9 @@
 
 	onMount(() => {
 		uiScale = currentUiScale()
-		const unsub = onUiScaleChange((s) => {
+		return onUiScaleChange((s) => {
 			uiScale = s
 		})
-		return () => {
-			unsub()
-			if (toastTimer) clearTimeout(toastTimer)
-		}
 	})
 
 	let diagram = $state<ErDiagramState | null>(null)
@@ -97,23 +94,7 @@
 	let canvasEl: HTMLDivElement | null = $state(null)
 	let exportRoot: HTMLDivElement | null = $state(null)
 	let exportingPng = $state(false)
-	let toast = $state<{
-		kind: 'info' | 'success' | 'warning' | 'danger'
-		message: string
-	} | null>(null)
-	let toastTimer: ReturnType<typeof setTimeout> | null = null
 	let ctxMenu = $state<ErCtxMenu | null>(null)
-
-	function showToast(
-		kind: 'info' | 'success' | 'warning' | 'danger',
-		message: string,
-	) {
-		toast = { kind, message }
-		if (toastTimer) clearTimeout(toastTimer)
-		toastTimer = setTimeout(() => {
-			toast = null
-		}, 3600)
-	}
 
 	const meta = $derived(FAMILY_META[family])
 	const ctxMenuItems = $derived(
@@ -776,10 +757,4 @@
 		onpick={onCtxPick}
 		onclose={() => (ctxMenu = null)}
 	/>
-{/if}
-
-{#if toast}
-	{#key toast.kind + toast.message}
-		<Toast message={toast.message} tone={toast.kind} />
-	{/key}
 {/if}

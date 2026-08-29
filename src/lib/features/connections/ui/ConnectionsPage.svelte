@@ -7,8 +7,9 @@
 		isTauri,
 		testEngineConnection,
 	} from '$core/ipc'
-	import { Button, EmptyState, Modal, Toast } from '$core/ui'
+	import { Button, EmptyState, Modal } from '$core/ui'
 	import { copyTextToClipboard, setAppTitle } from '$core/util'
+	import { showToast } from '$features/toast'
 	import { workspaceSession } from '$features/workspace/shell'
 	import { onMount } from 'svelte'
 	import {
@@ -29,11 +30,6 @@
 	import HomeIllustration from './HomeIllustration.svelte'
 	import NewConnectionPanel from './NewConnectionPanel.svelte'
 
-	type ToastState = {
-		kind: 'info' | 'success' | 'warning' | 'danger'
-		message: string
-	} | null
-
 	let connections = $state<ConnectionProfile[]>([])
 	let selectedId = $state<string | null>(null)
 	/** Create form is the home landing (no selection). */
@@ -50,20 +46,10 @@
 	/** Last live connectivity result from BE (shown on the form). */
 	let testResult = $state<{ ok: boolean; message: string } | null>(null)
 	let loadError = $state<string | null>(null)
-	let toast = $state<ToastState>(null)
-	let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 	const selected = $derived(
 		connections.find((c) => c.id === selectedId) ?? null,
 	)
-
-	function showToast(kind: NonNullable<ToastState>['kind'], message: string) {
-		toast = { kind, message }
-		if (toastTimer) clearTimeout(toastTimer)
-		toastTimer = setTimeout(() => {
-			toast = null
-		}, 3600)
-	}
 
 	/** Landing: create-connection form. Connections live in the sidebar. */
 	function enterCreateMode() {
@@ -613,10 +599,4 @@
 			</Button>
 		{/snippet}
 	</Modal>
-
-	{#if toast}
-		{#key toast.kind + toast.message}
-			<Toast message={toast.message} tone={toast.kind} />
-		{/key}
-	{/if}
 </div>

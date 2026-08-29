@@ -6,12 +6,12 @@
 		Draggable,
 		Icon,
 		IconButton,
-		Toast,
 		type ContextMenuItem,
 	} from '$core/ui'
 	import { cn, copyTextToClipboard } from '$core/util'
 	import { engineLabel } from '$engines'
 	import { BrandMark, colorHex, connectionInitial } from '$features/connections'
+	import { showToast } from '$features/toast'
 	import { SettingsModal } from '$features/settings'
 	import { KeyboardShortcutsModal } from '$features/shortcuts'
 	import { flip } from 'svelte/animate'
@@ -66,22 +66,6 @@
 	let leaveOpen = $state(false)
 	let leaveBusy = $state(false)
 	let shortcutsOpen = $state(false)
-	let toast = $state<{
-		kind: 'info' | 'success' | 'warning' | 'danger'
-		message: string
-	} | null>(null)
-	let toastTimer: ReturnType<typeof setTimeout> | null = null
-
-	function showToast(
-		kind: 'info' | 'success' | 'warning' | 'danger',
-		message: string,
-	) {
-		toast = { kind, message }
-		if (toastTimer) clearTimeout(toastTimer)
-		toastTimer = setTimeout(() => {
-			toast = null
-		}, 3600)
-	}
 
 	function requestLeaveHome() {
 		if (leaveBusy) return
@@ -452,9 +436,3 @@
 	open={shortcutsOpen}
 	onclose={() => (shortcutsOpen = false)}
 />
-
-{#if toast}
-	{#key toast.message + toast.kind}
-		<Toast message={toast.message} tone={toast.kind} />
-	{/key}
-{/if}
