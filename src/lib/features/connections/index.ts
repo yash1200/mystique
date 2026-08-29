@@ -1,5 +1,6 @@
 /** Home screen: connection profiles, the engine picker, and the create/edit form. */
 export * from './api'
+export * from './profiles.svelte'
 export {
 	asColorId,
 	asEnvironment,

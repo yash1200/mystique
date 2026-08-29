@@ -4,8 +4,8 @@
 	import type { ConnectionProfile } from '$core/contracts'
 	import { ensureEngineSession, isTauri } from '$core/ipc'
 	import {
+		connectionProfiles,
 		draftFromProfile,
-		listProfiles,
 		pluginConfigForSession,
 	} from '$features/connections'
 	import { onMount } from 'svelte'
@@ -63,10 +63,13 @@
 		}
 
 		try {
-			const rows = await listProfiles()
-			const profile: ConnectionProfile | undefined = rows.find(
-				(r) => r.id === connectionId,
-			)
+			await connectionProfiles.ensureLoaded()
+			let profile: ConnectionProfile | undefined =
+				connectionProfiles.profile(connectionId)
+			if (!profile) {
+				await connectionProfiles.refresh()
+				profile = connectionProfiles.profile(connectionId)
+			}
 			if (!profile) {
 				bootError = 'Connection not found.'
 				return

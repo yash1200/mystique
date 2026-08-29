@@ -3,16 +3,8 @@
 	 * Query space: Run → BE execute → results table.
 	 * Composes toolbar / editor / results; native paste via bind:value.
 	 */
-	import type {
-		CatalogColumnRow,
-		EngineCapabilities,
-		QueryMode,
-	} from '$core/contracts'
-	import {
-		executeEngineQuery,
-		isTauri,
-		listEngineCatalogColumns,
-	} from '$core/ipc'
+	import type { EngineCapabilities, QueryMode } from '$core/contracts'
+	import { executeEngineQuery, isTauri } from '$core/ipc'
 	import { Resizable } from '$core/ui'
 	import { copyTextToClipboard } from '$core/util'
 	import {
@@ -23,6 +15,7 @@
 		exportRowsAsExcel,
 		exportRowsAsJson,
 	} from '$features/workspace/grid'
+	import { catalogColumnsCache } from '$features/workspace/catalog'
 	import {
 		isSessionMissingError,
 		workspaceSession,
@@ -82,7 +75,14 @@
 	// proxies on that payload freeze the UI after Run.
 	let runState = $state.raw<RunState>(cached?.runState ?? { status: 'idle' })
 	let collection = $state('')
-	let catalogColumns = $state<CatalogColumnRow[]>([])
+	const catalogColKey = $derived(
+		engineSessionId
+			? catalogColumnsCache.key(engineSessionId, database || null)
+			: '',
+	)
+	const catalogColumns = $derived(
+		catalogColKey ? (catalogColumnsCache.byKey[catalogColKey] ?? []) : [],
+	)
 	let resultPage = $state(cached?.resultPage ?? 0)
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let exporting = $state<ResultExportAction | null>(null)
@@ -105,24 +105,8 @@
 	$effect(() => {
 		const sid = engineSessionId
 		const db = database
-		if (!isTauri() || !sid) {
-			catalogColumns = []
-			return
-		}
-		let cancelled = false
-		void listEngineCatalogColumns({
-			sessionId: sid,
-			database: db || null,
-		})
-			.then((rows) => {
-				if (!cancelled) catalogColumns = rows ?? []
-			})
-			.catch(() => {
-				if (!cancelled) catalogColumns = []
-			})
-		return () => {
-			cancelled = true
-		}
+		if (!isTauri() || !sid) return
+		void catalogColumnsCache.load(sid, db || null)
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
 	const effectiveMode = $derived<QueryMode>(profileReadOnly ? 'read' : 'write')

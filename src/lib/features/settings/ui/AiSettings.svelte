@@ -1,23 +1,17 @@
 <script lang="ts">
 	import { isTauri } from '$core/ipc'
 	import { Button, Field, Input, PasswordInput, Switch } from '$core/ui'
-	import type { AiSettingsView } from '$features/workspace/agent'
-	import {
-		getAiSettings,
-		setAiApiKey,
-		setAiEnabled,
-		setAiOllamaUrl,
-	} from '$features/workspace/agent'
+	import { aiSettings } from '$features/workspace/agent'
 	import { onMount } from 'svelte'
 
-	let view = $state<AiSettingsView | null>(null)
+	const view = $derived(aiSettings.view)
 	let drafts = $state<Record<string, string>>({})
 	let ollamaUrl = $state('')
 	let busy = $state(false)
-	let error = $state<string | null>(null)
 	let saved = $state<string | null>(null)
 
 	const desktop = isTauri()
+	const error = $derived(aiSettings.error)
 
 	function flash(key: string) {
 		saved = key
@@ -29,22 +23,19 @@
 	async function load() {
 		if (!desktop) return
 		try {
-			view = await getAiSettings()
-			ollamaUrl = view.ollamaBaseUrl
-			error = null
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			const next = await aiSettings.load()
+			if (next) ollamaUrl = next.ollamaBaseUrl
+		} catch {
+			/* surfaced via aiSettings.error */
 		}
 	}
 
 	async function onEnable(on: boolean) {
 		if (!desktop) return
 		busy = true
-		error = null
 		try {
-			view = await setAiEnabled(on)
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			await aiSettings.setEnabled(on)
+		} catch {
 			await load()
 		} finally {
 			busy = false
@@ -54,13 +45,12 @@
 	async function saveKey(provider: string) {
 		if (!desktop) return
 		busy = true
-		error = null
 		try {
-			view = await setAiApiKey(provider, drafts[provider] ?? '')
+			await aiSettings.setApiKey(provider, drafts[provider] ?? '')
 			drafts = { ...drafts, [provider]: '' }
 			flash(provider)
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+		} catch {
+			/* surfaced via aiSettings.error */
 		} finally {
 			busy = false
 		}
@@ -69,13 +59,12 @@
 	async function clearKey(provider: string) {
 		if (!desktop) return
 		busy = true
-		error = null
 		try {
-			view = await setAiApiKey(provider, '')
+			await aiSettings.setApiKey(provider, '')
 			drafts = { ...drafts, [provider]: '' }
 			flash(provider)
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+		} catch {
+			/* surfaced via aiSettings.error */
 		} finally {
 			busy = false
 		}
@@ -84,12 +73,11 @@
 	async function saveOllama() {
 		if (!desktop) return
 		busy = true
-		error = null
 		try {
-			view = await setAiOllamaUrl(ollamaUrl)
+			await aiSettings.setOllamaUrl(ollamaUrl)
 			flash('ollama-url')
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+		} catch {
+			/* surfaced via aiSettings.error */
 		} finally {
 			busy = false
 		}

@@ -23,21 +23,15 @@
 	import { onMount, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import {
-		deleteAgentChat,
-		getAiSettings,
 		listAgentChats,
 		listAgentMessages,
-		listAgentModels,
 		sendAgentMessage,
 		updateAgentChat,
 	} from '../api'
+	import { agentChat } from '../chat.svelte'
+	import { aiSettings } from '../settings.svelte'
 	import { inferFenceLang, isQueryLang, parseChatMarkdown } from '../markdown'
-	import type {
-		AgentChat,
-		AgentMessage,
-		AgentModelInfo,
-		AiSettingsView,
-	} from '../types'
+	import type { AgentMessage } from '../types'
 	import ChatMarkdown from './ChatMarkdown.svelte'
 
 	const STARTERS = [
@@ -76,16 +70,7 @@
 
 	const desktop = isTauri()
 
-	let settings = $state<AiSettingsView | null>(null)
-	let chats = $state<AgentChat[]>([])
-	let messages = $state<AgentMessage[]>([])
-	let chatId = $state<string | null>(null)
-	let provider = $state('openai')
-	let model = $state('gpt-5.6-terra')
-	let models = $state<AgentModelInfo[]>([])
-	let modelsLoading = $state(false)
-	let modelsError = $state<string | null>(null)
-	let draft = $state('')
+	const settings = $derived(aiSettings.view)
 	let sending = $state(false)
 	let elapsedSec = $state(0)
 	let sendGen = $state(0)
@@ -100,7 +85,7 @@
 
 	const chatOptions = $derived([
 		{ value: '', label: 'New chat' },
-		...chats.map((c) => ({ value: String(c.id), label: c.title })),
+		...agentChat.chats.map((c) => ({ value: String(c.id), label: c.title })),
 	])
 	const providerOptions = $derived(
 		(settings?.providers ?? []).map((p) => ({
@@ -109,35 +94,35 @@
 		})),
 	)
 	const modelOptions = $derived(
-		models.length
-			? models.map((m) => ({ value: m.id, label: m.label }))
-			: model
-				? [{ value: model, label: model }]
+		agentChat.models.length
+			? agentChat.models.map((m) => ({ value: m.id, label: m.label }))
+			: agentChat.model
+				? [{ value: agentChat.model, label: agentChat.model }]
 				: [],
 	)
 	const modelPlaceholder = $derived(
-		modelsLoading
+		agentChat.modelsLoading
 			? 'Loading models…'
-			: provider === 'ollama'
+			: agentChat.provider === 'ollama'
 				? 'No local models'
 				: 'Select model',
 	)
 	const canSend = $derived(
 		!sending &&
-			Boolean(draft.trim()) &&
+			Boolean(agentChat.draft.trim()) &&
 			desktop &&
-			!modelsLoading &&
-			(provider !== 'ollama' || Boolean(model.trim())),
+			!agentChat.modelsLoading &&
+			(agentChat.provider !== 'ollama' || Boolean(agentChat.model.trim())),
 	)
 	const workingLabel = $derived.by(() => {
 		if (!sending) return ''
-		const who = provider === 'ollama' ? 'Ollama' : 'the model'
+		const who = agentChat.provider === 'ollama' ? 'Ollama' : 'the model'
 		if (elapsedSec < 8) return `Working… ${elapsedSec}s`
 		if (elapsedSec < 25) return `Waiting on ${who}… ${elapsedSec}s`
 		return `Still waiting on ${who}… ${elapsedSec}s`
 	})
 	let openTools = $state<Record<string, boolean>>({})
-	const threadEmpty = $derived(messages.length === 0 && !sending)
+	const threadEmpty = $derived(agentChat.messages.length === 0 && !sending)
 	const connectionLine = $derived(
 		database ? `${connectionName} / ${database}` : connectionName,
 	)
@@ -186,38 +171,35 @@
 
 	async function loadSettings() {
 		if (!desktop) return
-		settings = await getAiSettings()
-		if (!settings.providers.some((p) => p.id === provider)) {
-			provider = settings.providers[0]?.id ?? 'openai'
+		const view = await aiSettings.load()
+		if (!view?.providers.some((p) => p.id === agentChat.provider)) {
+			agentChat.provider = view?.providers[0]?.id ?? 'openai'
 		}
 	}
 
 	async function loadModels() {
 		if (!desktop || sending) return
-		modelsLoading = true
 		try {
-			models = await listAgentModels(provider)
-			modelsError = null
-			if (provider === 'ollama' && models.length === 0) {
-				modelsError =
+			await agentChat.loadModels(agentChat.provider)
+			if (agentChat.provider === 'ollama' && agentChat.models.length === 0) {
+				agentChat.modelsError =
 					'Ollama has no local models. Pull one with `ollama pull <name>`.'
 			}
-			if (!models.some((m) => m.id === model)) {
+			if (!agentChat.models.some((m) => m.id === agentChat.model)) {
 				const fallback =
-					provider === 'ollama'
+					agentChat.provider === 'ollama'
 						? ''
-						: (settings?.providers.find((p) => p.id === provider)
+						: (settings?.providers.find((p) => p.id === agentChat.provider)
 								?.defaultModel ?? '')
-				model = models[0]?.id ?? fallback
+				agentChat.model = agentChat.models[0]?.id ?? fallback
 			}
-		} catch (e) {
-			models = []
-			modelsError = e instanceof Error ? e.message : String(e)
-			if (provider === 'ollama' && isHardcodedOllamaModel(model)) {
-				model = ''
+		} catch {
+			if (
+				agentChat.provider === 'ollama' &&
+				isHardcodedOllamaModel(agentChat.model)
+			) {
+				agentChat.model = ''
 			}
-		} finally {
-			modelsLoading = false
 		}
 	}
 
@@ -225,23 +207,27 @@
 		return id === 'llama3.2' || id === 'qwen2.5' || id === 'mistral'
 	}
 
-	async function loadChats() {
+	async function loadChats(force = false) {
 		if (!desktop) return
-		chats = await listAgentChats(connectionId)
-		if (chatId && !chats.some((c) => String(c.id) === String(chatId))) {
-			chatId = chats[0] ? String(chats[0].id) : null
+		await agentChat.loadChats(connectionId, force)
+		if (
+			agentChat.chatId &&
+			!agentChat.chats.some((c) => String(c.id) === String(agentChat.chatId))
+		) {
+			agentChat.chatId = agentChat.chats[0]
+				? String(agentChat.chats[0].id)
+				: null
 		}
 	}
 
 	async function loadMessages() {
 		if (sending) return
-		await hydrateMessages(chatId)
+		await hydrateMessages(agentChat.chatId)
 	}
 
-	async function hydrateMessages(id: string | null) {
+	async function hydrateMessages(id: string | null, force = false) {
 		if (!desktop || !id) return
-		const remote = await listAgentMessages(String(id))
-		messages = remote
+		await agentChat.loadMessages(id, force)
 		queueMicrotask(() => {
 			listEl?.scrollTo({ top: listEl.scrollHeight })
 		})
@@ -257,15 +243,15 @@
 	async function onPickChat(id: string) {
 		if (sending) return
 		const next = id ? String(id) : null
-		chatId = next
+		agentChat.chatId = next
 		if (!next) {
-			messages = []
+			agentChat.messages = []
 			return
 		}
-		const c = chats.find((x) => String(x.id) === next)
+		const c = agentChat.chats.find((x) => String(x.id) === next)
 		if (c) {
-			provider = c.provider
-			model = c.model
+			agentChat.provider = c.provider
+			agentChat.model = c.model
 			void loadModels()
 		}
 		try {
@@ -278,29 +264,26 @@
 
 	async function newChat() {
 		if (sending) return
-		chatId = null
-		messages = []
-		draft = ''
+		agentChat.chatId = null
+		agentChat.messages = []
+		agentChat.draft = ''
 		error = null
 	}
 
 	async function removeChat() {
-		if (sending || !chatId) return
-		await deleteAgentChat(chatId)
-		chatId = null
-		await loadChats()
-		messages = []
+		if (sending || !agentChat.chatId) return
+		await agentChat.removeChat(agentChat.chatId)
 	}
 
 	async function send(preset?: string) {
-		const text = (preset ?? draft).trim()
+		const text = (preset ?? agentChat.draft).trim()
 		if (!text || sending) return
 		const gen = ++sendGen
 		sending = true
 		elapsedSec = 0
 		const sentAt = new Date().toISOString()
 		const knownAssistantIds = new Set(
-			messages.filter((m) => m.role === 'assistant').map((m) => m.id),
+			agentChat.messages.filter((m) => m.role === 'assistant').map((m) => m.id),
 		)
 		const tick = setInterval(() => {
 			if (gen === sendGen) elapsedSec += 1
@@ -309,16 +292,16 @@
 			void reconcileInFlight(gen, knownAssistantIds)
 		}, 800)
 		error = null
-		if (!preset) draft = ''
+		if (!preset) agentChat.draft = ''
 		const optimisticId = `local-${crypto.randomUUID()}`
 		const optimistic: AgentMessage = {
 			id: optimisticId,
-			chatId: chatId ?? '',
+			chatId: agentChat.chatId ?? '',
 			role: 'user',
 			content: text,
 			createdAt: sentAt,
 		}
-		messages = [...messages, optimistic]
+		agentChat.messages = [...agentChat.messages, optimistic]
 		queueMicrotask(() => {
 			listEl?.scrollTo({ top: listEl.scrollHeight })
 		})
@@ -332,19 +315,19 @@
 				connectionName,
 				engine,
 				database,
-				chatId,
-				provider,
-				model,
+				chatId: agentChat.chatId,
+				provider: agentChat.provider,
+				model: agentChat.model,
 				text,
 				editorQuery,
 			})
 			if (gen !== sendGen) return
-			chatId = result.chat.id
+			agentChat.chatId = result.chat.id
 			try {
-				await hydrateMessages(result.chat.id)
-				if (!messages.some((m) => m.id === result.assistant.id)) {
-					messages = [
-						...messages.filter(
+				await hydrateMessages(result.chat.id, true)
+				if (!agentChat.messages.some((m) => m.id === result.assistant.id)) {
+					agentChat.messages = [
+						...agentChat.messages.filter(
 							(m) => m.id !== optimisticId && m.id !== result.user.id,
 						),
 						result.user,
@@ -352,15 +335,15 @@
 					]
 				}
 			} catch {
-				messages = [
-					...messages.filter(
+				agentChat.messages = [
+					...agentChat.messages.filter(
 						(m) => m.id !== optimisticId && m.id !== result.user.id,
 					),
 					result.user,
 					result.assistant,
 				]
 			}
-			void loadChats()
+			void loadChats(true)
 		} catch (e) {
 			if (gen !== sendGen) return
 			error = e instanceof Error ? e.message : String(e)
@@ -378,18 +361,18 @@
 	async function reconcileInFlight(gen: number, knownIds: Set<string>) {
 		if (gen !== sendGen || !sending) return
 		try {
-			let id = chatId
+			let id = agentChat.chatId
 			if (!id) {
 				const listed = await listAgentChats(connectionId)
-				chats = listed
+				agentChat.chats = listed
 				id = listed[0]?.id ?? null
 			}
 			if (!id || gen !== sendGen) return
 			const remote = await listAgentMessages(id)
 			if (gen !== sendGen || !sending) return
 			if (!hasUnseenAssistant(remote, knownIds)) return
-			chatId = id
-			messages = remote
+			agentChat.chatId = id
+			agentChat.messages = remote
 			sending = false
 			elapsedSec = 0
 			sendGen += 1
@@ -403,15 +386,15 @@
 
 	async function recoverFromDb(knownIds: Set<string>) {
 		try {
-			if (!chatId) {
+			if (!agentChat.chatId) {
 				await loadChats()
 			}
-			const id = chatId ?? chats[0]?.id ?? null
+			const id = agentChat.chatId ?? agentChat.chats[0]?.id ?? null
 			if (!id) return
 			const remote = await listAgentMessages(id)
 			if (remote.length === 0) return
-			chatId = id
-			messages = remote
+			agentChat.chatId = id
+			agentChat.messages = remote
 			if (hasUnseenAssistant(remote, knownIds)) {
 				error = null
 			}
@@ -425,12 +408,12 @@
 		sending = false
 		elapsedSec = 0
 		void (async () => {
-			if (!chatId) await loadChats()
-			const id = chatId ?? chats[0]?.id ?? null
+			if (!agentChat.chatId) await loadChats()
+			const id = agentChat.chatId ?? agentChat.chats[0]?.id ?? null
 			if (id) {
-				chatId = id
+				agentChat.chatId = id
 				await hydrateMessages(id)
-				if (messages.some((m) => m.role === 'assistant')) {
+				if (agentChat.messages.some((m) => m.role === 'assistant')) {
 					error = null
 					return
 				}
@@ -445,7 +428,7 @@
 
 	function useStarter(text: string) {
 		if (sending || !desktop) return
-		draft = text
+		agentChat.draft = text
 		queueMicrotask(() => {
 			document.getElementById('agent-composer')?.focus()
 		})
@@ -459,7 +442,7 @@
 	}
 
 	$effect(() => {
-		void provider
+		void agentChat.provider
 		if (desktop) untrack(() => void loadModels())
 	})
 
@@ -478,13 +461,16 @@
 		void (async () => {
 			if (!desktop) return
 			try {
+				agentChat.resetForConnection(connectionId)
 				await loadSettings()
 				await loadChats()
-				if (chats[0]) {
-					chatId = String(chats[0].id)
-					provider = chats[0].provider
-					model = chats[0].model
-					await hydrateMessages(chatId)
+				if (agentChat.chatId) {
+					await hydrateMessages(agentChat.chatId)
+				} else if (agentChat.chats[0]) {
+					agentChat.chatId = String(agentChat.chats[0].id)
+					agentChat.provider = agentChat.chats[0].provider
+					agentChat.model = agentChat.chats[0].model
+					await hydrateMessages(agentChat.chatId)
 				}
 				void loadModels()
 			} catch (e) {
@@ -535,7 +521,7 @@
 			<IconButton label="New chat" variant="quiet" size="sm" onclick={newChat}>
 				<Icon name="plus" />
 			</IconButton>
-			{#if chatId}
+			{#if agentChat.chatId}
 				<IconButton
 					label="Delete chat"
 					variant="quiet"
@@ -559,7 +545,7 @@
 				class="min-w-0"
 				inputSize="sm"
 				options={chatOptions}
-				value={chatId ?? ''}
+				value={agentChat.chatId ?? ''}
 				onchange={(v) => void onPickChat(v)}
 			/>
 		</div>
@@ -671,7 +657,7 @@
 				</div>
 			{:else}
 				<ul class="m-0 flex list-none flex-col gap-4 p-0">
-					{#each messages as msg, i (`${msg.role}-${String(msg.id)}-${i}`)}
+					{#each agentChat.messages as msg, i (`${msg.role}-${String(msg.id)}-${i}`)}
 						{#if msg.role === 'tool'}
 							<li class="self-stretch">
 								<button
@@ -768,9 +754,9 @@
 		</div>
 	</div>
 
-	{#if modelsError && provider === 'ollama'}
+	{#if agentChat.modelsError && agentChat.provider === 'ollama'}
 		<div class="shrink-0 bg-app px-2 pb-1">
-			<Alert tone="danger">{modelsError}</Alert>
+			<Alert tone="danger">{agentChat.modelsError}</Alert>
 		</div>
 	{/if}
 
@@ -796,7 +782,7 @@
 				resize="none"
 				class="min-h-16 rounded-none border-0 bg-transparent px-3 pt-2.5 pb-1 focus-visible:border-transparent focus-visible:ring-0"
 				placeholder="Ask for a query…"
-				bind:value={draft}
+				bind:value={agentChat.draft}
 				disabled={sending || !desktop}
 				enterkeyhint="send"
 				onkeydown={onComposerKey}
@@ -806,22 +792,32 @@
 					class="min-w-0 flex-1"
 					inputSize="sm"
 					options={providerOptions}
-					value={provider}
+					value={agentChat.provider}
 					onchange={(v) => {
-						provider = v
-						if (chatId) void updateAgentChat({ id: chatId, provider: v, model })
+						agentChat.provider = v
+						if (agentChat.chatId)
+							void updateAgentChat({
+								id: agentChat.chatId,
+								provider: v,
+								model: agentChat.model,
+							})
 					}}
 				/>
 				<Select
 					class="min-w-0 flex-1"
 					inputSize="sm"
 					options={modelOptions}
-					value={model}
+					value={agentChat.model}
 					placeholder={modelPlaceholder}
-					disabled={modelsLoading}
+					disabled={agentChat.modelsLoading}
 					onchange={(v) => {
-						model = v
-						if (chatId) void updateAgentChat({ id: chatId, provider, model: v })
+						agentChat.model = v
+						if (agentChat.chatId)
+							void updateAgentChat({
+								id: agentChat.chatId,
+								provider: agentChat.provider,
+								model: v,
+							})
 					}}
 				/>
 				<IconButton

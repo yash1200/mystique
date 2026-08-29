@@ -8,7 +8,7 @@
 		colorHex,
 		connectionEndpoint,
 		connectionInitial,
-		listProfiles,
+		connectionProfiles,
 	} from '$features/connections'
 	import { onMount } from 'svelte'
 
@@ -23,9 +23,9 @@
 	let { openIds, busy = false, error = null, onclose, onpick }: Props = $props()
 
 	let query = $state('')
-	let loading = $state(true)
-	let loadError = $state<string | null>(null)
-	let profiles = $state<ConnectionProfile[]>([])
+	const loading = $derived(connectionProfiles.loading && !connectionProfiles.items.length)
+	const loadError = $derived(connectionProfiles.error)
+	const profiles = $derived(connectionProfiles.items)
 
 	const available = $derived(profiles.filter((p) => !openIds.includes(p.id)))
 
@@ -51,17 +51,7 @@
 	})
 
 	onMount(() => {
-		void (async () => {
-			loading = true
-			loadError = null
-			try {
-				profiles = await listProfiles()
-			} catch (e) {
-				loadError = e instanceof Error ? e.message : String(e)
-			} finally {
-				loading = false
-			}
-		})()
+		void connectionProfiles.ensureLoaded()
 	})
 </script>
 

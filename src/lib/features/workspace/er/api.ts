@@ -8,7 +8,8 @@ import type {
 	DataFamily,
 	EngineCapabilities,
 } from '$core/contracts'
-import { listEngineCatalogColumns, listEngineRelationships } from '$core/ipc'
+import { listEngineRelationships } from '$core/ipc'
+import { catalogColumnsCache } from '$features/workspace/catalog'
 import {
 	defaultCapabilitiesForEngine,
 	familyFromCaps,
@@ -61,10 +62,7 @@ export async function loadLiveErDiagram(
 	const resolved = resolveCapabilities(engine, caps)
 	const family = familyFromCaps(resolved)
 	const db = (database ?? '').trim() || null
-	const catalogCols = await listEngineCatalogColumns({
-		sessionId,
-		database: db,
-	})
+	const catalogCols = await catalogColumnsCache.load(sessionId, db)
 	const rels = await listEngineRelationships({
 		sessionId,
 		database: db,

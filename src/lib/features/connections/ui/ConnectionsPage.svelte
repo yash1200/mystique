@@ -13,25 +13,32 @@
 	import { workspaceSession } from '$features/workspace/shell'
 	import { onMount } from 'svelte'
 	import {
-		deleteProfile,
-		listProfiles,
-		saveProfile,
-		touchProfileConnected,
-	} from '../api'
-	import {
 		draftFromProfile,
 		pluginConfigForSession,
 		pluginConfigFromDraft,
 		saveInputFromDraft,
 	} from '../model'
+	import { connectionProfiles } from '../profiles.svelte'
 	import ConnectionDetail from './ConnectionDetail.svelte'
 	import type { ConnectionMenuAction } from './ConnectionSidebar.svelte'
 	import ConnectionSidebar from './ConnectionSidebar.svelte'
 	import HomeIllustration from './HomeIllustration.svelte'
 	import NewConnectionPanel from './NewConnectionPanel.svelte'
 
-	let connections = $state<ConnectionProfile[]>([])
 	let selectedId = $state<string | null>(null)
+	/** Transient connect-failure overlay; live connected comes from the session store. */
+	let statusOverride = $state<Record<string, 'error'>>({})
+	const connections = $derived(
+		connectionProfiles.items.map((p) => ({
+			...p,
+			status:
+				statusOverride[p.id] === 'error'
+					? ('error' as const)
+					: workspaceSession.sessions.some((s) => s.profile.id === p.id)
+						? ('connected' as const)
+						: ('disconnected' as const),
+		})),
+	)
 	/** Create form is the home landing (no selection). */
 	let creating = $state(true)
 	/** Edit form for the currently selected profile. */
@@ -60,22 +67,22 @@
 		createFormKey += 1
 	}
 
-	async function refreshList(preferSelectId?: string | null) {
-		const rows = await listProfiles()
-		connections = rows.map((r) => ({
-			...r,
-			status: connections.find((c) => c.id === r.id)?.status ?? 'disconnected',
-		}))
-		if (preferSelectId && connections.some((c) => c.id === preferSelectId)) {
-			// After save/duplicate: show the new/updated profile detail.
+	function afterProfilesChange(preferSelectId?: string | null) {
+		const rows = connectionProfiles.items
+		if (preferSelectId && rows.some((c) => c.id === preferSelectId)) {
 			selectedId = preferSelectId
 			creating = false
 			editing = false
-		} else if (!selectedId || !connections.some((c) => c.id === selectedId)) {
+		} else if (!selectedId || !rows.some((c) => c.id === selectedId)) {
 			if (!creating && !editing) {
 				enterCreateMode()
 			}
 		}
+	}
+
+	async function refreshList(preferSelectId?: string | null) {
+		await connectionProfiles.refresh()
+		afterProfilesChange(preferSelectId)
 	}
 
 	async function refreshConnections() {
@@ -218,9 +225,9 @@
 			})
 
 			// Password is persisted plaintext with the profile (local SQLite).
-			const saved = await saveProfile(input)
+			const saved = await connectionProfiles.save(input)
 
-			await refreshList(saved.id)
+			afterProfilesChange(saved.id)
 			showToast(
 				'success',
 				isUpdate
@@ -260,7 +267,7 @@
 		try {
 			saving = true
 			const cfg = { ...(profile.pluginConfig ?? {}) }
-			const saved = await saveProfile({
+			const saved = await connectionProfiles.save({
 				id: null,
 				name: `${profile.name}-copy`,
 				engine: String(profile.engine),
@@ -271,7 +278,7 @@
 				pluginConfig: cfg,
 				password: profile.password ?? null,
 			})
-			await refreshList(saved.id)
+			afterProfilesChange(saved.id)
 			showToast('success', `Duplicated as “${saved.name}”.`)
 		} catch (err) {
 			showToast('danger', err instanceof Error ? err.message : String(err))
@@ -364,9 +371,8 @@
 		const { id, name } = pendingDelete
 		deleting = true
 		try {
-			await deleteProfile(id)
-			// Re-fetch from SQLite so UI matches disk (do not only filter local state).
-			await refreshList()
+			await connectionProfiles.remove(id)
+			afterProfilesChange()
 			// refreshList clears invalid selection → create mode.
 			pendingDelete = null
 			showToast('info', `Deleted “${name}”.`)
@@ -410,9 +416,8 @@
 	async function connectProfile(profile: ConnectionProfile) {
 		// FE preview: open workspace with dummy tables (no live engine).
 		if (!isTauri()) {
-			connections = connections.map((c) =>
-				c.id === profile.id ? { ...c, status: 'connected' as const } : c,
-			)
+			const { [profile.id]: _drop, ...rest } = statusOverride
+			statusOverride = rest
 			showToast(
 				'info',
 				'Opening workspace with sample data (FE preview — run `npm run tauri dev` for live DB).',
@@ -440,19 +445,16 @@
 			})
 
 			if (!result.ok) {
-				connections = connections.map((c) =>
-					c.id === profile.id ? { ...c, status: 'error' as const } : c,
-				)
+				statusOverride = { ...statusOverride, [profile.id]: 'error' }
 				const msg = `Could not establish connection: ${result.message}`
 				testResult = { ok: false, message: msg }
 				showToast('danger', msg)
 				return
 			}
 
-			const updated = await touchProfileConnected(profile.id)
-			connections = connections.map((c) =>
-				c.id === updated.id ? { ...updated, status: 'connected' as const } : c,
-			)
+			const updated = await connectionProfiles.touchConnected(profile.id)
+			const { [profile.id]: _ok, ...rest } = statusOverride
+			statusOverride = rest
 
 			const session = await ensureEngineSession({
 				engine: String(profile.engine),
@@ -477,9 +479,7 @@
 				session.capabilities,
 			)
 		} catch (err) {
-			connections = connections.map((c) =>
-				c.id === profile.id ? { ...c, status: 'error' as const } : c,
-			)
+			statusOverride = { ...statusOverride, [profile.id]: 'error' }
 			showToast('danger', err instanceof Error ? err.message : String(err))
 		} finally {
 			testing = false

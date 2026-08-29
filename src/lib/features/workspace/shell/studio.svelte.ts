@@ -5,6 +5,7 @@
  */
 import type {
 	DatabaseMeta,
+	ImportFormat,
 	ObjectStructure,
 	PreviewImportResult,
 	TableMeta,
@@ -32,6 +33,9 @@ class WorkspaceStudio {
 	refreshing = $state(false)
 	tableLoading = $state(false)
 	catalogError = $state<string | null>(null)
+	/** connectionId → last engineSessionId we loaded a live catalog for */
+	liveCatalogKey = $state<Record<string, string>>({})
+	catalogLoadInFlight = $state<Record<string, boolean>>({})
 
 	sideMode = $state<StudioSideMode>('explorer')
 	selectedQueryId = $state<string | null>(null)
@@ -39,8 +43,12 @@ class WorkspaceStudio {
 	queryHistory = $state<QueryHistoryEntry[]>([])
 	historyLoading = $state(false)
 	historyError = $state<string | null>(null)
+	/** Connection id the current history list belongs to. */
+	historyFor = $state<string | null>(null)
 	savedQueries = $state<SavedQueryListItem[]>([])
 	querySaving = $state(false)
+	/** Connection id the current saved-query list belongs to. */
+	savedQueriesFor = $state<string | null>(null)
 
 	liveModels = $state<Record<string, LiveModel>>({})
 	modelLoading = $state(false)
@@ -67,6 +75,7 @@ class WorkspaceStudio {
 	importError = $state<string | null>(null)
 	importPath = $state('')
 	importPreview = $state<PreviewImportResult | null>(null)
+	importFormat = $state<ImportFormat>('csv')
 }
 
 export const workspaceStudio = new WorkspaceStudio()
