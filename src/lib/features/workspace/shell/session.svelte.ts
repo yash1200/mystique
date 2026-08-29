@@ -25,6 +25,8 @@ class WorkspaceSessionStore {
 	activeConnectionId = $state<string | null>(null)
 	openTabs = $state<WorkspaceTab[]>([])
 	activeTabId = $state<string | null>(null)
+	/** Last focused tab for each connection. `activeTabId` is only the current one. */
+	private activeTabByConnection = $state<Record<string, string>>({})
 	selectedRow = $state<SelectedRow | null>(null)
 	/** Prompt waiting for the query agent pane to send. */
 	pendingAgentPrompt = $state<string | null>(null)
@@ -59,6 +61,37 @@ class WorkspaceSessionStore {
 
 	get activeTab(): WorkspaceTab | null {
 		return this.openTabs.find((t) => t.id === this.activeTabId) ?? null
+	}
+
+	private rememberTab(connectionId: string, tabId: string | null) {
+		if (tabId) {
+			if (this.activeTabByConnection[connectionId] === tabId) return
+			this.activeTabByConnection = {
+				...this.activeTabByConnection,
+				[connectionId]: tabId,
+			}
+			return
+		}
+		if (!(connectionId in this.activeTabByConnection)) return
+		const next = { ...this.activeTabByConnection }
+		delete next[connectionId]
+		this.activeTabByConnection = next
+	}
+
+	private focusConnectionTab(connectionId: string, tabId: string) {
+		this.activeConnectionId = connectionId
+		this.activeTabId = tabId
+		this.rememberTab(connectionId, tabId)
+	}
+
+	private tabOnConnection(
+		connectionId: string,
+		tabId: string | null | undefined,
+	): WorkspaceTab | undefined {
+		if (!tabId) return undefined
+		return this.openTabs.find(
+			(t) => t.connectionId === connectionId && t.id === tabId,
+		)
 	}
 
 	/** Register / refresh a live session and focus it. Restores tabs from SQLite. */
@@ -128,8 +161,11 @@ class WorkspaceSessionStore {
 				records.find((r) => r.isActive)?.id ??
 				records[records.length - 1]?.id ??
 				null
-			if (active && this.activeConnectionId === connectionId) {
-				this.activeTabId = active
+			if (active) {
+				this.rememberTab(connectionId, active)
+				if (this.activeConnectionId === connectionId) {
+					this.activeTabId = active
+				}
 			}
 		} catch (e) {
 			console.warn('[mystique] restore workspace tabs:', e)
@@ -155,8 +191,10 @@ class WorkspaceSessionStore {
 	async persistNow(connectionId: string) {
 		if (!isTauri() || this.restoring.has(connectionId)) return
 		const tabs = this.openTabs.filter((t) => t.connectionId === connectionId)
-		const activeTabId =
-			this.activeTabId && tabs.some((t) => t.id === this.activeTabId)
+		const remembered = this.activeTabByConnection[connectionId]
+		const activeTabId = tabs.some((t) => t.id === remembered)
+			? remembered
+			: this.activeTabId && tabs.some((t) => t.id === this.activeTabId)
 				? this.activeTabId
 				: (tabs[0]?.id ?? null)
 		try {
@@ -185,8 +223,7 @@ class WorkspaceSessionStore {
 			(t) => t.connectionId === connectionId && t.kind === 'query',
 		)
 		if (existing) {
-			this.activeTabId = existing.id
-			this.activeConnectionId = connectionId
+			this.focusConnectionTab(connectionId, existing.id)
 			this.selectedRow = null
 			this.schedulePersist(connectionId)
 			return
@@ -214,8 +251,7 @@ class WorkspaceSessionStore {
 		]
 		this.queryDrafts = { ...this.queryDrafts, [id]: '' }
 		this.queryBaselines = { ...this.queryBaselines, [id]: '' }
-		this.activeTabId = id
-		this.activeConnectionId = connectionId
+		this.focusConnectionTab(connectionId, id)
 		this.selectedRow = null
 		this.schedulePersist(connectionId)
 	}
@@ -257,8 +293,7 @@ class WorkspaceSessionStore {
 					t.id === existing.id ? { ...t, title: saved.name, dirty: false } : t,
 				)
 			}
-			this.activeTabId = existing.id
-			this.activeConnectionId = connectionId
+			this.focusConnectionTab(connectionId, existing.id)
 			this.selectedRow = null
 			this.schedulePersist(connectionId)
 			return
@@ -277,8 +312,7 @@ class WorkspaceSessionStore {
 		]
 		this.queryDrafts = { ...this.queryDrafts, [id]: saved.body }
 		this.queryBaselines = { ...this.queryBaselines, [id]: saved.body }
-		this.activeTabId = id
-		this.activeConnectionId = connectionId
+		this.focusConnectionTab(connectionId, id)
 		this.selectedRow = null
 		this.schedulePersist(connectionId)
 	}
@@ -291,15 +325,16 @@ class WorkspaceSessionStore {
 
 	setActiveConnection(id: string) {
 		if (!this.sessions.some((s) => s.profile.id === id)) return
-		this.activeConnectionId = id
 		if (this.selectedRow && this.selectedRow.connectionId !== id) {
 			this.selectedRow = null
 		}
 		const tab =
-			this.openTabs.find(
-				(t) => t.connectionId === id && t.id === this.activeTabId,
-			) ?? this.openTabs.find((t) => t.connectionId === id)
+			this.tabOnConnection(id, this.activeTabByConnection[id]) ??
+			this.tabOnConnection(id, this.activeTabId) ??
+			this.openTabs.find((t) => t.connectionId === id)
+		this.activeConnectionId = id
 		this.activeTabId = tab?.id ?? null
+		if (tab) this.rememberTab(id, tab.id)
 	}
 
 	disconnect(id: string) {
@@ -321,13 +356,16 @@ class WorkspaceSessionStore {
 		this.queryDrafts = drafts
 		this.queryBaselines = baselines
 
+		this.rememberTab(id, null)
 		if (this.activeConnectionId === id) {
-			this.activeConnectionId = this.sessions[0]?.profile.id ?? null
-			if (this.activeConnectionId) {
-				const tab = this.openTabs.find(
-					(t) => t.connectionId === this.activeConnectionId,
-				)
+			const nextId = this.sessions[0]?.profile.id ?? null
+			this.activeConnectionId = nextId
+			if (nextId) {
+				const tab =
+					this.tabOnConnection(nextId, this.activeTabByConnection[nextId]) ??
+					this.openTabs.find((t) => t.connectionId === nextId)
 				this.activeTabId = tab?.id ?? null
+				if (tab) this.rememberTab(nextId, tab.id)
 			} else {
 				this.activeTabId = null
 			}
@@ -358,8 +396,7 @@ class WorkspaceSessionStore {
 				},
 			]
 		}
-		this.activeTabId = id
-		this.activeConnectionId = connectionId
+		this.focusConnectionTab(connectionId, id)
 		this.selectedRow = null
 		this.schedulePersist(connectionId)
 	}
@@ -384,8 +421,7 @@ class WorkspaceSessionStore {
 				t.id === id ? { ...t, title } : t,
 			)
 		}
-		this.activeTabId = id
-		this.activeConnectionId = connectionId
+		this.focusConnectionTab(connectionId, id)
 		this.selectedRow = null
 		this.schedulePersist(connectionId)
 	}
@@ -409,8 +445,7 @@ class WorkspaceSessionStore {
 				t.id === id ? { ...t, title } : t,
 			)
 		}
-		this.activeTabId = id
-		this.activeConnectionId = connectionId
+		this.focusConnectionTab(connectionId, id)
 		this.selectedRow = null
 		this.schedulePersist(connectionId)
 	}
@@ -443,8 +478,7 @@ class WorkspaceSessionStore {
 				t.id === id ? { ...t, title } : t,
 			)
 		}
-		this.activeTabId = id
-		this.activeConnectionId = connectionId
+		this.focusConnectionTab(connectionId, id)
 		this.selectedRow = null
 		this.schedulePersist(connectionId)
 	}
@@ -478,8 +512,14 @@ class WorkspaceSessionStore {
 				remaining[siblingIdx - 1] ??
 				remaining[0] ??
 				null
-			this.activeTabId = next?.id ?? null
 			this.activeConnectionId = connectionId
+			this.activeTabId = next?.id ?? null
+			this.rememberTab(connectionId, next?.id ?? null)
+		} else if (this.activeTabByConnection[connectionId] === tabId) {
+			const remaining = this.openTabs.filter(
+				(t) => t.connectionId === connectionId,
+			)
+			this.rememberTab(connectionId, remaining[0]?.id ?? null)
 		}
 		if (this.selectedRow) {
 			const active = this.openTabs.find((t) => t.id === this.activeTabId)
@@ -498,8 +538,7 @@ class WorkspaceSessionStore {
 	setActiveTab(tabId: string) {
 		const tab = this.openTabs.find((t) => t.id === tabId)
 		if (!tab) return
-		this.activeTabId = tabId
-		this.activeConnectionId = tab.connectionId
+		this.focusConnectionTab(tab.connectionId, tabId)
 		if (
 			this.selectedRow &&
 			(tab.kind !== 'table' ||
