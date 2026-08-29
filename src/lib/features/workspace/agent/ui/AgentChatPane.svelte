@@ -29,8 +29,9 @@
 		updateAgentChat,
 	} from '../api'
 	import { agentChat } from '../chat.svelte'
-	import { aiSettings } from '../settings.svelte'
+	import { configuredProviders } from '../configured'
 	import { inferFenceLang, isQueryLang, parseChatMarkdown } from '../markdown'
+	import { aiSettings } from '../settings.svelte'
 	import type { AgentMessage } from '../types'
 	import ChatMarkdown from './ChatMarkdown.svelte'
 
@@ -87,12 +88,14 @@
 		{ value: '', label: 'New chat' },
 		...agentChat.chats.map((c) => ({ value: String(c.id), label: c.title })),
 	])
+	const readyProviders = $derived(configuredProviders(settings))
 	const providerOptions = $derived(
-		(settings?.providers ?? []).map((p) => ({
+		readyProviders.map((p) => ({
 			value: p.id,
 			label: p.label,
 		})),
 	)
+	const hasProvider = $derived(readyProviders.length > 0)
 	const modelOptions = $derived(
 		agentChat.models.length
 			? agentChat.models.map((m) => ({ value: m.id, label: m.label }))
@@ -111,6 +114,8 @@
 		!sending &&
 			Boolean(agentChat.draft.trim()) &&
 			desktop &&
+			hasProvider &&
+			Boolean(agentChat.provider) &&
 			!agentChat.modelsLoading &&
 			(agentChat.provider !== 'ollama' || Boolean(agentChat.model.trim())),
 	)
@@ -172,13 +177,16 @@
 	async function loadSettings() {
 		if (!desktop) return
 		const view = await aiSettings.load()
-		if (!view?.providers.some((p) => p.id === agentChat.provider)) {
-			agentChat.provider = view?.providers[0]?.id ?? 'openai'
+		const ready = configuredProviders(view)
+		if (!ready.some((p) => p.id === agentChat.provider)) {
+			const first = ready[0]
+			agentChat.provider = first?.id ?? ''
+			if (first) agentChat.model = first.defaultModel
 		}
 	}
 
 	async function loadModels() {
-		if (!desktop || sending) return
+		if (!desktop || sending || !agentChat.provider) return
 		try {
 			await agentChat.loadModels(agentChat.provider)
 			if (agentChat.provider === 'ollama' && agentChat.models.length === 0) {
@@ -600,6 +608,29 @@
 						Open AI settings
 					</Button>
 				</div>
+			{:else if !hasProvider}
+				<div
+					class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center"
+				>
+					<span
+						class="grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line"
+						aria-hidden="true"
+					>
+						<Icon name="settings" class="size-5" />
+					</span>
+					<p class="mt-3 mb-0 text-body font-semibold text-fg">
+						No provider set up
+					</p>
+					<p
+						class="mt-1.5 mb-3 max-w-prose-ui text-caption leading-relaxed text-fg-muted"
+					>
+						Add an API key or Ollama in Settings. Only providers you add show up
+						here.
+					</p>
+					<Button size="sm" onclick={() => appSettingsUi.show('ai')}>
+						Add a provider
+					</Button>
+				</div>
 			{:else if threadEmpty}
 				<div class="flex min-h-full flex-col">
 					<div class="m-auto flex w-full max-w-panel-sm flex-col py-4">
@@ -793,6 +824,8 @@
 					inputSize="sm"
 					options={providerOptions}
 					value={agentChat.provider}
+					placeholder="No provider"
+					disabled={!hasProvider}
 					onchange={(v) => {
 						agentChat.provider = v
 						if (agentChat.chatId)

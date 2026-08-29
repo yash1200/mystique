@@ -27,6 +27,7 @@ export interface AiKeyStatus {
 export interface AiSettingsView {
 	enabled: boolean
 	ollamaBaseUrl: string
+	ollamaConfigured: boolean
 	keys: AiKeyStatus[]
 	providers: AgentProviderInfo[]
 }

@@ -14,6 +14,8 @@ use crate::AppState;
 pub struct AiSettingsView {
     pub enabled: bool,
     pub ollama_base_url: String,
+    /// True after the user saves an Ollama URL (even the default).
+    pub ollama_configured: bool,
     pub keys: Vec<AiKeyStatus>,
     pub providers: Vec<AgentProviderInfo>,
 }
@@ -21,17 +23,23 @@ pub struct AiSettingsView {
 #[tauri::command]
 pub fn get_ai_settings(state: State<'_, AppState>) -> Result<AiSettingsView, String> {
     let enabled = mystique_agent::runtime_enabled(&state.services);
-    let ollama_base_url = state
+    let ollama_row = state
         .services
         .settings()
         .get(SETTING_OLLAMA_URL)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let ollama_configured = ollama_row
+        .as_ref()
+        .map(|s| !s.value.trim().is_empty())
+        .unwrap_or(false);
+    let ollama_base_url = ollama_row
         .map(|s| s.value)
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_OLLAMA_URL.into());
     Ok(AiSettingsView {
         enabled,
         ollama_base_url,
+        ollama_configured,
         keys: state.agent.secrets().status(),
         providers: provider_catalog(),
     })
