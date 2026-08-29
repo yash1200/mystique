@@ -1,7 +1,7 @@
 /** Which catalog providers the user has actually set up. */
 import type { AgentProviderInfo, AiSettingsView } from './types'
 
-export function isProviderConfigured(
+function isProviderConfigured(
 	view: AiSettingsView | null | undefined,
 	id: string,
 ): boolean {

@@ -13,29 +13,6 @@ const SQLITE_FILTERS = [
 	{ name: 'All files', extensions: ['*'] },
 ]
 
-/** Common extensions accepted for typed paths (case-insensitive). */
-export const SQLITE_PATH_EXTENSIONS = [
-	'.sqlite',
-	'.sqlite3',
-	'.db',
-	'.db3',
-] as const
-
-/**
- * Soft check for a path that looks like a SQLite file.
- * Empty → false. No extension → allowed (SQLite often uses bare names).
- * Known extensions → true. Other extensions → false.
- */
-export function isLikelySqlitePath(path: string): boolean {
-	const t = path.trim()
-	if (!t) return false
-	const base = (t.split(/[/\\]/).pop() ?? t).toLowerCase()
-	const dot = base.lastIndexOf('.')
-	if (dot <= 0) return true // no extension, or leading-dot name
-	const ext = base.slice(dot)
-	return (SQLITE_PATH_EXTENSIONS as readonly string[]).includes(ext)
-}
-
 /**
  * Open a native open-dialog for a single SQLite database file.
  * Returns the absolute path, or cancelled / error.

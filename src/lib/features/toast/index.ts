@@ -1,7 +1,6 @@
 /** App-wide status toast. Import `showToast` from anywhere; mount `ToastContext` once. */
 export {
 	appToast,
-	clearToast,
 	showToast,
 	type ToastMessage,
 	type ToastTone,

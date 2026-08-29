@@ -9,9 +9,6 @@ import type {
 	CatalogColumnRow,
 	CatalogDatabase,
 	CatalogRelationship,
-	ColumnInfo,
-	DescribeTableRequest,
-	EngineDescriptor,
 	ExecuteQueryRequest,
 	ExportObjectRequest,
 	ExportObjectResult,
@@ -29,7 +26,6 @@ import type {
 	OpenSessionRequest,
 	ParseConnectionUrlRequest,
 	ParsedConnectionUrl,
-	PoolStatus,
 	PreviewImportRequest,
 	PreviewImportResult,
 	QueryResult,
@@ -50,10 +46,6 @@ function requireTauri() {
 	}
 }
 
-export async function listEngines(): Promise<EngineDescriptor[]> {
-	requireTauri()
-	return invoke('list_engines')
-}
 /** Parse a connection URL via the engine plugin (backend-backed). */
 export async function parseEngineConnectionUrl(
 	request: ParseConnectionUrlRequest,
@@ -113,13 +105,6 @@ export async function pingEngineSession(sessionId: string): Promise<void> {
 	return invoke('ping_engine_session', { sessionId })
 }
 
-export async function engineSessionPoolStatus(
-	sessionId: string,
-): Promise<PoolStatus | null> {
-	requireTauri()
-	return invoke('engine_session_pool_status', { sessionId })
-}
-
 export async function listEngineSessions(): Promise<SessionInfo[]> {
 	requireTauri()
 	return invoke('list_engine_sessions')
@@ -131,49 +116,48 @@ export async function getEngineSession(
 	requireTauri()
 	return invoke('get_engine_session', { sessionId })
 }
+
 export async function executeEngineQuery(
 	request: ExecuteQueryRequest,
 ): Promise<QueryResult> {
 	requireTauri()
 	return invoke('execute_engine_query', { request })
 }
-export async function describeEngineTable(
-	request: DescribeTableRequest,
-): Promise<ColumnInfo[]> {
-	requireTauri()
-	return invoke('describe_engine_table', { request })
-}
-
 export async function listEngineCatalogColumns(
 	request: ListCatalogColumnsRequest,
 ): Promise<CatalogColumnRow[]> {
 	requireTauri()
 	return invoke('list_engine_catalog_columns', { request })
 }
+
 export async function applyEngineTableEdits(
 	request: ApplyTableEditsRequest,
 ): Promise<ApplyTableEditsResult> {
 	requireTauri()
 	return invoke('apply_engine_table_edits', { request })
 }
+
 export async function fetchEngineTablePreview(
 	request: FetchTablePreviewRequest,
 ): Promise<TablePreviewResult> {
 	requireTauri()
 	return invoke('fetch_engine_table_preview', { request })
 }
+
 export async function listEngineCatalog(
 	request: ListCatalogRequest,
 ): Promise<CatalogDatabase[]> {
 	requireTauri()
 	return invoke('list_engine_catalog', { request })
 }
+
 export async function listEngineRelationships(
 	request: ListRelationshipsRequest,
 ): Promise<CatalogRelationship[]> {
 	requireTauri()
 	return invoke('list_engine_relationships', { request })
 }
+
 /** Plugin-owned catalog admin (CREATE text + rename/drop/truncate/duplicate). */
 export async function applyEngineTableAdmin(
 	request: TableAdminRequest,
@@ -181,6 +165,7 @@ export async function applyEngineTableAdmin(
 	requireTauri()
 	return invoke('apply_engine_table_admin', { request })
 }
+
 /** Plugin-owned full-object file export (100-row chunks, no row cap). */
 export async function exportEngineObject(
 	request: ExportObjectRequest,
@@ -188,6 +173,7 @@ export async function exportEngineObject(
 	requireTauri()
 	return invoke('export_engine_object', { request })
 }
+
 export async function previewEngineImport(
 	request: PreviewImportRequest,
 ): Promise<PreviewImportResult> {
@@ -201,6 +187,7 @@ export async function importEngineObject(
 	requireTauri()
 	return invoke('import_engine_object', { request })
 }
+
 /** Plugin-owned object structure for “View structure”. */
 export async function describeEngineObjectStructure(
 	request: ObjectStructureRequest,

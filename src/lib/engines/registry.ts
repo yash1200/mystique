@@ -77,10 +77,6 @@ export function engineOptions(): EngineOption[] {
 	}))
 }
 
-export function selectableEngines(): EngineOption[] {
-	return engineOptions().filter((e) => e.available)
-}
-
 export function engineLabel(engine: string): string {
 	return ADAPTERS.get(String(engine).trim().toLowerCase())?.label ?? engine
 }

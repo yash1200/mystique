@@ -43,7 +43,7 @@ export function preferredDbForProfile(profile: {
 }
 
 /** Pool dropped, idle timeout, or the engine session was closed. */
-export function isStaleEngineError(err: unknown): boolean {
+function isStaleEngineError(err: unknown): boolean {
 	const msg = err instanceof Error ? err.message : String(err)
 	return (
 		/session not found/i.test(msg) ||

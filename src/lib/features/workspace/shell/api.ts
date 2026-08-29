@@ -65,11 +65,6 @@ export async function replaceWorkspaceTabs(
 	return invoke('replace_workspace_tabs', { input })
 }
 
-export async function deleteWorkspaceTab(id: string): Promise<void> {
-	if (!isTauri()) return
-	return invoke('delete_workspace_tab', { id })
-}
-
 export function recordToWorkspaceTab(r: WorkspaceTabRecord): WorkspaceTab {
 	const kind = r.kind as WorkspaceTabKind
 	return {

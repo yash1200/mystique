@@ -172,16 +172,3 @@ export async function listRecentQueryHistory(
 	})
 	return filterUserHistory(normalizeList(rows)).slice(0, limit)
 }
-
-export async function clearQueryHistory(connectionId: string): Promise<number> {
-	requireTauri()
-	try {
-		return await invoke<number>('clear_query_history', {
-			connectionId,
-		})
-	} catch {
-		return invoke<number>('clear_query_history', {
-			connection_id: connectionId,
-		})
-	}
-}

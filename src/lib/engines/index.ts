@@ -22,7 +22,6 @@ export {
 	normalizeCapabilities,
 	register,
 	resolveCapabilities,
-	selectableEngines,
 } from './registry'
 
 export {

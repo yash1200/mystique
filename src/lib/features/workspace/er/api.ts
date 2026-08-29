@@ -9,13 +9,8 @@ import type {
 	EngineCapabilities,
 } from '$core/contracts'
 import { listEngineRelationships } from '$core/ipc'
+import { familyFromCaps, modelTabTitle, resolveCapabilities } from '$engines'
 import { catalogColumnsCache } from '$features/workspace/catalog'
-import {
-	defaultCapabilitiesForEngine,
-	familyFromCaps,
-	modelTabTitle,
-	resolveCapabilities,
-} from '$engines'
 import { layoutErNodes } from './layout'
 import type {
 	ErColumn,
@@ -33,10 +28,6 @@ function nodeId(schema: string, name: string): string {
 function colId(schema: string, table: string, column: string): string {
 	const s = schema?.trim()
 	return s ? `c_${s}__${table}__${column}` : `c_${table}__${column}`
-}
-
-export function familyForEngine(engine: string): DataFamily {
-	return familyFromCaps(defaultCapabilitiesForEngine(engine))
 }
 
 export type { LiveErFocus, LiveErLoadResult }

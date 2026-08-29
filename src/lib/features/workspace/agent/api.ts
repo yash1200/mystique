@@ -4,7 +4,6 @@ import type {
 	AgentChat,
 	AgentMessage,
 	AgentModelInfo,
-	AgentProviderInfo,
 	AiSettingsView,
 	SendAgentResult,
 } from './types'
@@ -59,11 +58,6 @@ export async function setAiApiKey(
 	return invoke('set_ai_api_key', { provider, key })
 }
 
-export async function listAgentProviders(): Promise<AgentProviderInfo[]> {
-	requireDesktop()
-	return invoke('list_agent_providers')
-}
-
 export async function listAgentModels(
 	provider: string,
 ): Promise<AgentModelInfo[]> {
@@ -79,20 +73,6 @@ export async function listAgentChats(
 		connectionId: asId(connectionId),
 	})
 	return rows.map(normalizeChat)
-}
-
-export async function createAgentChat(input: {
-	connectionId: string
-	title?: string | null
-	provider: string
-	model: string
-}): Promise<AgentChat> {
-	requireDesktop()
-	return normalizeChat(
-		await invoke('create_agent_chat', {
-			input: { ...input, connectionId: asId(input.connectionId) },
-		}),
-	)
 }
 
 export async function updateAgentChat(input: {

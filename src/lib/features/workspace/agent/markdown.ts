@@ -241,7 +241,7 @@ function expandTabs(s: string): string {
 	return s.replace(/\t/g, '    ')
 }
 
-export function parseInline(src: string): MdInline[] {
+function parseInline(src: string): MdInline[] {
 	const out: MdInline[] = []
 	let i = 0
 	let buf = ''

@@ -23,11 +23,6 @@ class AppToast {
 		}, DISMISS_MS)
 	}
 
-	clear = () => {
-		this.#clearTimer()
-		this.current = null
-	}
-
 	#clearTimer() {
 		if (!this.#timer) return
 		clearTimeout(this.#timer)
@@ -39,8 +34,4 @@ export const appToast = new AppToast()
 
 export function showToast(kind: ToastTone, message: string) {
 	appToast.show(kind, message)
-}
-
-export function clearToast() {
-	appToast.clear()
 }

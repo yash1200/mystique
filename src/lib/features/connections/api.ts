@@ -109,16 +109,6 @@ export async function listProfiles(): Promise<ConnectionProfile[]> {
 	return rows.map(normalizeProfile)
 }
 
-export async function getProfile(id: string): Promise<ConnectionProfile> {
-	if (!isTauri()) {
-		const row = readLocal().find((r) => r.id === id)
-		if (!row) throw new Error(`Profile not found: ${id}`)
-		return row
-	}
-	const row = await invoke<ConnectionProfile>('get_profile', { id })
-	return normalizeProfile(row)
-}
-
 export async function saveProfile(
 	input: SaveConnectionInput,
 ): Promise<ConnectionProfile> {
