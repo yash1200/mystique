@@ -1,0 +1,96 @@
+<script lang="ts">
+	import { Button, StatusBar } from '$core/ui'
+	import { formatRelativeTime } from '$core/util'
+	import type { QueryHistoryEntry } from '../history-types'
+	import type { SavedQueryListItem } from '../saved-types'
+	interface Props {
+		kind: 'saved' | 'history'
+		saved?: SavedQueryListItem | null
+		history?: QueryHistoryEntry | null
+		onopeneditor?: (sql: string) => void
+	}
+
+	let { kind, saved = null, history = null, onopeneditor }: Props = $props()
+
+	const title = $derived(
+		kind === 'saved' ? (saved?.name ?? 'Saved query') : 'Query history',
+	)
+	const sql = $derived(
+		kind === 'saved' ? (saved?.sql ?? '') : (history?.sql ?? ''),
+	)
+
+	function openEditor() {
+		if (sql.trim()) onopeneditor?.(sql)
+	}
+</script>
+
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+	<div
+		class="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-elevated px-3 py-2"
+	>
+		<div class="min-w-0">
+			<div class="truncate text-label font-semibold text-fg">{title}</div>
+			<div class="truncate text-caption text-fg-muted">
+				{#if kind === 'saved' && saved}
+					Updated {formatRelativeTime(saved.updatedAt)}
+				{:else if history}
+					{formatRelativeTime(history.ranAt)}
+					<span aria-hidden="true"> · </span>
+					<span class="font-mono tabular-nums">{history.durationMs}ms</span>
+					{#if history.status === 'success'}
+						<span aria-hidden="true"> · </span>
+						<span class="text-success">success</span>
+						{#if history.rowCount != null}
+							<span aria-hidden="true"> · </span>
+							<span class="font-mono tabular-nums">{history.rowCount} rows</span
+							>
+						{/if}
+					{:else}
+						<span aria-hidden="true"> · </span>
+						<span class="text-danger">error</span>
+					{/if}
+				{/if}
+			</div>
+		</div>
+		<div class="flex shrink-0 gap-1.5">
+			<Button
+				variant="secondary"
+				size="sm"
+				disabled={!sql.trim()}
+				onclick={openEditor}
+			>
+				Open in editor
+			</Button>
+			<Button
+				variant="primary"
+				size="sm"
+				disabled={!sql.trim()}
+				onclick={openEditor}
+			>
+				Open &amp; edit
+			</Button>
+		</div>
+	</div>
+
+	<div class="min-h-0 flex-1 overflow-auto p-3">
+		<pre
+			class="m-0 rounded-md border border-line bg-panel p-3 font-mono text-label leading-relaxed text-fg whitespace-pre-wrap">{sql}</pre>
+		{#if kind === 'history' && history?.error}
+			<div
+				class="mt-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-label text-danger"
+			>
+				{history.error}
+			</div>
+		{/if}
+	</div>
+
+	<StatusBar ariaLabel="Query preview status">
+		{#snippet left()}
+			{#if kind === 'history'}
+				Saved from live query runs · Open in editor to re-run
+			{:else}
+				Saved query preview
+			{/if}
+		{/snippet}
+	</StatusBar>
+</div>

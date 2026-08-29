@@ -1,40 +1,103 @@
-# Frontend component structure
+# Frontend structure
 
-> Customisable, reusable UI for Mystique (Svelte 5).
+> Vertical feature slices for Mystique (Svelte 5 + Tauri).
 
-## Layers
+The frontend is organised by **feature**, not by kind. A feature owns its
+components, state, pure logic, types and IPC together, so changing one thing
+means opening one folder.
 
+## Zones
+
+```text
+src/
+├── routes/                       # thin mounts — nothing else lives here
+│   ├── +layout.svelte            # theme, ui-scale, global shortcuts
+│   ├── +page.svelte              # <ConnectionsPage />
+│   └── workspace/+page.svelte    # <WorkspacePage />
+└── lib/
+    ├── core/                     # domain-free; imported by everyone, imports nobody
+    │   ├── ui/                   # Button, Field, Modal, Toast… (the design system)
+    │   ├── ipc/                  # isTauri + the typed Tauri command surface
+    │   ├── contracts/            # DTOs mirroring mystique-connector-api + app-DB rows
+    │   └── util/                 # cn, motion, ui-scale, files, clipboard, time, highlight
+    │
+    ├── engines/                  # ← the seam that scales to new databases
+    │   ├── types.ts              # EngineAdapter
+    │   ├── registry.ts           # id → adapter, aliases, fallback
+    │   ├── capabilities.ts       # pure helpers over EngineCapabilities
+    │   ├── sql/                  # shared SQL formatter + completion schema
+    │   └── postgres/ mysql/ mongodb/ sqlite/
+    │
+    ├── features/                 # vertical slices
+    │   ├── connections/          # home screen: profiles, picker, create/edit form
+    │   ├── settings/             # appearance, workspace, AI, MCP
+    │   ├── shortcuts/            # keyboard reference
+    │   └── workspace/
+    │       ├── shell/            # panes, sessions rail, tabs, session + studio stores
+    │       ├── catalog/          # live catalog, labels, icons
+    │       ├── explorer/         # object tree, structure panel
+    │       ├── grid/             # data grid, filters, import/export
+    │       ├── query/            # editor, results, saved queries, history
+    │       ├── er/               # canvas, layout, DBML, PNG export
+    │       └── agent/            # chat pane, markdown
+    │
+    ├── app/                      # app-wide prefs (a leaf: features read it)
+    └── styles/                   # tokens.css, app.css
 ```
-src/lib/
-├── styles/tokens.css          # Theme tokens only (no components)
-├── types/                     # Shared TS models
-├── data/                      # Mock / fixtures (UI-only for now)
-├── utils/                     # Cross-cutting helpers (cn, export, format)
-├── helpers/                   # Feature logic — mirrors components/
-│   ├── home/
-│   │   └── connection-forms/
-│   └── workspace/
-│       ├── er_diagram/
-│       ├── grid/
-│       ├── query/
-│       └── shell/
-└── components/                # Svelte UI only
-    ├── core/
-    ├── home/
-    └── workspace/
-        ├── er_diagram/
-        ├── explorer/
-        ├── grid/
-        ├── query/
-        └── shell/
+
+Aliases: `$core`, `$engines`, `$features` (see `svelte.config.js`).
+
+## Anatomy of a feature
+
+```text
+features/workspace/er/
+├── index.ts          # PUBLIC surface — the only path other features import
+├── types.ts          # types this feature owns
+├── api.ts            # the IPC calls it makes
+├── layout.ts …       # pure logic
+└── ui/               # its Svelte components
 ```
 
-| Layer | May know about | Must not |
-| ----- | -------------- | -------- |
-| `core/*` | Variants, tokens, a11y, layout primitives | Product domain (engines, MCP, shortcuts) |
-| `home/*` | Connection profiles, engines, app settings | Re-implement button/input styles |
-| `workspace/*` | Live sessions, tabs, catalog | Re-implement button/input styles |
-| `routes/*` | Wire stores + feature components | Deep visual styling |
+Inside a feature, import files directly (`../model`, `./ErCanvas.svelte`).
+Across features, import the barrel (`$features/workspace/grid`) — never a file
+inside one.
+
+## Boundary rules
+
+Direction is **routes → features → engines → core**. `npm run check:boundaries`
+enforces it (also part of `npm run check`).
+
+| Zone | May import | Must not |
+| ---- | ---------- | -------- |
+| `routes/*` | A feature's `index.ts`, `$core/*` | Feature internals; styling beyond the page frame |
+| `features/x/*` | Own files, `$core/*`, `$engines`, other features' `index.ts` | Another feature's internals; `routes/*` |
+| `app/*` | `$core/*` | Features — it is a leaf they read |
+| `engines/*` | `$core/*` | `$features/*` — adapters are data, not screens |
+| `core/*` | `core/*` only | Everything domain: engines, MCP, profiles, sessions |
+
+Two more rules that keep the graph readable:
+
+- **Types live next to the code that owns them.** The exception is
+  `core/contracts` — those DTOs mirror `mystique-connector-api` and are not ours
+  to reshape. Generate them from Rust when we get round to it.
+- **No global barrels.** There is no `$lib/utils` or `$lib/types`. Each feature
+  exports a small surface from its own `index.ts`.
+
+## Adding a database engine
+
+The frontend twin of `ConnectorRegistry::bootstrap()` — see
+[`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md).
+
+1. Create `src/lib/engines/<engine>/` with `index.ts` and `Fields.svelte`.
+2. Implement `EngineAdapter`: connection fields + validation + `plugin_config`,
+   language (formatter, CodeMirror dialect, completions), and
+   `defaultCapabilities`.
+3. Add one `register(<engine>)` line in `engines/registry.ts`.
+
+That is the whole cost. Nothing else in the app learns the engine's name —
+**chrome renders from `EngineCapabilities`, never from `if engine === "…"`.** A
+live session's capabilities always beat the adapter's defaults; the adapter only
+supplies what a session cannot (a form, a dialect, a badge mark).
 
 ## Styling
 
@@ -43,32 +106,37 @@ src/lib/
 - Type: only `text-micro|caption|label|body|body-lg|title|display` — **no** `text-[Npx]`
 - Color: only semantic tokens — **no** hex / `bg-gray-*` in components
 - Theme via `data-theme` on `<html>` — never `dark:bg-*` for chrome
-- Helper: `$lib/utils/cn` for class composition
+- Helper: `$core/util`'s `cn` for class composition
 
-## Rules
+## Component rules
 
-1. **Compose, don’t copy** — screens use `Button`, `Field`, `Select`, `Card`, etc.
+1. **Compose, don't copy** — screens use `Button`, `Field`, `Select`, `Card`, etc.
 2. **Customise via props** — `variant`, `size`, `tone`, `full`, snippets (`children`, `actions`).
 3. **`$bindable` for form values** — parent owns state; primitives stay controlled/bindable.
 4. **Spread HTML attrs** — primitives forward `...rest` for `id`, `aria-*`, `data-*`.
 5. **Tokens only** — no hard-coded theme hex in components (connection color props are the exception).
-6. **New feature folder** when a domain grows (`workspace/`, `query/`) — still compose `core/*`.
+6. **Read state, don't drill it** — `workspaceSession`, `workspaceStudio`, `appPrefs`.
 
 ## Import style
 
 ```ts
-import { Button, Field, Input, Select } from "$lib/components/core";
-import { SettingsModal, BrandMark } from "$lib/components/home";
-import ConnectionSidebar from "$lib/components/home/ConnectionSidebar.svelte";
+import { Button, Field, Input, Select } from '$core/ui'
+import type { ConnectionProfile } from '$core/contracts'
+import { listEngineCatalog } from '$core/ipc'
+import { adapterFor, formatQuery } from '$engines'
+import { DataGrid } from '$features/workspace/grid'
+import { workspaceSession } from '../session.svelte' // same feature
 ```
 
-## Adding UI
+## Where does it go?
 
 | Need | Where |
 | ---- | ----- |
-| New visual control used in 2+ places | `components/core` |
-| Home / connections / app chrome (settings, shortcuts, brand) | `components/home` (`home/settings` for the settings modal) |
-| Workspace studio widget | `components/workspace` |
-| Page layout / state wiring | `routes` |
+| Visual control used in 2+ features | `core/ui` |
+| Helper with no domain knowledge | `core/util` |
+| A DTO the Rust side also speaks | `core/contracts` |
+| Anything that differs per database | `engines/<engine>` |
+| Screen, panel, or the logic behind it | `features/<feature>` |
+| Mounting a screen | `routes` |
 
 See also: [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md).

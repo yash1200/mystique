@@ -1,0 +1,2 @@
+export const RESULT_PAGE_SIZE_DEFAULT = 5000
+export const QUERY_FETCH_MAX_ROWS = 50_000

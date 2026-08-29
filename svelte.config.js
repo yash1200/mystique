@@ -13,6 +13,11 @@ const config = {
       fallback: "index.html",
     }),
     alias: {
+      // Zones — see docs/COMPONENT_STRUCTURE.md. Direction is
+      // routes → features → engines → core, enforced by eslint boundaries.
+      $core: "src/lib/core",
+      $engines: "src/lib/engines",
+      $features: "src/lib/features",
       $icons: "src/assets/icons",
       $illustrations: "src/assets/illustrations",
     },

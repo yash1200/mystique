@@ -85,7 +85,7 @@ chore/<short-name>
 | ---- | ----------- |
 | Backend | Plugin SPI in `mystique-connector-api`; drivers only in plugin crates |
 | Query safety | Per-engine policy; default read; write opt-in; DELETE blocked for now |
-| Frontend | Compose `$lib/components/core/*`; design tokens only (no ad-hoc hex) |
+| Frontend | Compose `$core/ui/*`; design tokens only (no ad-hoc hex) |
 | Secrets | Never commit credentials, tokens, or real connection passwords |
 | Docs | Update living contracts (`DESIGN_LANGUAGE`, `SQLITE_SCHEMA`, `BACKEND_STRUCTURE`) when behavior changes; keep [`QUERY_TAB_CHAT_AGENT.md`](./docs/QUERY_TAB_CHAT_AGENT.md) in sync while that feature is built |
 

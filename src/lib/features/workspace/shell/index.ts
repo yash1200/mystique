@@ -1,0 +1,11 @@
+/** Workspace chrome: panes, session rail, tabs, and the session stores. */
+export * from './api'
+export * from './reset'
+export * from './session-utils'
+export * from './session.svelte'
+export * from './shortcuts'
+export * from './studio.svelte'
+export type * from './types'
+export { default as OpenConnectionModal } from './ui/OpenConnectionModal.svelte'
+export { default as WorkspacePage } from './ui/WorkspacePage.svelte'
+export { default as WorkspaceShell } from './ui/WorkspaceShell.svelte'
