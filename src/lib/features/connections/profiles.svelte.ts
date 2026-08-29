@@ -63,6 +63,22 @@ class ConnectionProfilesStore {
 		return row
 	}
 
+	toggleFavorite = async (id: string) => {
+		const profile = this.profile(id)
+		if (!profile) throw new Error(`Profile not found: ${id}`)
+		return this.save({
+			id: profile.id,
+			name: profile.name,
+			engine: String(profile.engine),
+			colorId: profile.colorId,
+			environment: profile.environment,
+			readOnly: profile.readOnly,
+			notes: profile.notes ?? null,
+			pluginConfig: profile.pluginConfig ?? {},
+			favorite: !profile.favorite,
+		})
+	}
+
 	upsert = (row: ConnectionProfile) => {
 		const idx = this.items.findIndex((p) => p.id === row.id)
 		this.items =

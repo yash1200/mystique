@@ -343,6 +343,18 @@
 		}
 		if (action === 'copy-url') {
 			void copyConnectionUrl(id)
+			return
+		}
+		if (action === 'favorite') {
+			void toggleFavorite(id)
+		}
+	}
+
+	async function toggleFavorite(id: string) {
+		try {
+			await connectionProfiles.toggleFavorite(id)
+		} catch (err) {
+			showToast('danger', err instanceof Error ? err.message : String(err))
 		}
 	}
 

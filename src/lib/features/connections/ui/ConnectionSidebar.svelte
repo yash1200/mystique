@@ -29,6 +29,7 @@
 		| 'duplicate'
 		| 'delete'
 		| 'copy-url'
+		| 'favorite'
 
 	interface Props {
 		connections: ConnectionProfile[]
@@ -37,11 +38,10 @@
 		onselect: (id: string) => void
 		onnew: () => void
 		onconnect: (id: string) => void
-		/** Right-click context menu actions on a connection row. */
-		onaction?: (action: ConnectionMenuAction, id: string) => void
+		onaction: (action: ConnectionMenuAction, id: string) => void
 		onrefresh: () => void
-		refreshing?: boolean
-		connectingId?: string | null
+		refreshing: boolean
+		connectingId: string | null
 	}
 
 	let {
@@ -53,8 +53,8 @@
 		onconnect,
 		onaction,
 		onrefresh,
-		refreshing = false,
-		connectingId = null,
+		refreshing,
+		connectingId,
 	}: Props = $props()
 
 	const SORT_OPTIONS: { id: ConnectionListSort; label: string }[] = [
@@ -78,12 +78,19 @@
 
 	const connMenuItems = $derived.by((): ContextMenuItem[] => {
 		const connecting = connMenu != null && connectingId === connMenu.id
+		const current = connections.find((c) => c.id === connMenu?.id)
 		return [
 			{ id: 'view', label: 'View' },
 			{
 				id: 'connect',
 				label: connecting ? 'Connecting…' : 'Connect',
 				disabled: connecting,
+			},
+			{
+				id: 'favorite',
+				label: current?.favorite
+					? 'Remove from favourites'
+					: 'Add to favourites',
 			},
 			{ id: 'edit', label: 'Edit', separatorBefore: true },
 			{ id: 'duplicate', label: 'Duplicate' },
@@ -109,9 +116,10 @@
 			action === 'edit' ||
 			action === 'duplicate' ||
 			action === 'delete' ||
-			action === 'copy-url'
+			action === 'copy-url' ||
+			action === 'favorite'
 		) {
-			onaction?.(action, id)
+			onaction(action, id)
 		}
 	}
 
@@ -129,6 +137,7 @@
 		b: ConnectionProfile,
 		sort: ConnectionListSort,
 	): number {
+		if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
 		let n = 0
 		if (sort === 'name') {
 			n = byName(a, b)
@@ -366,6 +375,7 @@
 							onclick={() => onselect(conn.id)}
 							ondblclick={() => onconnect(conn.id)}
 							oncontextmenu={(e) => openConnMenu(e, conn.id)}
+							onfavorite={() => onaction('favorite', conn.id)}
 						/>
 					</div>
 				{/each}

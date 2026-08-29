@@ -58,12 +58,12 @@
 			table: TableMeta,
 			extra?: string,
 		) => void
-		onsavedaction?: (
+		onsavedaction: (
 			action: 'duplicate' | 'rename' | 'delete' | 'favorite',
 			id: string,
 		) => void
-		onrefreshsaved?: () => void | Promise<void>
-		onrefreshhistory?: () => void | Promise<void>
+		onrefreshsaved: () => void | Promise<void>
+		onrefreshhistory: () => void | Promise<void>
 	}
 
 	let {
@@ -122,7 +122,7 @@
 					onselect={onselectquery}
 					onsavedaction={(action, id) => {
 						if (action === 'open') onselectquery(id)
-						else onsavedaction?.(action, id)
+						else onsavedaction(action, id)
 					}}
 					onrefresh={onrefreshsaved}
 				/>

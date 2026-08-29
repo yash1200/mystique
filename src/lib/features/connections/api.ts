@@ -20,6 +20,7 @@ export function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
 		notes: raw.notes ?? null,
 		password,
 		passwordSet: raw.passwordSet || !!password,
+		favorite: Boolean(raw.favorite),
 		lastConnectedAt: raw.lastConnectedAt ?? null,
 		status: raw.status ?? 'disconnected',
 	}
@@ -86,6 +87,7 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
 		pluginConfig: input.pluginConfig ?? {},
 		passwordSet,
 		password: password || null,
+		favorite: input.favorite ?? existing?.favorite ?? false,
 		lastConnectedAt: existing?.lastConnectedAt ?? null,
 		createdAt: existing?.createdAt ?? ts,
 		updatedAt: ts,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '$core/contracts'
-	import { Button, Input, Modal, Pill } from '$core/ui'
+	import { Button, Icon, Input, Modal, Pill } from '$core/ui'
 	import { cn } from '$core/util'
 	import { engineLabel } from '$engines'
 	import {
@@ -31,21 +31,31 @@
 
 	const filtered = $derived.by(() => {
 		const q = query.trim().toLowerCase()
-		if (!q) return available
-		return available.filter((c) => {
-			const cfg = c.pluginConfig ?? {}
+		const rows = !q
+			? available
+			: available.filter((c) => {
+					const cfg = c.pluginConfig ?? {}
+					return (
+						c.name.toLowerCase().includes(q) ||
+						String(c.engine).toLowerCase().includes(q) ||
+						String(cfg.host ?? '')
+							.toLowerCase()
+							.includes(q) ||
+						String(cfg.database ?? '')
+							.toLowerCase()
+							.includes(q) ||
+						String(cfg.path ?? '')
+							.toLowerCase()
+							.includes(q)
+					)
+				})
+		return [...rows].sort((a, b) => {
+			if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
 			return (
-				c.name.toLowerCase().includes(q) ||
-				String(c.engine).toLowerCase().includes(q) ||
-				String(cfg.host ?? '')
-					.toLowerCase()
-					.includes(q) ||
-				String(cfg.database ?? '')
-					.toLowerCase()
-					.includes(q) ||
-				String(cfg.path ?? '')
-					.toLowerCase()
-					.includes(q)
+				a.name.localeCompare(b.name, undefined, {
+					numeric: true,
+					sensitivity: 'base',
+				}) || a.id.localeCompare(b.id)
 			)
 		})
 	})
@@ -126,6 +136,12 @@
 									<span class="truncate text-body font-medium text-fg"
 										>{conn.name}</span
 									>
+									{#if conn.favorite}
+										<Icon
+											name="star-filled"
+											class="size-3 shrink-0 text-accent"
+										/>
+									{/if}
 									{#if conn.environment === 'production'}
 										<Pill tone="warning" uppercase>PROD</Pill>
 									{/if}

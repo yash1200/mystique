@@ -40,6 +40,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
         plugin_config,
         password_set,
         password,
+        favorite: row.get::<_, i64>("favorite")? != 0,
         last_connected_at: row.get("last_connected_at")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -48,12 +49,12 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
 
 const SELECT_COLS: &str = "
   id, name, engine, color_id, environment, read_only, notes,
-  plugin_config, secret_ref, last_connected_at, created_at, updated_at
+  plugin_config, secret_ref, favorite, last_connected_at, created_at, updated_at
 ";
 
 pub fn list_all(conn: &Connection) -> AppResult<Vec<ConnectionProfile>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {SELECT_COLS} FROM connections ORDER BY name COLLATE NOCASE"
+        "SELECT {SELECT_COLS} FROM connections ORDER BY favorite DESC, name COLLATE NOCASE"
     ))?;
     let rows = stmt.query_map([], map_row)?;
     let mut out = Vec::new();
@@ -146,6 +147,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
         let id_n = parse_id(id)?;
         let secret_ref = resolve_password_to_store(conn, &input, Some(id))?;
+        let favorite: Option<i64> = input.favorite.map(|f| i64::from(f));
 
         let n = conn.execute(
             "
@@ -158,8 +160,9 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
               notes = ?6,
               plugin_config = ?7,
               secret_ref = ?8,
-              updated_at = ?9
-            WHERE id = ?10
+              favorite = COALESCE(?9, favorite),
+              updated_at = ?10
+            WHERE id = ?11
             ",
             params![
                 input.name.trim(),
@@ -170,6 +173,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 notes,
                 plugin_config,
                 secret_ref,
+                favorite,
                 now,
                 id_n,
             ],
@@ -180,12 +184,13 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
         get_by_id(conn, id)
     } else {
         let secret_ref = resolve_password_to_store(conn, &input, None)?;
+        let favorite = i64::from(input.favorite.unwrap_or(false));
         conn.execute(
             "
             INSERT INTO connections (
               name, engine, color_id, environment, read_only, notes,
-              plugin_config, secret_ref, last_connected_at, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10)
+              plugin_config, secret_ref, favorite, last_connected_at, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11)
             ",
             params![
                 input.name.trim(),
@@ -196,6 +201,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 notes,
                 plugin_config,
                 secret_ref,
+                favorite,
                 now,
                 now,
             ],

@@ -186,6 +186,7 @@ mod tests {
                 password: None,
                 secret_ref: None,
                 clear_secret: false,
+                favorite: None,
             },
         )
         .unwrap();

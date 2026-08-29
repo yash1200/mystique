@@ -6,12 +6,12 @@
 
 	interface Props {
 		items: QueryHistoryEntry[]
-		query?: string
+		query: string
 		selectedId: string | null
 		onselect: (id: string) => void
 	}
 
-	let { items, query = '', selectedId, onselect }: Props = $props()
+	let { items, query, selectedId, onselect }: Props = $props()
 </script>
 
 {#if items.length === 0}

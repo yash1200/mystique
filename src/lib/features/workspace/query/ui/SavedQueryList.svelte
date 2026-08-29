@@ -13,13 +13,13 @@
 
 	interface Props {
 		items: SavedQueryListItem[]
-		query?: string
+		query: string
 		selectedId: string | null
 		onselect: (id: string) => void
-		onaction?: (action: SavedQueryMenuAction, id: string) => void
+		onaction: (action: SavedQueryMenuAction, id: string) => void
 	}
 
-	let { items, query = '', selectedId, onselect, onaction }: Props = $props()
+	let { items, query, selectedId, onselect, onaction }: Props = $props()
 
 	let menu = $state<{ id: string; x: number; y: number } | null>(null)
 
@@ -53,7 +53,7 @@
 			onselect(id)
 			return
 		}
-		onaction?.(action as SavedQueryMenuAction, id)
+		onaction(action as SavedQueryMenuAction, id)
 	}
 </script>
 
@@ -115,7 +115,7 @@
 					? 'Remove from favourites'
 					: 'Add to favourites'}
 				aria-pressed={item.favorite}
-				onclick={() => onaction?.('favorite', item.id)}
+				onclick={() => onaction('favorite', item.id)}
 			>
 				<Icon name={item.favorite ? 'star-filled' : 'star'} class="size-3.5" />
 			</button>

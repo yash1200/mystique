@@ -39,6 +39,7 @@ export interface ConnectionProfile {
 	passwordSet: boolean
 	/** Plaintext password when stored (temporary — not keychain). */
 	password?: string | null
+	favorite: boolean
 	lastConnectedAt: string | null
 	createdAt: string
 	updatedAt: string
@@ -62,6 +63,8 @@ export interface SaveConnectionInput {
 	clearSecret?: boolean
 	/** @deprecated Prefer `password`. Kept for IPC compatibility. */
 	secretRef?: string | null
+	/** Omit on update to leave the stored flag unchanged. */
+	favorite?: boolean
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */

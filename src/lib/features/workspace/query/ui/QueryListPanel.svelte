@@ -23,7 +23,7 @@
 		selectedId: string | null
 		onselect: (id: string) => void
 		onsavedaction?: (action: SavedQueryMenuAction, id: string) => void
-		onrefresh?: () => void | Promise<void>
+		onrefresh: () => void | Promise<void>
 	}
 
 	let {
@@ -46,9 +46,7 @@
 	let sortMenu = $state<{ x: number; y: number } | null>(null)
 	let refreshBusy = $state(false)
 
-	const title = $derived(
-		mode === 'saved-queries' ? 'Saved queries' : 'History',
-	)
+	const title = $derived(mode === 'saved-queries' ? 'Saved queries' : 'History')
 
 	function byName(a: SavedQueryListItem, b: SavedQueryListItem): number {
 		return (
@@ -132,7 +130,7 @@
 	}
 
 	async function refresh() {
-		if (!onrefresh || refreshBusy) return
+		if (refreshBusy) return
 		refreshBusy = true
 		try {
 			await onrefresh()
@@ -145,9 +143,7 @@
 <aside class="flex h-full w-full min-w-0 flex-col bg-panel" aria-label={title}>
 	<header class="shrink-0 border-b border-line">
 		<div class="flex items-center gap-1 px-3 pt-2.5 pb-1.5">
-			<h2
-				class="m-0 min-w-0 flex-1 truncate text-body font-semibold text-fg"
-			>
+			<h2 class="m-0 min-w-0 flex-1 truncate text-body font-semibold text-fg">
 				{title}
 			</h2>
 			<div
@@ -237,7 +233,7 @@
 				{query}
 				{selectedId}
 				{onselect}
-				onaction={onsavedaction}
+				onaction={(action, id) => onsavedaction?.(action, id)}
 			/>
 		{:else}
 			<HistoryQueryList

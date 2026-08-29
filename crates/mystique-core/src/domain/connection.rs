@@ -23,6 +23,7 @@ pub struct ConnectionProfile {
     /// Plaintext password (temporary — keychain later). Omitted when empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
+    pub favorite: bool,
     pub last_connected_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -48,6 +49,9 @@ pub struct SaveConnectionInput {
     /// When true, clear the stored password on update.
     #[serde(default)]
     pub clear_secret: bool,
+    /// `None` leaves the stored flag unchanged on update.
+    #[serde(default)]
+    pub favorite: Option<bool>,
 }
 
 /// Old UI wrote keychain-style placeholders into `secret_ref` without a real secret.

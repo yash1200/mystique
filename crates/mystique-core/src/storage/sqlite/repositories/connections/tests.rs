@@ -31,6 +31,7 @@ fn save_list_delete_connection() {
             password: Some("s3cret".into()),
             secret_ref: None,
             clear_secret: false,
+            favorite: None,
         },
     )
     .unwrap();
@@ -66,6 +67,7 @@ fn update_keeps_password_when_blank() {
             password: Some("keep-me".into()),
             secret_ref: None,
             clear_secret: false,
+            favorite: None,
         },
     )
     .unwrap();
@@ -84,6 +86,7 @@ fn update_keeps_password_when_blank() {
             password: None,
             secret_ref: None,
             clear_secret: false,
+            favorite: None,
         },
     )
     .unwrap();
@@ -110,6 +113,7 @@ fn clear_secret_removes_password() {
             password: Some("x".into()),
             secret_ref: None,
             clear_secret: false,
+            favorite: None,
         },
     )
     .unwrap();
@@ -128,6 +132,7 @@ fn clear_secret_removes_password() {
             password: None,
             secret_ref: None,
             clear_secret: true,
+            favorite: None,
         },
     )
     .unwrap();
@@ -153,9 +158,60 @@ fn ignores_legacy_placeholder_secret_ref() {
             password: None,
             secret_ref: Some("mystique-db/connection/abc".into()),
             clear_secret: false,
+            favorite: None,
         },
     )
     .unwrap();
     assert!(!saved.password_set);
     assert!(saved.password.is_none());
+}
+
+fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
+    SaveConnectionInput {
+        id: None,
+        name: name.into(),
+        engine: "postgres".into(),
+        color_id: "teal".into(),
+        environment: "local".into(),
+        read_only: true,
+        notes: None,
+        plugin_config: json!({}),
+        password: None,
+        secret_ref: None,
+        clear_secret: false,
+        favorite,
+    }
+}
+
+#[test]
+fn save_sets_favorite() {
+    let conn = test_db();
+    let saved = save(&conn, sample_input("fav", Some(true))).unwrap();
+    assert!(saved.favorite);
+}
+
+#[test]
+fn update_keeps_favorite_when_unset() {
+    let conn = test_db();
+    let saved = save(&conn, sample_input("fav", Some(true))).unwrap();
+    let mut input = sample_input("fav-renamed", None);
+    input.id = Some(saved.id);
+    let updated = save(&conn, input).unwrap();
+    assert!(updated.favorite);
+    assert_eq!(updated.name, "fav-renamed");
+}
+
+#[test]
+fn list_all_pins_favourites_first() {
+    let conn = test_db();
+    save(&conn, sample_input("zeta", None)).unwrap();
+    save(&conn, sample_input("alpha", Some(true))).unwrap();
+    save(&conn, sample_input("beta", None)).unwrap();
+
+    let names: Vec<String> = list_all(&conn)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
+    assert_eq!(names, ["alpha", "beta", "zeta"]);
 }

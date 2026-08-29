@@ -5,11 +5,12 @@ use crate::error::AppResult;
 
 const SCHEMA_SQL: &str = include_str!("../../../migrations/001_init.sql");
 const V2_SQL: &str = include_str!("../../../migrations/002_saved_query_favorite.sql");
+const V3_SQL: &str = include_str!("../../../migrations/003_connection_favorite.sql");
 
-/// Current schema version. Fresh installs apply 001 then 002.
+/// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
-/// schema; their stamp is collapsed to 1 so 002 can apply.
-const SCHEMA_VERSION: i32 = 2;
+/// schema; their stamp is collapsed to 1 so 002+ can apply.
+const SCHEMA_VERSION: i32 = 3;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -77,6 +78,13 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         stamp(conn, 2)?;
     }
 
+    if current < 3 {
+        if table_exists(conn, "connections")? && !column_exists(conn, "connections", "favorite")? {
+            conn.execute_batch(V3_SQL)?;
+        }
+        stamp(conn, 3)?;
+    }
+
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
@@ -128,7 +136,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
 
         let groups: i32 = conn
             .query_row(
@@ -194,11 +202,11 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(n, 3);
     }
 
     #[test]
@@ -238,11 +246,48 @@ mod tests {
         .unwrap();
         migrate(&conn).unwrap();
         assert!(column_exists(&conn, "saved_queries", "favorite").unwrap());
+        assert!(column_exists(&conn, "connections", "favorite").unwrap());
         let version: i32 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
+    }
+
+    #[test]
+    fn migrate_adds_connection_favorite_on_v2() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE schema_migrations (
+              version INTEGER PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_migrations (version, applied_at) VALUES (1, 't');
+            INSERT INTO schema_migrations (version, applied_at) VALUES (2, 't');
+            CREATE TABLE connections (
+              id INTEGER PRIMARY KEY,
+              name TEXT NOT NULL,
+              engine TEXT NOT NULL,
+              color_id TEXT NOT NULL,
+              environment TEXT NOT NULL,
+              read_only INTEGER NOT NULL,
+              plugin_config TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            ",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        assert!(column_exists(&conn, "connections", "favorite").unwrap());
+        let version: i32 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 3);
     }
 }
