@@ -236,19 +236,58 @@ function reviveJsonCell(value: unknown): unknown {
 	}
 }
 
+function jsonReplacer(_key: string, value: unknown): unknown {
+	if (typeof value === 'bigint') return value.toString()
+	return value
+}
+
+function jsonObject(
+	columns: TableExportColumn[],
+	valueAt: (index: number, name: string) => unknown,
+): Record<string, unknown> {
+	const obj: Record<string, unknown> = {}
+	for (let i = 0; i < columns.length; i++) {
+		const name = columns[i]?.name ?? `col_${i}`
+		obj[name] = reviveJsonCell(valueAt(i, name) ?? null)
+	}
+	return obj
+}
+
+function stringifyJson(data: unknown, pretty: boolean, trailingNl: boolean): string {
+	try {
+		const body = pretty
+			? JSON.stringify(data, jsonReplacer, 2)
+			: JSON.stringify(data, jsonReplacer)
+		return trailingNl ? `${body}\n` : body
+	} catch {
+		const fallback = Array.isArray(data) ? '[]' : '{}'
+		return trailingNl ? `${fallback}\n` : fallback
+	}
+}
+
+/** One row object (column name → value), same cell rules as export copy. */
+export function buildJsonObject(
+	columns: TableExportColumn[],
+	row: Record<string, unknown>,
+): Record<string, unknown> {
+	return jsonObject(columns, (_i, name) => row[name])
+}
+
 /** Array of row objects (column name → value). */
 export function buildJsonObjects(
 	columns: TableExportColumn[],
 	rows: unknown[][],
 ): Record<string, unknown>[] {
-	return rows.map((row) => {
-		const obj: Record<string, unknown> = {}
-		for (let i = 0; i < columns.length; i++) {
-			const raw = row[i] ?? null
-			obj[columns[i]?.name ?? `col_${i}`] = reviveJsonCell(raw)
-		}
-		return obj
-	})
+	return rows.map((row) => jsonObject(columns, (i) => row[i]))
+}
+
+/** Pretty-printed single row. Used by the row inspector view / copy. */
+export function buildRowJson(
+	columns: TableExportColumn[],
+	row: Record<string, unknown>,
+	pretty = true,
+): string {
+	return stringifyJson(buildJsonObject(columns, row), pretty, false)
 }
 
 export function buildJson(
@@ -256,10 +295,7 @@ export function buildJson(
 	rows: unknown[][],
 	pretty = true,
 ): string {
-	const data = buildJsonObjects(columns, rows)
-	return pretty
-		? `${JSON.stringify(data, null, 2)}\n`
-		: `${JSON.stringify(data)}\n`
+	return stringifyJson(buildJsonObjects(columns, rows), pretty, true)
 }
 
 /** Write UTF-8 text into `folder/fileName`. Browser fallback downloads the file. */
