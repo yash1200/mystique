@@ -477,10 +477,7 @@
 			})
 
 			const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
-			showToast(
-				'success',
-				`Connection established to ${result.engine} (${result.latencyMs}ms)${version}`,
-			)
+			showToast('success', `Connected to ${profile.name}`)
 			testResult = {
 				ok: true,
 				message: `Connection established (${result.latencyMs}ms)${version}`,
