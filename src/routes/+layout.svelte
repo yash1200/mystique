@@ -7,6 +7,7 @@
 		writeScalePreference,
 	} from '$core/util'
 	import { ToastContext } from '$features/toast'
+	import { appUpdates, UpdatePrompt } from '$features/updates'
 	import { resetAppToHome } from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
 	import { onMount } from 'svelte'
@@ -59,6 +60,7 @@
 
 		const unsubs: Array<() => void> = []
 		let cancelled = false
+		let launchCheck = 0
 		if (isTauri()) {
 			void import('@tauri-apps/api/event')
 				.then(async ({ listen }) => {
@@ -70,10 +72,14 @@
 				.catch(() => {
 					/* optional */
 				})
+			launchCheck = window.setTimeout(() => {
+				if (!cancelled) void appUpdates.checkOnLaunch()
+			}, 800)
 		}
 
 		return () => {
 			cancelled = true
+			window.clearTimeout(launchCheck)
 			unwatchScheme()
 			window.removeEventListener('keydown', onKey, true)
 			for (const u of unsubs) u()
@@ -83,4 +89,5 @@
 
 <ToastContext>
 	{@render children()}
+	<UpdatePrompt />
 </ToastContext>

@@ -269,6 +269,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(|app| build_menu(app))
         .on_menu_event(|app, event| match event.id().as_ref() {
             "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
