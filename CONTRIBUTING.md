@@ -1,102 +1,86 @@
-# Contributing to Mystique
+# Contributing
 
-Thanks for helping improve Mystique. This guide is intentionally general so it works for GitLab issues, merge requests, and day-to-day collaboration.
+Mystique is a Tauri 2 + Svelte 5 desktop app. Rust workspace in `crates/`, UI in `src/`, thin IPC shell in `src-tauri/`.
 
-## Ways to contribute
+## Setup
 
-- Report bugs and propose features via **GitLab Issues**
-- Improve documentation under `docs/`
-- Submit code changes via **Merge Requests (MRs)**
-
-## Before you start
-
-1. Read the [README](./README.md) for setup (Node, Rust, Tauri deps).
-2. Check open issues so you do not duplicate work.
-3. For UI work, follow [`docs/DESIGN_LANGUAGE.md`](./docs/DESIGN_LANGUAGE.md).
-4. The remaining unbuilt feature spec is [`docs/QUERY_TAB_CHAT_AGENT.md`](./docs/QUERY_TAB_CHAT_AGENT.md).
-
-## Development setup
+Need Node 18+, Yarn 1.x, Rust (stable, via rustup), and the usual Tauri native deps for your OS. On Windows use PowerShell + MSVC; you do not need WSL.
 
 ```bash
-git clone <repo-url>
-cd mystique
-yarn install          # or npm install
-yarn tauri dev        # full desktop app (macOS / Linux / Windows)
-# or
-yarn dev              # frontend only (no Tauri APIs)
+yarn install
+yarn tauri dev          # desktop window
+yarn check              # boundaries + svelte-check
+cargo test              # from repo root
 ```
 
-Windows: use PowerShell with Node, Yarn, and the MSVC Rust toolchain. You do not need WSL or Git Bash for `yarn tauri`. Details: [README](./README.md).
+`rust-toolchain.toml` pulls `aarch64-apple-darwin` and `x86_64-apple-darwin`. First `tauri dev` is slow.
 
-Typecheck:
-
-```bash
-yarn check
-```
-
-Rust workspace builds when you run Tauri; you can also build crates from the repo root with `cargo check` / `cargo test` as needed.
-
-## GitLab workflow
-
-### Issues
-
-- One issue per problem or feature when practical.
-- Use clear titles (e.g. `be: PostgresQueryPolicy rejects multi-statement`).
-- Labels (when available): `FE`, `BE`, `DOCS`, `P0`–`P2`.
-
-### Branches
-
-Prefer short, scoped branches from `main`:
+## Layout
 
 ```text
-feat/<short-name>
-fix/<short-name>
-docs/<short-name>
-chore/<short-name>
+crates/
+  mystique-connector-api/   SPI: connector, query policy, DTOs. No drivers.
+  mystique-core/            App DB, profiles, sessions, AgentTools
+  mystique-mcp/             Localhost MCP HTTP server + client installers
+  mystique-agent/           In-app query agent
+  plugins/mystique-plugin-{postgres,mysql,mongodb,sqlite}/
+src-tauri/                  Window, menu, IPC → services
+src/
+  routes/                   Mounts only
+  lib/
+    core/                   UI primitives, IPC, contracts, util
+    engines/                Per-database form, dialect, capabilities
+    features/
+      connections/          Home: profiles
+      settings/             Appearance, workspace, AI, MCP
+      shortcuts/
+      toast/
+      workspace/
+        shell/              Panes, sessions, tabs
+        catalog/ explorer/ grid/ query/ er/ metrics/ agent/
+    app/                    Theme / density prefs
+    styles/                 tokens.css
+docs/                       Design language, backend, schema
+scripts/check-boundaries.mjs
 ```
 
-### Commits
+Imports go **down**: `routes → features → engines → core`. Features import each other only through that feature’s `index.ts`. `yarn check` runs `scripts/check-boundaries.mjs` and fails on a deep import.
 
-- Prefer small, focused commits.
-- Use conventional-style prefixes when possible: `feat:`, `fix:`, `docs:`, `chore:`, `test:`.
-- Explain *why* in the body if the change is non-obvious.
+```ts
+import { Button } from '$core/ui'
+import { adapterFor } from '$engines'
+import { DataGrid } from '$features/workspace/grid'
+import { workspaceSession } from '../session.svelte' // same feature
+```
 
-### Merge requests
+Full rules: [`docs/COMPONENT_STRUCTURE.md`](docs/COMPONENT_STRUCTURE.md), [`docs/BACKEND_STRUCTURE.md`](docs/BACKEND_STRUCTURE.md).
 
-1. Open an MR against `main` (or the agreed target branch).
-2. Fill in the MR template if the project provides one; otherwise include:
-   - Summary of the change
-   - How to test
-   - Linked issue(s)
-3. Keep MRs reviewable (prefer smaller diffs over mega-PRs).
-4. Ensure the app still builds (`yarn check`, `yarn tauri build` or `cargo check` as appropriate).
-5. Do not force-push to shared branches without agreement; force-push on your feature branch is fine if the team allows it.
-6. Resolve discussion threads before merge when possible.
+## Where a change goes
 
-### Reviews
+| If you are changing…                               | Put it in                                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| A button, modal, input used in more than one place | `src/lib/core/ui`                                                                        |
+| A helper with no product meaning                   | `src/lib/core/util`                                                                      |
+| A type Rust also serializes                        | `src/lib/core/contracts` + the Rust DTO                                                  |
+| Anything that differs per database                 | `src/lib/engines/<engine>` **and** `crates/plugins/mystique-plugin-<engine>`             |
+| A screen or its state                              | `src/lib/features/…`                                                                     |
+| IPC                                                | `src-tauri/src/ipc/` — no SQL, no drivers                                                |
+| Query safety                                       | `EngineQueryPolicy` on the plugin. Default is read. Write is opt-in. `DELETE` is denied. |
 
-- Be kind and specific.
-- Prefer questions and suggestions over drive-by rewrites.
-- Approve only when you would ship the change.
+UI uses tokens from [`docs/DESIGN_LANGUAGE.md`](docs/DESIGN_LANGUAGE.md). No `text-[13px]`, no hex in components.
 
-## Project conventions (high level)
+## Adding an engine
 
-| Area | Expectation |
-| ---- | ----------- |
-| Backend | Plugin SPI in `mystique-connector-api`; drivers only in plugin crates |
-| Query safety | Per-engine policy; default read; write opt-in; DELETE blocked for now |
-| Frontend | Compose `$core/ui/*`; design tokens only (no ad-hoc hex) |
-| Secrets | Never commit credentials, tokens, or real connection passwords |
-| Docs | Update living contracts (`DESIGN_LANGUAGE`, `SQLITE_SCHEMA`, `BACKEND_STRUCTURE`) when behavior changes; keep [`QUERY_TAB_CHAT_AGENT.md`](./docs/QUERY_TAB_CHAT_AGENT.md) in sync while that feature is built |
+Backend: new `mystique-plugin-<engine>` crate (`DatabaseConnector` + `ConnectorSession` + `EngineQueryPolicy` + metrics). Register both connector and policy in `ConnectorRegistry::bootstrap()`.
 
-## Code of conduct (short)
+Frontend: `src/lib/engines/<engine>/` with `index.ts` and `Fields.svelte`, then one `register()` in `engines/registry.ts`. Chrome reads `EngineCapabilities`, not `if (engine === '…')`.
 
-- Be respectful and constructive.
-- Assume good intent; disagree on ideas, not people.
-- No harassment, spam, or intentional sabotage of the project.
+## Git
 
-If something is unclear, open an issue or ask in the team channel before large unsolicited refactors.
+Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.
+
+Do not commit passwords, API keys, or `~/.tauri/mystique.key`.
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the same license as the project (see [LICENSE](./LICENSE)).
+Contributions are MIT, same as the repo.

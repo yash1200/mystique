@@ -1,7 +1,7 @@
 {
 	"name": "mystique",
-	"version": "0.1.0",
-	"description": "",
+	"version": "1.0.0",
+	"description": "A modern database IDE built with SvelteKit, Tauri, and TailwindCSS.",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
