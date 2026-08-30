@@ -363,6 +363,8 @@ pub fn run() {
             ipc::mcp::get_mcp_status,
             ipc::mcp::set_mcp_enabled,
             ipc::mcp::rotate_mcp_token,
+            ipc::mcp::list_mcp_harnesses,
+            ipc::mcp::install_mcp_harness,
             // in-app query-tab agent
             ipc::agent::get_ai_settings,
             ipc::agent::set_ai_enabled,

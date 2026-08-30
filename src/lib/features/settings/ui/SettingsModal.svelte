@@ -41,16 +41,14 @@
 			label: 'AI',
 			title: 'AI agent',
 			icon: 'chat',
-			description:
-				'Keys stay encrypted in the local app database. The query-tab agent uses them to draft SQL or MQL against the open connection.',
+			description: 'Draft queries from the open connection.',
 		},
 		{
 			id: 'mcp',
 			label: 'MCP',
 			title: 'MCP server',
 			icon: 'code',
-			description:
-				'While Mystique is running, external LLMs can read schema, list tables, run read-only queries, and save queries. Writes are blocked.',
+			description: 'Let other AI tools query your databases while Mystique is open.',
 		},
 	]
 

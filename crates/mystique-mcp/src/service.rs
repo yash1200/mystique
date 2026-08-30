@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use mystique_core::{AppResult, AppServices};
 
+use crate::clients::{self, Host, McpEndpoint, McpHarness};
 use crate::server::{ensure_token, McpController, McpStatus};
 use crate::settings::{DEFAULT_MCP_PORT, SETTING_MCP_ENABLED, SETTING_MCP_PORT, SETTING_MCP_TOKEN};
 
@@ -23,7 +24,14 @@ impl McpService {
     }
 
     pub async fn status(&self) -> McpStatus {
-        self.controller.status(self.enabled_setting()).await
+        let enabled = self.enabled_setting();
+        let mut status = self.controller.status(enabled).await;
+        if status.url.is_none() {
+            status.port = Some(self.port_setting());
+            status.url = Some(self.configured_url());
+            status.token = Some(self.token_setting());
+        }
+        status
     }
 
     pub fn enabled_setting(&self) -> bool {
@@ -76,7 +84,7 @@ impl McpService {
     pub async fn stop(&self) -> AppResult<McpStatus> {
         let _ = self.app.settings().set(SETTING_MCP_ENABLED, "false");
         self.controller.stop().await;
-        Ok(self.controller.status(false).await)
+        Ok(self.status().await)
     }
 
     pub async fn set_enabled(&self, enabled: bool) -> AppResult<McpStatus> {
@@ -93,7 +101,7 @@ impl McpService {
         if self.enabled_setting() {
             self.start().await
         } else {
-            Ok(self.controller.status(false).await)
+            Ok(self.status().await)
         }
     }
 
@@ -101,5 +109,27 @@ impl McpService {
         if self.enabled_setting() {
             let _ = self.start().await;
         }
+    }
+
+    pub async fn list_harnesses(&self) -> Vec<McpHarness> {
+        let endpoint = self.endpoint().await;
+        clients::list_available(&Host::current(), &endpoint)
+    }
+
+    pub async fn install_harness(&self, id: &str) -> AppResult<McpHarness> {
+        let endpoint = self.endpoint().await;
+        clients::install(&Host::current(), id, &endpoint)
+    }
+
+    async fn endpoint(&self) -> McpEndpoint {
+        let live = self.controller.status(self.enabled_setting()).await;
+        McpEndpoint {
+            url: live.url.unwrap_or_else(|| self.configured_url()),
+            token: live.token.unwrap_or_else(|| self.token_setting()),
+        }
+    }
+
+    fn configured_url(&self) -> String {
+        format!("http://127.0.0.1:{}/mcp", self.port_setting())
     }
 }

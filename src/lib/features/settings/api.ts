@@ -1,7 +1,7 @@
 import { isTauri } from '$core/ipc'
 import { invoke } from '@tauri-apps/api/core'
-import type { McpStatus } from './mcp-types'
-export type { McpStatus }
+import type { McpHarness, McpStatus } from './mcp-types'
+export type { McpHarness, McpStatus }
 
 function requireTauri() {
 	if (!isTauri()) {
@@ -24,6 +24,16 @@ export async function setMcpEnabled(enabled: boolean): Promise<McpStatus> {
 export async function rotateMcpToken(): Promise<McpStatus> {
 	requireTauri()
 	return invoke('rotate_mcp_token')
+}
+
+export async function listMcpHarnesses(): Promise<McpHarness[]> {
+	requireTauri()
+	return invoke('list_mcp_harnesses')
+}
+
+export async function installMcpHarness(id: string): Promise<McpHarness> {
+	requireTauri()
+	return invoke('install_mcp_harness', { id })
 }
 
 export function mcpClientSnippet(status: McpStatus): string {

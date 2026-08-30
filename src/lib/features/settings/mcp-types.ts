@@ -5,3 +5,13 @@ export interface McpStatus {
 	url?: string | null
 	token?: string | null
 }
+
+export interface McpHarness {
+	id: string
+	label: string
+	mark: string
+	hint: string
+	configPath: string
+	installed: boolean
+	stale: boolean
+}
