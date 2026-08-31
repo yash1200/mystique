@@ -1,10 +1,27 @@
 //! Cell encoding and Postgres type labels for query / preview results.
 
+use std::error::Error;
+
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use mystique_connector_api::{quote_ident, ColumnInfo, SqlIdentStyle};
 use serde_json::{json, Value as JsonValue};
-use tokio_postgres::types::Type;
+use tokio_postgres::types::{FromSql, Kind, Type};
 use tokio_postgres::Row;
+use uuid::Uuid;
+
+/// Postgres enum labels are sent as UTF-8. `String` only accepts text/varchar,
+/// so custom enums (`panel_access_team`, …) used to decode as NULL.
+struct PgEnumLabel(String);
+
+impl<'a> FromSql<'a> for PgEnumLabel {
+    fn from_sql(_ty: &Type, raw: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        Ok(Self(std::str::from_utf8(raw)?.to_owned()))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        matches!(ty.kind(), Kind::Enum(_))
+    }
+}
 
 pub(super) fn opt_string(s: Option<String>) -> JsonValue {
     s.map(JsonValue::String).unwrap_or(JsonValue::Null)
@@ -101,8 +118,46 @@ pub(super) fn fmt_naive_time(t: NaiveTime) -> String {
 }
 
 pub(super) fn cell_json(row: &Row, idx: usize) -> JsonValue {
-    let ty = row.columns()[idx].type_();
+    decode_cell(row, idx, row.columns()[idx].type_())
+}
+
+fn decode_cell(row: &Row, idx: usize, ty: &Type) -> JsonValue {
+    match ty.kind() {
+        Kind::Domain(inner) => return decode_cell(row, idx, inner),
+        Kind::Enum(_) => {
+            return match row.try_get::<_, Option<PgEnumLabel>>(idx) {
+                Ok(v) => opt_string(v.map(|e| e.0)),
+                Err(_) => JsonValue::Null,
+            };
+        }
+        Kind::Array(elem) if matches!(elem.kind(), Kind::Enum(_)) => {
+            return match row.try_get::<_, Option<Vec<PgEnumLabel>>>(idx) {
+                Ok(Some(v)) => {
+                    JsonValue::Array(v.into_iter().map(|e| JsonValue::String(e.0)).collect())
+                }
+                Ok(None) => JsonValue::Null,
+                Err(_) => JsonValue::Null,
+            };
+        }
+        _ => {}
+    }
+
     match *ty {
+        Type::UUID => match row.try_get::<_, Option<Uuid>>(idx) {
+            Ok(v) => v
+                .map(|u| JsonValue::String(u.to_string()))
+                .unwrap_or(JsonValue::Null),
+            Err(_) => JsonValue::Null,
+        },
+        Type::UUID_ARRAY => match row.try_get::<_, Option<Vec<Uuid>>>(idx) {
+            Ok(Some(v)) => JsonValue::Array(
+                v.into_iter()
+                    .map(|u| JsonValue::String(u.to_string()))
+                    .collect(),
+            ),
+            Ok(None) => JsonValue::Null,
+            Err(_) => JsonValue::Null,
+        },
         Type::BOOL => match row.try_get::<_, Option<bool>>(idx) {
             Ok(v) => v.map(JsonValue::Bool).unwrap_or(JsonValue::Null),
             Err(_) => JsonValue::Null,
@@ -228,4 +283,27 @@ pub(super) fn preview_order_sql(style: SqlIdentStyle, columns: &[ColumnInfo]) ->
         return format!(" ORDER BY {}", quote_ident(style, &first.name));
     }
     String::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pg_enum_label_decodes_utf8() {
+        let label = PgEnumLabel::from_sql(&Type::TEXT, b"admin").expect("label");
+        assert_eq!(label.0, "admin");
+    }
+
+    #[test]
+    fn pg_enum_label_rejects_text_oid() {
+        assert!(!<PgEnumLabel as FromSql>::accepts(&Type::TEXT));
+        assert!(!<PgEnumLabel as FromSql>::accepts(&Type::UUID));
+    }
+
+    #[test]
+    fn uuid_display_is_hyphenated() {
+        let u = Uuid::parse_str("5f6083e8-922c-4a8a-b6b7-950a17f20d2b").unwrap();
+        assert_eq!(u.to_string(), "5f6083e8-922c-4a8a-b6b7-950a17f20d2b");
+    }
 }
