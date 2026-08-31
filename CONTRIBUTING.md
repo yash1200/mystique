@@ -4,12 +4,12 @@ Mystique is a Tauri 2 + Svelte 5 desktop app. Rust workspace in `crates/`, UI in
 
 ## Setup
 
-Need Node 18+, Yarn 1.x, Rust (stable, via rustup), and the usual Tauri native deps for your OS. On Windows use PowerShell + MSVC; you do not need WSL.
+Need Node 18+, pnpm, Rust (stable, via rustup), and the usual Tauri native deps for your OS. On Windows use PowerShell + MSVC; you do not need WSL.
 
 ```bash
-yarn install
-yarn tauri dev          # desktop window
-yarn check              # boundaries + svelte-check
+pnpm install
+pnpm tauri dev          # desktop window
+pnpm check              # boundaries + svelte-check
 cargo test              # from repo root
 ```
 
@@ -44,7 +44,7 @@ docs/                       Design language, backend, schema
 scripts/check-boundaries.mjs
 ```
 
-Imports go **down**: `routes → features → engines → core`. Features import each other only through that feature’s `index.ts`. `yarn check` runs `scripts/check-boundaries.mjs` and fails on a deep import.
+Imports go **down**: `routes → features → engines → core`. Features import each other only through that feature’s `index.ts`. `pnpm check` runs `scripts/check-boundaries.mjs` and fails on a deep import.
 
 ```ts
 import { Button } from '$core/ui'
