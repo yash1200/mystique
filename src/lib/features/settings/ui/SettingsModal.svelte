@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Icon, IconButton, Modal, type IconName } from '$core/ui'
-	import { cn } from '$core/util'
+	import { cn, overlayFade } from '$core/util'
 	import { appSettingsUi } from '../model.svelte'
 	import type { SettingsSection } from '../prefs'
 	import AiSettings from './AiSettings.svelte'
@@ -153,15 +153,19 @@
 		</header>
 
 		<div class="min-h-0 flex-1 overflow-auto px-5 py-4">
-			{#if appSettingsUi.section === 'appearance'}
-				<AppearanceSettings />
-			{:else if appSettingsUi.section === 'workspace'}
-				<WorkspaceSettings />
-			{:else if appSettingsUi.section === 'ai'}
-				<AiSettings />
-			{:else}
-				<McpSettings />
-			{/if}
+			{#key appSettingsUi.section}
+				<div in:overlayFade|global>
+					{#if appSettingsUi.section === 'appearance'}
+						<AppearanceSettings />
+					{:else if appSettingsUi.section === 'workspace'}
+						<WorkspaceSettings />
+					{:else if appSettingsUi.section === 'ai'}
+						<AiSettings />
+					{:else}
+						<McpSettings />
+					{/if}
+				</div>
+			{/key}
 		</div>
 	</div>
 </Modal>

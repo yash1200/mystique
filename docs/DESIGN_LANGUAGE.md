@@ -321,7 +321,7 @@ Tokens live on `:root` in `tokens.css`. Helpers in `$core/util/motion`.
 | `duration-100` / `duration-150` | Hovers, theme-adjacent |
 | `ease-[var(--ease-out)]` | Transform / opacity transitions |
 | `motion-safe:hover:scale-105` | Color swatches only |
-| `overlayFade` / `modalPanel` / `popover` / `toastSlide` | Enter + exit (Svelte `transition:`) |
+| `overlayFade` / `modalPanel` / `popover` / `toastSlide` / `fadeRise` | Enter + exit (Svelte `transition:`) |
 | `motion-reduce:…` | Always respect reduced motion |
 
 Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.97`. No continuous animation in chrome.

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from '$core/util'
+	import { cn, fadeRise } from '$core/util'
 	import type { Snippet } from 'svelte'
 
 	type Tone = 'info' | 'success' | 'warning' | 'danger'
@@ -22,6 +22,7 @@
 <div
 	class={cn('m-0 rounded-md border px-3 py-2.5 text-caption', tones[tone])}
 	role="alert"
+	transition:fadeRise|global
 >
 	{@render children?.()}
 </div>

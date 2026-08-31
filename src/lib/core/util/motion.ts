@@ -122,6 +122,23 @@ export function toastSlide(
 	}
 }
 
+/** In-place alert / banner. Same path in and out. */
+export function fadeRise(
+	_node: Element,
+	params?: MotionParams,
+): TransitionConfig {
+	const reduce = reducedMotion()
+	return {
+		delay: params?.delay,
+		duration: reduce ? 140 : (params?.duration ?? DURATION.popover),
+		easing: easeOut,
+		css: (t) => {
+			if (reduce) return `opacity:${t}`
+			return `opacity:${t};transform:translateY(${(1 - t) * 12}%)`
+		},
+	}
+}
+
 /**
  * Unit cubic-bezier. Matches CSS `cubic-bezier(p1x, p1y, p2x, p2y)`.
  */
