@@ -29,6 +29,8 @@ class WorkspaceStudio {
 	catalogs = $state<Record<string, DatabaseMeta[]>>({})
 	selectedDb = $state<Record<string, string>>({})
 	refreshing = $state(false)
+	refreshingTables = $state(false)
+	createBusy = $state(false)
 	/** Tab whose preview is in flight. Per-tab so a stale finish cannot hide another open. */
 	loadingTabId = $state<string | null>(null)
 	catalogError = $state<string | null>(null)

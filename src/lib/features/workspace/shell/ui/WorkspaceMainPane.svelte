@@ -1,131 +1,141 @@
 <script lang="ts">
-	import type {
-		CatalogObjectKind,
-		ColumnReference,
-		ConnectedSession,
-		ObjectStructure,
-		TableMeta,
-		TablePreviewFilter,
-	} from '$core/contracts'
 	import { EmptyState } from '$core/ui'
 	import { familyFromCaps, resolveCapabilities } from '$engines'
 	import { colorHex } from '$features/connections'
 	import { AgentChatPane } from '$features/workspace/agent'
-	import type { ErDiagramState } from '$features/workspace/er'
-	import { ErWorkspace } from '$features/workspace/er'
-	import { StructurePanel } from '$features/workspace/explorer'
-	import { DataGrid, RowInspector } from '$features/workspace/grid'
+	import { hydrateActiveModel, openModelDiagram } from '$features/workspace/er'
+	import {
+		hydrateActiveStructure,
+		openObjectStructure,
+	} from '$features/workspace/explorer'
+	import {
+		DataGrid,
+		RowInspector,
+		tablePreview,
+	} from '$features/workspace/grid'
 	import { ServerMetricsView } from '$features/workspace/metrics'
-	import type { QueryHistoryItem } from '$features/workspace/query'
-	import { QueryCanvas } from '$features/workspace/query'
+	import {
+		prependHistoryItem,
+		QueryCanvas,
+		querySave,
+	} from '$features/workspace/query'
 	import { appPrefs } from '$lib/app'
+	import { reconnectActiveSession } from '../live-session'
+	import {
+		catalogsFor,
+		findCatalogTable,
+		objectKindById as kindsFromCatalog,
+		selectedDatabaseName,
+		structureCacheKey,
+	} from '../lookup'
+	import { modelCacheKey } from '../session-utils'
 	import { workspaceSession } from '../session.svelte'
-	import type { WorkspaceTab } from '../types'
-	import type { SideNavMode } from './SessionsRail.svelte'
+	import { workspaceStudio } from '../studio.svelte'
 	import TableTabs from './TableTabs.svelte'
 	import WorkspaceEmpty from './WorkspaceEmpty.svelte'
 
 	interface Props {
-		sideMode: SideNavMode
-		activeId: string | null
-		activeSession: ConnectedSession | null
-		connectionTabs: WorkspaceTab[]
-		activeTabId: string | null
-		activeTab: WorkspaceTab | null
-		currentDatabaseName: string
-		catalogError: string | null
-		modelError: string | null
-		modelLoading: boolean
-		activeModel: {
-			diagram: ErDiagramState
-			title: string
-			summary: string
-			rev: number
-			focusNodeId?: string
-		} | null
-		structure?: ObjectStructure | null
-		structureLoading?: boolean
-		structureError?: string | null
-		/** Epoch ms of the last engine structure fetch. */
-		structureFetchedAt?: number | null
-		onopentable?: () => void
-		gridTable: TableMeta | null
-		tableLoading: boolean
-		rowSelectionIndex: number | null
-		rowSyncTick: number
-		/** Server replaced the table preview (filter/sort/page/open). */
-		tablePreviewTick?: number
-		baselineEpoch: number
-		inspectorData: {
-			tableTitle: string
-			columns: TableMeta['columns']
-			row: Record<string, unknown>
-			rowIndex: number
-		} | null
-		onhistory: (item?: QueryHistoryItem | null) => void
-		onbaselinechange: () => void
-		onselectrow: (index: number) => void
-		onopenmodelretry: () => void
-		onopenstructureretry?: () => void
-		oninspectorchange: (column: string, value: unknown) => void
-		onsavequery?: () => void
-		querysaving?: boolean
 		/** Close request (may prompt if dirty). */
 		onclosetab?: (id: string) => void
 		/** Close several tabs in order (dirty prompts stay sequential). */
 		onclosemany?: (ids: string[]) => void
-		onreloadtable?: (opts?: {
-			offset?: number
-			filters?: TablePreviewFilter[]
-			sortColumn?: string
-			sortDir?: 'asc' | 'desc'
-		}) => Promise<void>
-		onreconnect?: () => Promise<string | null>
-		onopenreference?: (ref: ColumnReference, value: unknown) => void
-		onopenstructure?: (table: TableMeta) => void
-		objectKindById?: Record<string, CatalogObjectKind>
 	}
 
-	let {
-		sideMode,
-		activeId,
-		activeSession,
-		connectionTabs,
-		activeTabId,
-		activeTab,
-		currentDatabaseName,
-		catalogError,
-		modelError,
-		modelLoading,
-		activeModel,
-		structure = null,
-		structureLoading = false,
-		structureError = null,
-		structureFetchedAt = null,
-		onopentable,
-		gridTable,
-		tableLoading,
-		rowSelectionIndex,
-		rowSyncTick,
-		tablePreviewTick = 0,
-		baselineEpoch,
-		inspectorData,
-		onhistory,
-		onbaselinechange,
-		onselectrow,
-		onopenmodelretry,
-		onopenstructureretry,
-		oninspectorchange,
-		onsavequery,
-		querysaving = false,
-		onclosetab,
-		onclosemany,
-		onreloadtable,
-		onreconnect,
-		onopenreference,
-		onopenstructure,
-		objectKindById = {},
-	}: Props = $props()
+	let { onclosetab, onclosemany }: Props = $props()
+
+	const sideMode = $derived(workspaceStudio.sideMode)
+	const activeId = $derived(workspaceSession.activeConnectionId)
+	const activeSession = $derived(workspaceSession.activeSession)
+	const activeTabId = $derived(workspaceSession.activeTabId)
+	const activeTab = $derived(workspaceSession.activeTab)
+	const openTabs = $derived(workspaceSession.openTabs)
+	const selectedRow = $derived(workspaceSession.selectedRow)
+
+	const databases = $derived(catalogsFor(workspaceStudio.catalogs, activeId))
+	const currentDatabaseName = $derived(
+		selectedDatabaseName(workspaceStudio.selectedDb, activeId, databases),
+	)
+	const connectionTabs = $derived(
+		activeId ? openTabs.filter((t) => t.connectionId === activeId) : [],
+	)
+	const objectKindById = $derived(kindsFromCatalog(databases))
+
+	const gridTable = $derived(
+		activeTab?.kind === 'table'
+			? findCatalogTable(
+					catalogsFor(workspaceStudio.catalogs, activeTab.connectionId),
+					activeTab.tableId,
+				)
+			: null,
+	)
+	const tableLoading = $derived(workspaceStudio.loadingTabId === activeTabId)
+	const rowSelectionIndex = $derived.by(() => {
+		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
+		if (
+			selectedRow.connectionId === activeTab.connectionId &&
+			selectedRow.tableId === activeTab.tableId
+		) {
+			return selectedRow.rowIndex
+		}
+		return null
+	})
+	const inspectorData = $derived.by(() => {
+		if (sideMode !== 'explorer') return null
+		if (rowSelectionIndex === null || !gridTable) return null
+		const row = gridTable.rows[rowSelectionIndex]
+		if (!row) return null
+		const title = gridTable.schema
+			? `${gridTable.database}.${gridTable.schema}.${gridTable.name}`
+			: `${gridTable.database}.${gridTable.name}`
+		return {
+			tableTitle: title,
+			columns: gridTable.columns,
+			row,
+			rowIndex: rowSelectionIndex,
+		}
+	})
+
+	const activeModel = $derived.by(() => {
+		if (!activeTab || activeTab.kind !== 'model' || !activeId) return null
+		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
+		return (
+			workspaceStudio.liveModels[
+				modelCacheKey(activeId, db, activeTab.tableId)
+			] ?? null
+		)
+	})
+	const activeStructure = $derived.by(() => {
+		if (
+			!activeId ||
+			!activeTab ||
+			activeTab.kind !== 'structure' ||
+			!activeTab.tableId
+		) {
+			return null
+		}
+		return (
+			workspaceStudio.liveStructures[
+				structureCacheKey(activeId, activeTab.tableId)
+			] ?? null
+		)
+	})
+	const structure = $derived(activeStructure?.data ?? null)
+	const structureFetchedAt = $derived(activeStructure?.rev ?? null)
+	const structureTable = $derived(
+		activeTab?.kind === 'structure'
+			? findCatalogTable(databases, activeTab.tableId)
+			: null,
+	)
+
+	const catalogError = $derived(workspaceStudio.catalogError)
+	const modelError = $derived(workspaceStudio.modelError)
+	const modelLoading = $derived(workspaceStudio.modelLoading)
+	const structureLoading = $derived(workspaceStudio.structureLoading)
+	const structureError = $derived(workspaceStudio.structureError)
+	const rowSyncTick = $derived(workspaceStudio.rowSyncTick)
+	const tablePreviewTick = $derived(workspaceStudio.tablePreviewTick)
+	const baselineEpoch = $derived(workspaceStudio.baselineEpoch)
+	const querysaving = $derived(workspaceStudio.querySaving)
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
 
@@ -137,6 +147,36 @@
 	)
 	const seedCodeFilter = $derived(tabPreview?.codeFilter ?? null)
 	const seedSort = $derived(tabPreview?.sort ?? null)
+
+	function onSelectRow(index: number) {
+		if (!activeTab || activeTab.kind !== 'table' || !activeTab.tableId) return
+		workspaceSession.selectRow(activeTab.connectionId, activeTab.tableId, index)
+	}
+
+	function onInspectorChange(column: string, value: unknown) {
+		if (activeSession?.profile.readOnly) return
+		if (rowSelectionIndex === null || !gridTable) return
+		const i = rowSelectionIndex
+		const current = gridTable.rows[i] ?? {}
+		gridTable.rows[i] = { ...current, [column]: value }
+		workspaceStudio.rowSyncTick += 1
+	}
+
+	$effect(() => {
+		void activeTabId
+		void gridTable?.id
+		tablePreview.hydrateActive()
+	})
+
+	$effect(() => {
+		void activeTabId
+		hydrateActiveStructure()
+	})
+
+	$effect(() => {
+		void activeTabId
+		hydrateActiveModel()
+	})
 </script>
 
 <main class="flex min-w-0 flex-1 flex-col">
@@ -184,9 +224,9 @@
 							saving={querysaving}
 							ontextchange={(v) =>
 								workspaceSession.setQueryDraft(activeTab.id, v)}
-							{onhistory}
-							onsave={onsavequery}
-							{onreconnect}
+							onhistory={prependHistoryItem}
+							onsave={() => void querySave.saveActive()}
+							onreconnect={reconnectActiveSession}
 						/>
 					{/key}
 				</div>
@@ -215,7 +255,7 @@
 						<button
 							type="button"
 							class="ml-2 border-none bg-transparent text-accent underline"
-							onclick={onopenmodelretry}
+							onclick={() => void openModelDiagram(true)}
 						>
 							Retry
 						</button>
@@ -241,7 +281,7 @@
 							initialDiagram={activeModel.diagram}
 							initialName={activeModel.title}
 							focusNodeId={activeModel.focusNodeId}
-							onrefresh={onopenmodelretry}
+							onrefresh={() => void openModelDiagram(true)}
 							refreshing={modelLoading}
 						/>
 					{/key}
@@ -276,8 +316,12 @@
 					loading={structureLoading}
 					error={structureError}
 					lastFetchedAt={structureFetchedAt}
-					onretry={onopenstructureretry}
-					{onopentable}
+					onretry={() => {
+						if (structureTable) void openObjectStructure(structureTable, true)
+					}}
+					onopentable={structureTable
+						? () => void tablePreview.open(structureTable)
+						: undefined}
 				/>
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}
@@ -287,11 +331,11 @@
 						class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
 					>
 						{catalogError}
-						{#if onreloadtable}
+						{#if gridTable}
 							<button
 								type="button"
 								class="ml-2 border-none bg-transparent text-accent underline"
-								onclick={() => void onreloadtable()}
+								onclick={() => void tablePreview.reload()}
 							>
 								Retry
 							</button>
@@ -315,13 +359,15 @@
 							selectedRowIndex={rowSelectionIndex}
 							{rowSyncTick}
 							{tablePreviewTick}
-							{onbaselinechange}
-							{onselectrow}
+							onbaselinechange={() => {
+								workspaceStudio.baselineEpoch += 1
+							}}
+							onselectrow={onSelectRow}
 							engine={String(activeSession.profile.engine)}
 							sessionId={activeSession.engineSessionId}
 							profileReadOnly={!!activeSession.profile.readOnly}
-							onreload={onreloadtable}
-							{onreconnect}
+							onreload={(opts) => tablePreview.reload(opts)}
+							onreconnect={reconnectActiveSession}
 							{seedFilters}
 							{seedCodeFilter}
 							{seedSort}
@@ -329,10 +375,9 @@
 								String(activeSession.profile.engine),
 								activeSession.capabilities,
 							).codeFilterPlaceholder}
-							{onopenreference}
-							onopenstructure={onopenstructure
-								? () => onopenstructure(gridTable)
-								: undefined}
+							onopenreference={(ref, value) =>
+								void tablePreview.openReference(ref, value)}
+							onopenstructure={() => void openObjectStructure(gridTable)}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
 							bind:originals={gridOriginals}
@@ -360,7 +405,7 @@
 						{baselineEpoch}
 						readOnly={!!activeSession.profile.readOnly}
 						onclose={() => workspaceSession.clearRowSelection()}
-						onchange={oninspectorchange}
+						onchange={onInspectorChange}
 					/>
 				{/key}
 			{/if}

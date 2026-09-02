@@ -11,20 +11,19 @@
 	import { cn, copyTextToClipboard } from '$core/util'
 	import { engineLabel, normalizeCapabilities } from '$engines'
 	import { BrandMark, colorHex, connectionInitial } from '$features/connections'
-	import { showToast } from '$features/toast'
 	import { SettingsModal } from '$features/settings'
 	import { KeyboardShortcutsModal } from '$features/shortcuts'
+	import { showToast } from '$features/toast'
 	import { flip } from 'svelte/animate'
 	import { resetAppToHome } from '../reset'
+	import { workspaceSession } from '../session.svelte'
+	import { workspaceStudio } from '../studio.svelte'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 	import LeaveWorkspaceModal from './LeaveWorkspaceModal.svelte'
 
 	export type SideNavMode = 'explorer' | 'saved-queries' | 'history'
 
 	interface Props {
-		sessions: ConnectedSession[]
-		activeId: string | null
-		mode?: SideNavMode
 		onselect: (id: string) => void
 		ondisconnect: (id: string) => void
 		onrefresh: (id: string) => void
@@ -36,9 +35,6 @@
 	}
 
 	let {
-		sessions,
-		activeId,
-		mode = 'explorer',
 		onselect,
 		ondisconnect,
 		onrefresh,
@@ -48,6 +44,10 @@
 		onmode,
 		onreorder,
 	}: Props = $props()
+
+	const sessions = $derived(workspaceSession.sessions)
+	const activeId = $derived(workspaceSession.activeConnectionId)
+	const mode = $derived(workspaceStudio.sideMode)
 
 	const flipMs =
 		typeof window !== 'undefined' &&
@@ -112,9 +112,7 @@
 		{ id: 'info', label: 'Show info' },
 		{ id: 'refresh', label: 'Refresh catalog' },
 		{ id: 'new-query', label: 'New query' },
-		...(supportsMetrics
-			? [{ id: 'metrics', label: 'Server metrics' }]
-			: []),
+		...(supportsMetrics ? [{ id: 'metrics', label: 'Server metrics' }] : []),
 		{
 			id: 'copy-url',
 			label: 'Copy connection URL',

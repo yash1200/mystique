@@ -1,103 +1,74 @@
 <script lang="ts">
-	import type {
-		ConnectedSession,
-		DatabaseMeta,
-		TableMeta,
-	} from '$core/contracts'
 	import { Icon, IconButton, Resizable } from '$core/ui'
-	import { ObjectExplorer } from '$features/workspace/explorer'
-	import type {
-		QueryHistoryEntry,
-		SavedQueryListItem,
+	import {
+		createCatalogGroup,
+		createCatalogObject,
+		createDatabase,
+		refreshCurrentTables,
+		refreshDatabases,
+		selectDatabase,
+	} from '$features/workspace/catalog'
+	import {
+		ObjectExplorer,
+		onTableExplorerAction,
+	} from '$features/workspace/explorer'
+	import { tablePreview } from '$features/workspace/grid'
+	import {
+		queryLibrary,
+		QueryListPanel,
+		refreshHistory,
+		refreshSavedQueries,
+		selectHistory,
+		selectSavedQuery,
 	} from '$features/workspace/query'
-	import { QueryListPanel } from '$features/workspace/query'
 	import {
 		appPrefs,
 		EXPLORER_PANEL_WIDTH_DEFAULT,
 		EXPLORER_PANEL_WIDTH_MAX,
 		EXPLORER_PANEL_WIDTH_MIN,
 	} from '$lib/app'
+	import { catalogsFor, selectedDatabaseName } from '../lookup'
+	import { workspaceSession } from '../session.svelte'
+	import { workspaceStudio } from '../studio.svelte'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
-	import type { SideNavMode } from './SessionsRail.svelte'
 
-	interface Props {
-		sideMode: SideNavMode
-		activeSession: ConnectedSession | null
-		databases: DatabaseMeta[]
-		currentDatabaseName: string
-		activeTableId: string | null
-		refreshing: boolean
-		queryHistory: QueryHistoryEntry[]
-		savedQueries: SavedQueryListItem[]
-		selectedQueryId: string | null
-		selectedHistoryId: string | null
-		onselectquery: (id: string) => void
-		onselecthistory: (id: string) => void
-		onselectdatabase: (name: string) => void
-		onrefresh: () => void
-		onrefreshtables?: () => void
-		refreshingTables?: boolean
-		oncreatedatabase: (name: string) => void
-		oncreategroup?: (name: string) => void
-		oncreateobject?: (name: string, group?: string) => void
-		createBusy?: boolean
-		createError?: string | null
-		onopen: (table: TableMeta) => void
-		ontableaction?: (
-			action:
-				| 'open'
-				| 'erd'
-				| 'structure'
-				| 'rename'
-				| 'drop'
-				| 'truncate'
-				| 'duplicate'
-				| 'create'
-				| 'export'
-				| 'import',
-			table: TableMeta,
-			extra?: string,
-		) => void
-		onsavedaction: (
-			action: 'duplicate' | 'rename' | 'delete' | 'favorite',
-			id: string,
-		) => void
-		onrefreshsaved: () => void | Promise<void>
-		onrefreshhistory: () => void | Promise<void>
-	}
-
-	let {
-		sideMode,
-		activeSession,
-		databases,
-		currentDatabaseName,
-		activeTableId,
-		refreshing,
-		queryHistory,
-		savedQueries,
-		selectedQueryId,
-		selectedHistoryId,
-		onselectquery,
-		onselecthistory,
-		onselectdatabase,
-		onrefresh,
-		onrefreshtables,
-		refreshingTables = false,
-		oncreatedatabase,
-		oncreategroup,
-		oncreateobject,
-		createBusy = false,
-		createError = null,
-		onopen,
-		ontableaction,
-		onsavedaction,
-		onrefreshsaved,
-		onrefreshhistory,
-	}: Props = $props()
+	const sideMode = $derived(workspaceStudio.sideMode)
+	const activeSession = $derived(workspaceSession.activeSession)
+	const activeId = $derived(workspaceSession.activeConnectionId)
+	const activeTab = $derived(workspaceSession.activeTab)
+	const databases = $derived(catalogsFor(workspaceStudio.catalogs, activeId))
+	const currentDatabaseName = $derived(
+		selectedDatabaseName(workspaceStudio.selectedDb, activeId, databases),
+	)
+	const activeTableId = $derived(
+		activeTab &&
+			(activeTab.kind === 'table' || activeTab.kind === 'structure') &&
+			activeTab.connectionId === activeId
+			? (activeTab.tableId ?? null)
+			: null,
+	)
+	const refreshing = $derived(workspaceStudio.refreshing)
+	const refreshingTables = $derived(workspaceStudio.refreshingTables)
+	const createBusy = $derived(workspaceStudio.createBusy)
+	const queryHistory = $derived(workspaceStudio.queryHistory)
+	const savedQueries = $derived(workspaceStudio.savedQueries)
+	const selectedQueryId = $derived(workspaceStudio.selectedQueryId)
+	const selectedHistoryId = $derived(workspaceStudio.selectedHistoryId)
 
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
 	let infoOpen = $state(false)
 	const connectionName = $derived(activeSession?.profile.name?.trim() || '')
+
+	$effect(() => {
+		void refreshSavedQueries(activeId)
+	})
+
+	$effect(() => {
+		const mode = sideMode
+		if (mode === 'history' || activeId) {
+			void refreshHistory({ preferSelectLatest: mode === 'history' })
+		}
+	})
 </script>
 
 <Resizable
@@ -119,12 +90,12 @@
 					{savedQueries}
 					history={queryHistory}
 					selectedId={selectedQueryId}
-					onselect={onselectquery}
+					onselect={selectSavedQuery}
 					onsavedaction={(action, id) => {
-						if (action === 'open') onselectquery(id)
-						else onsavedaction(action, id)
+						if (action === 'open') selectSavedQuery(id)
+						else void queryLibrary.action(action, id)
 					}}
-					onrefresh={onrefreshsaved}
+					onrefresh={() => void refreshSavedQueries(activeId, true)}
 				/>
 			{:else if sideMode === 'history'}
 				<QueryListPanel
@@ -132,8 +103,8 @@
 					{savedQueries}
 					history={queryHistory}
 					selectedId={selectedHistoryId}
-					onselect={onselecthistory}
-					onrefresh={onrefreshhistory}
+					onselect={selectHistory}
+					onrefresh={() => void refreshHistory({ force: true })}
 				/>
 			{:else if activeSession}
 				<ObjectExplorer
@@ -142,17 +113,19 @@
 					selectedDatabase={currentDatabaseName}
 					{activeTableId}
 					{refreshing}
-					{onselectdatabase}
-					{onrefresh}
-					{onrefreshtables}
+					onselectdatabase={(name) => void selectDatabase(name)}
+					onrefresh={() => void refreshDatabases()}
+					onrefreshtables={() => void refreshCurrentTables()}
 					{refreshingTables}
-					{oncreatedatabase}
-					{oncreategroup}
-					{oncreateobject}
+					oncreatedatabase={createDatabase}
+					oncreategroup={(name) => void createCatalogGroup(name)}
+					oncreateobject={(name, group) =>
+						void createCatalogObject(name, group)}
 					{createBusy}
-					{createError}
-					{onopen}
-					{ontableaction}
+					createError={null}
+					onopen={(table) => void tablePreview.open(table)}
+					ontableaction={(action, table, extra) =>
+						void onTableExplorerAction(action, table, extra)}
 					readOnly={!!activeSession.profile.readOnly}
 					capabilities={activeSession.capabilities}
 				/>

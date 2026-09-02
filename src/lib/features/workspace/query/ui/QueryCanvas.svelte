@@ -7,6 +7,7 @@
 	import { executeEngineQuery, isTauri } from '$core/ipc'
 	import { Resizable } from '$core/ui'
 	import { copyTextToClipboard } from '$core/util'
+	import { catalogColumnsCache } from '$features/workspace/catalog'
 	import {
 		buildCsv,
 		buildJson,
@@ -15,7 +16,6 @@
 		exportRowsAsExcel,
 		exportRowsAsJson,
 	} from '$features/workspace/grid'
-	import { catalogColumnsCache } from '$features/workspace/catalog'
 	import {
 		isSessionMissingError,
 		workspaceSession,
