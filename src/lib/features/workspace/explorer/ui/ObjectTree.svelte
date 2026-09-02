@@ -40,14 +40,6 @@
 		onmenu,
 	}: Props = $props()
 
-	function formatCount(n: number): string {
-		if (!Number.isFinite(n) || n <= 0) return ''
-		if (n < 1000) return String(n)
-		if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
-		if (n < 1_000_000) return `${Math.round(n / 1000)}k`
-		return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`
-	}
-
 	function wellClass(kind: TableMeta['kind'], active: boolean): string {
 		if (active) return 'bg-accent-muted'
 		if (kind === 'view') return 'bg-info/15'
@@ -102,7 +94,6 @@
 
 {#snippet objectRow(t: TableMeta)}
 	{@const active = activeTableId === t.id}
-	{@const count = formatCount(t.rowCount)}
 	<li
 		role="treeitem"
 		aria-selected={active}
@@ -153,16 +144,6 @@
 			>
 				{@render highlighted(t.name)}
 			</span>
-			{#if count}
-				<span
-					class={cn(
-						'shrink-0 font-mono text-micro tabular-nums',
-						active ? 'text-accent' : 'text-fg-muted',
-					)}
-				>
-					{count}
-				</span>
-			{/if}
 		</button>
 	</li>
 {/snippet}
