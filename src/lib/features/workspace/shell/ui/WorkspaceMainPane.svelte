@@ -81,11 +81,6 @@
 			sortDir?: 'asc' | 'desc'
 		}) => Promise<void>
 		onreconnect?: () => Promise<string | null>
-		/** Seeded filters when jumping via FK (keeps pager/refresh consistent). */
-		seedFilters?: TablePreviewFilter[] | null
-		seedCodeFilter?: string | null
-		/** Seeded preview sort so remounts keep the same column order. */
-		seedSort?: { column: string; dir: 'asc' | 'desc' } | null
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
 		onopenstructure?: (table: TableMeta) => void
 		objectKindById?: Record<string, CatalogObjectKind>
@@ -127,15 +122,21 @@
 		onclosemany,
 		onreloadtable,
 		onreconnect,
-		seedFilters = null,
-		seedCodeFilter = null,
-		seedSort = null,
 		onopenreference,
 		onopenstructure,
 		objectKindById = {},
 	}: Props = $props()
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
+
+	const tabPreview = $derived(
+		activeTab?.kind === 'table' ? (activeTab.preview ?? null) : null,
+	)
+	const seedFilters = $derived(
+		tabPreview?.filters.length ? tabPreview.filters : null,
+	)
+	const seedCodeFilter = $derived(tabPreview?.codeFilter ?? null)
+	const seedSort = $derived(tabPreview?.sort ?? null)
 </script>
 
 <main class="flex min-w-0 flex-1 flex-col">
@@ -305,10 +306,10 @@
 						/>
 					</div>
 				{:else if gridTable}
-					<!-- Key on table id only. Including seedFilters remounted the
-					     grid on every filter apply, which dropped the saved
-					     baseline and marked every cell unsaved. -->
-					{#key gridTable.id}
+					<!-- Key on the tab, not the seed. Including seedFilters remounted
+					     the grid on every filter apply and marked every cell unsaved.
+					     Tab id keeps filter $state from leaking across tables. -->
+					{#key activeTab.id}
 						<DataGrid
 							table={gridTable}
 							selectedRowIndex={rowSelectionIndex}

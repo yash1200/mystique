@@ -9,8 +9,6 @@ import type {
 	ObjectStructure,
 	PreviewImportResult,
 	TableMeta,
-	TablePreviewFilter,
-	TablePreviewSort,
 } from '$core/contracts'
 import type { ErDiagramState } from '$features/workspace/er'
 import type {
@@ -63,9 +61,6 @@ class WorkspaceStudio {
 	rowSyncTick = $state(0)
 	tablePreviewTick = $state(0)
 	baselineEpoch = $state(0)
-	tableSeedFilters = $state<TablePreviewFilter[] | null>(null)
-	tableSeedCodeFilter = $state<string | null>(null)
-	tableSeedSort = $state<TablePreviewSort | null>(null)
 
 	exportTable = $state<TableMeta | null>(null)
 	exportBusy = $state(false)

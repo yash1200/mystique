@@ -78,8 +78,9 @@
 		modelCacheKey,
 		preferredDbForProfile,
 	} from '../session-utils'
-	import { workspaceSession } from '../session.svelte'
+	import { tableTabId, workspaceSession } from '../session.svelte'
 	import { workspaceStudio } from '../studio.svelte'
+	import { resolveTablePreview } from '../types'
 	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
@@ -1114,13 +1115,21 @@
 		filters: TablePreviewFilter[] = [],
 		sort: TablePreviewSort | null = null,
 		codeFilter: string | null = null,
+		replacePreview = false,
 	) {
 		if (!activeId || !activeSession) return
 		workspaceStudio.sideMode = 'explorer'
-		workspaceStudio.tableSeedFilters = filters.length > 0 ? filters : null
-		workspaceStudio.tableSeedCodeFilter = codeFilter?.trim() || null
-		workspaceStudio.tableSeedSort = sort
+		const tabId = tableTabId(activeId, table.id)
+		const existing = workspaceSession.openTabs.find((t) => t.id === tabId)
+		const preview = resolveTablePreview(existing?.preview, {
+			offset,
+			filters,
+			sort,
+			codeFilter,
+			replace: replacePreview,
+		})
 		workspaceSession.openTable(activeId, table.id, table.name)
+		workspaceSession.setTablePreview(tabId, preview)
 
 		if (!isTauri()) return
 
@@ -1129,22 +1138,22 @@
 		workspaceStudio.catalogError = null
 		try {
 			const engine = String(activeSession.profile.engine)
-			const preview = await withLiveSession(activeId, (sid) =>
+			const loaded = await withLiveSession(activeId, (sid) =>
 				loadTablePreview(
 					sid,
 					engine,
 					table,
 					100,
-					offset,
-					filters,
-					sort,
-					codeFilter,
+					preview.offset,
+					preview.filters,
+					preview.sort,
+					preview.codeFilter,
 				),
 			)
 			const list = workspaceStudio.catalogs[activeId] ?? []
 			const next = list.map((db) => ({
 				...db,
-				tables: db.tables.map((t) => (t.id === table.id ? preview : t)),
+				tables: db.tables.map((t) => (t.id === table.id ? loaded : t)),
 			}))
 			workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [activeId]: next }
 			// Whole preview page was replaced. Do not bump workspaceStudio.rowSyncTick — that
@@ -1928,6 +1937,7 @@
 			opts?.filters ?? [],
 			sort,
 			opts?.codeFilter ?? null,
+			true,
 		)
 	}
 
@@ -2038,9 +2048,6 @@
 		onclosemany={enqueueCloseTabs}
 		onreloadtable={reloadGridTable}
 		onreconnect={reconnectActiveSession}
-		seedFilters={workspaceStudio.tableSeedFilters}
-		seedCodeFilter={workspaceStudio.tableSeedCodeFilter}
-		seedSort={workspaceStudio.tableSeedSort}
 		onopenreference={(ref, value) => void openForeignKeyReference(ref, value)}
 		onopenstructure={(table) => void openObjectStructure(table)}
 		{objectKindById}

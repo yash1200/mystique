@@ -16,9 +16,13 @@ import {
 	replaceWorkspaceTabs,
 	workspaceTabToSaveInput,
 } from './api'
-import type { SelectedRow, WorkspaceTab } from './types'
+import type { SelectedRow, TableTabPreview, WorkspaceTab } from './types'
 
 export type { ConnectedSession } from '$core/contracts'
+
+export function tableTabId(connectionId: string, tableId: string): string {
+	return `${connectionId}::table::${tableId}`
+}
 
 class WorkspaceSessionStore {
 	sessions = $state<ConnectedSession[]>([])
@@ -382,7 +386,7 @@ class WorkspaceSessionStore {
 	}
 
 	openTable(connectionId: string, tableId: string, title: string) {
-		const id = `${connectionId}::table::${tableId}`
+		const id = tableTabId(connectionId, tableId)
 		if (!this.openTabs.some((t) => t.id === id)) {
 			this.openTabs = [
 				...this.openTabs,
@@ -700,6 +704,15 @@ class WorkspaceSessionStore {
 			t.id === tabId ? { ...t, dirty } : t,
 		)
 		this.schedulePersist(tab.connectionId)
+	}
+
+	/** In-memory table preview. Not persisted — closing the tab drops it. */
+	setTablePreview(tabId: string, preview: TableTabPreview) {
+		const tab = this.openTabs.find((t) => t.id === tabId)
+		if (!tab || tab.kind !== 'table') return
+		this.openTabs = this.openTabs.map((t) =>
+			t.id === tabId ? { ...t, preview } : t,
+		)
 	}
 
 	renameTab(tabId: string, title: string) {
