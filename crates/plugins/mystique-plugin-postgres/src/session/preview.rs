@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use mystique_connector_api::{
     preview_sort_sql, qualify_table, sql_preview_where, ConnectorResult, FetchTablePreviewInput,
-    SqlIdentStyle, TablePreviewResult,
+    SqlIdentStyle, TablePreviewColumnRef, TablePreviewResult, TablePreviewStats,
 };
 
 use super::catalog;
@@ -18,7 +18,7 @@ pub(super) async fn fetch_table_preview(
 ) -> ConnectorResult<TablePreviewResult> {
     session.ensure_open()?;
     let start = Instant::now();
-    let columns = catalog::describe_table(
+    let columns = catalog::describe_columns(
         session,
         input.database.as_deref(),
         input.schema.as_deref(),
@@ -51,17 +51,11 @@ pub(super) async fn fetch_table_preview(
     );
 
     let client = session.client().await?;
-    let total_rows: i64 = client
-        .query_one(&format!("SELECT COUNT(*) FROM {target}{where_sql}"), &[])
-        .await
-        .map_err(query_failed)?
-        .get(0);
     let rows = client
         .query(sql.as_str(), &[])
         .await
         .map_err(query_failed)?;
 
-    let truncated = (input.offset as i64) + (rows.len() as i64) < total_rows;
     let take = rows.len().min(input.max_rows as usize);
     let mut out_rows = Vec::with_capacity(take);
     for row in rows.iter().take(take) {
@@ -72,13 +66,55 @@ pub(super) async fn fetch_table_preview(
         out_rows.push(cells);
     }
     let row_count = out_rows.len() as u64;
+    let truncated = row_count >= u64::from(input.max_rows);
     Ok(TablePreviewResult {
         engine: "postgres".into(),
         columns,
         rows: out_rows,
         row_count,
-        total_rows: total_rows.max(0) as u64,
+        total_rows: 0,
+        total_known: false,
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub(super) async fn fetch_table_preview_stats(
+    session: &PostgresSession,
+    input: &FetchTablePreviewInput,
+) -> ConnectorResult<TablePreviewStats> {
+    session.ensure_open()?;
+    let target = qualify_table(
+        SqlIdentStyle::Postgres,
+        input.database.as_deref(),
+        input.schema.as_deref(),
+        &input.table,
+    );
+    let where_sql = sql_preview_where(
+        SqlIdentStyle::Postgres,
+        &input.filters,
+        input.code_filter.as_deref(),
+    )?;
+    let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
+    let count_fut = async {
+        let client = session.client().await?;
+        let total: i64 = client
+            .query_one(&count_sql, &[])
+            .await
+            .map_err(query_failed)?
+            .get(0);
+        ConnectorResult::Ok(total.max(0) as u64)
+    };
+    let refs_fut = catalog::table_references(session, input.schema.as_deref(), &input.table);
+    let (count, refs) = tokio::join!(count_fut, refs_fut);
+    let total_known = count.is_ok();
+    Ok(TablePreviewStats {
+        total_rows: count.unwrap_or(0),
+        total_known,
+        references: refs
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(column, references)| TablePreviewColumnRef { column, references })
+            .collect(),
     })
 }

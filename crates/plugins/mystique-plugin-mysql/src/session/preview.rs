@@ -6,7 +6,8 @@ use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
     preview_sort_sql, qualify_table, quote_ident, sql_preview_where, ConnectorResult,
-    FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult,
+    FetchTablePreviewInput, SqlIdentStyle, TablePreviewColumnRef, TablePreviewResult,
+    TablePreviewStats,
 };
 use serde_json::Value as JsonValue;
 
@@ -21,7 +22,7 @@ pub(super) async fn fetch_table_preview(
 ) -> ConnectorResult<TablePreviewResult> {
     session.ensure_open()?;
     let start = Instant::now();
-    let columns = catalog::describe_table(
+    let columns = catalog::describe_columns(
         session,
         input.database.as_deref(),
         input.schema.as_deref(),
@@ -78,11 +79,6 @@ pub(super) async fn fetch_table_preview(
     );
 
     let mut conn = session.conn().await?;
-    let total_rows: u64 = conn
-        .query_first(format!("SELECT COUNT(*) FROM {target}{where_sql}"))
-        .await
-        .map_err(query_failed)?
-        .unwrap_or(0);
     let result_set = conn.query_iter(sql.as_str()).await.map_err(query_failed)?;
 
     let col_count = result_set.columns_ref().len();
@@ -101,14 +97,60 @@ pub(super) async fn fetch_table_preview(
     }
 
     let row_count = out_rows.len() as u64;
-    let truncated = input.offset as u64 + row_count < total_rows;
+    let truncated = row_count >= u64::from(input.max_rows);
     Ok(TablePreviewResult {
         engine: "mysql".into(),
         columns,
         rows: out_rows,
         row_count,
-        total_rows,
+        total_rows: 0,
+        total_known: false,
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub(super) async fn fetch_table_preview_stats(
+    session: &MysqlSession,
+    input: &FetchTablePreviewInput,
+) -> ConnectorResult<TablePreviewStats> {
+    session.ensure_open()?;
+    let target = qualify_table(
+        SqlIdentStyle::Mysql,
+        input.database.as_deref(),
+        input.schema.as_deref(),
+        &input.table,
+    );
+    let where_sql = sql_preview_where(
+        SqlIdentStyle::Mysql,
+        &input.filters,
+        input.code_filter.as_deref(),
+    )?;
+    let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
+    let count_fut = async {
+        let mut conn = session.conn().await?;
+        let total: u64 = conn
+            .query_first(count_sql)
+            .await
+            .map_err(query_failed)?
+            .unwrap_or(0);
+        ConnectorResult::Ok(total)
+    };
+    let refs_fut = catalog::table_references(
+        session,
+        input.database.as_deref(),
+        input.schema.as_deref(),
+        &input.table,
+    );
+    let (count, refs) = tokio::join!(count_fut, refs_fut);
+    let total_known = count.is_ok();
+    Ok(TablePreviewStats {
+        total_rows: count.unwrap_or(0),
+        total_known,
+        references: refs
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(column, references)| TablePreviewColumnRef { column, references })
+            .collect(),
     })
 }

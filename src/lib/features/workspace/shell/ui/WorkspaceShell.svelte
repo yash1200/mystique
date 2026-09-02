@@ -8,8 +8,6 @@
 		DatabaseMeta,
 		ImportEncoding,
 		ImportFormat,
-		ObjectStructure,
-		PreviewImportResult,
 		TableAdminOp,
 		TableMeta,
 		TablePreviewFilter,
@@ -37,14 +35,15 @@
 		pluginConfigForSession,
 	} from '$features/connections'
 	import {
+		applyPreviewStats,
 		catalogColumnsCache,
 		loadLiveCatalog,
 		loadTablePreview,
+		loadTablePreviewStats,
 		mergeCatalogKeepCached,
 		mergeCatalogReplaceDatabase,
 		preferDatabase,
 	} from '$features/workspace/catalog'
-	import type { ErDiagramState } from '$features/workspace/er'
 	import { loadLiveErDiagram } from '$features/workspace/er'
 	import type { TableExplorerAction } from '$features/workspace/explorer'
 	import {
@@ -58,7 +57,6 @@
 	import type {
 		QueryHistoryEntry,
 		QueryHistoryItem,
-		SavedQueryListItem,
 	} from '$features/workspace/query'
 	import {
 		SaveQueryModal,
@@ -79,9 +77,9 @@
 		preferredDbForProfile,
 	} from '../session-utils'
 	import { tableTabId, workspaceSession } from '../session.svelte'
+	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import { workspaceStudio } from '../studio.svelte'
 	import { resolveTablePreview } from '../types'
-	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import SessionsRail, { type SideNavMode } from './SessionsRail.svelte'
 	import UnsavedCloseModal from './UnsavedCloseModal.svelte'
@@ -194,7 +192,10 @@
 		}
 		if (workspaceStudio.catalogLoadInFlight[connectionId]) return
 		if (force) catalogColumnsCache.invalidate(engineSessionId)
-		workspaceStudio.catalogLoadInFlight = { ...workspaceStudio.catalogLoadInFlight, [connectionId]: true }
+		workspaceStudio.catalogLoadInFlight = {
+			...workspaceStudio.catalogLoadInFlight,
+			[connectionId]: true,
+		}
 		workspaceStudio.refreshing = true
 		workspaceStudio.catalogError = null
 		let sessionId = engineSessionId
@@ -205,9 +206,15 @@
 			})
 			workspaceStudio.catalogs = {
 				...workspaceStudio.catalogs,
-				[connectionId]: mergeCatalogKeepCached(workspaceStudio.catalogs[connectionId], live),
+				[connectionId]: mergeCatalogKeepCached(
+					workspaceStudio.catalogs[connectionId],
+					live,
+				),
 			}
-			workspaceStudio.liveCatalogKey = { ...workspaceStudio.liveCatalogKey, [connectionId]: sessionId }
+			workspaceStudio.liveCatalogKey = {
+				...workspaceStudio.liveCatalogKey,
+				[connectionId]: sessionId,
+			}
 			const names = live.map((d) => d.name)
 			const pick = preferDatabase(
 				names,
@@ -218,9 +225,15 @@
 			if (current && names.includes(current)) {
 				// Keep the database the user switched to.
 			} else if (pick) {
-				workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [connectionId]: pick }
+				workspaceStudio.selectedDb = {
+					...workspaceStudio.selectedDb,
+					[connectionId]: pick,
+				}
 			} else if (live[0]) {
-				workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [connectionId]: live[0].name }
+				workspaceStudio.selectedDb = {
+					...workspaceStudio.selectedDb,
+					[connectionId]: live[0].name,
+				}
 			}
 		} catch (e) {
 			// Stale pool session (common for older workspace tabs): reopen and retry once.
@@ -242,7 +255,10 @@
 							live,
 						),
 					}
-					workspaceStudio.liveCatalogKey = { ...workspaceStudio.liveCatalogKey, [connectionId]: sessionId }
+					workspaceStudio.liveCatalogKey = {
+						...workspaceStudio.liveCatalogKey,
+						[connectionId]: sessionId,
+					}
 					const names = live.map((d) => d.name)
 					const pick = preferDatabase(
 						names,
@@ -253,7 +269,10 @@
 					if (current && names.includes(current)) {
 						// Keep the database the user switched to.
 					} else if (pick) {
-						workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [connectionId]: pick }
+						workspaceStudio.selectedDb = {
+							...workspaceStudio.selectedDb,
+							[connectionId]: pick,
+						}
 					}
 					workspaceStudio.catalogError = null
 					return
@@ -262,7 +281,8 @@
 						retryErr instanceof Error ? retryErr.message : String(retryErr)
 				}
 			} else {
-				workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+				workspaceStudio.catalogError =
+					e instanceof Error ? e.message : String(e)
 			}
 			if (!workspaceStudio.catalogs[connectionId]) {
 				workspaceStudio.catalogs = {
@@ -271,7 +291,10 @@
 				}
 			}
 		} finally {
-			workspaceStudio.catalogLoadInFlight = { ...workspaceStudio.catalogLoadInFlight, [connectionId]: false }
+			workspaceStudio.catalogLoadInFlight = {
+				...workspaceStudio.catalogLoadInFlight,
+				[connectionId]: false,
+			}
 			workspaceStudio.refreshing = false
 		}
 	}
@@ -297,7 +320,8 @@
 						sessionDatabase(id, session.profile),
 					)
 				} catch (e) {
-					workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+					workspaceStudio.catalogError =
+						e instanceof Error ? e.message : String(e)
 					return
 				}
 			}
@@ -305,7 +329,9 @@
 		})()
 	})
 
-	const databases = $derived(activeId ? (workspaceStudio.catalogs[activeId] ?? []) : [])
+	const databases = $derived(
+		activeId ? (workspaceStudio.catalogs[activeId] ?? []) : [],
+	)
 
 	const objectKindById = $derived.by(() => {
 		const map: Record<string, CatalogObjectKind> = {}
@@ -316,7 +342,9 @@
 	})
 
 	const currentDatabaseName = $derived(
-		activeId ? (workspaceStudio.selectedDb[activeId] ?? databases[0]?.name ?? '') : '',
+		activeId
+			? (workspaceStudio.selectedDb[activeId] ?? databases[0]?.name ?? '')
+			: '',
 	)
 
 	/** Tabs belonging to the active connection (query + tables). */
@@ -357,7 +385,9 @@
 			return null
 		}
 		return (
-			workspaceStudio.liveStructures[structureCacheKey(activeId, activeTab.tableId)] ?? null
+			workspaceStudio.liveStructures[
+				structureCacheKey(activeId, activeTab.tableId)
+			] ?? null
 		)
 	})
 
@@ -813,7 +843,9 @@
 			// Keep list highlight only — do not auto-open runs in the editor.
 			if (
 				workspaceStudio.selectedHistoryId &&
-				!workspaceStudio.queryHistory.some((h) => h.id === workspaceStudio.selectedHistoryId)
+				!workspaceStudio.queryHistory.some(
+					(h) => h.id === workspaceStudio.selectedHistoryId,
+				)
 			) {
 				workspaceStudio.selectedHistoryId = null
 			}
@@ -824,7 +856,10 @@
 			if (gen !== historyFetchGen) return
 			// Keep existing rows; surface the error instead of wiping the list.
 			workspaceStudio.historyError = e instanceof Error ? e.message : String(e)
-			console.warn('[mystique] refreshHistory failed:', workspaceStudio.historyError)
+			console.warn(
+				'[mystique] refreshHistory failed:',
+				workspaceStudio.historyError,
+			)
 		} finally {
 			if (gen === historyFetchGen) workspaceStudio.historyLoading = false
 		}
@@ -884,7 +919,8 @@
 				workspaceSession.openStructure(activeId, table.id, table.name)
 			}
 		} catch (e) {
-			workspaceStudio.structureError = e instanceof Error ? e.message : String(e)
+			workspaceStudio.structureError =
+				e instanceof Error ? e.message : String(e)
 		} finally {
 			workspaceStudio.structureLoading = false
 		}
@@ -921,7 +957,8 @@
 			return
 		}
 		if (!isTauri()) {
-			workspaceStudio.catalogError = 'Live catalog actions require the desktop app.'
+			workspaceStudio.catalogError =
+				'Live catalog actions require the desktop app.'
 			return
 		}
 
@@ -949,7 +986,8 @@
 			if (action === 'create') {
 				const sql = (result.statement ?? '').trim()
 				if (!sql) {
-					workspaceStudio.catalogError = 'Engine returned an empty create statement.'
+					workspaceStudio.catalogError =
+						'Engine returned an empty create statement.'
 					return
 				}
 				openSqlInEditor(
@@ -1030,11 +1068,21 @@
 			workspaceStudio.importError = 'Import requires the desktop app.'
 			return
 		}
-		await loadImportPreview(workspaceStudio.importTable, spec.path, spec.format, 'utf8')
+		await loadImportPreview(
+			workspaceStudio.importTable,
+			spec.path,
+			spec.format,
+			'utf8',
+		)
 	}
 
 	async function confirmImportRun(spec: ImportRunSpec) {
-		if (!workspaceStudio.importTable || !activeId || !workspaceStudio.importPath) return
+		if (
+			!workspaceStudio.importTable ||
+			!activeId ||
+			!workspaceStudio.importPath
+		)
+			return
 		const table = workspaceStudio.importTable
 		workspaceStudio.importBusy = true
 		workspaceStudio.importError = null
@@ -1107,8 +1155,6 @@
 		openSqlInEditor(h.sql)
 	}
 
-
-
 	async function openTable(
 		table: TableMeta,
 		offset = 0,
@@ -1133,8 +1179,11 @@
 
 		if (!isTauri()) return
 
-		// Always fetch live preview so reseed / external writes show up.
-		workspaceStudio.tableLoading = true
+		const epoch = (previewEpochByTab[tabId] ?? 0) + 1
+		previewEpochByTab = { ...previewEpochByTab, [tabId]: epoch }
+		const stillThis = () => previewEpochByTab[tabId] === epoch
+
+		workspaceStudio.loadingTabId = tabId
 		workspaceStudio.catalogError = null
 		try {
 			const engine = String(activeSession.profile.engine)
@@ -1150,22 +1199,66 @@
 					preview.codeFilter,
 				),
 			)
-			const list = workspaceStudio.catalogs[activeId] ?? []
-			const next = list.map((db) => ({
-				...db,
-				tables: db.tables.map((t) => (t.id === table.id ? loaded : t)),
-			}))
-			workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [activeId]: next }
-			// Whole preview page was replaced. Do not bump workspaceStudio.rowSyncTick — that
-			// signal means "inspector edited a cell", and would mark every
-			// cell dirty against the previous (unfiltered) originals.
-			workspaceStudio.tablePreviewTick += 1
-			// Do not log table previews / catalog fetches to query history —
-			// history is only for statements the user runs from the Query editor.
+			if (!stillThis()) return
+			patchCatalogTable(activeId, table.id, loaded)
+			// Only the visible grid should adopt this page. A background
+			// finish for another tab must not reset the active grid's baseline.
+			if (workspaceSession.activeTabId === tabId) {
+				workspaceStudio.tablePreviewTick += 1
+			}
+
+			void withLiveSession(activeId, (sid) =>
+				loadTablePreviewStats(sid, table, preview.filters, preview.codeFilter),
+			)
+				.then((stats) => {
+					if (!stillThis()) return
+					const current = findCatalogTable(activeId, table.id)
+					if (!current) return
+					patchCatalogTable(
+						activeId,
+						table.id,
+						applyPreviewStats(current, stats),
+					)
+				})
+				.catch(() => {
+					/* pager stays approximate until the next refresh */
+				})
 		} catch (e) {
-			workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+			if (stillThis() && workspaceSession.activeTabId === tabId) {
+				workspaceStudio.catalogError =
+					e instanceof Error ? e.message : String(e)
+			}
 		} finally {
-			workspaceStudio.tableLoading = false
+			if (stillThis() && workspaceStudio.loadingTabId === tabId) {
+				workspaceStudio.loadingTabId = null
+			}
+		}
+	}
+
+	function findCatalogTable(
+		connectionId: string,
+		tableId: string,
+	): TableMeta | null {
+		const list = workspaceStudio.catalogs[connectionId] ?? []
+		for (const db of list) {
+			const hit = db.tables.find((t) => t.id === tableId)
+			if (hit) return hit
+		}
+		return null
+	}
+
+	function patchCatalogTable(
+		connectionId: string,
+		tableId: string,
+		next: TableMeta,
+	) {
+		const list = workspaceStudio.catalogs[connectionId] ?? []
+		workspaceStudio.catalogs = {
+			...workspaceStudio.catalogs,
+			[connectionId]: list.map((db) => ({
+				...db,
+				tables: db.tables.map((t) => (t.id === tableId ? next : t)),
+			})),
 		}
 	}
 
@@ -1219,7 +1312,10 @@
 					/* selectDatabase sets workspaceStudio.catalogError */
 				}
 			} else {
-				workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [activeId!]: targetDb }
+				workspaceStudio.selectedDb = {
+					...workspaceStudio.selectedDb,
+					[activeId!]: targetDb,
+				}
 			}
 		}
 		const filterValue =
@@ -1236,7 +1332,10 @@
 		const next = name.trim()
 		if (!next || workspaceStudio.selectedDb[activeId] === next) return
 		const previous = workspaceStudio.selectedDb[activeId] ?? ''
-		workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [activeId]: next }
+		workspaceStudio.selectedDb = {
+			...workspaceStudio.selectedDb,
+			[activeId]: next,
+		}
 
 		const engine = String(activeSession.profile.engine)
 		if (
@@ -1251,7 +1350,10 @@
 			const sid = await reopenEngineSession(activeSession.profile, next)
 			await ensureLiveCatalog(activeId, engine, sid, next, true)
 		} catch (e) {
-			workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [activeId]: previous }
+			workspaceStudio.selectedDb = {
+				...workspaceStudio.selectedDb,
+				[activeId]: previous,
+			}
 			workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
 			workspaceStudio.refreshing = false
 		}
@@ -1307,7 +1409,11 @@
 		workspaceSession.openModel(activeId, database, title, table.id)
 
 		// Reuse cache when switching back to the tab; force rebuild on refresh.
-		if (!force && !alreadyOpen && workspaceStudio.liveModels[key]?.diagram?.nodes?.length) {
+		if (
+			!force &&
+			!alreadyOpen &&
+			workspaceStudio.liveModels[key]?.diagram?.nodes?.length
+		) {
 			workspaceStudio.modelError = null
 			return
 		}
@@ -1389,7 +1495,11 @@
 	const activeModel = $derived.by(() => {
 		if (!activeTab || activeTab.kind !== 'model' || !activeId) return null
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
-		return workspaceStudio.liveModels[modelCacheKey(activeId, db, activeTab.tableId)] ?? null
+		return (
+			workspaceStudio.liveModels[
+				modelCacheKey(activeId, db, activeTab.tableId)
+			] ?? null
+		)
 	})
 
 	// Rebuild when a model tab is focused without a cached diagram
@@ -1407,7 +1517,10 @@
 			return
 		}
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
-		if (workspaceStudio.liveModels[modelCacheKey(activeId, db, activeTab.tableId)]?.diagram) {
+		if (
+			workspaceStudio.liveModels[modelCacheKey(activeId, db, activeTab.tableId)]
+				?.diagram
+		) {
 			return
 		}
 		const table = modelTableMeta
@@ -1481,7 +1594,10 @@
 		}
 		const list = [...(workspaceStudio.catalogs[activeId] ?? []), entry]
 		workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [activeId]: list }
-		workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [activeId]: name }
+		workspaceStudio.selectedDb = {
+			...workspaceStudio.selectedDb,
+			[activeId]: name,
+		}
 	}
 
 	let createBusy = $state(false)
@@ -1542,7 +1658,10 @@
 				if (d.tables.some((t) => t.id === id)) return d
 				return { ...d, tables: [...d.tables, table] }
 			})
-			workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [activeId]: list }
+			workspaceStudio.catalogs = {
+				...workspaceStudio.catalogs,
+				[activeId]: list,
+			}
 			workspaceStudio.catalogError = null
 			return
 		}
@@ -1637,7 +1756,10 @@
 			await refreshCurrentTables()
 			return
 		}
-		workspaceStudio.liveCatalogKey = { ...workspaceStudio.liveCatalogKey, [id]: '' }
+		workspaceStudio.liveCatalogKey = {
+			...workspaceStudio.liveCatalogKey,
+			[id]: '',
+		}
 		const sid = await reopenEngineSession(activeSession.profile, preferred)
 		await ensureLiveCatalog(id, engine, sid, preferred, true, true)
 	}
@@ -1828,7 +1950,8 @@
 		try {
 			await deleteSavedQuery(id)
 			workspaceSession.closeTabsForSavedQuery(id)
-			if (workspaceStudio.selectedQueryId === id) workspaceStudio.selectedQueryId = null
+			if (workspaceStudio.selectedQueryId === id)
+				workspaceStudio.selectedQueryId = null
 			await refreshSavedQueries(activeId, true)
 			deleteModalOpen = false
 			deleteQueryId = null
@@ -1847,6 +1970,8 @@
 
 	/** Table tab ids we already tried to hydrate after restore (avoid reload loops). */
 	let hydratedTableTabs = $state<Record<string, boolean>>({})
+	/** Per-tab preview generation. Stale fetches are ignored, not cancelled. */
+	let previewEpochByTab = $state<Record<string, number>>({})
 
 	// After reconnect: hydrate table data for restored table tabs once.
 	$effect(() => {
@@ -1859,7 +1984,7 @@
 			hydratedTableTabs = { ...hydratedTableTabs, [tab.id]: true }
 			return
 		}
-		if (workspaceStudio.tableLoading) return
+		if (workspaceStudio.loadingTabId === tab.id) return
 		hydratedTableTabs = { ...hydratedTableTabs, [tab.id]: true }
 		void openTable(table)
 	})
@@ -2026,7 +2151,7 @@
 			? () => void openTable(structureTableMeta)
 			: undefined}
 		{gridTable}
-		tableLoading={workspaceStudio.tableLoading}
+		tableLoading={workspaceStudio.loadingTabId === activeTabId}
 		{rowSelectionIndex}
 		rowSyncTick={workspaceStudio.rowSyncTick}
 		tablePreviewTick={workspaceStudio.tablePreviewTick}
@@ -2055,7 +2180,9 @@
 
 	<ImportDataModal
 		open={!!workspaceStudio.importTable && !workspaceStudio.importPreview}
-		objectLabel={workspaceStudio.importTable?.kind === 'collection' ? 'collection' : 'table'}
+		objectLabel={workspaceStudio.importTable?.kind === 'collection'
+			? 'collection'
+			: 'table'}
 		formats={activeSession
 			? resolveCapabilities(
 					String(activeSession.profile.engine),
@@ -2076,7 +2203,12 @@
 		error={workspaceStudio.importError}
 		onencoding={(enc) => {
 			if (!workspaceStudio.importTable || !workspaceStudio.importPath) return
-			void loadImportPreview(workspaceStudio.importTable, workspaceStudio.importPath, workspaceStudio.importFormat, enc)
+			void loadImportPreview(
+				workspaceStudio.importTable,
+				workspaceStudio.importPath,
+				workspaceStudio.importFormat,
+				enc,
+			)
 		}}
 		onconfirm={(spec) => void confirmImportRun(spec)}
 		onback={() => {

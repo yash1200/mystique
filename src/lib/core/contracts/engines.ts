@@ -208,8 +208,30 @@ export interface TablePreviewResult {
 	rows: unknown[][]
 	rowCount: number
 	totalRows?: number
+	/** False until COUNT finishes. Pager must not treat totalRows as final. */
+	totalKnown?: boolean
 	truncated: boolean
 	durationMs: number
+}
+
+export interface FetchTablePreviewStatsRequest {
+	sessionId: string
+	table: string
+	schema?: string | null
+	database?: string | null
+	filters?: TablePreviewFilter[]
+	codeFilter?: string | null
+}
+
+export interface TablePreviewColumnRef {
+	column: string
+	references: ColumnInfo['references']
+}
+
+export interface TablePreviewStats {
+	totalRows: number
+	totalKnown?: boolean
+	references?: TablePreviewColumnRef[]
 }
 
 export interface CatalogObject {

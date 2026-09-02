@@ -162,11 +162,67 @@ pub struct TablePreviewResult {
     pub columns: Vec<ColumnInfo>,
     pub rows: Vec<Vec<serde_json::Value>>,
     pub row_count: u64,
-    /// Full table size (for pager). Falls back to `row_count` when unknown.
+    /// Full table size (for pager). Meaningful only when `total_known`.
     #[serde(default)]
     pub total_rows: u64,
+    /// False on the fast path (COUNT runs later). Pager must not treat
+    /// `total_rows` as authoritative until this is true.
+    #[serde(default)]
+    pub total_known: bool,
     pub truncated: bool,
     pub duration_ms: u64,
+}
+
+/// Deferred COUNT + FK targets. Does not block first paint of a table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchTablePreviewStatsRequest {
+    pub session_id: String,
+    pub table: String,
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub filters: Vec<TableFilter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_filter: Option<String>,
+}
+
+impl FetchTablePreviewStatsRequest {
+    pub fn into_input(self) -> FetchTablePreviewInput {
+        FetchTablePreviewInput {
+            table: self.table,
+            schema: self.schema,
+            database: self.database,
+            max_rows: 1,
+            offset: 0,
+            filters: self.filters,
+            code_filter: self
+                .code_filter
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            sort_column: None,
+            sort_dir: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewColumnRef {
+    pub column: String,
+    pub references: ColumnReference,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewStats {
+    pub total_rows: u64,
+    #[serde(default)]
+    pub total_known: bool,
+    #[serde(default)]
+    pub references: Vec<TablePreviewColumnRef>,
 }
 
 /// One table / view / collection in the explorer.

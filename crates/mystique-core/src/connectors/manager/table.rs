@@ -1,7 +1,8 @@
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
-    ConnectorResult, FetchTablePreviewRequest, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TablePreviewResult, DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
+    ConnectorResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest, TableAdminOp,
+    TableAdminRequest, TableAdminResult, TablePreviewResult, TablePreviewStats, DEFAULT_MAX_ROWS,
+    HARD_MAX_ROWS,
 };
 
 use super::ConnectionManager;
@@ -32,6 +33,14 @@ impl ConnectionManager {
         let session = self.session(&req.session_id).await?;
         let input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
         session.fetch_table_preview(&input).await
+    }
+
+    pub async fn fetch_table_preview_stats(
+        &self,
+        req: FetchTablePreviewStatsRequest,
+    ) -> ConnectorResult<TablePreviewStats> {
+        let session = self.session(&req.session_id).await?;
+        session.fetch_table_preview_stats(&req.into_input()).await
     }
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
     pub async fn apply_table_admin(

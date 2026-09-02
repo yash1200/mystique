@@ -52,6 +52,10 @@ export type TableMeta = {
 	name: string
 	kind: CatalogObjectKind
 	rowCount: number
+	/** False until COUNT finishes. Pager treats a full page as “maybe more”. */
+	totalKnown?: boolean
+	/** True when the last page filled maxRows (more rows may exist). */
+	truncated?: boolean
 	columns: ColumnDef[]
 	rows: Record<string, unknown>[]
 }

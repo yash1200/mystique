@@ -264,7 +264,14 @@
 	/** Current engine page (already filtered server-side). */
 	const pageEntries = $derived(rows.map((row, index) => ({ row, index })))
 	const filteredCount = $derived(rows.length)
-	const serverTotal = $derived(Math.max(table.rowCount, rows.length))
+	const serverTotal = $derived.by(() => {
+		const n = Math.max(table.rowCount, rows.length)
+		// COUNT is deferred. A full page means there may be another.
+		if (table.totalKnown === false && rows.length >= PAGE_SIZE) {
+			return Math.max(n, (page + 1) * PAGE_SIZE + 1)
+		}
+		return n
+	})
 	const totalPages = $derived(
 		Math.max(1, Math.ceil(serverTotal / PAGE_SIZE) || 1),
 	)

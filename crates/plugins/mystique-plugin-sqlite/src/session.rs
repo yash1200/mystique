@@ -10,7 +10,7 @@ use mystique_connector_api::{
     FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
     ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult,
     QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
-    TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
+    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -137,6 +137,13 @@ impl ConnectorSession for SqliteSession {
         input: &FetchTablePreviewInput,
     ) -> ConnectorResult<TablePreviewResult> {
         preview::fetch_table_preview(self, input).await
+    }
+
+    async fn fetch_table_preview_stats(
+        &self,
+        input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<TablePreviewStats> {
+        preview::fetch_table_preview_stats(self, input).await
     }
 
     async fn list_catalog(

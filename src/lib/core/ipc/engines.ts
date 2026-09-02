@@ -14,6 +14,7 @@ import type {
 	ExportObjectResult,
 	FetchServerMetricsRequest,
 	FetchTablePreviewRequest,
+	FetchTablePreviewStatsRequest,
 	FormatConnectionUrlRequest,
 	FormattedConnectionUrl,
 	ImportObjectRequest,
@@ -34,6 +35,7 @@ import type {
 	TableAdminRequest,
 	TableAdminResult,
 	TablePreviewResult,
+	TablePreviewStats,
 	TerminateSessionRequest,
 	TerminateSessionResult,
 	TestResult,
@@ -142,6 +144,13 @@ export async function fetchEngineTablePreview(
 ): Promise<TablePreviewResult> {
 	requireTauri()
 	return invoke('fetch_engine_table_preview', { request })
+}
+
+export async function fetchEngineTablePreviewStats(
+	request: FetchTablePreviewStatsRequest,
+): Promise<TablePreviewStats> {
+	requireTauri()
+	return invoke('fetch_engine_table_preview_stats', { request })
 }
 
 export async function listEngineCatalog(

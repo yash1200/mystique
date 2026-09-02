@@ -201,6 +201,19 @@ pub async fn fetch_engine_table_preview(
 }
 
 #[tauri::command]
+pub async fn fetch_engine_table_preview_stats(
+    state: State<'_, AppState>,
+    request: mystique_core::FetchTablePreviewStatsRequest,
+) -> Result<mystique_core::TablePreviewStats, String> {
+    state
+        .services
+        .connections()
+        .fetch_table_preview_stats(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_engine_catalog(
     state: State<'_, AppState>,
     request: mystique_core::ListCatalogRequest,

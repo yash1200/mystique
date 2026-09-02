@@ -20,7 +20,7 @@ type RelationshipRow = (
     String,
 );
 
-pub(super) async fn describe_table(
+pub(super) async fn describe_columns(
     session: &MysqlSession,
     database: Option<&str>,
     schema: Option<&str>,
@@ -59,7 +59,20 @@ pub(super) async fn describe_table(
         });
     }
 
-    // Attach FK targets for grid jump-to-row navigation.
+    Ok(out)
+}
+
+pub(super) async fn table_references(
+    session: &MysqlSession,
+    database: Option<&str>,
+    schema: Option<&str>,
+    table: &str,
+) -> ConnectorResult<Vec<(String, ColumnReference)>> {
+    session.ensure_open()?;
+    let db_name = database.or(schema).ok_or_else(|| {
+        ConnectorError::InvalidConfig("MySQL table_references requires database/schema".into())
+    })?;
+    let mut conn = session.conn().await?;
     let fks: Vec<(String, Option<String>, String, String)> = conn
         .exec_map(
             r#"
@@ -91,12 +104,23 @@ pub(super) async fn describe_table(
             column: rcol,
         });
     }
-    for col in &mut out {
-        if let Some(r) = by_col.remove(&col.name) {
-            col.references = Some(r);
+    Ok(by_col.into_iter().collect())
+}
+
+pub(super) async fn describe_table(
+    session: &MysqlSession,
+    database: Option<&str>,
+    schema: Option<&str>,
+    table: &str,
+) -> ConnectorResult<Vec<ColumnInfo>> {
+    let mut out = describe_columns(session, database, schema, table).await?;
+    if let Ok(refs) = table_references(session, database, schema, table).await {
+        for col in &mut out {
+            if let Some((_, r)) = refs.iter().find(|(name, _)| name == &col.name) {
+                col.references = Some(r.clone());
+            }
         }
     }
-
     Ok(out)
 }
 

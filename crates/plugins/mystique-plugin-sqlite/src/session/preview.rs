@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use mystique_connector_api::{
     preview_sort_sql, quote_ident, sql_preview_where, ConnectorError, ConnectorResult,
-    FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult,
+    FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult, TablePreviewStats,
 };
 use serde_json::Value as JsonValue;
 
@@ -64,17 +64,13 @@ pub(super) async fn fetch_table_preview(
     let sql = format!(
         "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
     );
-    let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
     let pool = session.pool();
     let max_rows = input.max_rows as usize;
-    let (result, total_rows) = session
-        .blocking(move || -> ConnectorResult<(Vec<Vec<JsonValue>>, u64)> {
+    let result = session
+        .blocking(move || -> ConnectorResult<Vec<Vec<JsonValue>>> {
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-            let total_rows: i64 = conn
-                .query_row(&count_sql, [], |r| r.get(0))
-                .map_err(query_failed)?;
             let mut stmt = conn.prepare(&sql).map_err(query_failed)?;
             let col_count = stmt.column_count();
             let mut rows_iter = stmt.query([]).map_err(query_failed)?;
@@ -90,19 +86,51 @@ pub(super) async fn fetch_table_preview(
                 }
                 out_rows.push(cells);
             }
-            Ok((out_rows, total_rows.max(0) as u64))
+            Ok(out_rows)
         })
         .await?;
 
     let row_count = result.len() as u64;
-    let truncated = input.offset as u64 + row_count < total_rows;
+    let truncated = row_count >= u64::from(input.max_rows);
     Ok(TablePreviewResult {
         engine: "sqlite".into(),
         columns,
         rows: result,
         row_count,
-        total_rows,
+        total_rows: 0,
+        total_known: false,
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub(super) async fn fetch_table_preview_stats(
+    session: &SqliteSession,
+    input: &FetchTablePreviewInput,
+) -> ConnectorResult<TablePreviewStats> {
+    session.ensure_open()?;
+    let target = quote_ident(SqlIdentStyle::Postgres, &input.table);
+    let where_sql = sql_preview_where(
+        SqlIdentStyle::Postgres,
+        &input.filters,
+        input.code_filter.as_deref(),
+    )?;
+    let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
+    let pool = session.pool();
+    let total_rows = session
+        .blocking(move || -> ConnectorResult<u64> {
+            let conn = pool
+                .get()
+                .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+            let total: i64 = conn
+                .query_row(&count_sql, [], |r| r.get(0))
+                .map_err(query_failed)?;
+            Ok(total.max(0) as u64)
+        })
+        .await?;
+    Ok(TablePreviewStats {
+        total_rows,
+        total_known: true,
+        references: Vec::new(),
     })
 }

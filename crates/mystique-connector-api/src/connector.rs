@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::capabilities::EngineCapabilities;
 use crate::catalog::{
     CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo, FetchTablePreviewInput,
-    TablePreviewResult,
+    TablePreviewResult, TablePreviewStats,
 };
 use crate::config::{ConnectionConfig, FormattedConnectionUrl, ParsedConnectionUrl};
 use crate::error::ConnectorResult;
@@ -148,6 +148,9 @@ pub trait ConnectorSession: Send + Sync {
 
     /// Fetch a page of rows. Default order is engine-native (PK / `_id` / `rowid`);
     /// `sort_column` + `sort_dir` override when the column is known.
+    ///
+    /// Fast path: columns + page only. Do not COUNT or attach FKs here —
+    /// those belong on [`ConnectorSession::fetch_table_preview_stats`].
     async fn fetch_table_preview(
         &self,
         _input: &FetchTablePreviewInput,
@@ -156,6 +159,14 @@ pub trait ConnectorSession: Send + Sync {
             "fetch_table_preview not implemented for engine `{}`",
             self.engine_id()
         )))
+    }
+
+    /// Background COUNT + FK targets after the page is already on screen.
+    async fn fetch_table_preview_stats(
+        &self,
+        _input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<TablePreviewStats> {
+        Ok(TablePreviewStats::default())
     }
 
     /// Explorer tree: databases + tables/collections (plugin-owned listing SQL / APIs).

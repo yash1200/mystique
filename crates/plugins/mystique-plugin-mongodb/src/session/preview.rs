@@ -4,10 +4,9 @@ use std::time::Instant;
 
 use mongodb::bson::{doc, Bson, Document};
 use mystique_connector_api::{
-    preview_sort_field, ColumnInfo, ConnectorResult, FetchTablePreviewInput, TablePreviewResult,
+    ColumnInfo, ConnectorResult, FetchTablePreviewInput, TablePreviewResult, TablePreviewStats,
 };
 
-use super::catalog;
 use super::encode::bson_to_json;
 use super::query_failed;
 use super::MongoSession;
@@ -20,25 +19,20 @@ pub(super) async fn fetch_table_preview(
     session.ensure_open()?;
     let start = Instant::now();
     let db_name = session.resolve_database(input.database.as_deref())?;
-    let columns = catalog::describe_table(session, Some(&db_name), None, &input.table).await?;
     let coll = session
         .client
         .database(&db_name)
         .collection::<Document>(&input.table);
     let filter = compile_mongo_preview_predicate(&input.filters, input.code_filter.as_deref())?;
-    let total_rows = if filter.is_empty() {
-        coll.estimated_document_count().await.unwrap_or(0)
-    } else {
-        coll.count_documents(filter.clone())
-            .await
-            .map_err(query_failed)?
-    };
-    let sort = match preview_sort_field(
-        &columns,
-        input.sort_column.as_deref(),
-        input.sort_dir.as_deref(),
-    ) {
-        Some((field, dir)) => doc! { field: dir },
+    let sort = match input.sort_column.as_deref().filter(|s| !s.is_empty()) {
+        Some(col) => {
+            let dir = if input.sort_dir.as_deref() == Some("desc") {
+                -1
+            } else {
+                1
+            };
+            doc! { col: dir }
+        }
         None => doc! { "_id": 1 },
     };
     let mut find = coll.find(filter).sort(sort);
@@ -59,23 +53,18 @@ pub(super) async fn fetch_table_preview(
         }
     }
 
-    let key_set: Vec<String> = if columns.is_empty() {
-        let mut keys = Vec::new();
-        for d in &docs {
-            for k in d.keys() {
-                if !keys.iter().any(|x| x == k) {
-                    keys.push(k.clone());
-                }
+    let mut key_set: Vec<String> = Vec::new();
+    for d in &docs {
+        for k in d.keys() {
+            if !key_set.iter().any(|x| x == k) {
+                key_set.push(k.clone());
             }
         }
-        if let Some(i) = keys.iter().position(|k| k == "_id") {
-            let id = keys.remove(i);
-            keys.insert(0, id);
-        }
-        keys
-    } else {
-        columns.iter().map(|c| c.name.clone()).collect()
-    };
+    }
+    if let Some(i) = key_set.iter().position(|k| k == "_id") {
+        let id = key_set.remove(i);
+        key_set.insert(0, id);
+    }
 
     let mut rows = Vec::new();
     for d in &docs {
@@ -87,32 +76,52 @@ pub(super) async fn fetch_table_preview(
         rows.push(cells);
     }
 
-    let preview_columns = if columns.is_empty() {
-        key_set
-            .iter()
-            .map(|k| ColumnInfo {
-                name: k.clone(),
-                data_type: "mixed".into(),
-                nullable: k != "_id",
-                pk: k == "_id",
-                enum_values: None,
-                default_value: None,
-                references: None,
-            })
-            .collect()
-    } else {
-        columns
-    };
+    let preview_columns: Vec<ColumnInfo> = key_set
+        .iter()
+        .map(|k| ColumnInfo {
+            name: k.clone(),
+            data_type: "mixed".into(),
+            nullable: k != "_id",
+            pk: k == "_id",
+            enum_values: None,
+            default_value: None,
+            references: None,
+        })
+        .collect();
 
     let row_count = rows.len() as u64;
-    let truncated = input.offset as u64 + row_count < total_rows;
+    let truncated = row_count >= u64::from(input.max_rows);
     Ok(TablePreviewResult {
         engine: "mongodb".into(),
         columns: preview_columns,
         rows,
         row_count,
-        total_rows,
+        total_rows: 0,
+        total_known: false,
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+pub(super) async fn fetch_table_preview_stats(
+    session: &MongoSession,
+    input: &FetchTablePreviewInput,
+) -> ConnectorResult<TablePreviewStats> {
+    session.ensure_open()?;
+    let db_name = session.resolve_database(input.database.as_deref())?;
+    let coll = session
+        .client
+        .database(&db_name)
+        .collection::<Document>(&input.table);
+    let filter = compile_mongo_preview_predicate(&input.filters, input.code_filter.as_deref())?;
+    let total_rows = if filter.is_empty() {
+        coll.estimated_document_count().await.unwrap_or(0)
+    } else {
+        coll.count_documents(filter).await.map_err(query_failed)?
+    };
+    Ok(TablePreviewStats {
+        total_rows,
+        total_known: true,
+        references: Vec::new(),
     })
 }

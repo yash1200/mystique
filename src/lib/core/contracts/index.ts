@@ -13,6 +13,7 @@ export type * from './catalog'
 export type * from './connection'
 export type * from './engine-caps'
 export type {
+	ActiveBackendSession,
 	ApplyTableEditsRequest,
 	ApplyTableEditsResult,
 	CatalogColumnRow,
@@ -28,6 +29,7 @@ export type {
 	ExportObjectResult,
 	FetchServerMetricsRequest,
 	FetchTablePreviewRequest,
+	FetchTablePreviewStatsRequest,
 	FormatConnectionUrlRequest,
 	FormattedConnectionUrl,
 	ImportColumnMap,
@@ -65,16 +67,17 @@ export type {
 	TableAdminResult,
 	TableEditColumn,
 	TableFileFormat,
+	TablePreviewColumnRef,
 	TablePreviewFilter,
 	TablePreviewResult,
 	TablePreviewSort,
 	TablePreviewSortDir,
+	TablePreviewStats,
 	TableRowDelete,
 	TableRowInsert,
 	TableRowUpdate,
 	TerminateSessionRequest,
 	TerminateSessionResult,
 	TestResult,
-	ActiveBackendSession,
 } from './engines'
 export type * from './session'

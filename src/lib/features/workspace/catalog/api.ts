@@ -9,8 +9,13 @@ import type {
 	TablePreviewFilter,
 	TablePreviewResult,
 	TablePreviewSort,
+	TablePreviewStats,
 } from '$core/contracts'
-import { fetchEngineTablePreview, listEngineCatalog } from '$core/ipc'
+import {
+	fetchEngineTablePreview,
+	fetchEngineTablePreviewStats,
+	listEngineCatalog,
+} from '$core/ipc'
 const MONGO_SYSTEM_DBS = new Set(['admin', 'local', 'config'])
 
 function emptyLeaf(
@@ -189,6 +194,56 @@ export async function loadTablePreview(
 	return previewToTableMeta(table, preview)
 }
 
+/** Background COUNT + FK refs after the page is already on screen. */
+export async function loadTablePreviewStats(
+	sessionId: string,
+	table: TableMeta,
+	filters: TablePreviewFilter[] = [],
+	codeFilter: string | null = null,
+): Promise<TablePreviewStats> {
+	return fetchEngineTablePreviewStats({
+		sessionId,
+		table: table.name,
+		schema: table.schema || null,
+		database: table.database || null,
+		filters,
+		codeFilter,
+	})
+}
+
+export function applyPreviewStats(
+	base: TableMeta,
+	stats: TablePreviewStats,
+): TableMeta {
+	const refs = new Map(
+		(stats.references ?? [])
+			.filter((r) => r.references)
+			.map((r) => [r.column, r.references!]),
+	)
+	const columns =
+		refs.size === 0
+			? base.columns
+			: base.columns.map((c) => {
+					const hit = refs.get(c.name)
+					if (!hit) return c
+					return {
+						...c,
+						ref: {
+							database: hit.database ?? null,
+							schema: hit.schema ?? null,
+							table: hit.table,
+							column: hit.column,
+						},
+					}
+				})
+	return {
+		...base,
+		columns,
+		rowCount: stats.totalKnown ? stats.totalRows : base.rowCount,
+		totalKnown: stats.totalKnown ? true : base.totalKnown,
+	}
+}
+
 /** Keep PKs / ObjectIds usable for updates & deletes (not stringified blobs). */
 function unwrapPreviewCell(v: unknown): unknown {
 	if (v == null) return null
@@ -251,14 +306,15 @@ function previewToTableMeta(
 	})
 
 	const pageCount = preview.rowCount
-	const total = preview.totalRows
-	const rowCount =
-		typeof total === 'number' ? total : Math.max(base.rowCount ?? 0, pageCount)
+	const totalKnown = !!preview.totalKnown
+	const rowCount = totalKnown ? (preview.totalRows ?? pageCount) : pageCount
 
 	return {
 		...base,
 		columns: columns.length > 0 ? columns : base.columns,
 		rows,
 		rowCount,
+		totalKnown,
+		truncated: !!preview.truncated,
 	}
 }

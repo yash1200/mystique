@@ -9,7 +9,7 @@ use super::encode::{pg_opt_i32, pg_type_label};
 use super::query_failed;
 use super::PostgresSession;
 
-pub(super) async fn describe_table(
+pub(super) async fn describe_columns(
     session: &PostgresSession,
     _database: Option<&str>,
     schema: Option<&str>,
@@ -115,8 +115,18 @@ pub(super) async fn describe_table(
         });
     }
 
-    // Attach single-column FK targets (plugin-owned navigation for the grid).
-    if let Ok(fk_rows) = client
+    Ok(out)
+}
+
+pub(super) async fn table_references(
+    session: &PostgresSession,
+    schema: Option<&str>,
+    table: &str,
+) -> ConnectorResult<Vec<(String, ColumnReference)>> {
+    session.ensure_open()?;
+    let schema = schema.unwrap_or("public");
+    let client = session.client().await?;
+    let fk_rows = client
         .query(
             r#"
             SELECT
@@ -139,26 +149,36 @@ pub(super) async fn describe_table(
             &[&schema, &table],
         )
         .await
-    {
-        use std::collections::HashMap;
-        let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
-        for row in fk_rows {
-            let from_col: String = row.get(0);
-            // First FK segment wins for multi-column keys (still navigable).
-            by_col.entry(from_col).or_insert(ColumnReference {
-                database: None,
-                schema: row.get::<_, Option<String>>(1),
-                table: row.get(2),
-                column: row.get(3),
-            });
-        }
+        .map_err(query_failed)?;
+    use std::collections::HashMap;
+    let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
+    for row in fk_rows {
+        let from_col: String = row.get(0);
+        // First FK segment wins for multi-column keys (still navigable).
+        by_col.entry(from_col).or_insert(ColumnReference {
+            database: None,
+            schema: row.get::<_, Option<String>>(1),
+            table: row.get(2),
+            column: row.get(3),
+        });
+    }
+    Ok(by_col.into_iter().collect())
+}
+
+pub(super) async fn describe_table(
+    session: &PostgresSession,
+    database: Option<&str>,
+    schema: Option<&str>,
+    table: &str,
+) -> ConnectorResult<Vec<ColumnInfo>> {
+    let mut out = describe_columns(session, database, schema, table).await?;
+    if let Ok(refs) = table_references(session, schema, table).await {
         for col in &mut out {
-            if let Some(r) = by_col.remove(&col.name) {
-                col.references = Some(r);
+            if let Some((_, r)) = refs.iter().find(|(name, _)| name == &col.name) {
+                col.references = Some(r.clone());
             }
         }
     }
-
     Ok(out)
 }
 
