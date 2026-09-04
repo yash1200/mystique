@@ -308,7 +308,7 @@
 			{#key activeTab.id}
 				<ServerMetricsView
 					engine={String(activeSession.profile.engine)}
-					engineSessionId={activeSession.engineSessionId}
+					engineSessionId={activeSession.engineSessionId ?? null}
 					profileReadOnly={!!activeSession.profile.readOnly}
 					capabilities={activeSession.capabilities}
 					production={activeSession.profile.environment === 'production'}

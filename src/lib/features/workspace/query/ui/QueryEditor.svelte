@@ -11,12 +11,7 @@
 	import { indentWithTab } from '@codemirror/commands'
 	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'
 	import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
-	import {
-		Compartment,
-		EditorState,
-		Prec,
-		type Extension,
-	} from '@codemirror/state'
+	import { Compartment, Prec, type Extension } from '@codemirror/state'
 	import {
 		placeholder as cmPlaceholder,
 		EditorView,
@@ -238,13 +233,9 @@
 	onMount(() => {
 		if (!hostEl) return
 
-		const state = EditorState.create({
+		view = new EditorView({
 			doc: localText ?? '',
 			extensions: buildExtensions(language, placeholder),
-		})
-
-		view = new EditorView({
-			state,
 			parent: hostEl,
 		})
 

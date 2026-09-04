@@ -190,7 +190,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each preview.rows as row, ri (ri)}
+					{#each preview?.rows ?? [] as row, ri (ri)}
 						<tr class="border-t border-line">
 							{#each mapping as map (map.fileKey)}
 								<td

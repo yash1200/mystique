@@ -19,7 +19,7 @@
 					String(activeSession.profile.engine),
 					activeSession.capabilities,
 				).exportFormats
-			: (['csv', 'json', 'jsonl'] as const),
+			: ['csv', 'json', 'jsonl'],
 	)
 	const objectLabel = $derived(
 		workspaceStudio.importTable?.kind === 'collection' ||

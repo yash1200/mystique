@@ -1,7 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { defineConfig } from 'vite'
-// @ts-expect-error type error without @types/node package
 import tailwindcss from '@tailwindcss/vite'
+// @ts-expect-error no @types/node in this package
 import process from 'node:process'
 
 const host = process.env.TAURI_DEV_HOST
