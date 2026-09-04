@@ -3,10 +3,15 @@
 	import { familyFromCaps, resolveCapabilities } from '$engines'
 	import { colorHex } from '$features/connections'
 	import { AgentChatPane } from '$features/workspace/agent'
-	import { hydrateActiveModel, openModelDiagram } from '$features/workspace/er'
+	import {
+		ErWorkspace,
+		hydrateActiveModel,
+		openModelDiagram,
+	} from '$features/workspace/er'
 	import {
 		hydrateActiveStructure,
 		openObjectStructure,
+		StructurePanel,
 	} from '$features/workspace/explorer'
 	import {
 		DataGrid,
