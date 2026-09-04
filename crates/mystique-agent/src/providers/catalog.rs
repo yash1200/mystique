@@ -33,6 +33,7 @@ pub fn provider_catalog() -> Vec<AgentProviderInfo> {
 pub fn models_for(provider: AgentProvider) -> Vec<AgentModelInfo> {
     let pairs: &[(&str, &str)] = match provider {
         AgentProvider::Openai => &[
+            ("gpt-6-astra", "GPT-6 Astra"),
             ("gpt-5.6-sol", "GPT-5.6 Sol"),
             ("gpt-5.6-terra", "GPT-5.6 Terra"),
             ("gpt-5.6-luna", "GPT-5.6 Luna"),
@@ -40,11 +41,11 @@ pub fn models_for(provider: AgentProvider) -> Vec<AgentModelInfo> {
         AgentProvider::Anthropic => &[
             ("claude-sonnet-5", "Claude Sonnet 5"),
             ("claude-opus-5", "Claude Opus 5"),
-            ("claude-fable-5", "Claude Fable 5"),
+            ("claude-fable-5-1", "Claude Fable 5.1"),
             ("claude-haiku-4-5", "Claude Haiku 4.5"),
         ],
         AgentProvider::Google => &[
-            ("gemini-3.7-flash", "Gemini 3.7 Flash"),
+            ("gemini-3.8-flash", "Gemini 3.8 Flash"),
             ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
             ("gemini-3.1-pro-preview", "Gemini 3.1 Pro"),
         ],

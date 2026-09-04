@@ -90,7 +90,7 @@ impl AgentProvider {
         match self {
             Self::Openai => "gpt-5.6-terra",
             Self::Anthropic => "claude-sonnet-5",
-            Self::Google => "gemini-3.7-flash",
+            Self::Google => "gemini-3.8-flash",
             Self::Groq => "llama-3.3-70b-versatile",
             Self::Together => "moonshotai/Kimi-K3",
             Self::Mistral => "mistral-medium-latest",
