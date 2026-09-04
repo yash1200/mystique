@@ -101,25 +101,17 @@ impl SecretStore {
     }
 
     pub fn status(&self) -> Vec<AiKeyStatus> {
-        [
-            AgentProvider::Openai,
-            AgentProvider::Anthropic,
-            AgentProvider::Google,
-            AgentProvider::Deepseek,
-            AgentProvider::Openrouter,
-            AgentProvider::Xai,
-            AgentProvider::Ollama,
-        ]
-        .into_iter()
-        .map(|p| AiKeyStatus {
-            provider: p.as_str().into(),
-            has_key: if p.needs_key() {
-                self.get(p).ok().flatten().is_some()
-            } else {
-                true
-            },
-        })
-        .collect()
+        AgentProvider::ALL
+            .into_iter()
+            .map(|p| AiKeyStatus {
+                provider: p.as_str().into(),
+                has_key: if p.needs_key() {
+                    self.get(p).ok().flatten().is_some()
+                } else {
+                    true
+                },
+            })
+            .collect()
     }
 
     fn take_legacy(&self, provider: AgentProvider) -> Option<String> {

@@ -2,7 +2,10 @@ use mystique_core::AgentMessage;
 use rig::client::Nothing;
 use rig::completion::{Chat, Message};
 use rig::prelude::*;
-use rig::providers::{anthropic, deepseek, gemini, ollama, openai, openrouter, xai};
+use rig::providers::{
+    anthropic, cohere, deepseek, gemini, groq, huggingface, mistral, moonshot, ollama, openai,
+    openrouter, together, xai,
+};
 use rig::{Agent, AgentBuilder};
 
 use crate::providers::AgentProvider;
@@ -19,7 +22,7 @@ use super::prompt::SYSTEM_PROMPT;
 const DEFAULT_MAX_TURNS: usize = 16;
 pub(super) const AGENT_TIMEOUT_SECS: u64 = 180;
 
-pub(crate) fn history_from(prior: &[AgentMessage], context: &str) -> Vec<Message> {
+pub(crate) fn history_from(prior: &[AgentMessage]) -> Vec<Message> {
     let mut out = Vec::new();
     let start = prior.len().saturating_sub(20);
     for msg in &prior[start..] {
@@ -29,10 +32,15 @@ pub(crate) fn history_from(prior: &[AgentMessage], context: &str) -> Vec<Message
             _ => {}
         }
     }
-    // Live workspace fields (not persisted). Sits with the chat, just
-    // before the current user turn.
-    out.push(Message::user(context));
     out
+}
+
+macro_rules! keyed_chat {
+    ($mod:ident, $secrets:expr, $provider:expr, $model:expr, $bound:expr, $user:expr, $history:expr, $context:expr) => {{
+        let key = require_key($secrets, $provider)?;
+        let client = $mod::Client::new(&key).map_err(|e| e.to_string())?;
+        chat_once(client.agent($model), $bound, $user, &mut $history, $context).await
+    }};
 }
 
 pub(super) async fn run_agent(
@@ -45,37 +53,52 @@ pub(super) async fn run_agent(
     user: &str,
     bound: BoundTools,
 ) -> Result<String, String> {
-    let mut history = history_from(prior, context);
+    let mut history = history_from(prior);
     match provider {
         AgentProvider::Openai => {
-            let key = require_key(secrets, provider)?;
-            let client = openai::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            keyed_chat!(openai, secrets, provider, model, bound, user, history, context)
         }
         AgentProvider::Anthropic => {
-            let key = require_key(secrets, provider)?;
-            let client = anthropic::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            keyed_chat!(anthropic, secrets, provider, model, bound, user, history, context)
         }
         AgentProvider::Google => {
-            let key = require_key(secrets, provider)?;
-            let client = gemini::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            keyed_chat!(gemini, secrets, provider, model, bound, user, history, context)
+        }
+        AgentProvider::Groq => {
+            keyed_chat!(groq, secrets, provider, model, bound, user, history, context)
+        }
+        AgentProvider::Together => {
+            keyed_chat!(together, secrets, provider, model, bound, user, history, context)
+        }
+        AgentProvider::Mistral => {
+            keyed_chat!(mistral, secrets, provider, model, bound, user, history, context)
+        }
+        AgentProvider::Cohere => {
+            keyed_chat!(cohere, secrets, provider, model, bound, user, history, context)
+        }
+        AgentProvider::Huggingface => {
+            keyed_chat!(
+                huggingface,
+                secrets,
+                provider,
+                model,
+                bound,
+                user,
+                history,
+                context
+            )
+        }
+        AgentProvider::Moonshot => {
+            keyed_chat!(moonshot, secrets, provider, model, bound, user, history, context)
         }
         AgentProvider::Deepseek => {
-            let key = require_key(secrets, provider)?;
-            let client = deepseek::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            keyed_chat!(deepseek, secrets, provider, model, bound, user, history, context)
         }
         AgentProvider::Openrouter => {
-            let key = require_key(secrets, provider)?;
-            let client = openrouter::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            keyed_chat!(openrouter, secrets, provider, model, bound, user, history, context)
         }
         AgentProvider::Xai => {
-            let key = require_key(secrets, provider)?;
-            let client = xai::Client::new(&key).map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            keyed_chat!(xai, secrets, provider, model, bound, user, history, context)
         }
         AgentProvider::Ollama => {
             let client = ollama::Client::builder()
@@ -83,7 +106,7 @@ pub(super) async fn run_agent(
                 .base_url(ollama_url)
                 .build()
                 .map_err(|e| e.to_string())?;
-            chat_once(client.agent(model), bound, user, &mut history).await
+            chat_once(client.agent(model), bound, user, &mut history, context).await
         }
     }
 }
@@ -100,10 +123,12 @@ async fn chat_once(
     bound: BoundTools,
     user: &str,
     history: &mut Vec<Message>,
+    context: &str,
 ) -> Result<String, String> {
     let dispatcher = bound.clone();
     let agent: Agent = builder
         .preamble(SYSTEM_PROMPT)
+        .context(context)
         .tool(GetSchemaDbml(bound.clone()))
         .tool(ListObjects(bound.clone()))
         .tool(DescribeObject(bound.clone()))
@@ -163,7 +188,6 @@ async fn execute_leaked_tools(bound: &BoundTools, calls: Vec<LeakedToolCall>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::super::prompt::workspace_context;
     use super::history_from;
     use mystique_core::AgentMessage;
     use rig::completion::Message;
@@ -181,16 +205,14 @@ mod tests {
     }
 
     #[test]
-    fn history_puts_workspace_context_before_current_turn() {
-        let ctx = workspace_context("prod", "postgres", "app", "select 1");
-        let history = history_from(&[prior("user", "hello")], &ctx);
+    fn history_is_prior_turns_only() {
+        let history = history_from(&[prior("user", "hello"), prior("assistant", "hi")]);
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].rag_text().as_deref(), Some("hello"));
-        match history.last() {
-            Some(Message::User { .. }) => {
-                assert_eq!(history[1].rag_text().as_deref(), Some(ctx.as_str()));
-            }
-            other => panic!("expected trailing user context, got {other:?}"),
-        }
+        assert!(
+            matches!(history[1], Message::Assistant { .. }),
+            "expected assistant turn, got {:?}",
+            history[1]
+        );
     }
 }
