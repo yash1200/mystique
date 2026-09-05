@@ -399,7 +399,11 @@
 			if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
 			if (e.key !== 'Enter' && e.code !== 'NumpadEnter') return
 			const t = e.target
-			if (t instanceof HTMLElement && t.closest('[role="dialog"]')) return
+			if (t instanceof HTMLElement) {
+				if (t.closest('[role="dialog"]')) return
+				// Agent composer (and any other textarea) owns this chord.
+				if (t.closest('textarea')) return
+			}
 			e.preventDefault()
 			e.stopImmediatePropagation()
 			if (!currentQueryText().trim()) return

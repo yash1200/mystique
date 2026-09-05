@@ -443,8 +443,14 @@
 	}
 
 	function onComposerKey(e: KeyboardEvent) {
-		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+		if (
+			e.key === 'Enter' &&
+			(e.metaKey || e.ctrlKey) &&
+			!e.shiftKey &&
+			!e.altKey
+		) {
 			e.preventDefault()
+			e.stopPropagation()
 			void send()
 		}
 	}
