@@ -2,7 +2,6 @@
 	import { isTauri } from '$core/ipc'
 	import {
 		Alert,
-		Button,
 		Icon,
 		IconButton,
 		Resizable,
@@ -13,7 +12,6 @@
 	import { appSettingsUi } from '$features/settings'
 	import { isMacPlatform, labelForKey } from '$features/shortcuts'
 	import { workspaceSession } from '$features/workspace/shell'
-	import { labradorRest, labradorSit } from '$illustrations'
 	import {
 		AGENT_CHAT_PANEL_WIDTH_DEFAULT,
 		AGENT_CHAT_PANEL_WIDTH_MAX,
@@ -21,7 +19,6 @@
 		appPrefs,
 	} from '$lib/app'
 	import { onMount, untrack } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import {
 		listAgentChats,
 		listAgentMessages,
@@ -30,28 +27,12 @@
 	} from '../api'
 	import { agentChat } from '../chat.svelte'
 	import { configuredProviders } from '../configured'
-	import { inferFenceLang, isQueryLang, parseChatMarkdown } from '../markdown'
 	import { aiSettings } from '../settings.svelte'
 	import type { AgentMessage } from '../types'
-	import ChatMarkdown from './ChatMarkdown.svelte'
-
-	const STARTERS = [
-		{
-			label: 'Map the schema',
-			text: 'What are the main tables and how do they relate?',
-			icon: 'schema' as const,
-		},
-		{
-			label: 'Start from the editor',
-			text: 'Explain the query in the editor and suggest a cleaner version.',
-			icon: 'code' as const,
-		},
-		{
-			label: 'Draft a first query',
-			text: 'Draft a readable query to explore the most important table.',
-			icon: 'table' as const,
-		},
-	] as const
+	import AgentChatNotice from './AgentChatNotice.svelte'
+	import AgentChatThread from './AgentChatThread.svelte'
+	import AgentChatWelcome from './AgentChatWelcome.svelte'
+	import DeleteChatModal from './DeleteChatModal.svelte'
 
 	interface Props {
 		tabId: string
@@ -126,53 +107,10 @@
 		if (elapsedSec < 25) return `Waiting on ${who}… ${elapsedSec}s`
 		return `Still waiting on ${who}… ${elapsedSec}s`
 	})
-	let openTools = $state<Record<string, boolean>>({})
 	const threadEmpty = $derived(agentChat.messages.length === 0 && !sending)
 	const connectionLine = $derived(
 		database ? `${connectionName} / ${database}` : connectionName,
 	)
-
-	function messageHasApplyableFence(content: string): boolean {
-		return parseChatMarkdown(content).some(
-			(block) =>
-				block.type === 'code' &&
-				isQueryLang(inferFenceLang(block.lang, block.value)),
-		)
-	}
-
-	function toolLabel(name?: string | null): string {
-		switch (name) {
-			case 'get_schema_dbml':
-				return 'Fetched schema'
-			case 'list_objects':
-				return 'Listed objects'
-			case 'describe_object':
-				return 'Described object'
-			case 'execute_readonly_query':
-				return 'Probed rows'
-			case 'list_saved_queries':
-				return 'Listed saved queries'
-			case 'list_connections':
-				return 'Listed connections'
-			case 'save_query':
-				return 'Saved query'
-			default:
-				return name?.replace(/_/g, ' ') || 'Tool'
-		}
-	}
-
-	function toggleTool(id: string) {
-		openTools = { ...openTools, [id]: !openTools[id] }
-	}
-
-	function looksLikeJson(text: string): boolean {
-		const t = text.trim()
-		return t.startsWith('{') || t.startsWith('[')
-	}
-
-	function fenceAs(lang: string, text: string): string {
-		return '```' + lang + '\n' + text.replace(/\s+$/, '') + '\n```'
-	}
 
 	async function loadSettings() {
 		if (!desktop) return
@@ -278,9 +216,36 @@
 		error = null
 	}
 
-	async function removeChat() {
+	let deleteOpen = $state(false)
+	let deleteBusy = $state(false)
+
+	const deleteTitle = $derived(
+		agentChat.chats.find((c) => String(c.id) === String(agentChat.chatId))
+			?.title ?? 'this chat',
+	)
+
+	function askDelete() {
 		if (sending || !agentChat.chatId) return
-		await agentChat.removeChat(agentChat.chatId)
+		deleteOpen = true
+	}
+
+	function cancelDelete() {
+		if (deleteBusy) return
+		deleteOpen = false
+	}
+
+	async function confirmDelete() {
+		if (deleteBusy || sending || !agentChat.chatId) return
+		deleteBusy = true
+		try {
+			error = null
+			await agentChat.removeChat(agentChat.chatId)
+			deleteOpen = false
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e)
+		} finally {
+			deleteBusy = false
+		}
 	}
 
 	async function send(preset?: string) {
@@ -540,7 +505,8 @@
 					label="Delete chat"
 					variant="quiet"
 					size="sm"
-					onclick={() => void removeChat()}
+					class="hover:bg-danger/10 hover:text-danger"
+					onclick={askDelete}
 				>
 					<Icon name="trash" />
 				</IconButton>
@@ -578,215 +544,38 @@
 			)}
 		>
 			{#if !desktop}
-				<div
-					class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center"
-				>
-					<span
-						class="grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line"
-						aria-hidden="true"
-					>
-						<Icon name="chat" class="size-5" />
-					</span>
-					<p class="mt-3 mb-0 text-body font-semibold text-fg">Desktop only</p>
-					<p
-						class="mt-1.5 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted"
-					>
-						The agent runs in the Mystique desktop app, next to the editor.
-					</p>
-				</div>
+				<AgentChatNotice
+					icon="chat"
+					title="Desktop only"
+					description="The agent runs in the Mystique desktop app, next to the editor."
+				/>
 			{:else if settings && !settings.enabled}
-				<div
-					class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center"
-				>
-					<span
-						class="grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line"
-						aria-hidden="true"
-					>
-						<Icon name="settings" class="size-5" />
-					</span>
-					<p class="mt-3 mb-0 text-body font-semibold text-fg">Agent is off</p>
-					<p
-						class="mt-1.5 mb-3 max-w-prose-ui text-caption leading-relaxed text-fg-muted"
-					>
-						Turn it on and add a provider key in Settings.
-					</p>
-					<Button size="sm" onclick={() => appSettingsUi.show('ai')}>
-						Open AI settings
-					</Button>
-				</div>
+				<AgentChatNotice
+					icon="settings"
+					title="Agent is off"
+					description="Turn it on and add a provider key in Settings."
+					actionLabel="Open AI settings"
+					onaction={() => appSettingsUi.show('ai')}
+				/>
 			{:else if !hasProvider}
-				<div
-					class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center"
-				>
-					<span
-						class="grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line"
-						aria-hidden="true"
-					>
-						<Icon name="settings" class="size-5" />
-					</span>
-					<p class="mt-3 mb-0 text-body font-semibold text-fg">
-						No provider set up
-					</p>
-					<p
-						class="mt-1.5 mb-3 max-w-prose-ui text-caption leading-relaxed text-fg-muted"
-					>
-						Add an API key or Ollama in Settings. Only providers you add show up
-						here.
-					</p>
-					<Button size="sm" onclick={() => appSettingsUi.show('ai')}>
-						Add a provider
-					</Button>
-				</div>
+				<AgentChatNotice
+					icon="settings"
+					title="No provider set up"
+					description="Add an API key or Ollama in Settings. Only providers you add show up here."
+					actionLabel="Add a provider"
+					onaction={() => appSettingsUi.show('ai')}
+				/>
 			{:else if threadEmpty}
-				<div class="flex min-h-full flex-col">
-					<div class="m-auto flex w-full max-w-panel-sm flex-col py-4">
-						<span
-							class="grid size-10 place-items-center rounded-xl bg-accent-muted text-accent"
-							aria-hidden="true"
-						>
-							<Icon name="chat" class="size-5" />
-						</span>
-						<p
-							class="mt-3 mb-0 text-pretty text-body-lg font-semibold tracking-tight text-fg"
-						>
-							Ask in the language of the schema
-						</p>
-						<p class="mt-1.5 mb-0 text-caption leading-relaxed text-fg-muted">
-							Drafts land in the editor. You run them. The agent can read tables
-							and probe with SELECT only.
-						</p>
-						<ul class="mt-4 mb-0 flex list-none flex-col gap-1 p-0">
-							{#each STARTERS as starter (starter.label)}
-								<li>
-									<button
-										type="button"
-										class="flex w-full items-start gap-2 rounded-lg border border-line bg-elevated px-2.5 py-2 text-left transition-[border-color,background-color,transform] duration-150 ease-out hover:border-line-strong hover:bg-hover enabled:active:scale-[0.99]"
-										onclick={() => useStarter(starter.text)}
-									>
-										<Icon name={starter.icon} class="mt-0.5 text-accent" />
-										<span class="min-w-0">
-											<span class="block text-label font-medium text-fg">
-												{starter.label}
-											</span>
-											<span class="mt-0.5 block text-caption text-fg-muted">
-												{starter.text}
-											</span>
-										</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-						<p class="mt-3 mb-0 text-caption text-fg-muted">
-							{sendChord} to send
-						</p>
-					</div>
-					<img
-						src={loaf ? labradorRest : labradorSit}
-						alt=""
-						width={loaf ? 120 : 88}
-						height={loaf ? 69 : 96}
-						draggable="false"
-						class={cn(
-							'agent-labrador pointer-events-none mx-auto mt-auto mb-1 select-none',
-							loaf ? 'w-28' : 'w-20',
-						)}
-					/>
-				</div>
+				<AgentChatWelcome {sendChord} {loaf} onpick={useStarter} />
 			{:else}
-				<ul class="m-0 flex list-none flex-col gap-4 p-0">
-					{#each agentChat.messages as msg, i (`${msg.role}-${String(msg.id)}-${i}`)}
-						{#if msg.role === 'tool'}
-							<li class="self-stretch">
-								<button
-									type="button"
-									class="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors duration-150 ease-out hover:bg-hover"
-									aria-expanded={openTools[msg.id] === true}
-									onclick={() => toggleTool(msg.id)}
-								>
-									<Icon name="schema" class="text-fg-muted" />
-									<span
-										class="min-w-0 flex-1 truncate text-caption text-fg-secondary"
-									>
-										{toolLabel(msg.toolName)}
-									</span>
-									<Icon
-										name="chevron-down"
-										class={cn(
-											'text-fg-muted transition-transform duration-150 ease-out',
-											openTools[msg.id] && 'rotate-180',
-										)}
-									/>
-								</button>
-								{#if openTools[msg.id]}
-									<div
-										class="mt-1 overflow-hidden rounded-lg border border-line bg-elevated p-2"
-										data-chat-message
-										transition:fade={{ duration: 140 }}
-									>
-										<ChatMarkdown
-											source={looksLikeJson(String(msg.content ?? ''))
-												? fenceAs('json', String(msg.content ?? ''))
-												: String(msg.content ?? '')}
-											{engine}
-											compact
-										/>
-									</div>
-								{/if}
-							</li>
-						{:else if msg.role === 'user'}
-							<li class="flex justify-end">
-								<div
-									class="min-w-0 max-w-[88%] rounded-xl rounded-br-sm bg-accent-muted px-3 py-2"
-									data-chat-message
-								>
-									<ChatMarkdown
-										source={String(msg.content ?? '')}
-										{engine}
-										compact
-									/>
-								</div>
-							</li>
-						{:else}
-							<li class="self-stretch" data-chat-message>
-								<ChatMarkdown
-									source={String(msg.content ?? '')}
-									{engine}
-									onApply={applyDraft}
-								/>
-								{#if msg.draftBody && !messageHasApplyableFence(msg.content)}
-									<div class="mt-2">
-										<Button
-											size="sm"
-											variant="secondary"
-											onclick={() => applyDraft(msg.draftBody ?? '')}
-										>
-											Apply to editor
-										</Button>
-									</div>
-								{/if}
-							</li>
-						{/if}
-					{/each}
-					{#if sending}
-						<li
-							class="flex items-center gap-2 self-stretch rounded-lg bg-elevated px-2.5 py-2"
-							aria-live="polite"
-							transition:fade={{ duration: 160 }}
-						>
-							<span class="agent-typing" aria-hidden="true">
-								<span></span>
-								<span></span>
-								<span></span>
-							</span>
-							<p class="m-0 min-w-0 flex-1 text-caption text-fg-secondary">
-								{workingLabel}
-							</p>
-							<Button size="sm" variant="ghost" onclick={stopWaiting}>
-								Stop
-							</Button>
-						</li>
-					{/if}
-				</ul>
+				<AgentChatThread
+					messages={agentChat.messages}
+					{engine}
+					{sending}
+					{workingLabel}
+					onapply={applyDraft}
+					onstop={stopWaiting}
+				/>
 			{/if}
 		</div>
 	</div>
@@ -873,60 +662,17 @@
 	</form>
 </aside>
 
+<DeleteChatModal
+	open={deleteOpen}
+	chatTitle={deleteTitle}
+	busy={deleteBusy}
+	onconfirm={() => void confirmDelete()}
+	oncancel={cancelDelete}
+/>
+
 <style>
 	.agent-thread {
 		scrollbar-width: thin;
 		scrollbar-color: var(--border-strong) transparent;
-	}
-
-	.agent-labrador {
-		opacity: 0.22;
-	}
-
-	:global([data-theme='light']) .agent-labrador {
-		opacity: 0.16;
-	}
-
-	.agent-typing {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.1875rem;
-	}
-
-	.agent-typing span {
-		display: block;
-		width: 0.25rem;
-		height: 0.25rem;
-		border-radius: 999px;
-		background: var(--accent);
-		opacity: 0.28;
-		animation: agent-typing 1s var(--ease-in-out) infinite;
-	}
-
-	.agent-typing span:nth-child(2) {
-		animation-delay: 0.14s;
-	}
-
-	.agent-typing span:nth-child(3) {
-		animation-delay: 0.28s;
-	}
-
-	@keyframes agent-typing {
-		0%,
-		100% {
-			opacity: 0.28;
-			transform: translateY(0);
-		}
-		50% {
-			opacity: 1;
-			transform: translateY(-1px);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.agent-typing span {
-			animation: none;
-			opacity: 0.7;
-		}
 	}
 </style>
