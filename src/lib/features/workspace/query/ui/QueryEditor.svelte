@@ -20,6 +20,7 @@
 	} from '@codemirror/view'
 	import { basicSetup } from 'codemirror'
 	import { onMount } from 'svelte'
+	import { mystiqueSearch } from '../cm-search-panel'
 	import {
 		createMystiqueEditorTheme,
 		identPathHighlight,
@@ -159,6 +160,7 @@
 	function buildExtensions(lang: string, ph: string): Extension[] {
 		return [
 			basicSetup,
+			mystiqueSearch(),
 			themeCompartment.of(createMystiqueEditorTheme(themeIsDark())),
 			mystiqueHighlight,
 			identPathHighlight,
@@ -370,9 +372,28 @@
 <style>
 	/* CodeMirror fills the host; basicSetup adds gutters we style via theme. */
 	.query-cm-host :global(.cm-editor) {
+		position: relative;
 		height: 100%;
 	}
 	.query-cm-host :global(.cm-scroller) {
 		min-height: 100%;
+	}
+	.query-cm-host :global(.cm-mystique-search) {
+		animation: mystique-search-in var(--duration-press) var(--ease-out) both;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.query-cm-host :global(.cm-mystique-search) {
+			animation: none;
+		}
+	}
+	@keyframes mystique-search-in {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
 	}
 </style>

@@ -1,3 +1,4 @@
+import arrowDown from './arrow-down.svg?raw'
 import arrowUp from './arrow-up.svg?raw'
 import bookmarkFilled from './bookmark-filled.svg?raw'
 import bookmark from './bookmark.svg?raw'
@@ -43,6 +44,7 @@ const files = {
 	plus,
 	close,
 	'arrow-up': arrowUp,
+	'arrow-down': arrowDown,
 	trash,
 	refresh,
 	help,
