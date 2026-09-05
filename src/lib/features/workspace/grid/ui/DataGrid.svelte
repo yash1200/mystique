@@ -7,6 +7,7 @@
 	} from '$core/contracts'
 	import { ContextMenu, type ContextMenuItem } from '$core/ui'
 	import { copyTextToClipboard } from '$core/util'
+	import { showToast } from '$features/toast'
 	import { isSessionMissingError } from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
 	import { onMount } from 'svelte'
@@ -263,7 +264,6 @@
 
 	/** Current engine page (already filtered server-side). */
 	const pageEntries = $derived(rows.map((row, index) => ({ row, index })))
-	const filteredCount = $derived(rows.length)
 	const serverTotal = $derived.by(() => {
 		const n = Math.max(table.rowCount, rows.length)
 		// COUNT is deferred. A full page means there may be another.
@@ -504,10 +504,6 @@
 		}
 		if (editing) commitEdit()
 		insertLocalRowAtTop(blankRow())
-		statusMsg = 'Row added'
-		setTimeout(() => {
-			if (statusMsg === 'Row added') statusMsg = null
-		}, 1500)
 	}
 
 	function cloneFocusedRow() {
@@ -524,6 +520,15 @@
 		setTimeout(() => {
 			if (statusMsg === msg) statusMsg = null
 		}, ms)
+	}
+
+	function notifyCopy(
+		res: { ok: boolean; cancelled?: boolean; error?: string },
+		okMsg: string,
+	) {
+		if (res.ok) showToast('success', okMsg)
+		else if (res.cancelled) showToast('info', 'Copy cancelled')
+		else showToast('danger', res.error || 'Copy failed')
 	}
 
 	function assertWritable(): boolean {
@@ -601,7 +606,6 @@
 			n += 1
 		}
 		if (n === 0) return
-		flashStatus(n === 1 ? 'Set to NULL' : `Set ${n} cells to NULL`)
 	}
 
 	function targetRows(primary: number): number[] {
@@ -786,7 +790,7 @@
 				break
 		}
 		const res = await copyTextToClipboard(text)
-		flashStatus(res.ok ? okMsg : res.cancelled ? 'Copy cancelled' : res.error)
+		notifyCopy(res, okMsg)
 	}
 
 	async function copySelection(
@@ -818,9 +822,7 @@
 						break
 				}
 				const res = await copyTextToClipboard(text)
-				flashStatus(
-					res.ok ? okMsg : res.cancelled ? 'Copy cancelled' : res.error,
-				)
+				notifyCopy(res, okMsg)
 				return
 			}
 		}
@@ -858,7 +860,8 @@
 		for (let i = snaps.length - 1; i >= 0; i--) {
 			insertLocalRowAtTop(snaps[i]!)
 		}
-		flashStatus(
+		showToast(
+			'info',
 			snaps.length === 1
 				? 'Row duplicated — save to insert'
 				: `${snaps.length} rows duplicated — save to insert`,
@@ -962,21 +965,14 @@
 			if (rows.length < beforeRows) removed += 1
 			else if (deletedIndices.size > beforeDel) marked += 1
 		}
-		if (removed && marked) {
-			flashStatus(
-				`${removed} unsaved removed · ${marked} marked for delete — save to apply`,
-			)
-		} else if (removed) {
-			flashStatus(
-				removed === 1
-					? 'Unsaved row removed'
-					: `${removed} unsaved rows removed`,
-			)
-		} else if (marked) {
-			flashStatus(
-				marked === 1
-					? 'Marked for delete — save to apply'
-					: `${marked} rows marked for delete — save to apply`,
+		if (marked) {
+			showToast(
+				'info',
+				removed
+					? `${removed} unsaved removed · ${marked} marked for delete — save to apply`
+					: marked === 1
+						? 'Marked for delete — save to apply'
+						: `${marked} rows marked for delete — save to apply`,
 			)
 		}
 	}
@@ -992,7 +988,6 @@
 		}
 		if (n === 0) return
 		deletedIndices = next
-		flashStatus(n === 1 ? 'Delete undone' : `${n} deletes undone`)
 	}
 
 	function deleteRow(index: number, quiet = false) {
@@ -1008,7 +1003,6 @@
 		// blocks Save (dirtyCount treats new+deleted as a no-op).
 		if (newRowIndices.has(index)) {
 			removeLocalRow(index)
-			if (!quiet) flashStatus('Unsaved row removed')
 			return
 		}
 
@@ -1026,7 +1020,6 @@
 			draft = ''
 		}
 		if (selectedCell?.row === index) selectedCell = null
-		if (!quiet) flashStatus('Marked for delete — save to apply')
 	}
 
 	const rowMenuItems = $derived.by((): ContextMenuItem[] => {
@@ -1239,7 +1232,7 @@
 				const text = await navigator.clipboard.readText()
 				pasteIntoGrid(text)
 			} catch {
-				flashStatus('Could not read clipboard')
+				showToast('danger', 'Could not read clipboard')
 			}
 			return
 		}
@@ -1261,7 +1254,7 @@
 		}
 		if (id === 'copy-column') {
 			const res = await copyTextToClipboard(col)
-			flashStatus(res.ok ? 'Column name copied' : 'Copy failed')
+			notifyCopy(res, 'Column name copied')
 			return
 		}
 		if (id === 'clone') {
@@ -1652,7 +1645,7 @@
 		}
 	}
 
-	function copySelectedCell(e?: ClipboardEvent) {
+	async function copySelectedCell(e?: ClipboardEvent) {
 		if (!selectedCell || editing) return
 		const v = rows[selectedCell.row]?.[selectedCell.col]
 		// Clipboard: empty string for NULL (paste-friendly)
@@ -1660,13 +1653,10 @@
 		if (e?.clipboardData) {
 			e.preventDefault()
 			e.clipboardData.setData('text/plain', text)
-		} else if (navigator.clipboard?.writeText) {
-			void navigator.clipboard.writeText(text)
+			showToast('success', 'Cell copied')
+			return
 		}
-		statusMsg = 'Cell copied'
-		setTimeout(() => {
-			if (statusMsg === 'Cell copied') statusMsg = null
-		}, 1200)
+		notifyCopy(await copyTextToClipboard(text), 'Cell copied')
 	}
 
 	function pasteIntoGrid(text: string) {
@@ -1688,8 +1678,6 @@
 			for (const { row, col } of targets) {
 				applyCellValue(row, col, value)
 			}
-			const n = targets.length
-			flashStatus(n === 1 ? 'Pasted 1 cell' : `Pasted into ${n} cells`)
 			return
 		}
 
@@ -1714,7 +1702,6 @@
 		let filterIdx = pageEntries.findIndex((e) => e.index === start.row)
 		if (filterIdx < 0) filterIdx = 0
 
-		let changed = 0
 		for (let r = 0; r < parsed.length; r++) {
 			const cells = parsed[r]!
 			const entry = pageEntries[filterIdx + r]
@@ -1725,11 +1712,8 @@
 				const colName = cols[startColIdx + c]
 				if (!colName) break
 				applyCellValue(absRow, colName, cells[c] ?? '')
-				changed += 1
 			}
 		}
-
-		flashStatus(changed === 1 ? 'Pasted 1 cell' : `Pasted ${changed} cells`)
 	}
 
 	function onGridKeydown(e: KeyboardEvent) {
@@ -1862,11 +1846,6 @@
 			if (selectedRows.size > 0 && selectionAnchor == null) {
 				selectionAnchor = pageEntries[0]!.index
 			}
-			flashStatus(
-				selectedRows.size === 1
-					? '1 row selected'
-					: `${selectedRows.size} rows selected`,
-			)
 			return
 		}
 
@@ -2000,11 +1979,7 @@
 				deletedIndices = new Set()
 			}
 			page = 0
-			statusMsg = 'Refreshed'
 			onbaselinechange?.()
-			setTimeout(() => {
-				if (statusMsg === 'Refreshed') statusMsg = null
-			}, 2000)
 		} catch (err) {
 			statusMsg = err instanceof Error ? err.message : String(err)
 		} finally {
@@ -2072,11 +2047,11 @@
 			if (result.updated) bits.push(`${result.updated} updated`)
 			if (result.inserted) bits.push(`${result.inserted} inserted`)
 			if (result.deleted) bits.push(`${result.deleted} deleted`)
-			statusMsg = bits.length > 0 ? `Saved (${bits.join(', ')})` : 'Saved'
+			showToast(
+				'success',
+				bits.length > 0 ? `Saved (${bits.join(', ')})` : 'Saved',
+			)
 			onbaselinechange?.()
-			setTimeout(() => {
-				if (statusMsg?.startsWith('Saved')) statusMsg = null
-			}, 2500)
 		} catch (err) {
 			statusMsg = err instanceof Error ? err.message : String(err)
 		} finally {
@@ -2146,11 +2121,7 @@
 		table.rows.splice(0, table.rows.length, ...restored.map((r) => ({ ...r })))
 		dirtyKeys = new Set()
 		selectedCell = null
-		statusMsg = 'Changes discarded'
 		onbaselinechange?.()
-		setTimeout(() => {
-			if (statusMsg === 'Changes discarded') statusMsg = null
-		}, 2000)
 	}
 </script>
 
@@ -2249,9 +2220,6 @@
 	{/if}
 
 	<GridStatusBar
-		{filteredCount}
-		{filtersActive}
-		{hasActiveFilters}
 		{dirtyCount}
 		{statusMsg}
 		{lastFetchedAt}

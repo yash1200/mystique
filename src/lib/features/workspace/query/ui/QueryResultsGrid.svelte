@@ -9,6 +9,7 @@
 	import { ContextMenu, type ContextMenuItem } from '$core/ui'
 	import { copyTextToClipboard } from '$core/util'
 	import { isMacPlatform, labelForKey } from '$features/shortcuts'
+	import { showToast } from '$features/toast'
 	import {
 		CellValueModal,
 		buildCsv,
@@ -35,10 +36,9 @@
 		rows: unknown[][]
 		/** Absolute index of rows[0] in the full result set (for # column). */
 		pageStart: number
-		onstatus?: (message: string) => void
 	}
 
-	let { columns, rows, pageStart, onstatus }: Props = $props()
+	let { columns, rows, pageStart }: Props = $props()
 
 	const mac = isMacPlatform()
 	const copyShortcut = `${labelForKey('mod', mac)}+C`
@@ -452,7 +452,7 @@
 	}
 
 	async function flashCopy(ok: boolean, okMsg: string) {
-		onstatus?.(ok ? okMsg : 'Copy failed')
+		showToast(ok ? 'success' : 'danger', ok ? okMsg : 'Copy failed')
 	}
 
 	function cellClipboardText(v: unknown): string {
@@ -702,9 +702,6 @@
 		if (selectionAnchor == null) selectionAnchor = pageStart
 		selectedRow = selectedRow ?? pageStart
 		focusGrid()
-		onstatus?.(
-			next.size === 1 ? '1 row selected' : `${next.size} rows selected`,
-		)
 	}
 
 	onMount(() => {

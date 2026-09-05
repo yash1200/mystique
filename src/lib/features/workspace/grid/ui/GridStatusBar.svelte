@@ -2,9 +2,6 @@
 	import { Button, Icon, IconButton, Pager, StatusBar } from '$core/ui'
 	import { cn, fetchedLabel } from '$core/util'
 	interface Props {
-		filteredCount: number
-		filtersActive: boolean
-		hasActiveFilters: boolean
 		dirtyCount: number
 		statusMsg: string | null
 		/** Epoch ms of the last engine preview fetch. */
@@ -24,9 +21,6 @@
 	}
 
 	let {
-		filteredCount,
-		filtersActive,
-		hasActiveFilters,
 		dirtyCount,
 		statusMsg,
 		lastFetchedAt,
@@ -80,13 +74,6 @@
 				>
 			</span>
 		{/if}
-		{#if filteredCount === 0}
-			<span class="truncate font-mono tabular-nums text-fg-muted">0 rows</span>
-		{:else if filtersActive && hasActiveFilters}
-			<span class="truncate font-mono tabular-nums text-fg-muted">
-				{filteredCount} filtered
-			</span>
-		{/if}
 		{#if hasChanges}
 			<span
 				class="shrink-0 rounded-sm border border-warning/45 bg-warning/15 px-1 py-px text-micro font-medium text-warning"
@@ -95,7 +82,7 @@
 			</span>
 		{/if}
 		{#if statusMsg}
-			<span class="shrink-0 truncate text-success">{statusMsg}</span>
+			<span class="shrink-0 truncate text-warning">{statusMsg}</span>
 		{/if}
 	{/snippet}
 	{#snippet center()}

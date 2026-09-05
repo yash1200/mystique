@@ -64,18 +64,8 @@
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
-	let gridMsg = $state<string | null>(null)
-	let gridMsgTimer: ReturnType<typeof setTimeout> | null = null
 	let copiedError = $state(false)
 	let copiedErrorTimer: ReturnType<typeof setTimeout> | null = null
-
-	function onGridStatus(message: string) {
-		gridMsg = message
-		if (gridMsgTimer) clearTimeout(gridMsgTimer)
-		gridMsgTimer = setTimeout(() => {
-			if (gridMsg === message) gridMsg = null
-		}, 1600)
-	}
 
 	const exportItems: ContextMenuItem[] = [
 		{ id: 'download-csv', label: 'Download as CSV', icon: 'download' },
@@ -241,7 +231,6 @@
 					columns={resultColumns}
 					rows={resultPageRows}
 					pageStart={resultPageStart}
-					onstatus={onGridStatus}
 				/>
 			{/if}
 		{:else if runState.status === 'blocked' || runState.status === 'error'}
@@ -333,11 +322,6 @@
 			{#if exportMsg}
 				<span class="shrink-0 truncate text-success" title={exportMsg}
 					>· {exportMsg}</span
-				>
-			{/if}
-			{#if gridMsg}
-				<span class="shrink-0 truncate text-success" title={gridMsg}
-					>· {gridMsg}</span
 				>
 			{/if}
 		{/snippet}
