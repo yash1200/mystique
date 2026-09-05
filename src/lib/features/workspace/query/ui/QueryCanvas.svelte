@@ -7,6 +7,7 @@
 	import { executeEngineQuery, isTauri } from '$core/ipc'
 	import { Resizable } from '$core/ui'
 	import { copyTextToClipboard } from '$core/util'
+	import { showToast } from '$features/toast'
 	import { catalogColumnsCache } from '$features/workspace/catalog'
 	import {
 		buildCsv,
@@ -86,7 +87,6 @@
 	let resultPage = $state(cached?.resultPage ?? 0)
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let exporting = $state<ResultExportAction | null>(null)
-	let exportMsg = $state<string | null>(null)
 
 	// One-time seed from prop; $effect below re-syncs when parent draft changes.
 	let localText = $state(untrack(() => text ?? ''))
@@ -186,7 +186,6 @@
 		const result = runState.result
 		if (result.columns.length === 0 || result.rows.length === 0) return
 		exporting = action
-		exportMsg = null
 		const cols = result.columns.map((c) => ({ name: c.name }))
 		const rows = result.rows
 		const fileBase = exportFileBaseFromQuery({
@@ -196,6 +195,14 @@
 			collection: language === 'mql' ? collection : null,
 			database: language === 'mql' ? database : null,
 		})
+		const labels: Record<ResultExportAction, string> = {
+			'download-csv': 'CSV downloaded',
+			'download-json': 'JSON downloaded',
+			'download-excel': 'Excel downloaded',
+			'copy-csv': 'CSV copied',
+			'copy-json': 'JSON copied',
+		}
+		const copy = action === 'copy-csv' || action === 'copy-json'
 		try {
 			let res
 			switch (action) {
@@ -215,31 +222,16 @@
 					res = await copyTextToClipboard(buildJson(cols, rows, true))
 					break
 			}
-			if (res.ok) {
-				const labels: Record<ResultExportAction, string> = {
-					'download-csv': 'CSV downloaded',
-					'download-json': 'JSON downloaded',
-					'download-excel': 'Excel downloaded',
-					'copy-csv': 'CSV copied',
-					'copy-json': 'JSON copied',
-				}
-				exportMsg = labels[action]
-			} else if (!res.cancelled) {
-				exportMsg = res.error
+			if (res.ok) showToast('success', labels[action])
+			else if (res.cancelled) {
+				showToast('info', copy ? 'Copy cancelled' : 'Export cancelled')
+			} else {
+				showToast('danger', res.error || (copy ? 'Copy failed' : 'Export failed'))
 			}
 		} catch (e) {
-			exportMsg = e instanceof Error ? e.message : String(e)
+			showToast('danger', e instanceof Error ? e.message : String(e))
 		} finally {
 			exporting = null
-			setTimeout(() => {
-				if (
-					exportMsg &&
-					!exportMsg.toLowerCase().includes('fail') &&
-					!exportMsg.toLowerCase().includes('error')
-				) {
-					exportMsg = null
-				}
-			}, 2500)
 		}
 	}
 
@@ -283,7 +275,6 @@
 		const mode = effectiveMode
 		const start = performance.now()
 		resultPage = 0
-		exportMsg = null
 		runState = { status: 'running' }
 		const sqlText = currentQueryText()
 
@@ -472,7 +463,6 @@
 				{resultTotalPages}
 				{canExport}
 				{exporting}
-				{exportMsg}
 				refreshing={runState.status === 'running'}
 				onexport={(f) => void exportResults(f)}
 				onprev={goResultPrev}

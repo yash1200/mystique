@@ -6,6 +6,7 @@
 	import type { CatalogColumnRow } from '$core/contracts'
 	import { Button, Icon, Input, Pill } from '$core/ui'
 	import { adapterFor, formatQuery } from '$engines'
+	import { showToast } from '$features/toast'
 	import { appPrefs } from '$lib/app'
 	import { autocompletion } from '@codemirror/autocomplete'
 	import { indentWithTab } from '@codemirror/commands'
@@ -95,7 +96,6 @@
 		callbacks.onsave = onsave
 	})
 
-	let formatMsg = $state<string | null>(null)
 	const isMac =
 		typeof navigator !== 'undefined' &&
 		/Mac|iPhone|iPad/.test(navigator.platform)
@@ -126,21 +126,11 @@
 		const src = view?.state.doc.toString() ?? localText ?? ''
 		const result = formatQuery(callbacks.engine, src)
 		if (!result.ok) {
-			formatMsg = result.error
-			setTimeout(() => {
-				if (formatMsg === result.error) formatMsg = null
-			}, 2800)
+			showToast('danger', result.error)
 			return
 		}
-		if (result.text === src || result.text === src + '\n') {
-			formatMsg = 'Already formatted'
-			setTimeout(() => {
-				if (formatMsg === 'Already formatted') formatMsg = null
-			}, 1600)
-			return
-		}
+		if (result.text === src || result.text === src + '\n') return
 		applyTextToEditor(result.text)
-		formatMsg = null
 		view?.focus()
 	}
 
@@ -313,9 +303,6 @@
 			<span class="font-mono text-caption tabular-nums text-fg-muted">
 				{localText.length.toLocaleString()} chars
 			</span>
-			{#if formatMsg}
-				<span class="truncate text-caption text-warning">{formatMsg}</span>
-			{/if}
 		</div>
 		<div class="flex shrink-0 items-center gap-1.5">
 			<Button

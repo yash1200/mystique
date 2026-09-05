@@ -14,10 +14,10 @@
 		StatusBar,
 	} from '$core/ui'
 	import { cn, copyTextToClipboard, fetchedLabel } from '$core/util'
+	import { showToast } from '$features/toast'
 	import type { CatalogIconName } from '$features/workspace/catalog'
 	import { CatalogIcon, iconToneForName } from '$features/workspace/catalog'
 	import type { IconName } from '$icons'
-	import { onDestroy } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import ExplorerSearch from './ExplorerSearch.svelte'
 
@@ -43,12 +43,6 @@
 	let activeSection = $state<string | null>(null)
 	let filter = $state('')
 	const expandedCells = new SvelteSet<string>()
-	let copyMsg = $state<string | null>(null)
-	let copyTimer: ReturnType<typeof setTimeout> | null = null
-
-	onDestroy(() => {
-		if (copyTimer) clearTimeout(copyTimer)
-	})
 
 	const section = $derived(
 		structure?.sections.find((s) => s.id === activeSection) ??
@@ -176,20 +170,17 @@
 		}
 	}
 
-	async function flashCopy(label: string, text: string) {
-		const res = await copyTextToClipboard(text)
-		const msg = res.ok
-			? label
-			: !res.cancelled && 'error' in res
-				? res.error
-				: null
-		copyMsg = msg
-		if (copyTimer) clearTimeout(copyTimer)
-		if (msg) {
-			copyTimer = setTimeout(() => {
-				if (copyMsg === msg) copyMsg = null
-			}, 1600)
-		}
+	function notifyCopy(
+		res: { ok: boolean; cancelled?: boolean; error?: string },
+		okMsg: string,
+	) {
+		if (res.ok) showToast('success', okMsg)
+		else if (res.cancelled) showToast('info', 'Copy cancelled')
+		else showToast('danger', res.error || 'Copy failed')
+	}
+
+	async function copyWithToast(okMsg: string, text: string) {
+		notifyCopy(await copyTextToClipboard(text), okMsg)
 	}
 
 	function sectionAsTsv(sec: StructureSection): string {
@@ -575,7 +566,7 @@
 													size="sm"
 													variant="quiet"
 													onclick={() =>
-														void flashCopy('Row copied', row.join('\t'))}
+														void copyWithToast('Row copied', row.join('\t'))}
 												>
 													<Icon name="copy" />
 												</IconButton>
@@ -619,14 +610,6 @@
 						>
 					</span>
 				{/if}
-				{#if filter.trim() && section}
-					<span class="truncate font-mono tabular-nums text-fg-muted">
-						{filteredRows.length} filtered
-					</span>
-				{/if}
-				{#if copyMsg}
-					<span class="shrink-0 truncate text-success">{copyMsg}</span>
-				{/if}
 			{/snippet}
 			{#snippet right()}
 				<IconButton
@@ -635,7 +618,8 @@
 					variant="quiet"
 					disabled={!section || section.rows.length === 0}
 					onclick={() => {
-						if (section) void flashCopy('Section copied', sectionAsTsv(section))
+						if (!section) return
+						void copyWithToast('Section copied', sectionAsTsv(section))
 					}}
 				>
 					<Icon name="copy" />

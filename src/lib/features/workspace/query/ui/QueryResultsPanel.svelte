@@ -34,7 +34,6 @@
 		resultTotalPages: number
 		canExport: boolean
 		exporting: ResultExportAction | null
-		exportMsg: string | null
 		refreshing: boolean
 		onexport: (action: ResultExportAction) => void
 		onprev: () => void
@@ -54,7 +53,6 @@
 		resultTotalPages,
 		canExport,
 		exporting,
-		exportMsg,
 		refreshing,
 		onexport,
 		onprev,
@@ -79,21 +77,6 @@
 		},
 		{ id: 'copy-json', label: 'Copy as JSON', icon: 'copy' },
 	]
-
-	const statusText = $derived.by(() => {
-		if (runState.status === 'idle') return 'No query run yet'
-		if (runState.status === 'running') return 'Running…'
-		if (runState.status === 'ok') return runState.message
-		return ''
-	})
-
-	const statusTone = $derived(
-		runState.status === 'ok'
-			? 'text-success'
-			: runState.status === 'blocked' || runState.status === 'error'
-				? 'text-danger'
-				: 'text-fg-muted',
-	)
 
 	const hasRows = $derived(
 		runState.status === 'ok' && resultTotal > 0 && resultColumns.length > 0,
@@ -287,20 +270,8 @@
 				<span class="truncate font-mono tabular-nums">
 					{resultPageStart + 1}–{resultPageEnd} of {resultTotal.toLocaleString()}
 				</span>
-			{:else}
-				<span class="truncate font-mono tabular-nums">
-					{runState.status === 'ok' && resultColumns.length > 0
-						? '0 rows'
-						: runState.status === 'idle'
-							? 'Idle'
-							: runState.status === 'running'
-								? 'Running'
-								: runState.status === 'blocked'
-									? 'Blocked'
-									: runState.status === 'error'
-										? 'Failed'
-										: '0 rows'}
-				</span>
+			{:else if runState.status === 'ok' && resultColumns.length > 0}
+				<span class="truncate font-mono tabular-nums">0 rows</span>
 			{/if}
 			{#if durationMs != null}
 				<span title={`Ran in ${durationMs.toLocaleString()} ms`}>
@@ -310,18 +281,9 @@
 			{#if runState.status === 'ok' && runState.result?.truncated}
 				<Badge tone="warning" size="sm">truncated</Badge>
 			{/if}
-			{#if statusText && runState.status !== 'ok'}
-				<span class={cn('min-w-0 truncate', statusTone)} title={statusText}>
-					{statusText}
-				</span>
-			{:else if runState.status === 'ok' && runState.message}
+			{#if runState.status === 'ok' && runState.message}
 				<span class="min-w-0 truncate text-fg-muted" title={runState.message}
 					>{runState.message}</span
-				>
-			{/if}
-			{#if exportMsg}
-				<span class="shrink-0 truncate text-success" title={exportMsg}
-					>· {exportMsg}</span
 				>
 			{/if}
 		{/snippet}
