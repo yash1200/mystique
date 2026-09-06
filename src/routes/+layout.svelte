@@ -6,7 +6,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '$core/util'
-	import { appSettingsUi } from '$features/settings'
+	import { AboutModal, appAboutUi, appSettingsUi } from '$features/settings'
 	import { appShortcutsUi } from '$features/shortcuts'
 	import { ToastContext } from '$features/toast'
 	import { resetAppToHome } from '$features/workspace/shell'
@@ -74,6 +74,7 @@
 				'ui-zoom-reset': zoomReset,
 				'app-open-settings': () => appSettingsUi.show(),
 				'app-open-shortcuts': () => appShortcutsUi.show(),
+				'app-open-about': () => appAboutUi.show(),
 			})
 				.then((u) => {
 					if (cancelled) u()
@@ -95,4 +96,5 @@
 
 <ToastContext>
 	{@render children()}
+	<AboutModal />
 </ToastContext>

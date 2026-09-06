@@ -2,13 +2,11 @@
 
 use serde::Deserialize;
 use tauri::{
-    image::Image,
-    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, Wry,
 };
 
 use crate::APP_DISPLAY_NAME;
-use crate::APP_ICON_PNG;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,22 +37,6 @@ pub fn apply_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<()>
 
 pub fn build_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu<Wry>> {
     assemble_menu(app, state)
-}
-
-fn about_metadata(app: &AppHandle) -> AboutMetadata<'_> {
-    let pkg = app.package_info();
-    let config = app.config();
-    AboutMetadata {
-        name: Some(APP_DISPLAY_NAME.into()),
-        version: Some(pkg.version.to_string()),
-        copyright: config.bundle.copyright.clone(),
-        authors: config.bundle.publisher.clone().map(|p| vec![p]),
-        comments: Some("Multi-engine database studio".into()),
-        icon: Image::from_bytes(APP_ICON_PNG)
-            .ok()
-            .or_else(|| app.default_window_icon().cloned()),
-        ..Default::default()
-    }
 }
 
 fn item(
@@ -410,16 +392,12 @@ fn window_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
 fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>> {
     let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
     if include_about {
-        let about = about_metadata(app);
+        let about = item(app, "app_about", "About Mystique", true, None)?;
         Submenu::with_items(
             app,
             "Help",
             true,
-            &[
-                &shortcuts,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::about(app, Some("About Mystique"), Some(about))?,
-            ],
+            &[&shortcuts, &PredefinedMenuItem::separator(app)?, &about],
         )
     } else {
         Submenu::with_items(app, "Help", true, &[&shortcuts])
@@ -428,14 +406,14 @@ fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>
 
 #[cfg(target_os = "macos")]
 fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
-    let about = about_metadata(app);
+    let about = item(app, "app_about", "About Mystique", true, None)?;
     let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     Submenu::with_items(
         app,
         APP_DISPLAY_NAME,
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About Mystique"), Some(about))?,
+            &about,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &PredefinedMenuItem::separator(app)?,
@@ -455,6 +433,7 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) {
         "window_close" => close_focused_window(app),
         "app_settings" => emit_to_webviews(app, "app-open-settings"),
         "app_shortcuts" => emit_to_webviews(app, "app-open-shortcuts"),
+        "app_about" => emit_to_webviews(app, "app-open-about"),
         "home_new_connection" => emit_to_webviews(app, "home-new-connection"),
         "home_import_url" => emit_to_webviews(app, "home-import-url"),
         "home_connect" => emit_to_webviews(app, "home-connect"),
