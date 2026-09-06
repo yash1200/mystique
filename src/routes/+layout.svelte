@@ -7,7 +7,7 @@
 		writeScalePreference,
 	} from '$core/util'
 	import { AboutModal, appAboutUi, appSettingsUi } from '$features/settings'
-	import { appShortcutsUi } from '$features/shortcuts'
+	import { appShortcutsUi, KeyboardShortcutsModal } from '$features/shortcuts'
 	import { ToastContext } from '$features/toast'
 	import { resetAppToHome } from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
@@ -97,4 +97,8 @@
 <ToastContext>
 	{@render children()}
 	<AboutModal />
+	<KeyboardShortcutsModal
+		open={appShortcutsUi.open}
+		onclose={() => appShortcutsUi.close()}
+	/>
 </ToastContext>

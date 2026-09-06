@@ -12,7 +12,7 @@
 	import { engineLabel, normalizeCapabilities } from '$engines'
 	import { BrandMark, colorHex, connectionInitial } from '$features/connections'
 	import { SettingsModal } from '$features/settings'
-	import { appShortcutsUi, KeyboardShortcutsModal } from '$features/shortcuts'
+	import { appShortcutsUi } from '$features/shortcuts'
 	import { showToast } from '$features/toast'
 	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
@@ -457,7 +457,4 @@
 	}}
 />
 
-<KeyboardShortcutsModal
-	open={appShortcutsUi.open}
-	onclose={() => appShortcutsUi.close()}
-/>
+

@@ -51,8 +51,12 @@ fn item(
 
 fn assemble_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu<Wry>> {
     let file_menu = match state.page {
-        MenuPage::Home => file_menu_home(app, state)?,
+        MenuPage::Home => file_menu_home(app)?,
         MenuPage::Workspace => file_menu_workspace(app, state)?,
+    };
+    let connections_menu = match state.page {
+        MenuPage::Home => connections_menu_home(app, state)?,
+        MenuPage::Workspace => connections_menu_workspace(app, state)?,
     };
     let edit_menu = edit_menu(app)?;
     let view_menu = view_menu(app, state.page)?;
@@ -67,6 +71,7 @@ fn assemble_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu
             &[
                 &app_menu,
                 &file_menu,
+                &connections_menu,
                 &edit_menu,
                 &view_menu,
                 &window_menu,
@@ -80,50 +85,34 @@ fn assemble_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu
         let help_menu = help_menu(app, true)?;
         Menu::with_items(
             app,
-            &[&file_menu, &edit_menu, &view_menu, &window_menu, &help_menu],
+            &[
+                &file_menu,
+                &connections_menu,
+                &edit_menu,
+                &view_menu,
+                &window_menu,
+                &help_menu,
+            ],
         )
     }
 }
 
-fn file_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Submenu<Wry>> {
-    let sel = state.has_selection;
-    let new_conn = item(app, "home_new_connection", "New Connection", true, None)?;
-    let import_url = item(app, "home_import_url", "Import Connection URL…", true, None)?;
-    let connect = item(app, "home_connect", "Connect", sel, None)?;
-    let edit = item(app, "home_edit", "Edit Connection", sel, None)?;
-    let duplicate = item(app, "home_duplicate", "Duplicate Connection", sel, None)?;
-    let copy_url = item(app, "home_copy_url", "Copy Connection URL", sel, None)?;
-    let delete = item(app, "home_delete", "Delete Connection", sel, None)?;
-    let refresh = item(app, "home_refresh", "Refresh Connections", true, None)?;
-    let close_window = item(
+fn close_window_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
+    item(
         app,
         "window_close",
         "Close Window",
         true,
         Some("Shift+CmdOrCtrl+W"),
-    )?;
+    )
+}
+
+fn file_menu_home(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+    let close_window = close_window_item(app)?;
 
     #[cfg(target_os = "macos")]
     {
-        return Submenu::with_items(
-            app,
-            "File",
-            true,
-            &[
-                &new_conn,
-                &import_url,
-                &PredefinedMenuItem::separator(app)?,
-                &connect,
-                &edit,
-                &duplicate,
-                &copy_url,
-                &delete,
-                &PredefinedMenuItem::separator(app)?,
-                &refresh,
-                &PredefinedMenuItem::separator(app)?,
-                &close_window,
-            ],
-        );
+        return Submenu::with_items(app, "File", true, &[&close_window]);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -134,17 +123,6 @@ fn file_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Sub
             "File",
             true,
             &[
-                &new_conn,
-                &import_url,
-                &PredefinedMenuItem::separator(app)?,
-                &connect,
-                &edit,
-                &duplicate,
-                &copy_url,
-                &delete,
-                &PredefinedMenuItem::separator(app)?,
-                &refresh,
-                &PredefinedMenuItem::separator(app)?,
                 &settings,
                 &PredefinedMenuItem::separator(app)?,
                 &close_window,
@@ -179,6 +157,80 @@ fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Resul
         tab,
         Some("CmdOrCtrl+W"),
     )?;
+    let close_window = close_window_item(app)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        return Submenu::with_items(
+            app,
+            "File",
+            true,
+            &[
+                &new_query,
+                &save_query,
+                &close_tab,
+                &PredefinedMenuItem::separator(app)?,
+                &close_window,
+            ],
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+        Submenu::with_items(
+            app,
+            "File",
+            true,
+            &[
+                &new_query,
+                &save_query,
+                &close_tab,
+                &PredefinedMenuItem::separator(app)?,
+                &settings,
+                &PredefinedMenuItem::separator(app)?,
+                &close_window,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, None)?,
+            ],
+        )
+    }
+}
+
+fn connections_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Submenu<Wry>> {
+    let sel = state.has_selection;
+    let new_conn = item(app, "home_new_connection", "New Connection", true, None)?;
+    let import_url = item(app, "home_import_url", "Import Connection URL…", true, None)?;
+    let connect = item(app, "home_connect", "Connect", sel, None)?;
+    let edit = item(app, "home_edit", "Edit Connection", sel, None)?;
+    let duplicate = item(app, "home_duplicate", "Duplicate Connection", sel, None)?;
+    let copy_url = item(app, "home_copy_url", "Copy Connection URL", sel, None)?;
+    let delete = item(app, "home_delete", "Delete Connection", sel, None)?;
+    let refresh = item(app, "home_refresh", "Refresh Connections", true, None)?;
+    Submenu::with_items(
+        app,
+        "Connections",
+        true,
+        &[
+            &new_conn,
+            &import_url,
+            &PredefinedMenuItem::separator(app)?,
+            &connect,
+            &edit,
+            &duplicate,
+            &copy_url,
+            &delete,
+            &PredefinedMenuItem::separator(app)?,
+            &refresh,
+        ],
+    )
+}
+
+fn connections_menu_workspace(
+    app: &AppHandle,
+    state: &NativeMenuState,
+) -> tauri::Result<Submenu<Wry>> {
+    let session = state.has_session;
     let open_conn = item(
         app,
         "workspace_open_connection",
@@ -208,65 +260,19 @@ fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Resul
         None,
     )?;
     let disconnect = item(app, "workspace_disconnect", "Disconnect", session, None)?;
-    let go_home = item(app, "workspace_go_home", "Go to Home", true, None)?;
-    let close_window = item(
+    Submenu::with_items(
         app,
-        "window_close",
-        "Close Window",
+        "Connections",
         true,
-        Some("Shift+CmdOrCtrl+W"),
-    )?;
-
-    #[cfg(target_os = "macos")]
-    {
-        return Submenu::with_items(
-            app,
-            "File",
-            true,
-            &[
-                &new_query,
-                &save_query,
-                &close_tab,
-                &PredefinedMenuItem::separator(app)?,
-                &open_conn,
-                &details,
-                &copy_url,
-                &refresh,
-                &disconnect,
-                &PredefinedMenuItem::separator(app)?,
-                &go_home,
-                &close_window,
-            ],
-        );
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
-        Submenu::with_items(
-            app,
-            "File",
-            true,
-            &[
-                &new_query,
-                &save_query,
-                &close_tab,
-                &PredefinedMenuItem::separator(app)?,
-                &open_conn,
-                &details,
-                &copy_url,
-                &refresh,
-                &disconnect,
-                &PredefinedMenuItem::separator(app)?,
-                &go_home,
-                &close_window,
-                &PredefinedMenuItem::separator(app)?,
-                &settings,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::quit(app, None)?,
-            ],
-        )
-    }
+        &[
+            &open_conn,
+            &details,
+            &copy_url,
+            &refresh,
+            &PredefinedMenuItem::separator(app)?,
+            &disconnect,
+        ],
+    )
 }
 
 fn edit_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
@@ -301,6 +307,7 @@ fn view_menu(app: &AppHandle, page: MenuPage) -> tauri::Result<Submenu<Wry>> {
         let explorer = item(app, "workspace_view_explorer", "Explorer", true, None)?;
         let saved = item(app, "workspace_view_saved", "Saved Queries", true, None)?;
         let history = item(app, "workspace_view_history", "History", true, None)?;
+        let go_home = item(app, "workspace_go_home", "Go to Home", true, None)?;
 
         #[cfg(target_os = "macos")]
         {
@@ -312,6 +319,8 @@ fn view_menu(app: &AppHandle, page: MenuPage) -> tauri::Result<Submenu<Wry>> {
                     &explorer,
                     &saved,
                     &history,
+                    &PredefinedMenuItem::separator(app)?,
+                    &go_home,
                     &PredefinedMenuItem::separator(app)?,
                     &zoom_in,
                     &zoom_out,
@@ -332,6 +341,8 @@ fn view_menu(app: &AppHandle, page: MenuPage) -> tauri::Result<Submenu<Wry>> {
                     &explorer,
                     &saved,
                     &history,
+                    &PredefinedMenuItem::separator(app)?,
+                    &go_home,
                     &PredefinedMenuItem::separator(app)?,
                     &zoom_in,
                     &zoom_out,
@@ -390,7 +401,7 @@ fn window_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
 }
 
 fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>> {
-    let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
+    let shortcuts = item(app, "help_shortcuts", "Keyboard Shortcuts", true, None)?;
     if include_about {
         let about = item(app, "app_about", "About Mystique", true, None)?;
         Submenu::with_items(
@@ -408,6 +419,7 @@ fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>
 fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let about = item(app, "app_about", "About Mystique", true, None)?;
     let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+    let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
     Submenu::with_items(
         app,
         APP_DISPLAY_NAME,
@@ -416,6 +428,7 @@ fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
             &about,
             &PredefinedMenuItem::separator(app)?,
             &settings,
+            &shortcuts,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,
@@ -432,7 +445,7 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "window_close" => close_focused_window(app),
         "app_settings" => emit_to_webviews(app, "app-open-settings"),
-        "app_shortcuts" => emit_to_webviews(app, "app-open-shortcuts"),
+        "app_shortcuts" | "help_shortcuts" => emit_to_webviews(app, "app-open-shortcuts"),
         "app_about" => emit_to_webviews(app, "app-open-about"),
         "home_new_connection" => emit_to_webviews(app, "home-new-connection"),
         "home_import_url" => emit_to_webviews(app, "home-import-url"),

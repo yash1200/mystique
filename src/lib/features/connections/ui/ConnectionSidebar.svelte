@@ -11,7 +11,7 @@
 		type ContextMenuItem,
 	} from '$core/ui'
 	import { SettingsModal } from '$features/settings'
-	import { appShortcutsUi, KeyboardShortcutsModal } from '$features/shortcuts'
+	import { appShortcutsUi } from '$features/shortcuts'
 	import type { ConnectionListSort } from '$lib/app'
 	import {
 		appPrefs,
@@ -420,7 +420,4 @@
 	/>
 {/if}
 
-<KeyboardShortcutsModal
-	open={appShortcutsUi.open}
-	onclose={() => appShortcutsUi.close()}
-/>
+
