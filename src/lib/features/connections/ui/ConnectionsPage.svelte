@@ -5,6 +5,8 @@
 		ensureEngineSession,
 		formatEngineConnectionUrl,
 		isTauri,
+		listenNativeMenu,
+		setNativeMenu,
 		testEngineConnection,
 	} from '$core/ipc'
 	import { Button, EmptyState, Modal } from '$core/ui'
@@ -107,6 +109,20 @@
 	function startCreate() {
 		enterCreateMode()
 	}
+
+	function openImportUrl() {
+		if (!creating || editing) enterCreateMode()
+		window.setTimeout(() => {
+			window.dispatchEvent(new Event('mystique:import-connection-url'))
+		}, 0)
+	}
+
+	$effect(() => {
+		setNativeMenu({
+			page: 'home',
+			hasSelection: selected != null,
+		})
+	})
 
 	function overlayBlocksEscape(): boolean {
 		return !!document.querySelector('[role="dialog"], [role="menu"]')
@@ -498,6 +514,23 @@
 
 	onMount(() => {
 		void setAppTitle()
+		let unsubMenu = () => {}
+		let cancelled = false
+		void listenNativeMenu({
+			'home-new-connection': startCreate,
+			'home-import-url': openImportUrl,
+			'home-connect': () => void connectSelected(),
+			'home-edit': startEdit,
+			'home-duplicate': () => void duplicateSelected(),
+			'home-copy-url': () => {
+				if (selected) void copyConnectionUrl(selected.id)
+			},
+			'home-delete': requestDeleteSelected,
+			'home-refresh': () => void refreshConnections(),
+		}).then((u) => {
+			if (cancelled) u()
+			else unsubMenu = u
+		})
 		;(async () => {
 			loading = true
 			loadError = null
@@ -514,6 +547,10 @@
 				loading = false
 			}
 		})()
+		return () => {
+			cancelled = true
+			unsubMenu()
+		}
 	})
 </script>
 

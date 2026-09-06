@@ -6,6 +6,8 @@
 		closeEngineSession,
 		ensureEngineSession,
 		isTauri,
+		listenNativeMenu,
+		setNativeMenu,
 		testEngineConnection,
 	} from '$core/ipc'
 	import { setAppTitle } from '$core/util'
@@ -324,14 +326,57 @@
 		}
 	}
 
-	onMount(() =>
-		mountWorkspaceShortcuts({
+	$effect(() => {
+		setNativeMenu({
+			page: 'workspace',
+			hasSession: !!activeId,
+			hasTab: !!workspaceSession.activeTabId,
+		})
+	})
+
+	onMount(() => {
+		const openPicker = () => {
+			pickerError = null
+			pickerOpen = true
+		}
+		const unsubKeys = mountWorkspaceShortcuts({
 			onNewQuery: shortcutNewQuery,
 			onCloseTab: shortcutCloseTab,
 			onSaveQuery: shortcutSave,
+			onOpenConnection: openPicker,
 			isTauri: isTauri(),
-		}),
-	)
+		})
+		let unsubMenu = () => {}
+		let cancelled = false
+		void listenNativeMenu({
+			'workspace-connection-details': () => {
+				window.dispatchEvent(new Event('mystique:connection-details'))
+			},
+			'workspace-copy-url': () => {
+				window.dispatchEvent(new Event('mystique:copy-connection-url'))
+			},
+			'workspace-refresh-catalog': () => {
+				if (activeId) void refreshConnection(activeId)
+			},
+			'workspace-disconnect': () => {
+				if (activeId) handleDisconnect(activeId)
+			},
+			'workspace-go-home': () => {
+				window.dispatchEvent(new Event('mystique:go-home'))
+			},
+			'workspace-view-explorer': () => setSideMode('explorer'),
+			'workspace-view-saved': () => setSideMode('saved-queries'),
+			'workspace-view-history': () => setSideMode('history'),
+		}).then((u) => {
+			if (cancelled) u()
+			else unsubMenu = u
+		})
+		return () => {
+			cancelled = true
+			unsubKeys()
+			unsubMenu()
+		}
+	})
 </script>
 
 <div

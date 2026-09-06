@@ -3,6 +3,7 @@
 	import { isTauri, parseEngineConnectionUrl } from '$core/ipc'
 	import { Alert, Button, Icon, IconButton } from '$core/ui'
 	import { DURATION, cn, easeOut, reducedMotion } from '$core/util'
+	import { onMount } from 'svelte'
 	import { fade } from 'svelte/transition'
 
 	interface Props {
@@ -52,15 +53,28 @@
 		success = null
 	}
 
+	function openPanel() {
+		if (busy) return
+		open = true
+		requestAnimationFrame(() => urlEl?.focus())
+	}
+
 	function toggleOpen() {
 		if (busy) return
-		open = !open
-		if (!open) clearFeedback()
-		else {
-			// Focus URL after expand paints.
-			requestAnimationFrame(() => urlEl?.focus())
+		if (open) {
+			open = false
+			clearFeedback()
+			return
 		}
+		openPanel()
 	}
+
+	onMount(() => {
+		const onMenu = () => openPanel()
+		window.addEventListener('mystique:import-connection-url', onMenu)
+		return () =>
+			window.removeEventListener('mystique:import-connection-url', onMenu)
+	})
 
 	async function pasteFromClipboard() {
 		if (busy || !navigator.clipboard?.readText) {

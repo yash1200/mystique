@@ -9,6 +9,7 @@ export function mountWorkspaceShortcuts(opts: {
 	onNewQuery: () => void
 	onCloseTab: () => void
 	onSaveQuery?: () => void
+	onOpenConnection?: () => void
 	isTauri: boolean
 }): () => void {
 	let lastAt = 0
@@ -38,6 +39,12 @@ export function mountWorkspaceShortcuts(opts: {
 			e.preventDefault()
 			e.stopImmediatePropagation()
 			runOnce(opts.onSaveQuery)
+			return
+		}
+		if (code === 'KeyO' && opts.onOpenConnection) {
+			e.preventDefault()
+			e.stopImmediatePropagation()
+			runOnce(opts.onOpenConnection)
 		}
 	}
 
@@ -60,6 +67,12 @@ export function mountWorkspaceShortcuts(opts: {
 					pairs.push(
 						['workspace-save-query', opts.onSaveQuery],
 						['workspace://save-query', opts.onSaveQuery],
+					)
+				}
+				if (opts.onOpenConnection) {
+					pairs.push(
+						['workspace-open-connection', opts.onOpenConnection],
+						['workspace://open-connection', opts.onOpenConnection],
 					)
 				}
 				for (const [name, fn] of pairs) {

@@ -28,6 +28,7 @@
 		EXPLORER_PANEL_WIDTH_MIN,
 	} from '$lib/app'
 	import { catalogsFor, selectedDatabaseName } from '../lookup'
+	import { onMount } from 'svelte'
 	import { workspaceSession } from '../session.svelte'
 	import { workspaceStudio } from '../studio.svelte'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
@@ -58,6 +59,15 @@
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
 	let infoOpen = $state(false)
 	const connectionName = $derived(activeSession?.profile.name?.trim() || '')
+
+	onMount(() => {
+		const onDetails = () => {
+			if (workspaceSession.activeSession) infoOpen = true
+		}
+		window.addEventListener('mystique:connection-details', onDetails)
+		return () =>
+			window.removeEventListener('mystique:connection-details', onDetails)
+	})
 
 	$effect(() => {
 		void refreshSavedQueries(activeId)

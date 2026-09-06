@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { isTauri } from '$core/ipc'
+	import { isTauri, listenNativeMenu } from '$core/ipc'
 	import {
 		applyPreferredUiScale,
 		applyUiScale,
 		setAppTitle,
 		writeScalePreference,
 	} from '$core/util'
+	import { appSettingsUi } from '$features/settings'
+	import { appShortcutsUi } from '$features/shortcuts'
 	import { ToastContext } from '$features/toast'
 	import { resetAppToHome } from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
@@ -43,6 +45,12 @@
 				void resetAppToHome()
 				return
 			}
+			if (!e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
+				e.preventDefault()
+				e.stopImmediatePropagation()
+				appSettingsUi.show()
+				return
+			}
 			if (e.shiftKey) return
 			if (e.key === '=' || e.key === '+') {
 				e.preventDefault()
@@ -60,12 +68,16 @@
 		const unsubs: Array<() => void> = []
 		let cancelled = false
 		if (isTauri()) {
-			void import('@tauri-apps/api/event')
-				.then(async ({ listen }) => {
-					if (cancelled) return
-					unsubs.push(await listen('ui-zoom-in', () => zoomBy(0.1)))
-					unsubs.push(await listen('ui-zoom-out', () => zoomBy(-0.1)))
-					unsubs.push(await listen('ui-zoom-reset', () => zoomReset()))
+			void listenNativeMenu({
+				'ui-zoom-in': () => zoomBy(0.1),
+				'ui-zoom-out': () => zoomBy(-0.1),
+				'ui-zoom-reset': zoomReset,
+				'app-open-settings': () => appSettingsUi.show(),
+				'app-open-shortcuts': () => appShortcutsUi.show(),
+			})
+				.then((u) => {
+					if (cancelled) u()
+					else unsubs.push(u)
 				})
 				.catch(() => {
 					/* optional */

@@ -51,6 +51,7 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		id: 'app',
 		title: 'App',
 		items: [
+			{ id: 'settings', label: 'Open settings', keys: ['mod', ','] },
 			{
 				id: 'reset',
 				label: 'Close connections and return home',
@@ -79,6 +80,11 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 			{ id: 'new-query', label: 'New query tab', keys: ['mod', 'T'] },
 			{ id: 'close-tab', label: 'Close tab', keys: ['mod', 'W'] },
 			{ id: 'save', label: 'Save query or table', keys: ['mod', 'S'] },
+			{
+				id: 'open-connection',
+				label: 'Open another connection',
+				keys: ['mod', 'O'],
+			},
 		],
 	},
 	{

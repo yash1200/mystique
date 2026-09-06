@@ -12,8 +12,9 @@
 	import { engineLabel, normalizeCapabilities } from '$engines'
 	import { BrandMark, colorHex, connectionInitial } from '$features/connections'
 	import { SettingsModal } from '$features/settings'
-	import { KeyboardShortcutsModal } from '$features/shortcuts'
+	import { appShortcutsUi, KeyboardShortcutsModal } from '$features/shortcuts'
 	import { showToast } from '$features/toast'
+	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
 	import { resetAppToHome } from '../reset'
 	import { workspaceSession } from '../session.svelte'
@@ -67,7 +68,6 @@
 	let infoId = $state<string | null>(null)
 	let leaveOpen = $state(false)
 	let leaveBusy = $state(false)
-	let shortcutsOpen = $state(false)
 
 	function requestLeaveHome() {
 		if (leaveBusy) return
@@ -177,6 +177,19 @@
 		if (action === 'copy-url') void copyConnectionUrl(id)
 		if (action === 'disconnect') ondisconnect(id)
 	}
+
+	onMount(() => {
+		const onGoHome = () => requestLeaveHome()
+		const onCopy = () => {
+			if (activeId) void copyConnectionUrl(activeId)
+		}
+		window.addEventListener('mystique:go-home', onGoHome)
+		window.addEventListener('mystique:copy-connection-url', onCopy)
+		return () => {
+			window.removeEventListener('mystique:go-home', onGoHome)
+			window.removeEventListener('mystique:copy-connection-url', onCopy)
+		}
+	})
 </script>
 
 <aside
@@ -404,9 +417,9 @@
 			label="Keyboard shortcuts"
 			variant="quiet"
 			size="sm"
-			active={shortcutsOpen}
-			onclick={() => (shortcutsOpen = !shortcutsOpen)}
-			aria-expanded={shortcutsOpen}
+			active={appShortcutsUi.open}
+			onclick={() => appShortcutsUi.toggle()}
+			aria-expanded={appShortcutsUi.open}
 			aria-haspopup="dialog"
 		>
 			<Icon name="help" />
@@ -445,6 +458,6 @@
 />
 
 <KeyboardShortcutsModal
-	open={shortcutsOpen}
-	onclose={() => (shortcutsOpen = false)}
+	open={appShortcutsUi.open}
+	onclose={() => appShortcutsUi.close()}
 />

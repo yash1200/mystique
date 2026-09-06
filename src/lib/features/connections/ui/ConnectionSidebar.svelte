@@ -11,7 +11,7 @@
 		type ContextMenuItem,
 	} from '$core/ui'
 	import { SettingsModal } from '$features/settings'
-	import { KeyboardShortcutsModal } from '$features/shortcuts'
+	import { appShortcutsUi, KeyboardShortcutsModal } from '$features/shortcuts'
 	import type { ConnectionListSort } from '$lib/app'
 	import {
 		appPrefs,
@@ -71,7 +71,6 @@
 		local: 2,
 	}
 
-	let shortcutsOpen = $state(false)
 	let query = $state('')
 	let sortMenu = $state<{ x: number; y: number } | null>(null)
 	let connMenu = $state<{ id: string; x: number; y: number } | null>(null)
@@ -397,9 +396,9 @@
 					label="Keyboard shortcuts"
 					variant="quiet"
 					size="sm"
-					active={shortcutsOpen}
-					onclick={() => (shortcutsOpen = !shortcutsOpen)}
-					aria-expanded={shortcutsOpen}
+					active={appShortcutsUi.open}
+					onclick={() => appShortcutsUi.toggle()}
+					aria-expanded={appShortcutsUi.open}
 					aria-haspopup="dialog"
 				>
 					<Icon name="help" />
@@ -422,6 +421,6 @@
 {/if}
 
 <KeyboardShortcutsModal
-	open={shortcutsOpen}
-	onclose={() => (shortcutsOpen = false)}
+	open={appShortcutsUi.open}
+	onclose={() => appShortcutsUi.close()}
 />
