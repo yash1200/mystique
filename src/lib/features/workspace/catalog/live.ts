@@ -45,7 +45,7 @@ export async function ensureLiveCatalog(
 		[connectionId]: true,
 	}
 	workspaceStudio.refreshing = true
-	workspaceStudio.catalogError = null
+	workspaceStudio.setCatalogError(null)
 	let sessionId = engineSessionId
 	try {
 		const live = await loadLiveCatalog(sessionId, engine, {
@@ -76,14 +76,17 @@ export async function ensureLiveCatalog(
 					...workspaceStudio.liveCatalogKey,
 					[connectionId]: sessionId,
 				}
-				workspaceStudio.catalogError = null
+				workspaceStudio.setCatalogError(null)
 				return
 			} catch (retryErr) {
-				workspaceStudio.catalogError =
-					retryErr instanceof Error ? retryErr.message : String(retryErr)
+				workspaceStudio.setCatalogError(
+					retryErr instanceof Error ? retryErr.message : String(retryErr),
+				)
 			}
 		} else {
-			workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+			workspaceStudio.setCatalogError(
+				e instanceof Error ? e.message : String(e),
+			)
 		}
 		if (!workspaceStudio.catalogs[connectionId]) {
 			workspaceStudio.catalogs = {
@@ -145,7 +148,9 @@ export async function ensureCatalogForActiveSession() {
 		try {
 			sid = await reopenEngineSession(session.profile, preferred)
 		} catch (e) {
-			workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+			workspaceStudio.setCatalogError(
+				e instanceof Error ? e.message : String(e),
+			)
 			return
 		}
 	}
@@ -166,7 +171,7 @@ export async function selectDatabase(name: string) {
 		return
 
 	workspaceStudio.refreshing = true
-	workspaceStudio.catalogError = null
+	workspaceStudio.setCatalogError(null)
 	try {
 		const sid = await reopenEngineSession(session.profile, next)
 		await ensureLiveCatalog(id, engine, sid, next, true)
@@ -175,7 +180,9 @@ export async function selectDatabase(name: string) {
 			...workspaceStudio.selectedDb,
 			[id]: previous,
 		}
-		workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.setCatalogError(
+			e instanceof Error ? e.message : String(e),
+		)
 		workspaceStudio.refreshing = false
 	}
 }
@@ -187,12 +194,14 @@ export async function refreshDatabases() {
 	const engine = String(session.profile.engine)
 	const preferred = sessionDatabase(id, session.profile)
 	workspaceStudio.refreshing = true
-	workspaceStudio.catalogError = null
+	workspaceStudio.setCatalogError(null)
 	try {
 		const sid = await withLiveSession(id, async (sessionId) => sessionId)
 		await ensureLiveCatalog(id, engine, sid, preferred, true, false)
 	} catch (e) {
-		workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.setCatalogError(
+			e instanceof Error ? e.message : String(e),
+		)
 		workspaceStudio.refreshing = false
 	}
 }
@@ -205,7 +214,7 @@ export async function refreshCurrentTables() {
 	const db =
 		workspaceStudio.selectedDb[id] || sessionDatabase(id, session.profile) || ''
 	workspaceStudio.refreshingTables = true
-	workspaceStudio.catalogError = null
+	workspaceStudio.setCatalogError(null)
 	try {
 		const sid = await withLiveSession(id, async (sessionId) => sessionId)
 		const live = await loadLiveCatalog(sid, engine, {
@@ -217,7 +226,9 @@ export async function refreshCurrentTables() {
 			[id]: mergeCatalogReplaceDatabase(workspaceStudio.catalogs[id], live, db),
 		}
 	} catch (e) {
-		workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.setCatalogError(
+			e instanceof Error ? e.message : String(e),
+		)
 	} finally {
 		workspaceStudio.refreshingTables = false
 	}
@@ -237,11 +248,11 @@ export async function createCatalogGroup(name: string) {
 	if (!active) return
 	const { id, session } = active
 	if (!isTauri()) {
-		workspaceStudio.catalogError = null
+		workspaceStudio.setCatalogError(null)
 		return
 	}
 	workspaceStudio.createBusy = true
-	workspaceStudio.catalogError = null
+	workspaceStudio.setCatalogError(null)
 	try {
 		await withLiveSession(id, (sid) =>
 			applyEngineTableAdmin({
@@ -254,7 +265,9 @@ export async function createCatalogGroup(name: string) {
 		)
 		await refreshCurrentTables()
 	} catch (e) {
-		workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.setCatalogError(
+			e instanceof Error ? e.message : String(e),
+		)
 	} finally {
 		workspaceStudio.createBusy = false
 	}
@@ -290,11 +303,11 @@ export async function createCatalogObject(name: string, group?: string) {
 			return { ...d, tables: [...d.tables, table] }
 		})
 		workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [id]: list }
-		workspaceStudio.catalogError = null
+		workspaceStudio.setCatalogError(null)
 		return
 	}
 	workspaceStudio.createBusy = true
-	workspaceStudio.catalogError = null
+	workspaceStudio.setCatalogError(null)
 	try {
 		await withLiveSession(id, (sid) =>
 			applyEngineTableAdmin({
@@ -309,7 +322,9 @@ export async function createCatalogObject(name: string, group?: string) {
 		)
 		await refreshCurrentTables()
 	} catch (e) {
-		workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.setCatalogError(
+			e instanceof Error ? e.message : String(e),
+		)
 	} finally {
 		workspaceStudio.createBusy = false
 	}

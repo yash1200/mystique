@@ -61,7 +61,7 @@ class TablePreview {
 		const stillThis = () => this.epochByTab[tabId] === epoch
 
 		workspaceStudio.loadingTabId = tabId
-		workspaceStudio.catalogError = null
+		workspaceStudio.setCatalogError(null)
 		try {
 			const engine = String(session.profile.engine)
 			const loaded = await withLiveSession(id, (sid) =>
@@ -109,8 +109,9 @@ class TablePreview {
 				})
 		} catch (e) {
 			if (stillThis() && workspaceSession.activeTabId === tabId) {
-				workspaceStudio.catalogError =
-					e instanceof Error ? e.message : String(e)
+				workspaceStudio.setCatalogError(
+					e instanceof Error ? e.message : String(e),
+				)
 			}
 		} finally {
 			if (stillThis() && workspaceStudio.loadingTabId === tabId) {
@@ -177,7 +178,9 @@ class TablePreview {
 		if (!active) return
 		const target = findReferencedTable(ref)
 		if (!target) {
-			workspaceStudio.catalogError = `Referenced table “${ref.schema ? `${ref.schema}.` : ''}${ref.table}” is not in the explorer catalog.`
+			workspaceStudio.setCatalogError(
+				`Referenced table “${ref.schema ? `${ref.schema}.` : ''}${ref.table}” is not in the explorer catalog.`,
+			)
 			return
 		}
 		const targetDb = (target.database || ref.database || '').trim()
@@ -188,7 +191,7 @@ class TablePreview {
 				try {
 					await selectDatabase(targetDb)
 				} catch {
-					/* selectDatabase sets catalogError */
+					/* selectDatabase reports the catalog error */
 				}
 			} else {
 				workspaceStudio.selectedDb = {

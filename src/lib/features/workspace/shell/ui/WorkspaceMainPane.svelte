@@ -331,22 +331,6 @@
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-				{#if catalogError}
-					<div
-						class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
-					>
-						{catalogError}
-						{#if gridTable}
-							<button
-								type="button"
-								class="ml-2 border-none bg-transparent text-accent underline"
-								onclick={() => void tablePreview.reload()}
-							>
-								Retry
-							</button>
-						{/if}
-					</div>
-				{/if}
 				{#if tableLoading && (!gridTable || gridTable.columns.length === 0)}
 					<div class="flex flex-1 items-center justify-center p-8">
 						<EmptyState
@@ -393,7 +377,7 @@
 						<EmptyState
 							title={catalogError ? 'Could not load table' : 'Open a table'}
 							description={catalogError
-								? `${catalogError} Use Retry, or pick another table.`
+								? `${catalogError} Pick another table from the explorer.`
 								: 'Double-click a table in the explorer to load rows from the database.'}
 						/>
 					</div>

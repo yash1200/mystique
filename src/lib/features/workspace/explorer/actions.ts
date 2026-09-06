@@ -51,8 +51,9 @@ export async function onTableExplorerAction(
 		return
 	}
 	if (!isTauri()) {
-		workspaceStudio.catalogError =
-			'Live catalog actions require the desktop app.'
+		workspaceStudio.setCatalogError(
+			'Live catalog actions require the desktop app.',
+		)
 		return
 	}
 
@@ -62,7 +63,7 @@ export async function onTableExplorerAction(
 	const op: TableAdminOp = action === 'create' ? 'createStatement' : action
 
 	try {
-		workspaceStudio.catalogError = null
+		workspaceStudio.setCatalogError(null)
 		const result = await withLiveSession(id, (sid) =>
 			applyEngineTableAdmin({
 				sessionId: sid,
@@ -79,8 +80,9 @@ export async function onTableExplorerAction(
 		if (action === 'create') {
 			const sql = (result.statement ?? '').trim()
 			if (!sql) {
-				workspaceStudio.catalogError =
-					'Engine returned an empty create statement.'
+				workspaceStudio.setCatalogError(
+					'Engine returned an empty create statement.',
+				)
 				return
 			}
 			openSqlInEditor(
@@ -111,6 +113,8 @@ export async function onTableExplorerAction(
 		}
 		await refreshCurrentTables()
 	} catch (e) {
-		workspaceStudio.catalogError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.setCatalogError(
+			e instanceof Error ? e.message : String(e),
+		)
 	}
 }

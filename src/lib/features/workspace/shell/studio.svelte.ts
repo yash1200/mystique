@@ -10,6 +10,7 @@ import type {
 	PreviewImportResult,
 	TableMeta,
 } from '$core/contracts'
+import { showToast } from '$features/toast'
 import type { ErDiagramState } from '$features/workspace/er'
 import type {
 	QueryHistoryEntry,
@@ -34,6 +35,13 @@ class WorkspaceStudio {
 	/** Tab whose preview is in flight. Per-tab so a stale finish cannot hide another open. */
 	loadingTabId = $state<string | null>(null)
 	catalogError = $state<string | null>(null)
+
+	/** Set or clear the catalog/table error. Non-null values also toast. */
+	setCatalogError(message: string | null) {
+		this.catalogError = message
+		if (message) showToast('danger', message)
+	}
+
 	/** connectionId → last engineSessionId we loaded a live catalog for */
 	liveCatalogKey = $state<Record<string, string>>({})
 	catalogLoadInFlight = $state<Record<string, boolean>>({})
