@@ -10,7 +10,7 @@
 	import { showToast } from '$features/toast'
 	import { isSessionMissingError } from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
-	import { onMount } from 'svelte'
+	import { onMount, tick } from 'svelte'
 	import { persistTableEdits } from '../api'
 	import { valueToEditorText } from '../cell-view'
 	import {
@@ -486,10 +486,10 @@
 
 		const firstCol = table.columns[0]?.name
 		if (firstCol) {
+			setExclusiveRow(0)
 			selectedCell = { row: 0, col: firstCol }
-			highlightRow = 0
 			if (shouldOpenInspector()) onselectrow(0)
-			requestAnimationFrame(() => {
+			void tick().then(() => {
 				scrollCellIntoView(0, firstCol)
 				focusGridShell()
 			})
@@ -1445,18 +1445,28 @@
 	}
 
 	function scrollCellIntoView(row: number, col: string) {
-		const root = gridShellEl
-		if (!root) return
+		const scroller = gridScrollEl()
+		if (!scroller) return
 		const esc =
 			typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
 				? CSS.escape(col)
 				: col.replace(/"/g, '\\"')
-		const el = root.querySelector<HTMLElement>(
+		const el = scroller.querySelector<HTMLElement>(
 			`[data-grid-cell][data-row="${row}"][data-col="${esc}"]`,
 		)
-		el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+		if (!el) return
+		// Native scrollIntoView aligns to the scrollport top and tucks the first
+		// data row under the sticky thead — looks like we landed on row 2.
+		const headerH =
+			scroller.querySelector('thead')?.getBoundingClientRect().height ?? 0
+		const port = scroller.getBoundingClientRect()
+		const cell = el.getBoundingClientRect()
+		const top = port.top + headerH
+		if (cell.top < top) scroller.scrollTop -= top - cell.top
+		else if (cell.bottom > port.bottom)
+			scroller.scrollTop += cell.bottom - port.bottom
 		// First data column: snap fully left so the # gutter is not left off-screen
-		// after scrolling in from the right (`inline: nearest` only cares about the cell).
+		// after scrolling in from the right.
 		if (colNames()[0] === col) pinScrollToRowGutter()
 	}
 
