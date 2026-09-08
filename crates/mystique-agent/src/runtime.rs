@@ -101,6 +101,7 @@ impl AgentRuntime {
             return Err(AppError::Invalid("message is required".into()));
         }
         let provider = parse_provider(&req.provider)?;
+        require_configured(app, secrets, provider)?;
         let model = req.model.trim();
         let model = if model.is_empty() {
             let fallback = provider.default_model();
@@ -225,6 +226,36 @@ impl AgentRuntime {
     }
 }
 
+/// Refuse a run before we persist a chat against a provider the user never set up.
+fn require_configured(
+    app: &AppServices,
+    secrets: &SecretStore,
+    provider: AgentProvider,
+) -> AppResult<()> {
+    if matches!(provider, AgentProvider::Ollama) {
+        let configured = app
+            .settings()
+            .get(SETTING_OLLAMA_URL)
+            .ok()
+            .flatten()
+            .map(|s| !s.value.trim().is_empty())
+            .unwrap_or(false);
+        if !configured {
+            return Err(AppError::Invalid(
+                "Ollama is not set up. Add it in Settings.".into(),
+            ));
+        }
+        return Ok(());
+    }
+    secrets.get(provider)?.ok_or_else(|| {
+        AppError::Invalid(format!(
+            "No API key for {}. Add one in Settings.",
+            provider.label()
+        ))
+    })?;
+    Ok(())
+}
+
 fn title_from(text: &str) -> String {
     let one = text
         .lines()
@@ -235,4 +266,43 @@ fn title_from(text: &str) -> String {
         t = t.chars().take(45).collect::<String>() + "…";
     }
     t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn harness() -> (Arc<AppServices>, SecretStore) {
+        let app = Arc::new(AppServices::new(
+            mystique_core::AppDatabase::open_in_memory().unwrap(),
+        ));
+        let secrets = SecretStore::new(app.clone());
+        (app, secrets)
+    }
+
+    #[test]
+    fn require_configured_rejects_cloud_provider_without_key() {
+        let (app, secrets) = harness();
+        let err = require_configured(&app, &secrets, AgentProvider::Openai).unwrap_err();
+        assert!(err.to_string().contains("No API key for OpenAI"));
+    }
+
+    #[test]
+    fn require_configured_accepts_cloud_provider_with_key() {
+        let (app, secrets) = harness();
+        secrets.set(AgentProvider::Google, "test-key").unwrap();
+        require_configured(&app, &secrets, AgentProvider::Google).unwrap();
+    }
+
+    #[test]
+    fn require_configured_rejects_ollama_until_url_is_saved() {
+        let (app, secrets) = harness();
+        let err = require_configured(&app, &secrets, AgentProvider::Ollama).unwrap_err();
+        assert!(err.to_string().contains("Ollama is not set up"));
+        app.settings()
+            .set(SETTING_OLLAMA_URL, DEFAULT_OLLAMA_URL)
+            .unwrap();
+        require_configured(&app, &secrets, AgentProvider::Ollama).unwrap();
+    }
 }

@@ -26,7 +26,7 @@
 		updateAgentChat,
 	} from '../api'
 	import { agentChat } from '../chat.svelte'
-	import { configuredProviders } from '../configured'
+	import { configuredProviders, resolveAgentProvider } from '../configured'
 	import { aiSettings } from '../settings.svelte'
 	import type { AgentMessage } from '../types'
 	import AgentChatNotice from './AgentChatNotice.svelte'
@@ -91,12 +91,14 @@
 				? 'No local models'
 				: 'Select model',
 	)
+	const providerReady = $derived(
+		readyProviders.some((p) => p.id === agentChat.provider),
+	)
 	const canSend = $derived(
 		!sending &&
 			Boolean(agentChat.draft.trim()) &&
 			desktop &&
-			hasProvider &&
-			Boolean(agentChat.provider) &&
+			providerReady &&
 			!agentChat.modelsLoading &&
 			(agentChat.provider !== 'ollama' || Boolean(agentChat.model.trim())),
 	)
@@ -112,15 +114,25 @@
 		database ? `${connectionName} / ${database}` : connectionName,
 	)
 
+	function snapProvider(
+		preferred?: { provider: string; model: string } | null,
+	) {
+		if (!aiSettings.view) return
+		const next = resolveAgentProvider(
+			aiSettings.view,
+			{ provider: agentChat.provider, model: agentChat.model },
+			preferred,
+		)
+		agentChat.provider = next.provider
+		agentChat.model = next.model
+	}
+
+	if (desktop) snapProvider()
+
 	async function loadSettings() {
 		if (!desktop) return
-		const view = await aiSettings.load()
-		const ready = configuredProviders(view)
-		if (!ready.some((p) => p.id === agentChat.provider)) {
-			const first = ready[0]
-			agentChat.provider = first?.id ?? ''
-			if (first) agentChat.model = first.defaultModel
-		}
+		await aiSettings.load()
+		snapProvider()
 	}
 
 	async function loadModels() {
@@ -196,8 +208,7 @@
 		}
 		const c = agentChat.chats.find((x) => String(x.id) === next)
 		if (c) {
-			agentChat.provider = c.provider
-			agentChat.model = c.model
+			snapProvider(c)
 			void loadModels()
 		}
 		try {
@@ -251,6 +262,15 @@
 	async function send(preset?: string) {
 		const text = (preset ?? agentChat.draft).trim()
 		if (!text || sending) return
+		snapProvider()
+		if (
+			!configuredProviders(aiSettings.view).some(
+				(p) => p.id === agentChat.provider,
+			)
+		) {
+			error = 'Add a provider key in Settings.'
+			return
+		}
 		const gen = ++sendGen
 		sending = true
 		elapsedSec = 0
@@ -426,8 +446,15 @@
 	})
 
 	$effect(() => {
+		void settings
+		void readyProviders
+		if (!desktop || !settings) return
+		untrack(() => snapProvider())
+	})
+
+	$effect(() => {
 		const queued = workspaceSession.pendingAgentPrompt
-		if (!queued || sending || !desktop || !settings) return
+		if (!queued || sending || !desktop || !settings || !providerReady) return
 		untrack(() => {
 			const text = workspaceSession.takePendingAgentPrompt()
 			if (text) void send(text)
@@ -444,11 +471,14 @@
 				await loadSettings()
 				await loadChats()
 				if (agentChat.chatId) {
+					const current = agentChat.chats.find(
+						(c) => String(c.id) === String(agentChat.chatId),
+					)
+					if (current) snapProvider(current)
 					await hydrateMessages(agentChat.chatId)
 				} else if (agentChat.chats[0]) {
 					agentChat.chatId = String(agentChat.chats[0].id)
-					agentChat.provider = agentChat.chats[0].provider
-					agentChat.model = agentChat.chats[0].model
+					snapProvider(agentChat.chats[0])
 					await hydrateMessages(agentChat.chatId)
 				}
 				void loadModels()
@@ -618,7 +648,7 @@
 					class="min-w-0 flex-1"
 					inputSize="sm"
 					options={providerOptions}
-					value={agentChat.provider}
+					value={providerReady ? agentChat.provider : ''}
 					placeholder="No provider"
 					disabled={!hasProvider}
 					onchange={(v) => {
