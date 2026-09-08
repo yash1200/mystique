@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { DatabaseMeta, TableMeta } from '$core/contracts'
 	import { Icon } from '$core/ui'
-	import { cn } from '$core/util'
+	import { cn, randomLoadingPun } from '$core/util'
 	import { CatalogIcon, iconToneForName } from '$features/workspace/catalog'
 	import { appPrefs } from '$lib/app'
 	interface Props {
@@ -39,6 +39,8 @@
 		onopen,
 		onmenu,
 	}: Props = $props()
+
+	const loadingPun = randomLoadingPun()
 
 	function wellClass(kind: TableMeta['kind'], active: boolean): string {
 		if (active) return 'bg-accent-muted'
@@ -170,6 +172,21 @@
 			<p class="m-0 text-label font-medium text-fg">No database selected</p>
 			<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
 				Choose a database above to browse {objectLabel}.
+			</p>
+		</div>
+	{:else if busy && totalCount === 0 && groups.length === 0 && !query.trim()}
+		<div
+			class="flex flex-col items-center justify-center px-3 py-8 text-center"
+		>
+			<span
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				aria-hidden="true"
+			>
+				<Icon name="refresh" class="size-4 animate-spin text-fg-muted" />
+			</span>
+			<p class="m-0 text-label font-medium text-fg">Loading {objectLabel}…</p>
+			<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
+				{loadingPun}
 			</p>
 		</div>
 	{:else if totalCount === 0 && groups.length === 0}

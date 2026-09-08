@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { EmptyState } from '$core/ui'
+	import { randomLoadingPun } from '$core/util'
 	import { familyFromCaps, resolveCapabilities } from '$engines'
 	import { colorHex } from '$features/connections'
 	import { AgentChatPane } from '$features/workspace/agent'
@@ -74,6 +75,20 @@
 			: null,
 	)
 	const tableLoading = $derived(workspaceStudio.loadingTabId === activeTabId)
+	let tablePun = $state(randomLoadingPun())
+	let diagramPun = $state(randomLoadingPun())
+	let tablePunKey = ''
+	let diagramPunKey = ''
+
+	$effect(() => {
+		const show =
+			tableLoading && (!gridTable || gridTable.columns.length === 0)
+		const key = show ? String(activeTabId ?? '') : ''
+		if (key && key !== tablePunKey) {
+			tablePun = randomLoadingPun()
+		}
+		tablePunKey = key
+	})
 	const rowSelectionIndex = $derived.by(() => {
 		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
 		if (
@@ -136,6 +151,15 @@
 	const modelError = $derived(workspaceStudio.modelError)
 	const modelLoading = $derived(workspaceStudio.modelLoading)
 	const structureLoading = $derived(workspaceStudio.structureLoading)
+
+	$effect(() => {
+		const show = modelLoading && !activeModel
+		const key = show ? String(activeTabId ?? '') : ''
+		if (key && key !== diagramPunKey) {
+			diagramPun = randomLoadingPun()
+		}
+		diagramPunKey = key
+	})
 	const structureError = $derived(workspaceStudio.structureError)
 	const rowSyncTick = $derived(workspaceStudio.rowSyncTick)
 	const tablePreviewTick = $derived(workspaceStudio.tablePreviewTick)
@@ -268,10 +292,7 @@
 				{/if}
 				{#if modelLoading && !activeModel}
 					<div class="flex flex-1 items-center justify-center p-8">
-						<EmptyState
-							title="Building diagram…"
-							description="Reading tables, columns, and foreign keys from the live database."
-						/>
+						<EmptyState title="Building diagram…" description={diagramPun} />
 					</div>
 				{:else if activeModel}
 					{#key `${activeTab.id}:${activeModel.rev}`}
@@ -333,10 +354,7 @@
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 				{#if tableLoading && (!gridTable || gridTable.columns.length === 0)}
 					<div class="flex flex-1 items-center justify-center p-8">
-						<EmptyState
-							title="Loading table…"
-							description="Reconnecting if needed, then fetching rows."
-						/>
+						<EmptyState title="Loading table…" description={tablePun} />
 					</div>
 				{:else if gridTable}
 					<!-- Key on the tab, not the seed. Including seedFilters remounted

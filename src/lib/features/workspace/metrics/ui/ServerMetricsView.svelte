@@ -5,7 +5,7 @@
 		ServerMetricsSnapshot,
 	} from '$core/contracts'
 	import { Button, EmptyState } from '$core/ui'
-	import { cn } from '$core/util'
+	import { cn, randomLoadingPun } from '$core/util'
 	import { resolveCapabilities } from '$engines'
 	import { showToast } from '$features/toast'
 	import { fetchServerMetrics, terminateBackendSession } from '../api'
@@ -52,6 +52,7 @@
 	let ending = $state(false)
 	let sessionFilter = $state('')
 	let slowFilter = $state('')
+	const loadingPun = randomLoadingPun()
 
 	const skeletonSpans = [
 		'col-span-12 sm:col-span-6 lg:col-span-5',
@@ -161,15 +162,18 @@
 				</EmptyState>
 			</div>
 		{:else if loading && !snapshot}
-			<div class="grid grid-cols-12 gap-3" aria-busy="true">
-				{#each skeletonSpans as span (span)}
-					<div
-						class={cn(
-							'h-32 animate-pulse rounded-xl border border-line bg-elevated',
-							span,
-						)}
-					></div>
-				{/each}
+			<div aria-busy="true">
+				<p class="mb-3 text-caption text-fg-muted">{loadingPun}</p>
+				<div class="grid grid-cols-12 gap-3">
+					{#each skeletonSpans as span (span)}
+						<div
+							class={cn(
+								'h-32 animate-pulse rounded-xl border border-line bg-elevated',
+								span,
+							)}
+						></div>
+					{/each}
+				</div>
 			</div>
 		{:else if snapshot && pane === 'overview'}
 			<MetricsOverview {snapshot} {error} />

@@ -6,6 +6,7 @@
 		Input,
 		type ContextMenuItem,
 	} from '$core/ui'
+	import { randomLoadingPun } from '$core/util'
 	import { appPrefs, type SavedQueryListSort } from '$lib/app'
 	import type { QueryHistoryEntry } from '../history-types'
 	import type { SavedQueryListItem } from '../saved-types'
@@ -21,6 +22,7 @@
 		savedQueries: SavedQueryListItem[]
 		history: QueryHistoryEntry[]
 		selectedId: string | null
+		loading?: boolean
 		onselect: (id: string) => void
 		onsavedaction?: (action: SavedQueryMenuAction, id: string) => void
 		onrefresh: () => void | Promise<void>
@@ -34,7 +36,10 @@
 		onselect,
 		onsavedaction,
 		onrefresh,
+		loading = false,
 	}: Props = $props()
+
+	const loadingPun = randomLoadingPun()
 
 	const SORT_OPTIONS: { id: SavedQueryListSort; label: string }[] = [
 		{ id: 'name', label: 'Name' },
@@ -227,7 +232,11 @@
 	</header>
 
 	<div class="flex-1 overflow-auto px-1.5 py-2">
-		{#if mode === 'saved-queries'}
+		{#if loading && !query.trim() && (mode === 'saved-queries' ? savedQueries.length === 0 : history.length === 0)}
+			<p class="m-2 text-caption leading-relaxed text-fg-muted">
+				{loadingPun}
+			</p>
+		{:else if mode === 'saved-queries'}
 			<SavedQueryList
 				items={filteredSaved}
 				{query}

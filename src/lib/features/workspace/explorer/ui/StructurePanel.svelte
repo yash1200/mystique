@@ -13,7 +13,12 @@
 		Pill,
 		StatusBar,
 	} from '$core/ui'
-	import { cn, copyTextToClipboard, fetchedLabel } from '$core/util'
+	import {
+		cn,
+		copyTextToClipboard,
+		fetchedLabel,
+		randomLoadingPun,
+	} from '$core/util'
 	import { showToast } from '$features/toast'
 	import type { CatalogIconName } from '$features/workspace/catalog'
 	import { CatalogIcon, iconToneForName } from '$features/workspace/catalog'
@@ -42,6 +47,7 @@
 
 	let activeSection = $state<string | null>(null)
 	let filter = $state('')
+	const loadingPun = randomLoadingPun()
 	const expandedCells = new SvelteSet<string>()
 
 	const section = $derived(
@@ -271,7 +277,7 @@
 			</div>
 			<StatusBar ariaLabel="Structure status">
 				{#snippet left()}
-					<span class="text-fg-muted">Reading structure from the engine…</span>
+					<span class="text-fg-muted">{loadingPun}</span>
 				{/snippet}
 			</StatusBar>
 		</div>

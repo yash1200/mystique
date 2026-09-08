@@ -11,7 +11,7 @@
 		StatusBar,
 		type ContextMenuItem,
 	} from '$core/ui'
-	import { cn, copyTextToClipboard } from '$core/util'
+	import { cn, copyTextToClipboard, randomLoadingPun } from '$core/util'
 	import { isMacPlatform, labelForKey } from '$features/shortcuts'
 	import type { RunState } from '../run-types'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
@@ -62,8 +62,16 @@
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
+	let loadingPun = $state(randomLoadingPun())
 	let copiedError = $state(false)
 	let copiedErrorTimer: ReturnType<typeof setTimeout> | null = null
+	let wasRunning = false
+
+	$effect(() => {
+		const running = runState.status === 'running'
+		if (running && !wasRunning) loadingPun = randomLoadingPun()
+		wasRunning = running
+	})
 
 	const exportItems: ContextMenuItem[] = [
 		{ id: 'download-csv', label: 'Download as CSV', icon: 'download' },
@@ -186,7 +194,7 @@
 				</span>
 				<p class="m-0 text-label font-medium text-fg">Running</p>
 				<p class="mt-1 mb-0 text-caption text-fg-muted">
-					Waiting for the engine.
+					{loadingPun}
 				</p>
 			</div>
 		{:else if runState.status === 'ok' && runState.result}

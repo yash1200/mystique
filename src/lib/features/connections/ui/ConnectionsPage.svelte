@@ -10,7 +10,11 @@
 		testEngineConnection,
 	} from '$core/ipc'
 	import { Button, EmptyState, Modal } from '$core/ui'
-	import { copyTextToClipboard, setAppTitle } from '$core/util'
+	import {
+		copyTextToClipboard,
+		randomLoadingPun,
+		setAppTitle,
+	} from '$core/util'
 	import { showToast } from '$features/toast'
 	import { workspaceSession } from '$features/workspace/shell'
 	import { onMount } from 'svelte'
@@ -48,6 +52,7 @@
 	/** Remount the create form to reset fields (Home / New / Cancel). */
 	let createFormKey = $state(0)
 	let loading = $state(true)
+	const loadingPun = randomLoadingPun()
 	let listRefreshing = $state(false)
 	let saving = $state(false)
 	let testing = $state(false)
@@ -574,7 +579,7 @@
 		<div class="relative z-10 h-full overflow-auto">
 			{#if loading}
 				<div class="flex h-full items-center justify-center p-8">
-					<EmptyState title="Loading connections…" />
+					<EmptyState title="Loading connections…" description={loadingPun} />
 				</div>
 			{:else if loadError}
 				<div class="flex h-full items-center justify-center p-8">

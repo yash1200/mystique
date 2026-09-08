@@ -115,6 +115,7 @@
 					selectedId={selectedHistoryId}
 					onselect={selectHistory}
 					onrefresh={() => void refreshHistory({ force: true })}
+					loading={workspaceStudio.historyLoading}
 				/>
 			{:else if activeSession}
 				<ObjectExplorer
