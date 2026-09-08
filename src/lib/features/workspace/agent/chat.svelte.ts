@@ -16,12 +16,14 @@ class AgentChatStore {
 	provider = $state('')
 	model = $state('')
 	models = $state<AgentModelInfo[]>([])
+	modelsByProvider = $state<Record<string, AgentModelInfo[]>>({})
 	modelsLoading = $state(false)
 	modelsError = $state<string | null>(null)
 	modelsFor = $state<string | null>(null)
 	draft = $state('')
 	#chatsFor: string | null = null
 	#messagesFor: string | null = null
+	#loadedProviders = new Set<string>()
 
 	loadChats = async (connectionId: string, force = false) => {
 		if (!force && this.#chatsFor === connectionId) return this.chats
@@ -48,22 +50,68 @@ class AgentChatStore {
 		return rows
 	}
 
+	#fetchModels = async (provider: string, force = false) => {
+		if (!force && this.#loadedProviders.has(provider)) {
+			return this.modelsByProvider[provider] ?? []
+		}
+		const rows = await listAgentModels(provider)
+		this.modelsByProvider = { ...this.modelsByProvider, [provider]: rows }
+		this.#loadedProviders.add(provider)
+		return rows
+	}
+
 	loadModels = async (provider: string, force = false) => {
 		if (!force && this.modelsFor === provider && this.models.length > 0) {
 			return this.models
 		}
 		this.modelsLoading = true
 		try {
-			const rows = await listAgentModels(provider)
+			const rows = await this.#fetchModels(provider, force)
 			this.models = rows
 			this.modelsFor = provider
 			this.modelsError = null
 			return rows
 		} catch (e) {
+			this.#loadedProviders.delete(provider)
 			this.models = []
 			this.modelsFor = provider
 			this.modelsError = e instanceof Error ? e.message : String(e)
 			throw e
+		} finally {
+			this.modelsLoading = false
+		}
+	}
+
+	loadModelsFor = async (providers: string[], force = false) => {
+		const ids = providers.filter(Boolean)
+		if (ids.length === 0) return
+		const missing = force
+			? ids
+			: ids.filter((p) => !this.#loadedProviders.has(p))
+		if (missing.length === 0) return
+		this.modelsLoading = true
+		this.modelsError = null
+		try {
+			await Promise.all(
+				ids.map(async (p) => {
+					try {
+						const rows = await this.#fetchModels(p, force)
+						if (this.modelsFor === p || !this.modelsFor) {
+							this.models = rows
+							this.modelsFor = p
+						}
+					} catch (e) {
+						this.#loadedProviders.delete(p)
+						this.modelsByProvider = {
+							...this.modelsByProvider,
+							[p]: [],
+						}
+						if (p === 'ollama') {
+							this.modelsError = e instanceof Error ? e.message : String(e)
+						}
+					}
+				}),
+			)
 		} finally {
 			this.modelsLoading = false
 		}

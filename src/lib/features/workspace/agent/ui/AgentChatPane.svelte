@@ -66,34 +66,73 @@
 		`${labelForKey('mod', mac)}+${labelForKey('enter', mac)}`,
 	)
 
+	function comboKey(provider: string, model: string): string {
+		return `${provider}::${model}`
+	}
+
+	function parseCombo(raw: string): { provider: string; model: string } | null {
+		const i = raw.indexOf('::')
+		if (i <= 0) return null
+		const provider = raw.slice(0, i)
+		const model = raw.slice(i + 2)
+		if (!provider || !model) return null
+		return { provider, model }
+	}
+
+	function applyCombo(raw: string) {
+		const next = parseCombo(raw)
+		if (!next) return
+		agentChat.provider = next.provider
+		agentChat.model = next.model
+		if (agentChat.chatId)
+			void updateAgentChat({
+				id: agentChat.chatId,
+				provider: next.provider,
+				model: next.model,
+			})
+	}
+
 	const chatOptions = $derived([
 		{ value: '', label: 'New chat' },
 		...agentChat.chats.map((c) => ({ value: String(c.id), label: c.title })),
 	])
 	const readyProviders = $derived(configuredProviders(settings))
-	const providerOptions = $derived(
-		readyProviders.map((p) => ({
-			value: p.id,
-			label: p.label,
-		})),
-	)
 	const hasProvider = $derived(readyProviders.length > 0)
-	const modelOptions = $derived(
-		agentChat.models.length
-			? agentChat.models.map((m) => ({ value: m.id, label: m.label }))
-			: agentChat.model
-				? [{ value: agentChat.model, label: agentChat.model }]
-				: [],
-	)
-	const modelPlaceholder = $derived(
-		agentChat.modelsLoading
-			? 'Loading models…'
-			: agentChat.provider === 'ollama'
-				? 'No local models'
-				: 'Select model',
-	)
 	const providerReady = $derived(
 		readyProviders.some((p) => p.id === agentChat.provider),
+	)
+	const comboOptions = $derived.by(() => {
+		const out: { value: string; label: string }[] = []
+		for (const p of readyProviders) {
+			const models = agentChat.modelsByProvider[p.id] ?? []
+			const list =
+				models.length > 0
+					? models
+					: p.id !== 'ollama' && p.defaultModel
+						? [{ id: p.defaultModel, label: p.defaultModel }]
+						: []
+			for (const m of list) {
+				out.push({
+					value: comboKey(p.id, m.id),
+					label: `${p.label} · ${m.label}`,
+				})
+			}
+		}
+		return out
+	})
+	const comboValue = $derived(
+		providerReady && agentChat.model
+			? comboKey(agentChat.provider, agentChat.model)
+			: '',
+	)
+	const comboPlaceholder = $derived(
+		!hasProvider
+			? 'No provider'
+			: agentChat.modelsLoading && comboOptions.length === 0
+				? 'Loading models…'
+				: agentChat.provider === 'ollama' && comboOptions.length === 0
+					? 'No local models'
+					: 'Select model',
 	)
 	const canSend = $derived(
 		!sending &&
@@ -137,20 +176,24 @@
 	}
 
 	async function loadModels() {
-		if (!desktop || sending || !agentChat.provider) return
+		if (!desktop || sending) return
+		const ids = readyProviders.map((p) => p.id)
+		if (ids.length === 0) return
 		try {
-			await agentChat.loadModels(agentChat.provider)
-			if (agentChat.provider === 'ollama' && agentChat.models.length === 0) {
+			await agentChat.loadModelsFor(ids)
+			const ollamaModels = agentChat.modelsByProvider.ollama ?? []
+			if (ids.includes('ollama') && ollamaModels.length === 0) {
 				agentChat.modelsError =
 					'Ollama has no local models. Pull one with `ollama pull <name>`.'
 			}
-			if (!agentChat.models.some((m) => m.id === agentChat.model)) {
+			const models = agentChat.modelsByProvider[agentChat.provider] ?? []
+			if (!models.some((m) => m.id === agentChat.model)) {
 				const fallback =
 					agentChat.provider === 'ollama'
 						? ''
-						: (settings?.providers.find((p) => p.id === agentChat.provider)
+						: (readyProviders.find((p) => p.id === agentChat.provider)
 								?.defaultModel ?? '')
-				agentChat.model = agentChat.models[0]?.id ?? fallback
+				agentChat.model = models[0]?.id ?? fallback
 			}
 		} catch {
 			if (
@@ -443,7 +486,7 @@
 	}
 
 	$effect(() => {
-		void agentChat.provider
+		void readyProviders
 		if (desktop) untrack(() => void loadModels())
 	})
 
@@ -649,36 +692,12 @@
 				<Select
 					class="min-w-0 flex-1"
 					inputSize="sm"
-					options={providerOptions}
-					value={providerReady ? agentChat.provider : ''}
-					placeholder="No provider"
-					disabled={!hasProvider}
-					onchange={(v) => {
-						agentChat.provider = v
-						if (agentChat.chatId)
-							void updateAgentChat({
-								id: agentChat.chatId,
-								provider: v,
-								model: agentChat.model,
-							})
-					}}
-				/>
-				<Select
-					class="min-w-0 flex-1"
-					inputSize="sm"
-					options={modelOptions}
-					value={agentChat.model}
-					placeholder={modelPlaceholder}
-					disabled={agentChat.modelsLoading}
-					onchange={(v) => {
-						agentChat.model = v
-						if (agentChat.chatId)
-							void updateAgentChat({
-								id: agentChat.chatId,
-								provider: agentChat.provider,
-								model: v,
-							})
-					}}
+					options={comboOptions}
+					value={comboValue}
+					placeholder={comboPlaceholder}
+					disabled={!hasProvider ||
+						(agentChat.modelsLoading && comboOptions.length === 0)}
+					onchange={applyCombo}
 				/>
 				<IconButton
 					type="submit"
