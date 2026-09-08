@@ -99,18 +99,15 @@
 
 	function openMenu() {
 		if (disabled || options.length === 0) return
-		if (triggerEl) {
-			const rect = triggerEl.getBoundingClientRect()
-			const spaceBelow = window.innerHeight - rect.bottom - 8
-			const spaceAbove = rect.top - 8
-			openUp = spaceBelow < 140 && spaceAbove > spaceBelow
-		}
+		// Style must exist before mount — empty style paints in-flow and
+		// the first open lands in the wrong place.
+		updateMenuPosition()
 		open = true
 		const current = options.findIndex((o) => o.value === value && !o.disabled)
 		highlighted = current >= 0 ? current : firstEnabledIndex()
 		requestAnimationFrame(() => {
 			updateMenuPosition()
-			listEl?.focus()
+			listEl?.focus({ preventScroll: true })
 			scrollHighlightedIntoView()
 		})
 	}
@@ -148,7 +145,13 @@
 		const el = listEl.querySelector<HTMLElement>(
 			`[data-index="${highlighted}"]`,
 		)
-		el?.scrollIntoView({ block: 'nearest' })
+		if (!el) return
+		const top = el.offsetTop
+		const bottom = top + el.offsetHeight
+		if (top < listEl.scrollTop) listEl.scrollTop = top
+		else if (bottom > listEl.scrollTop + listEl.clientHeight) {
+			listEl.scrollTop = bottom - listEl.clientHeight
+		}
 	}
 
 	function onTriggerClick() {
