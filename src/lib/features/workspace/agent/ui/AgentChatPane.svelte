@@ -134,6 +134,13 @@
 					? 'No local models'
 					: 'Select model',
 	)
+	const comboShortLabel = $derived.by(() => {
+		const opt = comboOptions.find((o) => o.value === comboValue)
+		if (!opt) return comboPlaceholder
+		if (readyProviders.length > 1) return opt.label
+		const sep = opt.label.indexOf(' · ')
+		return sep >= 0 ? opt.label.slice(sep + 3) : opt.label
+	})
 	const canSend = $derived(
 		!sending &&
 			Boolean(agentChat.draft.trim()) &&
@@ -681,24 +688,31 @@
 				id="agent-composer"
 				rows={3}
 				resize="none"
-				class="min-h-16 rounded-none border-0 bg-transparent px-3 pt-2.5 pb-1 focus-visible:border-transparent focus-visible:ring-0"
+				chrome={false}
+				class="min-h-16 rounded-none px-3 pt-2.5 pb-1"
 				placeholder="Ask for a query…"
 				bind:value={agentChat.draft}
 				disabled={sending || !desktop}
 				enterkeyhint="send"
 				onkeydown={onComposerKey}
 			/>
-			<div class="flex items-center gap-1 px-1.5 pt-0.5 pb-1.5">
+			<div class="flex items-center justify-between gap-2 px-2 pt-0.5 pb-1.5">
 				<Select
-					class="min-w-0 flex-1"
+					variant="quiet"
 					inputSize="sm"
 					options={comboOptions}
 					value={comboValue}
 					placeholder={comboPlaceholder}
+					triggerLabel={comboShortLabel}
+					ariaLabel="Model"
 					disabled={!hasProvider ||
 						(agentChat.modelsLoading && comboOptions.length === 0)}
 					onchange={applyCombo}
-				/>
+				>
+					{#snippet leading()}
+						<Icon name="sparkle" class="size-3.5" />
+					{/snippet}
+				</Select>
 				<IconButton
 					type="submit"
 					label={sending ? 'Sending' : `Send (${sendChord})`}
@@ -706,7 +720,7 @@
 					size="sm"
 					disabled={!canSend}
 				>
-					<Icon name="arrow-up" />
+					<Icon name="send" />
 				</IconButton>
 			</div>
 		</div>

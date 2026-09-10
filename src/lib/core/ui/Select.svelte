@@ -19,6 +19,11 @@
 		placeholder?: string
 		disabled?: boolean
 		inputSize?: 'sm' | 'md'
+		/** `field` is a full-width control. `quiet` is a compact chip. */
+		variant?: 'field' | 'quiet'
+		/** Closed-state label. Menu options still use `options[].label`. */
+		triggerLabel?: string
+		ariaLabel?: string
 		class?: string
 		id?: string
 		/** Fires after the bound value changes. */
@@ -32,6 +37,9 @@
 		placeholder = 'Select…',
 		disabled = false,
 		inputSize = 'md',
+		variant = 'field',
+		triggerLabel,
+		ariaLabel,
 		class: className = '',
 		id,
 		onchange,
@@ -50,7 +58,7 @@
 		options.find((o) => String(o.value) === String(value)),
 	)
 	const displayLabel = $derived(
-		selected?.label ?? (value ? String(value) : placeholder),
+		triggerLabel ?? selected?.label ?? (value ? String(value) : placeholder),
 	)
 	const showingPlaceholder = $derived(!selected && !value)
 
@@ -78,19 +86,25 @@
 			Math.max(80, openUp ? spaceAbove : spaceBelow),
 		)
 
+		const width = Math.round(
+			Math.max(rect.width, variant === 'quiet' ? 224 : 0),
+		)
+		const left = Math.round(
+			Math.min(rect.left, Math.max(8, window.innerWidth - width - 8)),
+		)
 		if (openUp) {
 			menuStyle = [
 				'position:fixed',
-				`left:${Math.round(rect.left)}px`,
-				`width:${Math.round(rect.width)}px`,
+				`left:${left}px`,
+				`width:${width}px`,
 				`bottom:${Math.round(window.innerHeight - rect.top + gap)}px`,
 				`max-height:${Math.round(height)}px`,
 			].join(';')
 		} else {
 			menuStyle = [
 				'position:fixed',
-				`left:${Math.round(rect.left)}px`,
-				`width:${Math.round(rect.width)}px`,
+				`left:${left}px`,
+				`width:${width}px`,
 				`top:${Math.round(rect.bottom + gap)}px`,
 				`max-height:${Math.round(height)}px`,
 			].join(';')
@@ -243,19 +257,35 @@
 	})
 </script>
 
-<div class={cn('relative w-full', className)}>
+<div
+	class={cn(
+		variant === 'quiet'
+			? 'relative inline-flex min-w-0 max-w-full'
+			: 'relative w-full',
+		className,
+	)}
+>
 	<button
 		bind:this={triggerEl}
 		type="button"
 		{id}
 		class={cn(
-			'flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-line bg-input px-2.5 text-left text-fg',
+			'flex cursor-pointer items-center text-left',
 			'focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted',
 			'disabled:cursor-not-allowed disabled:opacity-55',
-			open && 'border-focus ring-2 ring-accent-muted',
-			inputSize === 'sm' ? 'h-control-sm text-label' : 'h-control text-body',
+			variant === 'quiet' &&
+				'h-control-sm max-w-full gap-1 rounded-md border border-transparent bg-transparent px-1.5 text-caption text-fg-secondary hover:bg-hover hover:text-fg',
+			variant === 'quiet' && open && 'bg-hover text-fg',
+			variant === 'field' &&
+				'w-full justify-between gap-2 rounded-md border border-line bg-input px-2.5 text-fg',
+			variant === 'field' && open && 'border-focus ring-2 ring-accent-muted',
+			variant === 'field' &&
+				(inputSize === 'sm'
+					? 'h-control-sm text-label'
+					: 'h-control text-body'),
 		)}
 		{disabled}
+		aria-label={ariaLabel}
 		aria-haspopup="listbox"
 		aria-expanded={open}
 		aria-controls={listId}
@@ -272,7 +302,8 @@
 		{/if}
 		<span
 			class={cn(
-				'min-w-0 flex-1 truncate',
+				'min-w-0 truncate',
+				variant === 'quiet' ? 'max-w-40' : 'flex-1',
 				showingPlaceholder && 'text-fg-muted',
 			)}
 		>
@@ -281,8 +312,8 @@
 		<Icon
 			name="chevron-down"
 			class={cn(
-				'text-fg-muted transition-transform duration-150',
-				inputSize === 'sm' ? 'size-3.5' : 'size-4',
+				'shrink-0 text-fg-muted transition-transform duration-150',
+				variant === 'quiet' || inputSize === 'sm' ? 'size-3.5' : 'size-4',
 				open && 'rotate-180',
 			)}
 		/>

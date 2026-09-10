@@ -28,10 +28,12 @@ import plus from './plus.svg?raw'
 import refresh from './refresh.svg?raw'
 import schema from './schema.svg?raw'
 import search from './search.svg?raw'
+import send from './send.svg?raw'
 import settings from './settings.svg?raw'
 import sortAsc from './sort-asc.svg?raw'
 import sortDesc from './sort-desc.svg?raw'
 import sortNone from './sort-none.svg?raw'
+import sparkle from './sparkle.svg?raw'
 import sort from './sort.svg?raw'
 import starFilled from './star-filled.svg?raw'
 import star from './star.svg?raw'
@@ -61,6 +63,7 @@ const files = {
 	code,
 	'code-slash': codeSlash,
 	search,
+	send,
 	'chevron-left': chevronLeft,
 	'chevron-right': chevronRight,
 	'chevron-down': chevronDown,
@@ -72,6 +75,7 @@ const files = {
 	copy,
 	download,
 	settings,
+	sparkle,
 	grid,
 	'collapse-all': collapseAll,
 	'expand-all': expandAll,
