@@ -2,8 +2,10 @@ use std::error::Error as StdError;
 use std::time::Duration;
 
 use deadpool_postgres::{Config as PoolCfg, ManagerConfig, RecyclingMethod, Runtime, SslMode};
-use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult};
-use tokio_postgres::error::{DbError, ErrorPosition};
+use mystique_connector_api::{
+    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult,
+};
+use tokio_postgres::error::{DbError, SqlState};
 use tokio_postgres::NoTls;
 
 /// Driver wrappers say "db error"; the useful text is on [`DbError`].
@@ -48,30 +50,38 @@ fn find_db_error<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a DbError> {
 }
 
 fn format_db_error(db: &DbError) -> String {
-    let mut out = db.message().to_string();
-    if let Some(detail) = db.detail() {
-        let detail = detail.trim();
-        if !detail.is_empty() && !out.contains(detail) {
-            out.push_str(". ");
-            out.push_str(detail);
+    if let Some(msg) = pretty_from_sqlstate(db) {
+        return msg;
+    }
+    prettify_sql_error(db.message())
+}
+
+fn pretty_from_sqlstate(db: &DbError) -> Option<String> {
+    let col = db.column().map(str::to_string);
+    match *db.code() {
+        SqlState::NOT_NULL_VIOLATION => Some(match col {
+            Some(c) => format!("\"{c}\" cannot be empty."),
+            None => prettify_sql_error(db.message()),
+        }),
+        SqlState::UNIQUE_VIOLATION => Some(match col {
+            Some(c) => format!("A row with this \"{c}\" already exists."),
+            None => "A row with this value already exists.".into(),
+        }),
+        SqlState::FOREIGN_KEY_VIOLATION => {
+            let msg = db.message().to_ascii_lowercase();
+            if msg.contains("is still referenced") {
+                Some("This row is still used by another table.".into())
+            } else {
+                Some("This value doesn't match a related row.".into())
+            }
         }
-    }
-    if let Some(hint) = db.hint() {
-        let hint = hint.trim();
-        if !hint.is_empty() {
-            out.push_str(" Hint: ");
-            out.push_str(hint);
+        SqlState::CHECK_VIOLATION => Some("This value doesn't meet a check constraint.".into()),
+        SqlState::STRING_DATA_RIGHT_TRUNCATION => Some("This value is too long.".into()),
+        SqlState::INVALID_TEXT_REPRESENTATION | SqlState::DATATYPE_MISMATCH => {
+            Some("This value is the wrong type.".into())
         }
+        _ => None,
     }
-    if let Some(constraint) = db.constraint() {
-        out.push_str(" (constraint ");
-        out.push_str(constraint);
-        out.push(')');
-    }
-    if let Some(ErrorPosition::Original(pos)) = db.position() {
-        out.push_str(&format!(" at character {pos}"));
-    }
-    out
 }
 
 fn is_noise(s: &str) -> bool {
@@ -267,5 +277,15 @@ mod tests {
         };
         let err = build_pool_config(&config).unwrap_err();
         assert!(err.to_string().contains("database"), "{err}");
+    }
+
+    #[test]
+    fn not_null_message_is_short() {
+        let raw = "null value in column \"content\" of relation \"session_messages\" \
+            violates not-null constraint. Failing row contains (1, null).";
+        assert_eq!(
+            mystique_connector_api::prettify_sql_error(raw),
+            "\"content\" cannot be empty."
+        );
     }
 }

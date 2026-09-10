@@ -1,10 +1,10 @@
 //! User-facing MongoDB query errors (the driver Display dumps Kind/labels).
 
 use mongodb::error::{Error as MongoError, ErrorKind, WriteFailure};
-use mystique_connector_api::ConnectorError;
+use mystique_connector_api::{prettify_sql_error, ConnectorError};
 
 pub(crate) fn format_query_error(err: &MongoError) -> String {
-    format_kind(err.kind.as_ref())
+    prettify_sql_error(&format_kind(err.kind.as_ref()))
 }
 
 fn format_kind(kind: &ErrorKind) -> String {
@@ -78,5 +78,19 @@ pub(crate) fn is_unauthorized(err: &MongoError) -> bool {
         _ => format_query_error(err)
             .to_ascii_lowercase()
             .contains("not authorized"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mystique_connector_api::prettify_sql_error;
+
+    #[test]
+    fn duplicate_key_is_short() {
+        let raw = "E11000 duplicate key error collection: app.users index: email_1 dup key: { email: \"a@b.c\" }";
+        assert_eq!(
+            prettify_sql_error(raw),
+            "A row with this value already exists."
+        );
     }
 }

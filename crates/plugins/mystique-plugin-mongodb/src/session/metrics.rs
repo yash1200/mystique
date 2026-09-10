@@ -409,7 +409,10 @@ async fn list_ops(
     (sessions, slow, own_ops_only)
 }
 
-async fn load_current_op(session: &MongoSession, db_name: Option<&str>) -> Option<(Document, bool)> {
+async fn load_current_op(
+    session: &MongoSession,
+    db_name: Option<&str>,
+) -> Option<(Document, bool)> {
     let admin = session.client.database("admin");
     match admin
         .run_command(doc! { "currentOp": 1, "$all": true })

@@ -1,18 +1,18 @@
 //! User-facing SQLite query errors (skip rusqlite's wrapper noise).
 
-use mystique_connector_api::ConnectorError;
+use mystique_connector_api::{prettify_sql_error, ConnectorError};
 
 pub(crate) fn format_query_error(err: &rusqlite::Error) -> String {
     match err {
         rusqlite::Error::SqliteFailure(_, Some(msg)) => {
             let msg = msg.trim();
             if msg.is_empty() {
-                err.to_string()
+                prettify_sql_error(&err.to_string())
             } else {
-                msg.to_string()
+                prettify_sql_error(msg)
             }
         }
-        other => other.to_string(),
+        other => prettify_sql_error(&other.to_string()),
     }
 }
 
@@ -50,5 +50,16 @@ mod tests {
             msg.contains("missing_table"),
             "expected table name in error: {msg}"
         );
+    }
+
+    #[test]
+    fn not_null_names_the_column() {
+        let conn = rusqlite::Connection::open_in_memory().expect("memory db");
+        conn.execute("CREATE TABLE t (content TEXT NOT NULL)", [])
+            .expect("create");
+        let err = conn
+            .execute("INSERT INTO t (content) VALUES (NULL)", [])
+            .expect_err("not null should fail");
+        assert_eq!(format_query_error(&err), "\"content\" cannot be empty.");
     }
 }

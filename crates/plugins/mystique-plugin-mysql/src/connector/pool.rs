@@ -1,14 +1,19 @@
 use mysql_async::{OptsBuilder, Pool, PoolConstraints, PoolOpts, SslOpts};
-use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult};
+use mystique_connector_api::{
+    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult,
+};
 
 pub(crate) fn format_error(err: &mysql_async::Error) -> String {
     match err {
         mysql_async::Error::Server(s) => {
+            if let Some(msg) = pretty_mysql_code(s.code, &s.message) {
+                return msg;
+            }
             let msg = s.message.trim();
             if msg.is_empty() {
                 format!("MySQL error {} ({})", s.code, s.state)
             } else {
-                msg.to_string()
+                prettify_sql_error(msg)
             }
         }
         mysql_async::Error::Io(io) => format!("Could not reach MySQL: {io}"),
@@ -20,6 +25,18 @@ pub(crate) fn format_error(err: &mysql_async::Error) -> String {
 
 pub(crate) fn query_failed(err: mysql_async::Error) -> ConnectorError {
     ConnectorError::Query(format_error(&err))
+}
+
+fn pretty_mysql_code(code: u16, message: &str) -> Option<String> {
+    match code {
+        1048 | 1364 => Some(prettify_sql_error(message)),
+        1062 => Some(prettify_sql_error(message)),
+        1451 => Some("This row is still used by another table.".into()),
+        1452 => Some("This value doesn't match a related row.".into()),
+        1406 | 1264 => Some(prettify_sql_error(message)),
+        1366 => Some("This value is the wrong type.".into()),
+        _ => None,
+    }
 }
 
 pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {
@@ -106,5 +123,15 @@ mod tests {
             format_error(&err),
             "You have an error in your SQL syntax near 'SELEC'"
         );
+    }
+
+    #[test]
+    fn not_null_names_the_column() {
+        let err = Error::Server(ServerError {
+            code: 1048,
+            message: "Column 'content' cannot be null".into(),
+            state: "23000".into(),
+        });
+        assert_eq!(format_error(&err), "\"content\" cannot be empty.");
     }
 }

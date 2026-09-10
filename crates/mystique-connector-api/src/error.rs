@@ -1,6 +1,9 @@
 use serde::Serialize;
 use thiserror::Error;
 
+mod pretty;
+pub use pretty::prettify_sql_error;
+
 pub type ConnectorResult<T> = Result<T, ConnectorError>;
 
 #[derive(Debug, Error)]
