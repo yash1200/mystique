@@ -1,0 +1,167 @@
+/** Map the TeX models emit in `$...$` / `$$...$$` onto Unicode. */
+
+const COMMANDS: Record<string, string> = {
+	rightarrow: '→',
+	to: '→',
+	longrightarrow: '⟶',
+	leftarrow: '←',
+	gets: '←',
+	longleftarrow: '⟵',
+	leftrightarrow: '↔',
+	longleftrightarrow: '⟷',
+	Rightarrow: '⇒',
+	implies: '⇒',
+	Longrightarrow: '⟹',
+	Leftarrow: '⇐',
+	Longleftarrow: '⟸',
+	Leftrightarrow: '⇔',
+	iff: '⇔',
+	Longleftrightarrow: '⟺',
+	uparrow: '↑',
+	downarrow: '↓',
+	updownarrow: '↕',
+	mapsto: '↦',
+	times: '×',
+	cdot: '·',
+	pm: '±',
+	mp: '∓',
+	div: '÷',
+	neq: '≠',
+	ne: '≠',
+	leq: '≤',
+	le: '≤',
+	geq: '≥',
+	ge: '≥',
+	approx: '≈',
+	equiv: '≡',
+	sim: '∼',
+	infty: '∞',
+	in: '∈',
+	notin: '∉',
+	subset: '⊂',
+	subseteq: '⊆',
+	supset: '⊃',
+	supseteq: '⊇',
+	cup: '∪',
+	cap: '∩',
+	emptyset: '∅',
+	varnothing: '∅',
+	forall: '∀',
+	exists: '∃',
+	neg: '¬',
+	land: '∧',
+	lor: '∨',
+	wedge: '∧',
+	vee: '∨',
+	sum: '∑',
+	prod: '∏',
+	int: '∫',
+	partial: '∂',
+	nabla: '∇',
+	sqrt: '√',
+	alpha: 'α',
+	beta: 'β',
+	gamma: 'γ',
+	delta: 'δ',
+	epsilon: 'ε',
+	zeta: 'ζ',
+	eta: 'η',
+	theta: 'θ',
+	lambda: 'λ',
+	mu: 'μ',
+	pi: 'π',
+	rho: 'ρ',
+	sigma: 'σ',
+	tau: 'τ',
+	phi: 'φ',
+	chi: 'χ',
+	psi: 'ψ',
+	omega: 'ω',
+	Gamma: 'Γ',
+	Delta: 'Δ',
+	Theta: 'Θ',
+	Lambda: 'Λ',
+	Pi: 'Π',
+	Sigma: 'Σ',
+	Phi: 'Φ',
+	Psi: 'Ψ',
+	Omega: 'Ω',
+	ell: 'ℓ',
+	hbar: 'ℏ',
+	dots: '…',
+	cdots: '⋯',
+	ldots: '…',
+	quad: ' ',
+	qquad: '  ',
+	',': ' ',
+	';': ' ',
+}
+
+const SUP: Record<string, string> = {
+	'0': '⁰',
+	'1': '¹',
+	'2': '²',
+	'3': '³',
+	'4': '⁴',
+	'5': '⁵',
+	'6': '⁶',
+	'7': '⁷',
+	'8': '⁸',
+	'9': '⁹',
+	'+': '⁺',
+	'-': '⁻',
+	'=': '⁼',
+	'(': '⁽',
+	')': '⁾',
+	n: 'ⁿ',
+	i: 'ⁱ',
+}
+
+const SUB: Record<string, string> = {
+	'0': '₀',
+	'1': '₁',
+	'2': '₂',
+	'3': '₃',
+	'4': '₄',
+	'5': '₅',
+	'6': '₆',
+	'7': '₇',
+	'8': '₈',
+	'9': '₉',
+	'+': '₊',
+	'-': '₋',
+	'=': '₌',
+	'(': '₍',
+	')': '₎',
+	a: 'ₐ',
+	e: 'ₑ',
+	i: 'ᵢ',
+	o: 'ₒ',
+	u: 'ᵤ',
+	n: 'ₙ',
+	m: 'ₘ',
+	t: 'ₜ',
+	x: 'ₓ',
+}
+
+export function renderMath(tex: string): string {
+	let s = tex.trim()
+	s = s.replace(/\\(?:text|mathrm|operatorname|mathbf|mathit)\s*\{([^{}]*)\}/g, '$1')
+	s = s.replace(/\\([A-Za-z]+|[,;])/g, (_, name: string) => COMMANDS[name] ?? `\\${name}`)
+	if (COMMANDS[s]) return COMMANDS[s]
+	s = s.replace(/\^\{([^{}]+)\}/g, (_, body: string) => script(body, SUP))
+	s = s.replace(/\^([A-Za-z0-9])/g, (_, ch: string) => SUP[ch] ?? `^${ch}`)
+	s = s.replace(/_\{([^{}]+)\}/g, (_, body: string) => script(body, SUB))
+	s = s.replace(/_([A-Za-z0-9])/g, (_, ch: string) => SUB[ch] ?? `_${ch}`)
+	s = s.replace(/[{}]/g, '')
+	return s
+}
+
+function script(body: string, map: Record<string, string>): string {
+	let out = ''
+	for (const ch of body) {
+		if (!map[ch]) return body
+		out += map[ch]
+	}
+	return out
+}

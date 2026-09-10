@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { cn } from '$core/util'
 	import { parseChatMarkdown } from '../markdown'
-	import type { MdBlock, MdInline } from '../markdown-types'
+	import { renderMath } from '../math'
+	import type {
+		MdAlertKind,
+		MdAlign,
+		MdBlock,
+		MdInline,
+	} from '../markdown-types'
 	import ChatCodeBlock from './ChatCodeBlock.svelte'
 
 	interface Props {
@@ -32,6 +38,23 @@
 				: []
 		}
 	})
+
+	const alertTone: Record<
+		MdAlertKind,
+		{ label: string; box: string }
+	> = {
+		note: { label: 'Note', box: 'border-info/35 bg-info/12' },
+		tip: { label: 'Tip', box: 'border-success/35 bg-success/12' },
+		important: { label: 'Important', box: 'border-accent/35 bg-accent/10' },
+		warning: { label: 'Warning', box: 'border-warning/35 bg-warning/12' },
+		caution: { label: 'Caution', box: 'border-danger/35 bg-danger/12' },
+	}
+
+	function alignClass(align: MdAlign | null | undefined): string {
+		if (align === 'center') return 'text-center'
+		if (align === 'right') return 'text-right'
+		return 'text-left'
+	}
 </script>
 
 {#snippet inlineNodes(nodes: MdInline[])}
@@ -48,11 +71,22 @@
 				>{@render inlineNodes(node.children)}</s
 			>{:else if node.type === 'link' && node.href}<a
 				href={node.href}
+				title={node.title}
 				target="_blank"
 				rel="external noreferrer"
 				class="text-accent underline-offset-2 hover:underline"
 				>{@render inlineNodes(node.children)}</a
-			>{:else if node.type === 'link'}{@render inlineNodes(node.children)}{/if}
+			>{:else if node.type === 'link'}{@render inlineNodes(
+				node.children,
+			)}{:else if node.type === 'image' && node.src}<img
+				src={node.src}
+				alt={node.alt}
+				title={node.title}
+				referrerpolicy="no-referrer"
+				class="my-1 max-h-80 max-w-full rounded-md"
+			/>{:else if node.type === 'image'}{node.alt}{:else if node.type ===
+				'math'}<span class="italic text-fg">{renderMath(node.value)}</span
+			>{/if}
 	{/each}
 {/snippet}
 
@@ -76,10 +110,14 @@
 				<h4 class="m-0 text-body font-semibold text-fg">
 					{@render inlineNodes(block.children)}
 				</h4>
-			{:else}
+			{:else if block.level === 3}
 				<h5 class="m-0 text-label font-semibold tracking-tight text-fg">
 					{@render inlineNodes(block.children)}
 				</h5>
+			{:else}
+				<h6 class="m-0 text-caption font-semibold tracking-wide text-fg">
+					{@render inlineNodes(block.children)}
+				</h6>
 			{/if}
 		{:else if block.type === 'code'}
 			<ChatCodeBlock
@@ -89,31 +127,60 @@
 				{compact}
 				{onApply}
 			/>
-		{:else if block.type === 'ul'}
-			<ul class="m-0 list-disc space-y-1 p-0 pl-4 marker:text-fg-muted">
-				{#each block.items as item, j (j)}
-					<li class="min-w-0 pl-0.5">
-						{@render blockTree(item.children)}
-					</li>
-				{/each}
-			</ul>
-		{:else if block.type === 'ol'}
-			<ol
-				class="m-0 list-decimal space-y-1 p-0 pl-4 marker:text-fg-muted"
-				start={block.start}
+		{:else if block.type === 'ul' || block.type === 'ol'}
+			{@const tasky = block.items.some((it) => it.checked !== undefined)}
+			<svelte:element
+				this={block.type === 'ol' ? 'ol' : 'ul'}
+				class={cn(
+					'm-0 space-y-1 p-0',
+					tasky
+						? 'list-none pl-0'
+						: block.type === 'ol'
+							? 'list-decimal pl-4 marker:text-fg-muted'
+							: 'list-disc pl-4 marker:text-fg-muted',
+				)}
+				start={block.type === 'ol' ? block.start : undefined}
 			>
 				{#each block.items as item, j (j)}
 					<li class="min-w-0 pl-0.5">
-						{@render blockTree(item.children)}
+						{#if item.checked !== undefined}
+							<label class="flex items-start gap-2">
+								<input
+									type="checkbox"
+									class="mt-1 size-3.5 shrink-0 accent-accent"
+									checked={item.checked}
+									disabled
+								/>
+								<div class="min-w-0 flex-1">
+									{@render blockTree(item.children)}
+								</div>
+							</label>
+						{:else}
+							{@render blockTree(item.children)}
+						{/if}
 					</li>
 				{/each}
-			</ol>
+			</svelte:element>
 		{:else if block.type === 'blockquote'}
 			<blockquote
 				class="m-0 border-l border-line-strong pl-3 text-fg-secondary"
 			>
 				{@render blockTree(block.children)}
 			</blockquote>
+		{:else if block.type === 'alert'}
+			<div
+				class={cn(
+					'm-0 rounded-md border px-3 py-2',
+					alertTone[block.kind].box,
+				)}
+			>
+				<p class="m-0 mb-1 text-caption font-semibold tracking-wide text-fg">
+					{alertTone[block.kind].label}
+				</p>
+				<div class="flex min-w-0 flex-col gap-2">
+					{@render blockTree(block.children)}
+				</div>
+			</div>
 		{:else if block.type === 'table'}
 			<div class="overflow-x-auto rounded-lg border border-line">
 				<table class="w-full border-collapse text-left">
@@ -121,7 +188,10 @@
 						<tr>
 							{#each block.head as cell, c (c)}
 								<th
-									class="border-b border-line px-2 py-1 text-caption font-semibold text-fg-secondary"
+									class={cn(
+										'border-b border-line px-2 py-1 text-caption font-semibold text-fg-secondary',
+										alignClass(block.align?.[c]),
+									)}
 								>
 									{@render inlineNodes(cell)}
 								</th>
@@ -133,7 +203,10 @@
 							<tr class="odd:bg-panel even:bg-elevated">
 								{#each row as cell, c (c)}
 									<td
-										class="border-t border-line px-2 py-1 font-mono text-caption text-fg"
+										class={cn(
+											'border-t border-line px-2 py-1 font-mono text-caption text-fg',
+											alignClass(block.align?.[c]),
+										)}
 									>
 										{@render inlineNodes(cell)}
 									</td>
@@ -143,6 +216,12 @@
 					</tbody>
 				</table>
 			</div>
+		{:else if block.type === 'math'}
+			<p
+				class="m-0 py-0.5 text-center italic text-fg"
+			>
+				{renderMath(block.value)}
+			</p>
 		{:else if block.type === 'hr'}
 			<hr class="m-1 border-0 border-t border-line" />
 		{/if}
