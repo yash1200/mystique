@@ -317,7 +317,7 @@
 			loadFromTable(true)
 			markServerPreviewApplied()
 		} catch (err) {
-			statusMsg = err instanceof Error ? err.message : String(err)
+			reportGridError(err)
 		} finally {
 			refreshing = false
 		}
@@ -520,6 +520,10 @@
 		setTimeout(() => {
 			if (statusMsg === msg) statusMsg = null
 		}, ms)
+	}
+
+	function reportGridError(err: unknown) {
+		showToast('danger', err instanceof Error ? err.message : String(err))
 	}
 
 	function notifyCopy(
@@ -1010,7 +1014,7 @@
 			(c) => c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
 		)
 		if (!hasPk) {
-			if (!quiet) flashStatus('Cannot delete: table has no primary key')
+			if (!quiet) showToast('danger', 'Cannot delete: table has no primary key')
 			return
 		}
 
@@ -1937,7 +1941,7 @@
 	async function goToPage(nextPage: number) {
 		if (editing) commitEdit()
 		if (dirtyCount > 0) {
-			statusMsg = 'Save or reset changes before changing page.'
+			showToast('warning', 'Save or reset changes before changing page.')
 			return
 		}
 		const p = Math.max(0, Math.min(totalPages - 1, nextPage))
@@ -1951,7 +1955,7 @@
 			loadFromTable(true)
 			markServerPreviewApplied()
 		} catch (err) {
-			statusMsg = err instanceof Error ? err.message : String(err)
+			reportGridError(err)
 		} finally {
 			refreshing = false
 		}
@@ -1991,7 +1995,7 @@
 			page = 0
 			onbaselinechange?.()
 		} catch (err) {
-			statusMsg = err instanceof Error ? err.message : String(err)
+			reportGridError(err)
 		} finally {
 			refreshing = false
 		}
@@ -2063,7 +2067,7 @@
 			)
 			onbaselinechange?.()
 		} catch (err) {
-			statusMsg = err instanceof Error ? err.message : String(err)
+			reportGridError(err)
 		} finally {
 			saving = false
 		}
