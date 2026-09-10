@@ -3,6 +3,7 @@
 	import {
 		applyPreferredUiScale,
 		applyUiScale,
+		blockHistoryBackspace,
 		setAppTitle,
 		writeScalePreference,
 	} from '$core/util'
@@ -64,6 +65,7 @@
 			}
 		}
 		window.addEventListener('keydown', onKey, true)
+		window.addEventListener('keydown', blockHistoryBackspace, true)
 
 		const unsubs: Array<() => void> = []
 		let cancelled = false
@@ -89,6 +91,7 @@
 			cancelled = true
 			unwatchScheme()
 			window.removeEventListener('keydown', onKey, true)
+			window.removeEventListener('keydown', blockHistoryBackspace, true)
 			for (const u of unsubs) u()
 		}
 	})

@@ -3,7 +3,6 @@
 	import { cn, fetchedLabel } from '$core/util'
 	interface Props {
 		dirtyCount: number
-		statusMsg: string | null
 		/** Epoch ms of the last engine preview fetch. */
 		lastFetchedAt: number | null
 		safePage: number
@@ -22,7 +21,6 @@
 
 	let {
 		dirtyCount,
-		statusMsg,
 		lastFetchedAt,
 		safePage,
 		totalPages,
@@ -80,9 +78,6 @@
 			>
 				{dirtyCount} unsaved
 			</span>
-		{/if}
-		{#if statusMsg}
-			<span class="shrink-0 truncate text-warning">{statusMsg}</span>
 		{/if}
 	{/snippet}
 	{#snippet center()}

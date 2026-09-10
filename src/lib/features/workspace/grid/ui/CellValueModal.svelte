@@ -81,6 +81,10 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
+		if (e.key === 'Backspace' || e.key === 'Delete') {
+			e.stopPropagation()
+			if (readonly) e.preventDefault()
+		}
 		if (readonly) return
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			e.preventDefault()

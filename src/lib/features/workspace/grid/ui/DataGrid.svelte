@@ -147,8 +147,6 @@
 	let page = $state(0)
 	let refreshing = $state(false)
 	let saving = $state(false)
-	let statusMsg = $state<string | null>(null)
-
 	let loadedTableId = $state<string | null>(null)
 	let appliedSyncTick = $state(0)
 	let appliedPreviewTick = $state(0)
@@ -311,7 +309,6 @@
 	async function reloadFromEngine(offset: number) {
 		if (!onreload) return
 		refreshing = true
-		statusMsg = null
 		try {
 			await onreload(reloadOpts(offset))
 			loadFromTable(true)
@@ -515,11 +512,8 @@
 		cloneRows(targets)
 	}
 
-	function flashStatus(msg: string, ms = 1600) {
-		statusMsg = msg
-		setTimeout(() => {
-			if (statusMsg === msg) statusMsg = null
-		}, ms)
+	function flashStatus(msg: string) {
+		showToast('warning', msg)
 	}
 
 	function reportGridError(err: unknown) {
@@ -1343,7 +1337,6 @@
 		if (loadedTableId === id) return
 		loadFromTable(true)
 		page = 0
-		statusMsg = null
 		applySeedState()
 		appliedSyncTick = -1
 		appliedPreviewTick = tablePreviewTick
@@ -1949,7 +1942,6 @@
 		page = p
 		if (!onreload) return
 		refreshing = true
-		statusMsg = null
 		try {
 			await onreload(reloadOpts(p * PAGE_SIZE))
 			loadFromTable(true)
@@ -1973,7 +1965,6 @@
 		if (refreshing) return
 		if (editing) cancelEdit()
 		refreshing = true
-		statusMsg = null
 		try {
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
@@ -2007,7 +1998,6 @@
 		if (editing) commitEdit()
 		if (dirtyCount === 0) return
 		saving = true
-		statusMsg = null
 		try {
 			const pendingDbDeletes = [...deletedIndices].filter(
 				(i) => !newRowIndices.has(i),
@@ -2235,7 +2225,6 @@
 
 	<GridStatusBar
 		{dirtyCount}
-		{statusMsg}
 		{lastFetchedAt}
 		{safePage}
 		{totalPages}
