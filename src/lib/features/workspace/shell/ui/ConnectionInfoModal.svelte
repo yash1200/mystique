@@ -18,7 +18,7 @@
 		connectionEndpoint,
 		connectionInitial,
 	} from '$features/connections'
-	import { onDestroy } from 'svelte'
+	import { showToast } from '$features/toast'
 	import { liveStatusMark } from '../live-session'
 	import { workspaceSession } from '../session.svelte'
 
@@ -31,38 +31,18 @@
 	let { open, profile, onclose }: Props = $props()
 
 	let copyBusy = $state(false)
-	let copyMsg = $state<string | null>(null)
-	let copyOk = $state(false)
-	let copyTimer: ReturnType<typeof setTimeout> | null = null
-
-	function resetCopy() {
-		copyBusy = false
-		copyMsg = null
-		copyOk = false
-		if (copyTimer) {
-			clearTimeout(copyTimer)
-			copyTimer = null
-		}
-	}
 
 	function handleClose() {
-		resetCopy()
 		onclose()
-	}
-
-	function flashCopy(ok: boolean, message: string) {
-		copyOk = ok
-		copyMsg = message
-		if (copyTimer) clearTimeout(copyTimer)
-		copyTimer = setTimeout(() => {
-			copyMsg = null
-		}, 2200)
 	}
 
 	async function copyConnectionUrl() {
 		if (!profile || copyBusy) return
 		if (!isTauri()) {
-			flashCopy(false, 'Copy needs the desktop app.')
+			showToast(
+				'warning',
+				'Copy connection URL needs the desktop app (`npm run tauri dev`).',
+			)
 			return
 		}
 		copyBusy = true
@@ -75,17 +55,17 @@
 			})
 			const url = formatted.url?.trim()
 			if (!url) {
-				flashCopy(false, 'No URL for this connection.')
+				showToast('warning', 'No connection URL available for this profile.')
 				return
 			}
 			const result = await copyTextToClipboard(url)
 			if (result.ok) {
-				flashCopy(true, 'Copied.')
+				showToast('success', 'Connection URL copied.')
 			} else if (!result.cancelled) {
-				flashCopy(false, result.error || 'Could not copy the URL.')
+				showToast('danger', result.error || 'Could not copy connection URL.')
 			}
 		} catch (err) {
-			flashCopy(false, err instanceof Error ? err.message : String(err))
+			showToast('danger', err instanceof Error ? err.message : String(err))
 		} finally {
 			copyBusy = false
 		}
@@ -199,7 +179,6 @@
 		}
 	}
 
-	onDestroy(resetCopy)
 </script>
 
 <Modal
@@ -271,15 +250,10 @@
 						'transition-[color,background-color,border-color,transform] duration-150 ease-out',
 						'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus',
 						'enabled:active:scale-[0.99]',
-						copyOk && copyMsg
-							? 'border-success/40'
-							: copyMsg && !copyOk
-								? 'border-danger/40'
-								: 'border-line hover:border-line-strong hover:bg-hover',
+						'border-line hover:border-line-strong hover:bg-hover',
 					)}
 					disabled={copyBusy || !profile}
 					aria-label="Copy connection URL"
-					aria-describedby="connection-url-hint"
 					onclick={() => void copyConnectionUrl()}
 				>
 					<div class="min-w-0 flex-1">
@@ -293,29 +267,8 @@
 							{urlPreview || 'No URL'}
 						</p>
 					</div>
-					<Icon
-						name={copyOk && copyMsg ? 'check' : 'copy'}
-						class={cn(
-							copyOk && copyMsg && 'text-success',
-							copyMsg && !copyOk && 'text-danger',
-							!copyMsg && 'text-fg-secondary',
-						)}
-					/>
+					<Icon name="copy" class="text-fg-secondary" />
 				</button>
-				<p
-					id="connection-url-hint"
-					class={cn(
-						'mt-1.5 mb-0 text-caption',
-						copyMsg
-							? copyOk
-								? 'text-success'
-								: 'text-danger'
-							: 'text-fg-muted',
-					)}
-					aria-live="polite"
-				>
-					{copyMsg ?? 'Includes saved credentials.'}
-				</p>
 			</div>
 
 			{#if facts.length > 0}
