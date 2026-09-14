@@ -4,6 +4,7 @@
 	import { cn } from '$core/util'
 	import { engineLabel } from '$engines'
 	import { colorHex, connectionEndpoint, connectionInitial } from '../model'
+
 	const ENGINE_RANK: Record<string, string> = {
 		postgres: 'Postgres',
 		mysql: 'MySQL',
@@ -102,15 +103,25 @@
 		>
 			<span
 				class={cn(
-					'grid size-7 shrink-0 place-items-center rounded-md text-caption font-semibold leading-none transition-colors duration-150',
+					'relative grid size-7 shrink-0 place-items-center rounded-md text-caption font-semibold leading-none transition-colors duration-150',
 					selected
 						? 'bg-(--connection-color)/20'
 						: 'bg-input group-hover:bg-(--connection-color)/12',
 				)}
 				style="color: var(--connection-color)"
-				aria-hidden="true"
 			>
-				{initial}
+				<span aria-hidden="true">{initial}</span>
+				{#if showStatus}
+					<span
+						class="absolute -right-0.5 -bottom-0.5 grid size-status place-items-center rounded-full ring-2 ring-panel"
+					>
+						<StatusDot
+							status={connecting ? 'running' : status}
+							label={connecting ? 'Connecting' : undefined}
+							pulse={false}
+						/>
+					</span>
+				{/if}
 			</span>
 
 			<div class="min-w-0 flex-1">
@@ -156,7 +167,7 @@
 			</div>
 		</button>
 
-		<div class="flex shrink-0 items-center gap-0.5 pr-2">
+		<div class="flex shrink-0 items-center pr-2">
 			<button
 				type="button"
 				class={cn(
@@ -174,19 +185,13 @@
 					e.stopPropagation()
 					onfavorite()
 				}}
-				oncontextmenu={oncontextmenu}
+				{oncontextmenu}
 			>
 				<Icon
 					name={connection.favorite ? 'star-filled' : 'star'}
 					class="size-3.5"
 				/>
 			</button>
-			{#if showStatus}
-				<StatusDot
-					status={connecting ? 'running' : status}
-					label={connecting ? 'Connecting' : undefined}
-				/>
-			{/if}
 		</div>
 	</div>
 </div>
