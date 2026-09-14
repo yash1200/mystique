@@ -6,6 +6,7 @@ import type {
 	ConnectedSession,
 	ConnectionProfile,
 	EngineCapabilities,
+	SessionLiveStatus,
 } from '$core/contracts'
 import { isTauri } from '$core/ipc'
 import { normalizeCapabilities } from '$engines'
@@ -120,6 +121,7 @@ class WorkspaceSessionStore {
 						? normalizeCapabilities(capabilities, profile.engine)
 						: null
 					: (prev?.capabilities ?? null),
+			liveStatus: 'connected',
 		}
 		if (existing >= 0) {
 			this.sessions = this.sessions.map((s, i) => (i === existing ? next : s))
@@ -325,6 +327,15 @@ class WorkspaceSessionStore {
 	closeActiveTab() {
 		if (!this.activeTabId) return
 		this.closeTab(this.activeTabId)
+	}
+
+	setLiveStatus(id: string, liveStatus: SessionLiveStatus) {
+		const i = this.sessions.findIndex((s) => s.profile.id === id)
+		if (i < 0) return
+		if (this.sessions[i]?.liveStatus === liveStatus) return
+		this.sessions = this.sessions.map((s, idx) =>
+			idx === i ? { ...s, liveStatus } : s,
+		)
 	}
 
 	setActiveConnection(id: string) {

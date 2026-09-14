@@ -1,3 +1,4 @@
+import alertCircle from './alert-circle.svg?raw'
 import arrowDown from './arrow-down.svg?raw'
 import arrowUp from './arrow-up.svg?raw'
 import bookmarkFilled from './bookmark-filled.svg?raw'
@@ -25,6 +26,8 @@ import info from './info.svg?raw'
 import metrics from './metrics.svg?raw'
 import model from './model.svg?raw'
 import plus from './plus.svg?raw'
+import plugOff from './plug-off.svg?raw'
+import plug from './plug.svg?raw'
 import refresh from './refresh.svg?raw'
 import schema from './schema.svg?raw'
 import search from './search.svg?raw'
@@ -45,6 +48,9 @@ import view from './view.svg?raw'
 const files = {
 	plus,
 	close,
+	'alert-circle': alertCircle,
+	plug,
+	'plug-off': plugOff,
 	'arrow-up': arrowUp,
 	'arrow-down': arrowDown,
 	trash,

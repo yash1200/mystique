@@ -27,8 +27,9 @@
 		EXPLORER_PANEL_WIDTH_MAX,
 		EXPLORER_PANEL_WIDTH_MIN,
 	} from '$lib/app'
-	import { catalogsFor, selectedDatabaseName } from '../lookup'
 	import { onMount } from 'svelte'
+	import { liveStatusMark } from '../live-session'
+	import { catalogsFor, selectedDatabaseName } from '../lookup'
 	import { workspaceSession } from '../session.svelte'
 	import { workspaceStudio } from '../studio.svelte'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
@@ -59,6 +60,7 @@
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
 	let infoOpen = $state(false)
 	const connectionName = $derived(activeSession?.profile.name?.trim() || '')
+	const liveMark = $derived(liveStatusMark(activeSession?.liveStatus))
 
 	onMount(() => {
 		const onDetails = () => {
@@ -163,6 +165,14 @@
 					title={connectionName}
 				>
 					{connectionName}
+				</span>
+				<span
+					class="grid size-control-sm shrink-0 place-items-center {liveMark.class}"
+					title={liveMark.label}
+					aria-label={liveMark.label}
+					role="status"
+				>
+					<Icon name={liveMark.icon} class="size-4" />
 				</span>
 				<IconButton
 					label="Connection info"

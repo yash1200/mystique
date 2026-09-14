@@ -2,13 +2,58 @@
  * Engine-session helpers used by catalog / grid / query / ER.
  * Not UI — WorkspaceShell only mounts chrome around these.
  */
-import type { ConnectionProfile } from '$core/contracts'
-import { ensureEngineSession, isTauri, openEngineSession } from '$core/ipc'
+import type { ConnectionProfile, SessionLiveStatus } from '$core/contracts'
+import {
+	ensureEngineSession,
+	getEngineSession,
+	isTauri,
+	openEngineSession,
+} from '$core/ipc'
 import { resolveCapabilities } from '$engines'
 import { pluginConfigForSession } from '$features/connections'
 import { isSessionMissingError, preferredDbForProfile } from './session-utils'
 import { workspaceSession } from './session.svelte'
 import { workspaceStudio } from './studio.svelte'
+
+const HEALTH_INTERVAL_MS = 15_000
+
+export function liveStatusMark(live: SessionLiveStatus | undefined): {
+	icon: 'plug' | 'plug-off' | 'refresh' | 'alert-circle'
+	class: string
+	label: string
+	word: string
+} {
+	switch (live) {
+		case 'reconnecting':
+			return {
+				icon: 'refresh',
+				class: 'text-info',
+				label: 'Reconnecting',
+				word: 'Reconnecting',
+			}
+		case 'error':
+			return {
+				icon: 'alert-circle',
+				class: 'text-danger',
+				label: 'Reconnect failed',
+				word: 'Error',
+			}
+		case 'disconnected':
+			return {
+				icon: 'plug-off',
+				class: 'text-fg-muted',
+				label: 'Disconnected — reconnects on next request',
+				word: 'Disconnected',
+			}
+		default:
+			return {
+				icon: 'plug',
+				class: 'text-success',
+				label: 'Connected',
+				word: 'Connected',
+			}
+	}
+}
 
 export function sessionDatabase(
 	connectionId: string,
@@ -68,14 +113,87 @@ export async function withLiveSession<T>(
 	const db = sessionDatabase(connectionId, session.profile)
 	let sid = session.engineSessionId
 	if (!sid) {
-		sid = await reopenEngineSession(session.profile, db)
+		sid = await reopenTracked(connectionId, session.profile, db)
 	}
 	try {
-		return await fn(sid)
+		const result = await fn(sid)
+		workspaceSession.setLiveStatus(connectionId, 'connected')
+		return result
 	} catch (e) {
 		if (!isSessionMissingError(e)) throw e
-		sid = await reopenEngineSession(session.profile, db)
-		return await fn(sid)
+		sid = await reopenTracked(connectionId, session.profile, db)
+		const result = await fn(sid)
+		workspaceSession.setLiveStatus(connectionId, 'connected')
+		return result
+	}
+}
+
+async function reopenTracked(
+	connectionId: string,
+	profile: ConnectionProfile,
+	database?: string | null,
+): Promise<string> {
+	workspaceSession.setLiveStatus(connectionId, 'reconnecting')
+	try {
+		return await reopenEngineSession(profile, database)
+	} catch (e) {
+		workspaceSession.setLiveStatus(connectionId, 'error')
+		throw e
+	}
+}
+
+/** Cheap in-memory check: does the backend still have this pool? No DB ping. */
+export async function probeSessionHealth(connectionId: string): Promise<void> {
+	if (!isTauri()) return
+	const session = workspaceSession.sessions.find(
+		(s) => s.profile.id === connectionId,
+	)
+	if (!session || session.liveStatus === 'reconnecting') return
+	const sid = session.engineSessionId?.trim()
+	if (!sid) {
+		workspaceSession.setLiveStatus(connectionId, 'disconnected')
+		return
+	}
+	try {
+		const info = await getEngineSession(sid)
+		const latest = workspaceSession.sessions.find(
+			(s) => s.profile.id === connectionId,
+		)
+		if (!latest || latest.liveStatus === 'reconnecting') return
+		if (info) {
+			workspaceSession.setLiveStatus(connectionId, 'connected')
+			return
+		}
+		if (latest.liveStatus !== 'error') {
+			workspaceSession.setLiveStatus(connectionId, 'disconnected')
+		}
+	} catch {
+		const latest = workspaceSession.sessions.find(
+			(s) => s.profile.id === connectionId,
+		)
+		if (!latest || latest.liveStatus === 'reconnecting') return
+		if (latest.liveStatus !== 'error') {
+			workspaceSession.setLiveStatus(connectionId, 'disconnected')
+		}
+	}
+}
+
+/** Poll + focus/visibility probes. Pair with an $effect on the active session id. */
+export function startSessionHealthWatch(): () => void {
+	const tick = () => {
+		const id = workspaceSession.activeConnectionId
+		if (id) void probeSessionHealth(id)
+	}
+	const timer = setInterval(tick, HEALTH_INTERVAL_MS)
+	const onVis = () => {
+		if (document.visibilityState === 'visible') tick()
+	}
+	document.addEventListener('visibilitychange', onVis)
+	window.addEventListener('focus', tick)
+	return () => {
+		clearInterval(timer)
+		document.removeEventListener('visibilitychange', onVis)
+		window.removeEventListener('focus', tick)
 	}
 }
 

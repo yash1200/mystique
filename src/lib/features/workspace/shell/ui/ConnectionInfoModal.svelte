@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '$core/contracts'
 	import { formatEngineConnectionUrl, isTauri } from '$core/ipc'
-	import { Icon, IconButton, Modal, Pill, StatusDot } from '$core/ui'
+	import { Icon, IconButton, Modal, Pill } from '$core/ui'
 	import { cn, copyTextToClipboard } from '$core/util'
 	import {
 		connectionKindFromCaps,
@@ -19,6 +19,8 @@
 		connectionInitial,
 	} from '$features/connections'
 	import { onDestroy } from 'svelte'
+	import { liveStatusMark } from '../live-session'
+	import { workspaceSession } from '../session.svelte'
 
 	interface Props {
 		open: boolean
@@ -94,7 +96,15 @@
 		profile ? connectionInitial(profile.name, String(profile.engine)) : '',
 	)
 	const endpoint = $derived(profile ? connectionEndpoint(profile) : '')
-	const status = $derived(profile?.status)
+	const liveStatus = $derived(
+		profile
+			? (workspaceSession.sessions.find((s) => s.profile.id === profile.id)
+					?.liveStatus ??
+					profile.status ??
+					'disconnected')
+			: undefined,
+	)
+	const liveMark = $derived(liveStatusMark(liveStatus))
 	const kind = $derived(
 		profile
 			? connectionKindFromCaps(defaultCapabilitiesForEngine(profile.engine))
@@ -238,9 +248,13 @@
 					{#if profile.environment === 'staging'}
 						<span class="text-fg-muted">{envLabel}</span>
 					{/if}
-					{#if status === 'connected' || status === 'error'}
-						<StatusDot {status} pulse={status === 'connected'} />
-					{/if}
+					<span
+						class="inline-flex items-center gap-1 {liveMark.class}"
+						title={liveMark.label}
+					>
+						<Icon name={liveMark.icon} class="size-3.5" />
+						<span>{liveMark.word}</span>
+					</span>
 				</p>
 			</div>
 			<IconButton label="Close" variant="ghost" size="sm" onclick={handleClose}>

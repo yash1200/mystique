@@ -30,7 +30,12 @@
 		refreshSavedQueries,
 	} from '$features/workspace/query'
 	import { onDestroy, onMount } from 'svelte'
-	import { reopenEngineSession, sessionDatabase } from '../live-session'
+	import {
+		probeSessionHealth,
+		reopenEngineSession,
+		sessionDatabase,
+		startSessionHealthWatch,
+	} from '../live-session'
 	import { workspaceSession } from '../session.svelte'
 	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import { workspaceStudio } from '../studio.svelte'
@@ -56,6 +61,12 @@
 		void activeSession?.profile.id
 		void activeSession?.engineSessionId
 		void ensureCatalogForActiveSession()
+	})
+
+	$effect(() => {
+		const id = activeSession?.profile.id
+		void activeSession?.engineSessionId
+		if (id) void probeSessionHealth(id)
 	})
 
 	let pendingCloseTabId = $state<string | null>(null)
@@ -371,10 +382,13 @@
 			if (cancelled) u()
 			else unsubMenu = u
 		})
+		const unsubHealth = startSessionHealthWatch()
+
 		return () => {
 			cancelled = true
 			unsubKeys()
 			unsubMenu()
+			unsubHealth()
 		}
 	})
 </script>
