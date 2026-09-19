@@ -1,7 +1,6 @@
 //! Persistence adapters.
 //!
-//! Today: SQLite under `sqlite`.
-//! Later: keychain, file export, remote sync as sibling modules.
+//! Today: SQLite under `sqlite`. Connection passwords: `crate::secrets`.
 
 pub mod sqlite;
 

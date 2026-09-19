@@ -14,7 +14,6 @@
 	import {
 		colorHex,
 		connectionProfiles,
-		draftFromProfile,
 		pluginConfigForSession,
 	} from '$features/connections'
 	import {
@@ -211,16 +210,11 @@
 				pickerOpen = false
 				return
 			}
-			const draft = draftFromProfile(profile)
 			const pluginConfig = pluginConfigForSession(profile)
-			const password =
-				draft.password.trim().length > 0
-					? draft.password
-					: profile.password?.trim() || null
 			const result = await testEngineConnection({
 				engine: String(profile.engine),
 				pluginConfig,
-				password,
+				profileId: profile.id,
 				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
 			})
 			if (!result.ok) {
@@ -231,7 +225,7 @@
 			const session = await ensureEngineSession({
 				engine: String(profile.engine),
 				pluginConfig,
-				password,
+				profileId: profile.id,
 				pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 				sessionId: profile.id,
 			})

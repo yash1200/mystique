@@ -176,13 +176,15 @@
 		testing = true
 		try {
 			const pluginConfig = pluginConfigFromDraft(draft)
-			// Prefer URI password when embedded; otherwise send form password
-			const password = draft.password.trim().length > 0 ? draft.password : null
+			const typed = draft.password.trim()
+			const password = typed.length > 0 ? typed : null
 
 			const result = await testEngineConnection({
 				engine: String(draft.engine),
 				pluginConfig,
 				password,
+				profileId:
+					editing && selectedId && !password ? selectedId : undefined,
 				pool: {
 					maxSize: 2,
 					minIdle: 0,
@@ -245,7 +247,6 @@
 				existingPasswordSet: selected?.passwordSet,
 			})
 
-			// Password is persisted plaintext with the profile (local SQLite).
 			const saved = await connectionProfiles.save(input)
 
 			afterProfilesChange(saved.id)
@@ -297,7 +298,7 @@
 				readOnly: profile.readOnly,
 				notes: profile.notes ?? null,
 				pluginConfig: cfg,
-				password: profile.password ?? null,
+				copySecretFrom: profile.passwordSet ? profile.id : null,
 			})
 			afterProfilesChange(saved.id)
 			showToast('success', `Duplicated as “${saved.name}”.`)
@@ -319,11 +320,9 @@
 			return
 		}
 		try {
-			const password = profile.password?.trim() || null
 			const formatted = await formatEngineConnectionUrl({
 				engine: String(profile.engine),
 				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
-				password,
 			})
 			const url = formatted.url?.trim()
 			if (!url) {
@@ -463,17 +462,12 @@
 		testing = true
 		testResult = null
 		try {
-			const draft = draftFromProfile(profile)
 			const pluginConfig = pluginConfigForSession(profile)
-			const password =
-				draft.password.trim().length > 0
-					? draft.password
-					: profile.password?.trim() || null
 
 			const result = await testEngineConnection({
 				engine: String(profile.engine),
 				pluginConfig,
-				password,
+				profileId: profile.id,
 				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
 			})
 
@@ -492,7 +486,7 @@
 			const session = await ensureEngineSession({
 				engine: String(profile.engine),
 				pluginConfig,
-				password,
+				profileId: profile.id,
 				pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 				sessionId: profile.id,
 			})

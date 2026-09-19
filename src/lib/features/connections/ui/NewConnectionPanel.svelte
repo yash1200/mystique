@@ -105,6 +105,7 @@
 			uri: draft.uri.trim(),
 			username: draft.username.trim(),
 			notes: draft.notes.trim(),
+			clearStoredPassword: Boolean(draft.clearStoredPassword) && !draft.password,
 		}
 	}
 
@@ -218,9 +219,21 @@
 			<EngineFields
 				bind:draft
 				{isEdit}
-				passwordSet={!!initial?.passwordSet}
+				passwordSet={!!initial?.passwordSet && !draft.clearStoredPassword}
 				disabled={saving || testing}
 			/>
+			{#if isEdit && initial?.passwordSet && !draft.clearStoredPassword && !draft.password}
+				<button
+					type="button"
+					class="text-caption text-fg-muted hover:text-danger hover:underline"
+					onclick={() => {
+						draft.password = ''
+						draft.clearStoredPassword = true
+					}}
+				>
+					Clear stored password
+				</button>
+			{/if}
 
 			<Field label="Notes">
 				<Textarea

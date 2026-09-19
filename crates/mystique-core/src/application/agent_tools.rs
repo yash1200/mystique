@@ -18,6 +18,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::connectors::{ConnectionManager, OpenSessionRequest};
 use crate::domain::SaveQueryInput;
 use crate::error::{AppError, AppResult};
+use crate::secrets::SecretStore;
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
 
@@ -33,11 +34,20 @@ pub use types::{
 pub struct AgentTools {
     db: Arc<AppDatabase>,
     connections: Arc<ConnectionManager>,
+    secrets: Arc<SecretStore>,
 }
 
 impl AgentTools {
-    pub fn new(db: Arc<AppDatabase>, connections: Arc<ConnectionManager>) -> Self {
-        Self { db, connections }
+    pub fn new(
+        db: Arc<AppDatabase>,
+        connections: Arc<ConnectionManager>,
+        secrets: Arc<SecretStore>,
+    ) -> Self {
+        Self {
+            db,
+            connections,
+            secrets,
+        }
     }
 
     pub fn specs() -> Vec<AgentToolSpec> {
@@ -130,10 +140,16 @@ impl AgentTools {
             return Ok(id.to_string());
         }
         let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;
+        let password = super::ProfileService {
+            db: &self.db,
+            secrets: &self.secrets,
+        }
+        .resolve_password(id)?;
         let req = OpenSessionRequest {
             engine: profile.engine.clone(),
             plugin_config: profile.plugin_config.clone(),
-            password: profile.password.clone(),
+            password,
+            profile_id: Some(profile.id.clone()),
             pool: Some(PoolConfig {
                 max_size: 5,
                 min_idle: 0,

@@ -96,6 +96,7 @@ async fn test_unknown_engine_returns_structured_fail() {
             password: None,
             pool: None,
             session_id: None,
+            profile_id: None,
         })
         .await
         .unwrap();
@@ -118,6 +119,7 @@ async fn test_postgres_missing_db_structured_fail() {
                 idle_timeout_secs: 5,
             }),
             session_id: None,
+            profile_id: None,
         })
         .await
         .unwrap();
@@ -150,6 +152,7 @@ async fn test_postgres_unreachable_structured_fail() {
                 idle_timeout_secs: 5,
             }),
             session_id: None,
+            profile_id: None,
         })
         .await
         .unwrap();
@@ -187,6 +190,7 @@ async fn test_postgres_local_success_when_available() {
                 idle_timeout_secs: 5,
             }),
             session_id: None,
+            profile_id: None,
         })
         .await
         .unwrap();

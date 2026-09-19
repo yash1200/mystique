@@ -47,7 +47,7 @@ MCP (A-1, A-3) is already shipped. This spec implements the **embedded** agent.
 | Query tab | `WorkspaceMainPane` → `QueryCanvas` (vertical split only) | Right column |
 | Table tab | Right `RowInspector` (`w-72`) — the layout to mirror | — |
 | Settings | `AppSettingsPopover` sections `'appearance' \| 'mcp'`; `mcp.enabled` | `'ai'` section, provider, model, key |
-| Secrets | Connection passwords are plaintext in `connections.secret_ref` (“keychain later”) | Real keychain for AI keys |
+| Secrets | Connection passwords in OS keychain (`conn.<id>`) | AI keys: AES-GCM in SQLite (macOS prompt) |
 | SQLite | Migrations `001`–`003`; `app_settings` KV | Chat / run / tool-audit tables |
 | FE prefs | Explorer width in `src/lib/stores/app-prefs.svelte.ts` | Chat pane width / collapsed |
 | IPC | `get_setting` / `set_setting`; no agent commands | Chat + LLM + keychain IPC |
@@ -508,7 +508,7 @@ value     = { dbml, sha256, fetched_at, table_count }
 On first message of a run:
 
 1. Cache hit and age < TTL → reuse.
-2. Else `AgentTools::get_schema_dbml(connection_id, database)` — **this calls `ensure_session`**, which opens a pooled session (password from plaintext `secret_ref`) if the query tab’s session is dead. First chat message is therefore a **connect side effect**. Prefer the live workspace session when one exists (`session_id == profile.id` already). Empty-state copy discloses this. Optional later: pass `engineSessionId` as a hint; v1 leaves `ensure_session` as-is.
+2. Else `AgentTools::get_schema_dbml(connection_id, database)` — **this calls `ensure_session`**, which opens a pooled session (password from the OS keychain) if the query tab’s session is dead. First chat message is therefore a **connect side effect**. Prefer the live workspace session when one exists (`session_id == profile.id` already). Empty-state copy discloses this. Optional later: pass `engineSessionId` as a hint; v1 leaves `ensure_session` as-is.
 3. If `dbml.len() > SCHEMA_CONTEXT_MAX` (**80 KiB**): keep Table headers, PK/not-null columns, `Ref:` lines; drop other columns; append “Use list_objects / describe_object for the rest.”
 4. Inject as a **system** message (not a persisted `agent_messages` row).
 5. Store `schema_hash` on `agent_runs`. Do **not** persist the DBML blob.

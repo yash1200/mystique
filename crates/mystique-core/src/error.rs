@@ -27,6 +27,9 @@ pub enum AppError {
 
     #[error("internal error: {0}")]
     Internal(String),
+
+    #[error("{0}")]
+    SecretStore(String),
 }
 
 impl Serialize for AppError {

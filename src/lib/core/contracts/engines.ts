@@ -13,6 +13,8 @@ export interface OpenSessionRequest {
 	password?: string | null
 	pool?: PoolConfig
 	sessionId?: string | null
+	/** When password is omitted, resolve the OS-keychain secret for this profile. */
+	profileId?: string | null
 }
 export interface EngineDescriptor {
 	id: string

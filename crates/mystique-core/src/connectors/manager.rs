@@ -35,6 +35,9 @@ pub struct OpenSessionRequest {
     /// Optional client-supplied id (defaults to UUID).
     #[serde(default)]
     pub session_id: Option<String>,
+    /// When `password` is empty, resolve the OS-keychain secret for this profile.
+    #[serde(default)]
+    pub profile_id: Option<String>,
 }
 
 struct LiveSession {

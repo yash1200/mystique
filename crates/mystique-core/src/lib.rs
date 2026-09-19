@@ -16,6 +16,7 @@ pub mod application;
 pub mod connectors;
 pub mod domain;
 pub mod error;
+pub mod secrets;
 pub mod storage;
 
 pub use application::{
@@ -25,6 +26,7 @@ pub use application::{
 pub use connectors::{ConnectionManager, ConnectorRegistry, OpenSessionRequest};
 pub use domain::*;
 pub use error::{AppError, AppResult};
+pub use secrets::SecretStore;
 pub use storage::AppDatabase;
 
 // Re-export API types for IPC adapters

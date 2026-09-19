@@ -31,20 +31,21 @@ fn save_list_delete_connection() {
             password: Some("s3cret".into()),
             secret_ref: None,
             clear_secret: false,
+            copy_secret_from: None,
             favorite: None,
         },
     )
     .unwrap();
 
-    assert!(saved.password_set);
-    assert_eq!(saved.password.as_deref(), Some("s3cret"));
+    assert!(!saved.password_set);
+    assert!(saved.password.is_none());
     assert_eq!(saved.engine, "postgres");
     assert!(saved.id.parse::<i64>().is_ok(), "id should be numeric");
     assert_eq!(saved.plugin_config["port"], 5432);
 
     let all = list_all(&conn).unwrap();
     assert_eq!(all.len(), 1);
-    assert_eq!(all[0].password.as_deref(), Some("s3cret"));
+    assert!(all[0].password.is_none());
 
     delete(&conn, &saved.id).unwrap();
     assert!(list_all(&conn).unwrap().is_empty());
@@ -67,6 +68,7 @@ fn update_keeps_password_when_blank() {
             password: Some("keep-me".into()),
             secret_ref: None,
             clear_secret: false,
+            copy_secret_from: None,
             favorite: None,
         },
     )
@@ -86,14 +88,14 @@ fn update_keeps_password_when_blank() {
             password: None,
             secret_ref: None,
             clear_secret: false,
+            copy_secret_from: None,
             favorite: None,
         },
     )
     .unwrap();
 
     assert_eq!(updated.name, "pg-renamed");
-    assert_eq!(updated.password.as_deref(), Some("keep-me"));
-    assert!(updated.password_set);
+    assert!(updated.password.is_none());
 }
 
 #[test]
@@ -113,6 +115,7 @@ fn clear_secret_removes_password() {
             password: Some("x".into()),
             secret_ref: None,
             clear_secret: false,
+            copy_secret_from: None,
             favorite: None,
         },
     )
@@ -132,6 +135,7 @@ fn clear_secret_removes_password() {
             password: None,
             secret_ref: None,
             clear_secret: true,
+            copy_secret_from: None,
             favorite: None,
         },
     )
@@ -158,6 +162,7 @@ fn ignores_legacy_placeholder_secret_ref() {
             password: None,
             secret_ref: Some("mystique-db/connection/abc".into()),
             clear_secret: false,
+            copy_secret_from: None,
             favorite: None,
         },
     )
@@ -179,6 +184,7 @@ fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
         password: None,
         secret_ref: None,
         clear_secret: false,
+        copy_secret_from: None,
         favorite,
     }
 }

@@ -85,13 +85,12 @@ export async function reopenEngineSession(
 	const pluginConfig = pluginConfigForSession(profile)
 	const db = database?.trim()
 	if (db) pluginConfig.database = db
-	const password = profile.password?.trim() || null
 	const request = {
 		engine: String(profile.engine),
 		pluginConfig,
-		password,
 		pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 		sessionId: profile.id,
+		profileId: profile.id,
 	}
 	const session = db
 		? await openEngineSession(request)

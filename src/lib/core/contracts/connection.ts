@@ -25,7 +25,7 @@ export type PluginConfig = Record<string, unknown>
  * Connection profile — matches mystique-core `ConnectionProfile` (camelCase).
  * `status` is UI-only (not persisted).
  *
- * Password is returned plaintext for now (local app DB). Keychain later.
+ * List/get never include a password. `passwordSet` means one lives in the OS keychain.
  */
 export interface ConnectionProfile {
 	id: string
@@ -37,7 +37,7 @@ export interface ConnectionProfile {
 	notes?: string | null
 	pluginConfig: PluginConfig
 	passwordSet: boolean
-	/** Plaintext password when stored (temporary — not keychain). */
+	/** Write-only on save. Never populated by list/get. */
 	password?: string | null
 	favorite: boolean
 	lastConnectedAt: string | null
@@ -61,6 +61,8 @@ export interface SaveConnectionInput {
 	password?: string | null
 	/** When true, clear the stored password. */
 	clearSecret?: boolean
+	/** Copy the keychain secret from this profile (duplicate). */
+	copySecretFrom?: string | null
 	/** @deprecated Prefer `password`. Kept for IPC compatibility. */
 	secretRef?: string | null
 	/** Omit on update to leave the stored flag unchanged. */
@@ -81,6 +83,8 @@ export interface ConnectionFormDraft {
 	uri: string
 	username: string
 	password: string
+	/** Edit-only: wipe the stored keychain secret on save. */
+	clearStoredPassword?: boolean
 	ssl: boolean
 	readOnly: boolean
 	environment: Environment

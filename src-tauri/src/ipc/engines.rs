@@ -57,11 +57,23 @@ pub async fn format_engine_connection_url(
         .map_err(|e| e.to_string())
 }
 
+fn with_resolved_password(
+    state: &State<'_, AppState>,
+    mut request: OpenSessionRequest,
+) -> Result<OpenSessionRequest, String> {
+    request.password = state
+        .services
+        .password_for_request(&request)
+        .map_err(|e| e.to_string())?;
+    Ok(request)
+}
+
 #[tauri::command]
 pub async fn test_engine_connection(
     state: State<'_, AppState>,
     request: OpenSessionRequest,
 ) -> Result<TestResult, String> {
+    let request = with_resolved_password(&state, request)?;
     state
         .services
         .connections()
@@ -75,6 +87,7 @@ pub async fn open_engine_session(
     state: State<'_, AppState>,
     request: OpenSessionRequest,
 ) -> Result<SessionInfo, String> {
+    let request = with_resolved_password(&state, request)?;
     state
         .services
         .connections()

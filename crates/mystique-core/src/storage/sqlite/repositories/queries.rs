@@ -186,6 +186,7 @@ mod tests {
                 password: None,
                 secret_ref: None,
                 clear_secret: false,
+                copy_secret_from: None,
                 favorite: None,
             },
         )

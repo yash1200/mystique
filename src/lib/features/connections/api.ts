@@ -8,18 +8,14 @@ const LS_KEY_LEGACY = 'mystique-db.profiles.v1'
 
 /** Normalize backend / local payload into a typed UI profile. */
 export function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
-	const password =
-		raw.password != null && String(raw.password).length > 0
-			? String(raw.password)
-			: null
 	return {
 		...raw,
 		colorId: asColorId(String(raw.colorId ?? 'slate')),
 		environment: asEnvironment(String(raw.environment ?? 'local')),
 		pluginConfig: (raw.pluginConfig ?? {}) as ConnectionProfile['pluginConfig'],
 		notes: raw.notes ?? null,
-		password,
-		passwordSet: raw.passwordSet || !!password,
+		password: null,
+		passwordSet: Boolean(raw.passwordSet),
 		favorite: Boolean(raw.favorite),
 		lastConnectedAt: raw.lastConnectedAt ?? null,
 		status: raw.status ?? 'disconnected',
@@ -60,21 +56,15 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
 
 	const existing = rows.find((r) => r.id === id)
 
-	let password: string | null | undefined = existing?.password ?? null
+	let passwordSet = existing?.passwordSet ?? false
 	if (input.clearSecret) {
-		password = null
+		passwordSet = false
 	} else if (input.password != null && String(input.password).length > 0) {
-		password = String(input.password)
-	} else if (
-		input.secretRef != null &&
-		String(input.secretRef).length > 0 &&
-		!String(input.secretRef).startsWith('mystique-db/connection') &&
-		!String(input.secretRef).startsWith('mystique/conn/')
-	) {
-		password = String(input.secretRef)
+		passwordSet = true
+	} else if (input.copySecretFrom) {
+		const src = rows.find((r) => r.id === input.copySecretFrom)
+		passwordSet = Boolean(src?.passwordSet)
 	}
-
-	const passwordSet = !!password
 
 	const profile: ConnectionProfile = {
 		id,
@@ -86,7 +76,7 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
 		notes: input.notes ?? null,
 		pluginConfig: input.pluginConfig ?? {},
 		passwordSet,
-		password: password || null,
+		password: null,
 		favorite: input.favorite ?? existing?.favorite ?? false,
 		lastConnectedAt: existing?.lastConnectedAt ?? null,
 		createdAt: existing?.createdAt ?? ts,

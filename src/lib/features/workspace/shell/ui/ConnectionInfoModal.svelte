@@ -47,11 +47,9 @@
 		}
 		copyBusy = true
 		try {
-			const password = profile.password?.trim() || null
 			const formatted = await formatEngineConnectionUrl({
 				engine: String(profile.engine),
 				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
-				password,
 			})
 			const url = formatted.url?.trim()
 			if (!url) {

@@ -55,11 +55,11 @@ export const mongodb: EngineAdapter = {
 		 * Connector contract: always hand the plugin a `mongodb://` URI, and take
 		 * the default database from its path when there is one.
 		 */
-		sessionPluginConfig: (profile, merged) => {
+		sessionPluginConfig: (_profile, merged) => {
 			const cfg: PluginConfig = { ...merged }
 			let uri = String(cfg.uri ?? '').trim()
 			if (!uri) {
-				uri = buildMongoUriFromFields(cfg, profile.password) ?? ''
+				uri = buildMongoUriFromFields(cfg) ?? ''
 			}
 			if (uri) cfg.uri = uri
 			const fromUri = databaseFromMongoUri(uri)

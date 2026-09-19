@@ -133,7 +133,8 @@ export function draftFromProfile(
 		path: configStr(c, 'path'),
 		uri,
 		username: configStr(c, 'username'),
-		password: profile.password ?? '',
+		password: '',
+		clearStoredPassword: false,
 		ssl: configBool(c, 'ssl', false) || configStr(c, 'sslMode') === 'require',
 		readOnly: profile.readOnly,
 		environment: asEnvironment(profile.environment),
@@ -185,8 +186,10 @@ export function saveInputFromDraft(
 		pluginConfig,
 	}
 
-	// Plaintext password in local SQLite (secret_ref column). Blank on edit keeps existing.
-	if (options?.clearPassword) {
+	if (
+		(options?.clearPassword || draft.clearStoredPassword) &&
+		draft.password.length === 0
+	) {
 		input.clearSecret = true
 	} else if (draft.password.length > 0) {
 		input.password = draft.password

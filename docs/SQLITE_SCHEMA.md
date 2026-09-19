@@ -3,7 +3,7 @@
 > **Status:** Canonical app-metadata schema  
 > **Schema SQL:** [`crates/mystique-core/migrations/001_init.sql`](../crates/mystique-core/migrations/001_init.sql)  
 > **Backend layout:** [`BACKEND_STRUCTURE.md`](./BACKEND_STRUCTURE.md)  
-> **Last updated:** 2026-08-23
+> **Last updated:** 2026-09-19
 
 This document describes the **local SQLite database** used by the Mystique desktop app to persist connection profiles, saved queries, history, and settings.
 
@@ -143,7 +143,7 @@ Saved connection profiles for **any** engine.
 | `read_only` | INTEGER | yes | `0` / `1` |
 | `notes` | TEXT | no | Free text |
 | `plugin_config` | TEXT | yes | JSON object; default `'{}'` |
-| `secret_ref` | TEXT | no | Keychain reference |
+| `secret_ref` | TEXT | no | Opaque pointer `conn.<id>` (never the password) |
 | `last_connected_at` | TEXT | no | ISO-8601 UTC |
 | `created_at` | TEXT | yes | ISO-8601 UTC |
 | `updated_at` | TEXT | yes | ISO-8601 UTC |
@@ -644,7 +644,7 @@ When extending:
 | `crates/mystique-core/migrations/*.sql` | DDL |
 | `crates/mystique-core` `domain` / `storage` / `application` | types, SQLite, services |
 | `src-tauri/src/ipc/` | Thin Tauri invoke adapters |
-| OS keychain | secrets (planned) |
+| OS keychain | `dev.mystique.db` / `conn.<id>` via `mystique_core::SecretStore` |
 | Engine plugins | interpret `plugin_config`, open real sessions (planned crates) |
 | Svelte `src/lib/api/` | invoke wrappers (not wired yet) |
 | Home UI | list/save/delete profiles (no direct SQL) |
@@ -655,6 +655,7 @@ When extending:
 
 | Version | Date | Notes |
 | ------- | ---- | ----- |
+| 1.1 | 2026-09-19 | Connection passwords in OS keychain; `secret_ref` is `conn.<id>` only |
 | 1.0 | 2026-07-25 | Initial multi-engine schema: `plugin_config`, queries, history, settings; Beekeeper comparison |
 
 ---

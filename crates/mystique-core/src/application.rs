@@ -26,7 +26,9 @@ pub use workspace_tabs::WorkspaceTabsService;
 
 use std::sync::Arc;
 
-use crate::connectors::ConnectionManager;
+use crate::connectors::{ConnectionManager, OpenSessionRequest};
+use crate::error::AppResult;
+use crate::secrets::SecretStore;
 use crate::storage::AppDatabase;
 
 /// Bundle of application services.
@@ -35,29 +37,67 @@ use crate::storage::AppDatabase;
 pub struct AppServices {
     pub db: Arc<AppDatabase>,
     pub connections: Arc<ConnectionManager>,
+    pub secrets: Arc<SecretStore>,
 }
 
 impl AppServices {
     pub fn new(db: AppDatabase) -> Self {
-        Self {
-            db: Arc::new(db),
-            connections: Arc::new(ConnectionManager::bootstrap()),
-        }
+        Self::with_secrets(db, ConnectionManager::bootstrap(), SecretStore::os())
     }
 
     pub fn with_connections(db: AppDatabase, connections: ConnectionManager) -> Self {
-        Self {
+        Self::with_secrets(db, connections, SecretStore::os())
+    }
+
+    pub fn with_secrets(
+        db: AppDatabase,
+        connections: ConnectionManager,
+        secrets: SecretStore,
+    ) -> Self {
+        let svc = Self {
             db: Arc::new(db),
             connections: Arc::new(connections),
-        }
+            secrets: Arc::new(secrets),
+        };
+        let _ = svc.profiles().migrate_plaintext_secrets();
+        svc
     }
 
     pub fn agent_tools(&self) -> AgentTools {
-        AgentTools::new(Arc::clone(&self.db), Arc::clone(&self.connections))
+        AgentTools::new(
+            Arc::clone(&self.db),
+            Arc::clone(&self.connections),
+            Arc::clone(&self.secrets),
+        )
     }
 
     pub fn profiles(&self) -> ProfileService<'_> {
-        ProfileService { db: &self.db }
+        ProfileService {
+            db: &self.db,
+            secrets: &self.secrets,
+        }
+    }
+
+    /// Typed request password wins; otherwise look up the profile in the keychain.
+    pub fn password_for_request(&self, req: &OpenSessionRequest) -> AppResult<Option<String>> {
+        let typed = req
+            .password
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if let Some(pw) = typed {
+            return Ok(Some(pw.to_string()));
+        }
+        let id = req
+            .profile_id
+            .as_deref()
+            .or(req.session_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        match id {
+            Some(id) => self.profiles().resolve_password(id),
+            None => Ok(None),
+        }
     }
 
     pub fn query_library(&self) -> QueryLibraryService<'_> {

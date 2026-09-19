@@ -5,7 +5,6 @@
 	import { ensureEngineSession, isTauri } from '$core/ipc'
 	import {
 		connectionProfiles,
-		draftFromProfile,
 		pluginConfigForSession,
 	} from '$features/connections'
 	import { onMount } from 'svelte'
@@ -37,18 +36,13 @@
 			// Ensure live engine session if missing (e.g. soft reload).
 			if (isTauri() && !existing.engineSessionId) {
 				try {
-					const draft = draftFromProfile(existing.profile)
 					const pluginConfig = pluginConfigForSession(existing.profile)
-					const password =
-						draft.password.trim().length > 0
-							? draft.password
-							: existing.profile.password?.trim() || null
 					const session = await ensureEngineSession({
 						engine: String(existing.profile.engine),
 						pluginConfig,
-						password,
 						pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 						sessionId: existing.profile.id,
+						profileId: existing.profile.id,
 					})
 					workspaceSession.connect(
 						existing.profile,
@@ -78,18 +72,13 @@
 			let capabilities = null
 			if (isTauri()) {
 				try {
-					const draft = draftFromProfile(profile)
 					const pluginConfig = pluginConfigForSession(profile)
-					const password =
-						draft.password.trim().length > 0
-							? draft.password
-							: profile.password?.trim() || null
 					const session = await ensureEngineSession({
 						engine: String(profile.engine),
 						pluginConfig,
-						password,
 						pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 						sessionId: profile.id,
+						profileId: profile.id,
 					})
 					engineSessionId = session.sessionId
 					capabilities = session.capabilities
