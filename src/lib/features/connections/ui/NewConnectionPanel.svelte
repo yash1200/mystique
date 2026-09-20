@@ -17,7 +17,7 @@
 		Stack,
 		Textarea,
 	} from '$core/ui'
-	import { adapterFor, emptyDraft, engineOptions } from '$engines'
+	import { adapterFor, emptyDraft, EngineFields, engineOptions } from '$engines'
 	import {
 		CONNECTION_COLORS,
 		draftFromProfile,
@@ -54,7 +54,6 @@
 
 	const isEdit = $derived(!!initial?.id)
 	const adapter = $derived(adapterFor(draft.engine))
-	const EngineFields = $derived(adapter.connection.Fields)
 	const colorHexVal = $derived(
 		CONNECTION_COLORS.find((c) => c.id === draft.colorId)?.hex ?? '#3ec9c0',
 	)

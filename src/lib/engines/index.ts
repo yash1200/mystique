@@ -44,3 +44,5 @@ export {
 } from './capabilities'
 
 export type { SqlCompleteConfig } from './sql/complete'
+
+export { default as EngineFields } from './ui/EngineFields.svelte'

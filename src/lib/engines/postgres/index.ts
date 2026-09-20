@@ -4,7 +4,6 @@ import { relationalCapabilities } from '../capabilities'
 import { sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
-import Fields from './Fields.svelte'
 
 export const postgres: EngineAdapter = {
 	id: 'postgres',
@@ -17,7 +16,6 @@ export const postgres: EngineAdapter = {
 	defaultPort: 5432,
 
 	connection: {
-		Fields,
 		emptyDraft: () => ({
 			engine: 'postgres',
 			host: '127.0.0.1',

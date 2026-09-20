@@ -88,7 +88,7 @@ UI uses tokens from [`docs/DESIGN_LANGUAGE.md`](docs/DESIGN_LANGUAGE.md). No `te
 
 Backend: new `mystique-plugin-<engine>` crate (`DatabaseConnector` + `ConnectorSession` + `EngineQueryPolicy` + metrics). Register both connector and policy in `ConnectorRegistry::bootstrap()`.
 
-Frontend: `src/lib/engines/<engine>/` with `index.ts` and `Fields.svelte`, then one `register()` in `engines/registry.ts`. Chrome reads `EngineCapabilities`, not `if (engine === '…')`.
+Frontend: `src/lib/engines/<engine>/` with `index.ts`, then one `register()` in `engines/registry.ts`. Connection forms are Host / File / URI shells in `engines/ui/` keyed by `connectionKind` — do not add `Fields.svelte` per engine. Chrome reads `EngineCapabilities`, not `if (engine === '…')`.
 
 A **product** (picker / `connections.engine`) can share a **runtime** crate. Add a row to `crates/mystique-connector-api/src/products.rs` **and** `src/lib/engines/products.ts` — do not copy a plugin. `ConnectorRegistry::get("mariadb")` returns the MySQL connector. Picker cards for those products are Phase 1.4.
 

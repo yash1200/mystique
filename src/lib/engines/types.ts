@@ -18,7 +18,6 @@ import type {
 } from '$core/contracts'
 import type { CompletionSource } from '@codemirror/autocomplete'
 import type { SQLDialect } from '@codemirror/lang-sql'
-import type { Component } from 'svelte'
 
 export type FormatQueryResult =
 	| { ok: true; text: string }
@@ -35,10 +34,10 @@ export interface EngineFieldsProps {
 }
 
 export interface EngineConnectionAdapter {
-	/** Component rendered inside the New/Edit connection form. */
-	Fields: Component<EngineFieldsProps>
 	/** Blank draft for this engine (ports, default db, seed credentials). */
 	emptyDraft(): Omit<ConnectionFormDraft, 'name' | 'colorId'>
+	/** Placeholder for URI-kind shells (Mongo). */
+	uriPlaceholder?: string
 	/** Draft → `plugin_config` JSON handed to the Rust connector. */
 	toPluginConfig(draft: ConnectionFormDraft): PluginConfig
 	/**

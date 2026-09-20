@@ -4,7 +4,6 @@ import { relationalCapabilities } from '../capabilities'
 import { sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
-import Fields from './Fields.svelte'
 
 export const mysql: EngineAdapter = {
 	id: 'mysql',
@@ -17,7 +16,6 @@ export const mysql: EngineAdapter = {
 	defaultPort: 3306,
 
 	connection: {
-		Fields,
 		emptyDraft: () => ({
 			engine: 'mysql',
 			host: '127.0.0.1',

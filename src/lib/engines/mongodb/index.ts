@@ -2,7 +2,6 @@
 import type { PluginConfig } from '$core/contracts'
 import type { EngineAdapter } from '../types'
 import { mongoCompletionSource } from './complete'
-import Fields from './Fields.svelte'
 import { formatMql } from './format'
 import { buildMongoUriFromFields, databaseFromMongoUri } from './uri'
 
@@ -17,7 +16,8 @@ export const mongodb: EngineAdapter = {
 	defaultPort: 27017,
 
 	connection: {
-		Fields,
+		uriPlaceholder:
+			'mongodb://user:pass@127.0.0.1:27017/mydb?authSource=admin',
 		emptyDraft: () => ({
 			engine: 'mongodb',
 			host: '',

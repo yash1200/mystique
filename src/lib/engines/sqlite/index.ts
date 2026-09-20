@@ -4,7 +4,6 @@ import { relationalCapabilities } from '../capabilities'
 import { sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
-import Fields from './Fields.svelte'
 
 export const sqlite: EngineAdapter = {
 	id: 'sqlite',
@@ -16,7 +15,6 @@ export const sqlite: EngineAdapter = {
 	defaultPort: 0,
 
 	connection: {
-		Fields,
 		emptyDraft: () => ({
 			engine: 'sqlite',
 			host: '',

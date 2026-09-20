@@ -2,8 +2,9 @@
  * Engine adapter registry — the frontend twin of
  * `ConnectorRegistry::bootstrap()` in `mystique-core`.
  *
- * Adding a database: create `engines/<engine>/`, then one `register()` call
- * below. Nothing else in the app should learn the new engine's name.
+ * Adding a database: create `engines/<engine>/` (emptyDraft, toPluginConfig,
+ * language), then one `register()` call. Connection chrome is Host/File/URI
+ * in `engines/ui/` from `connectionKind`. Nothing else should learn the engine name.
  */
 import type {
 	ConnectionFormDraft,

@@ -1,13 +1,15 @@
 <script lang="ts">
 	import type { ParsedConnectionUrl } from '$core/contracts'
 	import { isTauri, parseEngineConnectionUrl } from '$core/ipc'
+	import { runtimeFor } from '../products'
 	import { Alert, Button, Icon, IconButton } from '$core/ui'
 	import { DURATION, cn, easeOut, reducedMotion } from '$core/util'
 	import { onMount } from 'svelte'
 	import { fade } from 'svelte/transition'
 
 	interface Props {
-		engine: 'postgres' | 'mysql' | 'mariadb'
+		/** Product or runtime id — backend maps products to the URL parser. */
+		engine: string
 		/** Placeholder shown in the URL field. */
 		placeholder?: string
 		disabled?: boolean
@@ -33,8 +35,9 @@
 	const hasUrl = $derived(url.trim().length > 0)
 	const busy = $derived(disabled || importing)
 
+	const runtime = $derived(runtimeFor(engine) ?? engine)
 	const schemeHint = $derived(
-		engine === 'postgres'
+		runtime === 'postgres'
 			? 'postgres:// or postgresql://'
 			: 'mysql:// or mariadb://',
 	)

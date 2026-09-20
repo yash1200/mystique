@@ -8,8 +8,11 @@
 		Input,
 		PasswordInput,
 	} from '$core/ui'
-	import type { EngineFieldsProps } from '$engines'
-	import ImportConnectionUrl from '../ui/ImportConnectionUrl.svelte'
+	import { adapterFor } from '../registry'
+	import { runtimeFor } from '../products'
+	import type { EngineFieldsProps } from '../types'
+	import { applyParsedHostUrl } from './apply-parsed-url'
+	import ImportConnectionUrl from './ImportConnectionUrl.svelte'
 
 	let {
 		draft = $bindable(),
@@ -18,30 +21,33 @@
 		disabled = false,
 	}: EngineFieldsProps = $props()
 
+	const adapter = $derived(adapterFor(draft.engine))
+	const runtime = $derived(runtimeFor(draft.engine) ?? adapter.id)
+	const port = $derived(
+		Number(draft.port) || adapter.defaultPort || 5432,
+	)
+	const urlPlaceholder = $derived(
+		runtime === 'mysql'
+			? `mysql://user:pass@host:${port}/dbname`
+			: `postgresql://user:pass@host:${port}/dbname?sslmode=require`,
+	)
+	const passwordPlaceholder = $derived(
+		isEdit && passwordSet
+			? '••••••••'
+			: runtime === 'mysql'
+				? '123'
+				: 'Optional',
+	)
+
 	function applyParsed(parsed: ParsedConnectionUrl) {
-		const cfg = parsed.pluginConfig ?? {}
-		const h = cfg.host
-		if (typeof h === 'string' && h.trim()) draft.host = h.trim()
-		const p = cfg.port
-		if (typeof p === 'number' && Number.isFinite(p)) draft.port = p
-		else if (typeof p === 'string' && p.trim()) {
-			const n = Number(p)
-			if (Number.isFinite(n)) draft.port = n
-		}
-		const db = cfg.database
-		if (typeof db === 'string') draft.database = db
-		const user = cfg.username ?? cfg.user
-		if (typeof user === 'string') draft.username = user
-		if (typeof cfg.ssl === 'boolean') draft.ssl = cfg.ssl
-		else if (cfg.sslMode === 'require') draft.ssl = true
-		if (typeof parsed.password === 'string') draft.password = parsed.password
+		applyParsedHostUrl(draft, parsed)
 	}
 </script>
 
 <Card title="Server">
 	<ImportConnectionUrl
-		engine="postgres"
-		placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require"
+		engine={draft.engine}
+		placeholder={urlPlaceholder}
 		{disabled}
 		onparsed={applyParsed}
 	/>
@@ -65,7 +71,6 @@
 			<Input
 				bind:value={draft.username}
 				autocomplete="username"
-				placeholder="postgres"
 				{disabled}
 			/>
 		</Field>
@@ -73,7 +78,7 @@
 			<PasswordInput
 				bind:value={draft.password}
 				autocomplete="new-password"
-				placeholder={isEdit && passwordSet ? '••••••••' : 'Optional'}
+				placeholder={passwordPlaceholder}
 				{disabled}
 			/>
 		</Field>
