@@ -5,6 +5,7 @@
 
 mod manager;
 mod registry;
+mod ssh;
 
 pub use manager::{ConnectionManager, OpenSessionRequest};
 pub use registry::ConnectorRegistry;

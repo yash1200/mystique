@@ -102,6 +102,7 @@ async fn test_unknown_engine_returns_structured_fail() {
             pool: None,
             session_id: None,
             profile_id: None,
+            ssh: None,
         })
         .await
         .unwrap();
@@ -125,6 +126,7 @@ async fn test_postgres_missing_db_structured_fail() {
             }),
             session_id: None,
             profile_id: None,
+            ssh: None,
         })
         .await
         .unwrap();
@@ -158,6 +160,7 @@ async fn test_postgres_unreachable_structured_fail() {
             }),
             session_id: None,
             profile_id: None,
+            ssh: None,
         })
         .await
         .unwrap();
@@ -196,6 +199,7 @@ async fn test_postgres_local_success_when_available() {
             }),
             session_id: None,
             profile_id: None,
+            ssh: None,
         })
         .await
         .unwrap();
@@ -213,4 +217,46 @@ async fn test_postgres_local_success_when_available() {
     } else {
         assert!(!result.message.is_empty());
     }
+}
+
+#[tokio::test]
+async fn close_then_open_another_session_does_not_hang() {
+    let dir = std::env::temp_dir();
+    let a = dir.join("mystique-close-a.sqlite");
+    let b = dir.join("mystique-close-b.sqlite");
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+    let mgr = ConnectionManager::bootstrap();
+    let open = |path: &std::path::Path, id: &str| OpenSessionRequest {
+        engine: "sqlite".into(),
+        plugin_config: json!({ "path": path.to_string_lossy() }),
+        password: None,
+        pool: Some(PoolConfig {
+            max_size: 1,
+            min_idle: 0,
+            acquire_timeout_ms: 3000,
+            idle_timeout_secs: 5,
+        }),
+        session_id: Some(id.into()),
+        profile_id: None,
+        ssh: None,
+    };
+    mgr.open_session(open(&a, "sess-a")).await.expect("open a");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        mgr.close_session("sess-a"),
+    )
+    .await
+    .expect("close a timed out")
+    .expect("close a");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        mgr.open_session(open(&b, "sess-b")),
+    )
+    .await
+    .expect("open b timed out")
+    .expect("open b");
+    let _ = mgr.close_session("sess-b").await;
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
 }

@@ -162,6 +162,15 @@ export function emptyDraft(engine: EngineId = 'postgres'): ConnectionFormDraft {
 		colorId: 'teal',
 		...adapterFor(engine).connection.emptyDraft(),
 		engine,
+		sshEnabled: false,
+		sshHost: '',
+		sshPort: 22,
+		sshUser: '',
+		sshAuth: 'password',
+		sshPassword: '',
+		sshPrivateKeyPath: '',
+		sshPassphrase: '',
+		clearStoredSshPassword: false,
 	}
 }
 

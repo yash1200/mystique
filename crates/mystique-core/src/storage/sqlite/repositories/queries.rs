@@ -188,6 +188,9 @@ mod tests {
                 clear_secret: false,
                 copy_secret_from: None,
                 favorite: None,
+                ssh_config: crate::domain::SshConfig::default(),
+                ssh_password: None,
+                clear_ssh_secret: false,
             },
         )
         .unwrap();

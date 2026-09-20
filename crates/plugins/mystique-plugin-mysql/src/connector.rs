@@ -131,6 +131,7 @@ impl DatabaseConnector for MysqlConnector {
             server_version: version,
             latency_ms,
             message: "Connected".into(),
+            ssh_host_key: None,
         })
     }
 

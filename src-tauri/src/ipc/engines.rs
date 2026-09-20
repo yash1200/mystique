@@ -2,7 +2,7 @@
 
 use mystique_core::{
     EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl, PoolStatus,
-    SessionInfo, TestResult,
+    SessionInfo, SshHostKeyPrompt, TestResult,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -59,13 +59,23 @@ pub async fn format_engine_connection_url(
 
 fn with_resolved_password(
     state: &State<'_, AppState>,
-    mut request: OpenSessionRequest,
+    request: OpenSessionRequest,
 ) -> Result<OpenSessionRequest, String> {
-    request.password = state
+    state
         .services
-        .password_for_request(&request)
-        .map_err(|e| e.to_string())?;
-    Ok(request)
+        .attach_session_secrets(request)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn trust_ssh_host_key(
+    state: State<'_, AppState>,
+    prompt: SshHostKeyPrompt,
+) -> Result<(), String> {
+    state
+        .services
+        .trust_ssh_host_key(prompt)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

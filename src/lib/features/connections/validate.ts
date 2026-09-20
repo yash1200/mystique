@@ -3,12 +3,28 @@
  * seed credentials are) is the adapter's `connection.validate`.
  */
 import type { ConnectionFormDraft } from '$core/contracts'
-import { adapterFor, engineOptions } from '$engines'
+import { adapterFor, connectionKindFromCaps, engineOptions } from '$engines'
+
+function validateSsh(draft: ConnectionFormDraft): string | null {
+	const kind = connectionKindFromCaps(
+		adapterFor(draft.engine).defaultCapabilities,
+	)
+	if (kind === 'file' || !draft.sshEnabled) return null
+	if (!draft.sshHost?.trim() || !draft.sshUser?.trim()) {
+		return 'SSH tunnel needs a bastion host and user.'
+	}
+	if (draft.sshAuth === 'key' && !draft.sshPrivateKeyPath?.trim()) {
+		return 'SSH private key path is required.'
+	}
+	return null
+}
 
 /** Client-side checks before calling Test connection. */
 export function validateDraftForTest(
 	draft: ConnectionFormDraft,
 ): string | null {
+	const ssh = validateSsh(draft)
+	if (ssh) return ssh
 	return adapterFor(draft.engine).connection.validate(draft, 'test')
 }
 
@@ -24,5 +40,7 @@ export function validateDraftForSave(
 	if (!selected?.available && !options?.isEdit) {
 		return 'Selected engine is not available yet.'
 	}
+	const ssh = validateSsh(draft)
+	if (ssh) return ssh
 	return adapterFor(draft.engine).connection.validate(draft, 'save')
 }

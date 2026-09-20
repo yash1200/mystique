@@ -4,12 +4,14 @@
 	import type { EngineFieldsProps } from '../types'
 	import FileFields from './FileFields.svelte'
 	import HostFields from './HostFields.svelte'
+	import SshFields from './SshFields.svelte'
 	import UriFields from './UriFields.svelte'
 
 	let {
 		draft = $bindable(),
 		isEdit = false,
 		passwordSet = false,
+		sshPasswordSet = false,
 		disabled = false,
 	}: EngineFieldsProps = $props()
 
@@ -24,6 +26,8 @@
 	<FileFields bind:draft {isEdit} {passwordSet} {disabled} />
 {:else if kind === 'uri'}
 	<UriFields bind:draft {isEdit} {passwordSet} {disabled} />
+	<SshFields bind:draft {isEdit} {sshPasswordSet} {disabled} />
 {:else}
 	<HostFields bind:draft {isEdit} {passwordSet} {disabled} />
+	<SshFields bind:draft {isEdit} {sshPasswordSet} {disabled} />
 {/if}

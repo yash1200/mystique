@@ -20,6 +20,12 @@ pub struct ConnectionProfile {
     pub plugin_config: JsonValue,
     /// True when a non-empty password is stored in the OS keychain.
     pub password_set: bool,
+    /// SSH bastion (transport). Empty / disabled when unused.
+    #[serde(default)]
+    pub ssh: crate::domain::SshConfig,
+    /// True when a bastion password or key passphrase is in the keychain.
+    #[serde(default)]
+    pub ssh_password_set: bool,
     /// Always omitted on list/get. Write-only on save via [`SaveConnectionInput`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
@@ -56,6 +62,15 @@ pub struct SaveConnectionInput {
     /// `None` leaves the stored flag unchanged on update.
     #[serde(default)]
     pub favorite: Option<bool>,
+    /// SSH bastion. Omitted / default = no tunnel.
+    #[serde(default)]
+    pub ssh_config: crate::domain::SshConfig,
+    /// Bastion password or key passphrase. Empty keeps the existing secret.
+    #[serde(default)]
+    pub ssh_password: Option<String>,
+    /// Clear the stored SSH secret on update.
+    #[serde(default)]
+    pub clear_ssh_secret: bool,
 }
 
 /// Old UI wrote keychain-style placeholders into `secret_ref` without a real secret.
@@ -72,6 +87,19 @@ pub fn secret_account(connection_id: &str) -> String {
 pub fn is_keychain_pointer(secret_ref: &str) -> bool {
     let t = secret_ref.trim();
     t.starts_with("conn.") && t.len() > 5 && !is_placeholder_secret_ref(t)
+}
+
+/// Pre-integer-id keychain account (`connection.{id}.password`, Aug 2026).
+pub fn is_legacy_keychain_pointer(secret_ref: &str) -> bool {
+    let t = secret_ref.trim();
+    t.starts_with("connection.")
+        && t.ends_with(".password")
+        && t.len() > "connection..password".len()
+}
+
+/// Keychain account used before `conn.<id>`.
+pub fn legacy_secret_account(connection_id: &str) -> String {
+    format!("connection.{}.password", connection_id.trim())
 }
 
 pub fn validate_environment(env: &str) -> Result<(), String> {

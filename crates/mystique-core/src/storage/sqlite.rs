@@ -58,5 +58,6 @@ pub mod repo {
     pub use super::repositories::history;
     pub use super::repositories::queries;
     pub use super::repositories::settings;
+    pub use super::repositories::ssh_hosts;
     pub use super::repositories::workspace_tabs;
 }

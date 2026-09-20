@@ -81,7 +81,22 @@
 	/** Switching engine resets engine-specific fields, keeps shared ones. */
 	function onEngineChange(next: string) {
 		if (next === draft.engine) return
-		const { name, colorId, environment, notes, readOnly } = draft
+		const {
+			name,
+			colorId,
+			environment,
+			notes,
+			readOnly,
+			sshEnabled,
+			sshHost,
+			sshPort,
+			sshUser,
+			sshAuth,
+			sshPassword,
+			sshPrivateKeyPath,
+			sshPassphrase,
+			clearStoredSshPassword,
+		} = draft
 		formError = null
 		draft = {
 			...emptyDraft(next as EngineId),
@@ -90,6 +105,15 @@
 			environment,
 			notes,
 			readOnly,
+			sshEnabled,
+			sshHost,
+			sshPort,
+			sshUser,
+			sshAuth,
+			sshPassword,
+			sshPrivateKeyPath,
+			sshPassphrase,
+			clearStoredSshPassword,
 		}
 	}
 
@@ -219,6 +243,7 @@
 				bind:draft
 				{isEdit}
 				passwordSet={!!initial?.passwordSet && !draft.clearStoredPassword}
+				sshPasswordSet={!!initial?.sshPasswordSet && !draft.clearStoredSshPassword}
 				disabled={saving || testing}
 			/>
 			{#if isEdit && initial?.passwordSet && !draft.clearStoredPassword && !draft.password}

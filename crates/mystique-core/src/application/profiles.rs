@@ -1,5 +1,6 @@
 use crate::domain::{
-    is_keychain_pointer, is_placeholder_secret_ref, secret_account, ConnectionProfile,
+    is_keychain_pointer, is_legacy_keychain_pointer, is_placeholder_secret_ref,
+    legacy_secret_account, secret_account, ssh_secret_account, ConnectionProfile,
     SaveConnectionInput,
 };
 use crate::error::{AppError, AppResult};
@@ -53,7 +54,15 @@ impl ProfileService<'_> {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
         let incoming = incoming_password(&input);
+        let incoming_ssh = input
+            .ssh_password
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
         let clear = input.clear_secret;
+        let clear_ssh = input.clear_ssh_secret;
+        let copy_ssh = copy_from.clone();
         let input = strip_plugin_password(input);
 
         let mut saved = self.db.with_conn(|c| repo::connections::save(c, input))?;
@@ -77,6 +86,28 @@ impl ProfileService<'_> {
             }
         }
 
+        if clear_ssh || !saved.ssh.is_active() {
+            let _ = self.secrets.delete_ssh(&saved.id);
+            self.db
+                .with_conn(|c| repo::connections::set_ssh_secret_ref(c, &saved.id, None))?;
+            saved.ssh_password_set = false;
+        } else if let Some(pw) = incoming_ssh {
+            self.secrets.set_ssh(&saved.id, &pw)?;
+            let pointer = ssh_secret_account(&saved.id);
+            self.db.with_conn(|c| {
+                repo::connections::set_ssh_secret_ref(c, &saved.id, Some(&pointer))
+            })?;
+            saved.ssh_password_set = true;
+        } else if let Some(from) = copy_ssh {
+            if self.secrets.copy_ssh(&from, &saved.id)? {
+                let pointer = ssh_secret_account(&saved.id);
+                self.db.with_conn(|c| {
+                    repo::connections::set_ssh_secret_ref(c, &saved.id, Some(&pointer))
+                })?;
+                saved.ssh_password_set = true;
+            }
+        }
+
         saved.password = None;
         Ok(saved)
     }
@@ -87,7 +118,16 @@ impl ProfileService<'_> {
             return Err(AppError::Invalid("connection id is required".into()));
         }
         let _ = self.secrets.delete(id);
+        let _ = self.secrets.delete_ssh(id);
         self.db.with_conn(|c| repo::connections::delete(c, id))
+    }
+
+    pub fn resolve_ssh_secret(&self, id: &str) -> AppResult<Option<String>> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Err(AppError::Invalid("connection id is required".into()));
+        }
+        self.secrets.get_ssh(id)
     }
 
     pub fn touch_connected(&self, id: &str) -> AppResult<ConnectionProfile> {
@@ -95,7 +135,7 @@ impl ProfileService<'_> {
             .with_conn(|c| repo::connections::touch_last_connected(c, id))
     }
 
-    /// Keychain first, then migrate leftover plaintext in SQLite.
+    /// Keychain first, then legacy account names, then leftover plaintext in SQLite.
     pub fn resolve_password(&self, id: &str) -> AppResult<Option<String>> {
         let id = id.trim();
         if id.is_empty() {
@@ -104,26 +144,18 @@ impl ProfileService<'_> {
         if let Some(pw) = self.secrets.get(id)? {
             return Ok(Some(pw));
         }
+        if let Some(pw) = self.secrets.get_named(&legacy_secret_account(id))? {
+            self.promote_secret(id, &pw)?;
+            return Ok(Some(pw));
+        }
         self.migrate_row(id)
     }
 
-    /// Move plaintext `secret_ref` values into the keychain. Safe to call at boot.
+    /// Move plaintext / legacy pointers into `conn.<id>`. Safe to call at boot.
     pub fn migrate_plaintext_secrets(&self) -> AppResult<()> {
         let rows = self.db.with_conn(repo::connections::list_secret_refs)?;
-        for (id, stored) in rows {
-            let Some(raw) = stored else { continue };
-            if is_placeholder_secret_ref(&raw) {
-                let _ = self
-                    .db
-                    .with_conn(|c| repo::connections::set_secret_ref(c, &id, None));
-                continue;
-            }
-            if is_keychain_pointer(&raw) {
-                continue;
-            }
-            if is_legacy_plaintext_secret(&raw) {
-                let _ = self.migrate_plaintext(&id, &raw);
-            }
+        for (id, _) in rows {
+            let _ = self.migrate_row(&id);
         }
         Ok(())
     }
@@ -140,6 +172,13 @@ impl ProfileService<'_> {
                 .with_conn(|c| repo::connections::set_secret_ref(c, id, None))?;
             return Ok(None);
         }
+        if is_legacy_keychain_pointer(&raw) {
+            if let Some(pw) = self.secrets.get_named(&raw)? {
+                self.promote_secret(id, &pw)?;
+                return Ok(Some(pw));
+            }
+            return Ok(None);
+        }
         if is_keychain_pointer(&raw) {
             return Ok(None);
         }
@@ -150,11 +189,16 @@ impl ProfileService<'_> {
     }
 
     fn migrate_plaintext(&self, id: &str, plaintext: &str) -> AppResult<Option<String>> {
-        self.secrets.set(id, plaintext)?;
+        self.promote_secret(id, plaintext)?;
+        Ok(Some(plaintext.to_string()))
+    }
+
+    fn promote_secret(&self, id: &str, pw: &str) -> AppResult<()> {
+        self.secrets.set(id, pw)?;
         let pointer = secret_account(id);
         self.db
             .with_conn(|c| repo::connections::set_secret_ref(c, id, Some(&pointer)))?;
-        Ok(Some(plaintext.to_string()))
+        Ok(())
     }
 }
 
@@ -189,6 +233,9 @@ mod tests {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         }
     }
 
@@ -296,6 +343,38 @@ mod tests {
                 .unwrap()
                 .as_deref(),
             Some("cloned")
+        );
+    }
+
+    #[test]
+    fn ssh_secret_stays_out_of_sqlite() {
+        let app = svc();
+        let mut inp = input("pg-ssh", None);
+        inp.ssh_config = crate::domain::SshConfig {
+            enabled: true,
+            host: "bastion.example".into(),
+            port: 22,
+            user: "ubuntu".into(),
+            auth: crate::domain::SshAuth::Password,
+            private_key_path: String::new(),
+        };
+        inp.ssh_password = Some("bastion-pw".into());
+        let saved = app.profiles().save(inp).unwrap();
+        assert!(saved.ssh.is_active());
+        assert!(saved.ssh_password_set);
+        assert_eq!(saved.ssh.host, "bastion.example");
+        let raw = app
+            .db
+            .with_conn(|c| repo::connections::get_by_id(c, &saved.id))
+            .unwrap();
+        let json = serde_json::to_string(&raw).unwrap();
+        assert!(!json.contains("bastion-pw"));
+        assert_eq!(
+            app.profiles()
+                .resolve_ssh_secret(&saved.id)
+                .unwrap()
+                .as_deref(),
+            Some("bastion-pw")
         );
     }
 }

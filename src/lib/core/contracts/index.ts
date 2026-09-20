@@ -78,6 +78,8 @@ export type {
 	TableRowUpdate,
 	TerminateSessionRequest,
 	TerminateSessionResult,
+	SshHostKeyPrompt,
+	SshTunnelRequest,
 	TestResult,
 } from './engines'
 export type * from './session'

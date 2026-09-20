@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import type { ConnectionFormDraft, ConnectionProfile } from '$core/contracts'
+	import type {
+		ConnectionFormDraft,
+		ConnectionProfile,
+		SshHostKeyPrompt,
+	} from '$core/contracts'
 	import {
 		ensureEngineSession,
 		formatEngineConnectionUrl,
@@ -30,6 +34,14 @@
 	import ConnectionSidebar from './ConnectionSidebar.svelte'
 	import HomeIllustration from './HomeIllustration.svelte'
 	import NewConnectionPanel from './NewConnectionPanel.svelte'
+	import SshHostKeyModal from './SshHostKeyModal.svelte'
+	import {
+		acceptSshHostKey,
+		invokeErrorMessage,
+		parseSshHostKey,
+		prettifyConnectError,
+		sshTunnelFromDraft,
+	} from '../ssh'
 
 	let selectedId = $state<string | null>(null)
 	/** Transient connect-failure overlay; live connected comes from the session store. */
@@ -59,6 +71,8 @@
 	let connectingId = $state<string | null>(null)
 	/** Last live connectivity result from BE (shown on the form). */
 	let testResult = $state<{ ok: boolean; message: string } | null>(null)
+	let sshHostKey = $state<SshHostKeyPrompt | null>(null)
+	let sshHostKeyRetry = $state<null | (() => Promise<void>)>(null)
 	let loadError = $state<string | null>(null)
 
 	const selected = $derived(
@@ -184,7 +198,8 @@
 				pluginConfig,
 				password,
 				profileId:
-					editing && selectedId && !password ? selectedId : undefined,
+					editing && selectedId ? selectedId : undefined,
+				ssh: sshTunnelFromDraft(draft),
 				pool: {
 					maxSize: 2,
 					minIdle: 0,
@@ -192,6 +207,12 @@
 					idleTimeoutSecs: 30,
 				},
 			})
+
+			if (result.sshHostKey) {
+				sshHostKey = result.sshHostKey
+				sshHostKeyRetry = () => handleTestConnection(draft)
+				return
+			}
 
 			if (result.ok) {
 				const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
@@ -202,23 +223,18 @@
 					`Connected to ${result.engine} (${result.latencyMs}ms)`,
 				)
 			} else {
-				const msg = `Connection failed: ${result.message}`
+				const msg = `Connection failed: ${prettifyConnectError(result.message)}`
 				testResult = { ok: false, message: msg }
 				showToast('danger', msg)
 			}
 		} catch (err) {
-			// Tauri may throw a string, Error, or { message } object
-			let raw: string
-			if (err instanceof Error) {
-				raw = err.message
-			} else if (typeof err === 'string') {
-				raw = err
-			} else if (err && typeof err === 'object' && 'message' in err) {
-				raw = String((err as { message: unknown }).message)
-			} else {
-				raw = String(err)
+			const prompt = parseSshHostKey(err)
+			if (prompt) {
+				sshHostKey = prompt
+				sshHostKeyRetry = () => handleTestConnection(draft)
+				return
 			}
-			const msg = `Connection failed: ${raw}`
+			const msg = `Connection failed: ${prettifyConnectError(invokeErrorMessage(err))}`
 			testResult = { ok: false, message: msg }
 			showToast('danger', msg)
 		} finally {
@@ -298,7 +314,11 @@
 				readOnly: profile.readOnly,
 				notes: profile.notes ?? null,
 				pluginConfig: cfg,
-				copySecretFrom: profile.passwordSet ? profile.id : null,
+				copySecretFrom:
+					profile.passwordSet || profile.sshPasswordSet
+						? profile.id
+						: null,
+				sshConfig: profile.ssh,
 			})
 			afterProfilesChange(saved.id)
 			showToast('success', `Duplicated as “${saved.name}”.`)
@@ -471,9 +491,15 @@
 				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
 			})
 
+			if (result.sshHostKey) {
+				sshHostKey = result.sshHostKey
+				sshHostKeyRetry = () => connectProfile(profile)
+				return
+			}
+
 			if (!result.ok) {
 				statusOverride = { ...statusOverride, [profile.id]: 'error' }
-				const msg = `Could not establish connection: ${result.message}`
+				const msg = `Could not establish connection: ${prettifyConnectError(result.message)}`
 				testResult = { ok: false, message: msg }
 				showToast('danger', msg)
 				return
@@ -503,8 +529,17 @@
 				session.capabilities,
 			)
 		} catch (err) {
+			const prompt = parseSshHostKey(err)
+			if (prompt) {
+				sshHostKey = prompt
+				sshHostKeyRetry = () => connectProfile(profile)
+				return
+			}
 			statusOverride = { ...statusOverride, [profile.id]: 'error' }
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast(
+				'danger',
+				prettifyConnectError(invokeErrorMessage(err)),
+			)
 		} finally {
 			testing = false
 			connectingId = null
@@ -644,4 +679,24 @@
 			</Button>
 		{/snippet}
 	</Modal>
+
+	<SshHostKeyModal
+		prompt={sshHostKey}
+		busy={testing}
+		oncancel={() => {
+			sshHostKey = null
+			sshHostKeyRetry = null
+		}}
+		onaccept={async (prompt) => {
+			try {
+				await acceptSshHostKey(prompt)
+				const retry = sshHostKeyRetry
+				sshHostKey = null
+				sshHostKeyRetry = null
+				await retry?.()
+			} catch (err) {
+				showToast('danger', err instanceof Error ? err.message : String(err))
+			}
+		}}
+	/>
 </div>

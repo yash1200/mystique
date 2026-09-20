@@ -94,6 +94,8 @@ A **product** (picker / `connections.engine`) can share a **runtime** crate. Add
 
 `supportDepth` (`operate` | `browse` | `connect`) is the overlay that hides ER/metrics/admin without engine-name branches. New products default to `operate` only if they really have that chrome.
 
+SSH is **transport on the profile** (`ssh_config` + keychain `ssh_secret_ref`), not plugin_config. `ConnectionManager` opens a local forward; plugins still connect to `127.0.0.1`. Do not add SSH fields to a plugin crate. SQLite/file forms have no SSH UI.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

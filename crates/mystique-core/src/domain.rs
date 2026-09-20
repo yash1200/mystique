@@ -9,6 +9,7 @@ mod connection;
 mod history;
 mod query_library;
 mod settings;
+mod ssh;
 mod time;
 mod workspace_tabs;
 
@@ -18,5 +19,6 @@ pub use connection::*;
 pub use history::*;
 pub use query_library::*;
 pub use settings::*;
+pub use ssh::*;
 pub(crate) use time::now_iso;
 pub use workspace_tabs::*;

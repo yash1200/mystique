@@ -140,11 +140,21 @@ impl AgentTools {
             return Ok(id.to_string());
         }
         let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;
-        let password = super::ProfileService {
+        let profiles = super::ProfileService {
             db: &self.db,
             secrets: &self.secrets,
+        };
+        let password = profiles.resolve_password(id)?;
+        let ssh_secret = profiles.resolve_ssh_secret(id).ok().flatten();
+        let mut ssh = crate::domain::SshTunnelRequest::from_config(&profile.ssh, ssh_secret);
+        if let Some(ssh) = ssh.as_mut() {
+            if let Ok(Some(known)) = self
+                .db
+                .with_conn(|c| repo::ssh_hosts::lookup(c, &ssh.host, ssh.port))
+            {
+                ssh.trusted_fingerprint = Some(known.fingerprint);
+            }
         }
-        .resolve_password(id)?;
         let req = OpenSessionRequest {
             engine: profile.engine.clone(),
             plugin_config: profile.plugin_config.clone(),
@@ -157,6 +167,7 @@ impl AgentTools {
                 idle_timeout_secs: 0,
             }),
             session_id: Some(profile.id.clone()),
+            ssh,
         };
         self.connections.open_session(req).await?;
         let _ = self

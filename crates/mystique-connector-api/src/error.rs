@@ -34,6 +34,9 @@ pub enum ConnectorError {
 
     #[error("internal: {0}")]
     Internal(String),
+
+    #[error("{0}")]
+    SshHostKey(crate::SshHostKeyPrompt),
 }
 
 impl ConnectorError {
@@ -48,6 +51,7 @@ impl ConnectorError {
             Self::Query(_) => "query",
             Self::Policy(_) => "policy",
             Self::Internal(_) => "internal",
+            Self::SshHostKey(_) => "ssh_host_key",
         }
     }
 }

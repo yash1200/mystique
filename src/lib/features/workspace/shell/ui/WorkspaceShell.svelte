@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { resolve } from '$app/paths'
-	import type { ConnectionProfile, TableMeta } from '$core/contracts'
+	import type {
+		ConnectionProfile,
+		SshHostKeyPrompt,
+		TableMeta,
+	} from '$core/contracts'
 	import {
 		closeEngineSession,
 		ensureEngineSession,
@@ -12,9 +16,12 @@
 	} from '$core/ipc'
 	import { setAppTitle } from '$core/util'
 	import {
+		acceptSshHostKey,
 		colorHex,
 		connectionProfiles,
+		parseSshHostKey,
 		pluginConfigForSession,
+		SshHostKeyModal,
 	} from '$features/connections'
 	import {
 		catalogColumnsCache,
@@ -188,6 +195,8 @@
 	let pickerOpen = $state(false)
 	let pickerBusy = $state(false)
 	let pickerError = $state<string | null>(null)
+	let sshHostKey = $state<SshHostKeyPrompt | null>(null)
+	let sshHostKeyRetry = $state<null | (() => Promise<void>)>(null)
 	const openConnectionIds = $derived(sessions.map((s) => s.profile.id))
 
 	function onSelectConnection(id: string) {
@@ -217,6 +226,11 @@
 				profileId: profile.id,
 				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
 			})
+			if (result.sshHostKey) {
+				sshHostKey = result.sshHostKey
+				sshHostKeyRetry = () => connectAdditional(profile)
+				return
+			}
 			if (!result.ok) {
 				pickerError = `Could not connect: ${result.message}`
 				return
@@ -237,6 +251,12 @@
 			workspaceStudio.sideMode = 'explorer'
 			pickerOpen = false
 		} catch (e) {
+			const prompt = parseSshHostKey(e)
+			if (prompt) {
+				sshHostKey = prompt
+				sshHostKeyRetry = () => connectAdditional(profile)
+				return
+			}
 			pickerError = e instanceof Error ? e.message : String(e)
 		} finally {
 			pickerBusy = false
@@ -441,5 +461,25 @@
 		onsave={() => void confirmSaveAndClose()}
 		ondiscard={() => void confirmDiscardAndClose()}
 		oncancel={cancelCloseTab}
+	/>
+
+	<SshHostKeyModal
+		prompt={sshHostKey}
+		busy={pickerBusy}
+		oncancel={() => {
+			sshHostKey = null
+			sshHostKeyRetry = null
+		}}
+		onaccept={async (prompt) => {
+			try {
+				await acceptSshHostKey(prompt)
+				const retry = sshHostKeyRetry
+				sshHostKey = null
+				sshHostKeyRetry = null
+				await retry?.()
+			} catch (e) {
+				pickerError = e instanceof Error ? e.message : String(e)
+			}
+		}}
 	/>
 </div>

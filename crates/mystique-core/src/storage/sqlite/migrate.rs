@@ -6,11 +6,12 @@ use crate::error::AppResult;
 const SCHEMA_SQL: &str = include_str!("../../../migrations/001_init.sql");
 const V2_SQL: &str = include_str!("../../../migrations/002_saved_query_favorite.sql");
 const V3_SQL: &str = include_str!("../../../migrations/003_connection_favorite.sql");
+const V4_SQL: &str = include_str!("../../../migrations/004_ssh_tunnel.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema; their stamp is collapsed to 1 so 002+ can apply.
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -85,6 +86,14 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         stamp(conn, 3)?;
     }
 
+    if current < 4 {
+        if table_exists(conn, "connections")? && !column_exists(conn, "connections", "ssh_config")?
+        {
+            conn.execute_batch(V4_SQL)?;
+        }
+        stamp(conn, 4)?;
+    }
+
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
@@ -111,6 +120,16 @@ mod tests {
             .unwrap();
         assert_eq!(n, 1);
 
+        let ssh_hosts: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ssh_known_hosts'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ssh_hosts, 1);
+        assert!(column_exists(&conn, "connections", "ssh_config").unwrap());
+
         let secrets: i32 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ai_secrets'",
@@ -136,7 +155,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         let groups: i32 = conn
             .query_row(
@@ -202,11 +221,11 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 3);
+        assert_eq!(n, 4);
     }
 
     #[test]
@@ -252,7 +271,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -288,6 +307,6 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 }

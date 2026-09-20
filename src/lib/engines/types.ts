@@ -30,6 +30,7 @@ export interface EngineFieldsProps {
 	draft: ConnectionFormDraft
 	isEdit?: boolean
 	passwordSet?: boolean
+	sshPasswordSet?: boolean
 	disabled?: boolean
 }
 

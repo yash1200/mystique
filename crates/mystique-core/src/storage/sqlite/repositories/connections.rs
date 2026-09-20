@@ -34,6 +34,13 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
         plugin_config,
         password_set,
         password: None,
+        ssh: {
+            let raw: String = row.get("ssh_config")?;
+            serde_json::from_str(&raw).unwrap_or_default()
+        },
+        ssh_password_set: password_set_from_stored(
+            row.get::<_, Option<String>>("ssh_secret_ref")?.as_deref(),
+        ),
         favorite: row.get::<_, i64>("favorite")? != 0,
         last_connected_at: row.get("last_connected_at")?,
         created_at: row.get("created_at")?,
@@ -43,7 +50,8 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
 
 const SELECT_COLS: &str = "
   id, name, engine, color_id, environment, read_only, notes,
-  plugin_config, secret_ref, favorite, last_connected_at, created_at, updated_at
+  plugin_config, secret_ref, ssh_config, ssh_secret_ref, favorite,
+  last_connected_at, created_at, updated_at
 ";
 
 pub fn list_all(conn: &Connection) -> AppResult<Vec<ConnectionProfile>> {
@@ -81,6 +89,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
     validate_environment(&input.environment).map_err(AppError::Invalid)?;
 
     let plugin_config = serde_json::to_string(&input.plugin_config)?;
+    let ssh_config = serde_json::to_string(&input.ssh_config)?;
     let now = now_iso();
     let notes = input
         .notes
@@ -103,10 +112,11 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                   read_only = ?5,
                   notes = ?6,
                   plugin_config = ?7,
+                  ssh_config = ?8,
                   secret_ref = NULL,
-                  favorite = COALESCE(?8, favorite),
-                  updated_at = ?9
-                WHERE id = ?10
+                  favorite = COALESCE(?9, favorite),
+                  updated_at = ?10
+                WHERE id = ?11
                 ",
                 params![
                     input.name.trim(),
@@ -116,6 +126,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                     if input.read_only { 1 } else { 0 },
                     notes,
                     plugin_config,
+                    ssh_config,
                     favorite,
                     now,
                     id_n,
@@ -132,9 +143,10 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                   read_only = ?5,
                   notes = ?6,
                   plugin_config = ?7,
-                  favorite = COALESCE(?8, favorite),
-                  updated_at = ?9
-                WHERE id = ?10
+                  ssh_config = ?8,
+                  favorite = COALESCE(?9, favorite),
+                  updated_at = ?10
+                WHERE id = ?11
                 ",
                 params![
                     input.name.trim(),
@@ -144,6 +156,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                     if input.read_only { 1 } else { 0 },
                     notes,
                     plugin_config,
+                    ssh_config,
                     favorite,
                     now,
                     id_n,
@@ -153,6 +166,12 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
         if n == 0 {
             return Err(AppError::NotFound(format!("connection '{id}'")));
         }
+        if input.clear_ssh_secret {
+            conn.execute(
+                "UPDATE connections SET ssh_secret_ref = NULL WHERE id = ?1",
+                params![id_n],
+            )?;
+        }
         get_by_id(conn, id)
     } else {
         let favorite = i64::from(input.favorite.unwrap_or(false));
@@ -160,8 +179,9 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
             "
             INSERT INTO connections (
               name, engine, color_id, environment, read_only, notes,
-              plugin_config, secret_ref, favorite, last_connected_at, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, NULL, ?9, ?10)
+              plugin_config, secret_ref, ssh_config, ssh_secret_ref, favorite,
+              last_connected_at, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, NULL, ?9, NULL, ?10, ?11)
             ",
             params![
                 input.name.trim(),
@@ -171,6 +191,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 if input.read_only { 1 } else { 0 },
                 notes,
                 plugin_config,
+                ssh_config,
                 favorite,
                 now,
                 now,
@@ -220,6 +241,18 @@ pub fn get_secret_ref(conn: &Connection, id: &str) -> AppResult<Option<String>> 
             Some(t)
         }
     }))
+}
+
+pub fn set_ssh_secret_ref(conn: &Connection, id: &str, secret_ref: Option<&str>) -> AppResult<()> {
+    let id_n = parse_id(id)?;
+    let n = conn.execute(
+        "UPDATE connections SET ssh_secret_ref = ?1, updated_at = ?2 WHERE id = ?3",
+        params![secret_ref, now_iso(), id_n],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("connection '{id}'")));
+    }
+    Ok(())
 }
 
 pub fn set_secret_ref(conn: &Connection, id: &str, secret_ref: Option<&str>) -> AppResult<()> {

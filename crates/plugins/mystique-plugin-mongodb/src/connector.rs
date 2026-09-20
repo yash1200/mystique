@@ -92,6 +92,7 @@ impl DatabaseConnector for MongoConnector {
             server_version: version,
             latency_ms: start.elapsed().as_millis() as u64,
             message,
+            ssh_host_key: None,
         })
     }
 

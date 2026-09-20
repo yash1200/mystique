@@ -83,6 +83,7 @@ impl DatabaseConnector for SqliteConnector {
             server_version: Some(format!("SQLite {result}")),
             latency_ms: start.elapsed().as_millis() as u64,
             message: format!("Opened {}", path.display()),
+            ssh_host_key: None,
         })
     }
 

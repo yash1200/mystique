@@ -21,7 +21,9 @@ mod transfer;
 #[cfg(test)]
 mod tests;
 
+use super::ssh::{open_tunnel, rewrite_plugin_config_for_tunnel, ssh_target, SshTunnel};
 use super::ConnectorRegistry;
+use crate::domain::SshTunnelRequest;
 
 fn overlay_session_caps(
     session: &dyn ConnectorSession,
@@ -51,6 +53,9 @@ pub struct OpenSessionRequest {
     /// When `password` is empty, resolve the OS-keychain secret for this profile.
     #[serde(default)]
     pub profile_id: Option<String>,
+    /// Optional one-hop SSH tunnel. Plugins still see 127.0.0.1.
+    #[serde(default)]
+    pub ssh: Option<SshTunnelRequest>,
 }
 
 struct LiveSession {
@@ -59,6 +64,8 @@ struct LiveSession {
     opened_at: String,
     /// Product id the user picked (`cockroachdb`), not the runtime crate.
     product_id: String,
+    /// Held so the local forward stays up until close.
+    _tunnel: Option<SshTunnel>,
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
@@ -136,19 +143,23 @@ impl ConnectionManager {
         let connector = match self.registry.get(&req.engine) {
             Some(c) => c,
             None => {
-                return Ok(TestResult {
-                    ok: false,
-                    engine: req.engine.clone(),
-                    server_version: None,
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    message: format!("Unknown engine `{}`", req.engine),
-                });
+                return Ok(test_fail(
+                    &req.engine,
+                    start,
+                    ConnectorError::InvalidConfig(format!("Unknown engine `{}`", req.engine)),
+                ));
             }
         };
 
+        let tunneled = match prepare_plugin_config(req).await {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(test_fail(&req.engine, start, e));
+            }
+        };
         let config = ConnectionConfig {
             engine: connector.id().to_string(),
-            plugin_config: req.plugin_config.clone(),
+            plugin_config: tunneled.config,
             password: req.password.clone(),
             pool: req.pool.clone().unwrap_or_default(),
         };
@@ -161,13 +172,7 @@ impl ConnectionManager {
                 }
                 Ok(result)
             }
-            Err(e) => Ok(TestResult {
-                ok: false,
-                engine: req.engine.clone(),
-                server_version: None,
-                latency_ms: start.elapsed().as_millis() as u64,
-                message: e.to_string(),
-            }),
+            Err(e) => Ok(test_fail(&req.engine, start, e)),
         }
     }
 
@@ -180,9 +185,10 @@ impl ConnectionManager {
             .map(|p| p.id.to_string())
             .unwrap_or_else(|| req.engine.trim().to_string());
 
+        let tunneled = prepare_plugin_config(&req).await?;
         let config = ConnectionConfig {
             engine: connector.id().to_string(),
-            plugin_config: req.plugin_config.clone(),
+            plugin_config: tunneled.config,
             password: req.password.clone(),
             pool: req.pool.clone().unwrap_or_default(),
         };
@@ -210,20 +216,30 @@ impl ConnectionManager {
             display_name: info.display_name.clone(),
             opened_at: info.opened_at.clone(),
             product_id: info.engine.clone(),
+            _tunnel: tunneled.tunnel,
         };
 
-        // Replace previous session with same id if any
-        let mut guard = self.sessions.write().await;
-        if let Some(prev) = guard.remove(&session_id) {
+        // Swap under the lock; close the previous session after releasing it.
+        // Mongo `Client::shutdown` can wait forever if called while we still
+        // hold the map lock (or another Client clone).
+        let prev = {
+            let mut guard = self.sessions.write().await;
+            let prev = guard.remove(&session_id);
+            guard.insert(session_id, live);
+            prev
+        };
+        if let Some(prev) = prev {
             let _ = prev.session.close().await;
         }
-        guard.insert(session_id, live);
         Ok(info)
     }
 
     pub async fn close_session(&self, session_id: &str) -> ConnectorResult<()> {
-        let mut guard = self.sessions.write().await;
-        if let Some(live) = guard.remove(session_id) {
+        let live = {
+            let mut guard = self.sessions.write().await;
+            guard.remove(session_id)
+        };
+        if let Some(live) = live {
             live.session.close().await?;
             Ok(())
         } else {
@@ -234,11 +250,8 @@ impl ConnectionManager {
     }
 
     pub async fn ping(&self, session_id: &str) -> ConnectorResult<()> {
-        let guard = self.sessions.read().await;
-        let live = guard.get(session_id).ok_or_else(|| {
-            ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
-        })?;
-        live.session.ping().await
+        let session = self.session(session_id).await?;
+        session.ping().await
     }
 
     pub async fn pool_status(&self, session_id: &str) -> ConnectorResult<Option<PoolStatus>> {
@@ -291,5 +304,50 @@ impl ConnectionManager {
             ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
         })?;
         Ok(std::sync::Arc::clone(&live.session))
+    }
+}
+
+struct PreparedConfig {
+    config: JsonValue,
+    tunnel: Option<SshTunnel>,
+}
+
+async fn prepare_plugin_config(req: &OpenSessionRequest) -> ConnectorResult<PreparedConfig> {
+    let Some(ssh) = req.ssh.as_ref() else {
+        return Ok(PreparedConfig {
+            config: req.plugin_config.clone(),
+            tunnel: None,
+        });
+    };
+    let (dest_host, dest_port) = ssh_target(&req.plugin_config)?;
+    let tunnel = open_tunnel(ssh, &dest_host, dest_port).await?;
+    let config = rewrite_plugin_config_for_tunnel(req.plugin_config.clone(), tunnel.local_port)?;
+    Ok(PreparedConfig {
+        config,
+        tunnel: Some(tunnel),
+    })
+}
+
+fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> TestResult {
+    if let ConnectorError::SshHostKey(prompt) = err {
+        return TestResult {
+            ok: false,
+            engine: engine.to_string(),
+            server_version: None,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!(
+                "SSH host key {}: {} ({}:{})",
+                prompt.kind, prompt.fingerprint, prompt.host, prompt.port
+            ),
+            ssh_host_key: Some(prompt),
+        };
+    }
+    TestResult {
+        ok: false,
+        engine: engine.to_string(),
+        server_version: None,
+        latency_ms: start.elapsed().as_millis() as u64,
+        message: err.to_string(),
+        ssh_host_key: None,
     }
 }

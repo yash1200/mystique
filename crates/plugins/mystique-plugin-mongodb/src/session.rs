@@ -97,13 +97,12 @@ impl ConnectorSession for MongoSession {
     }
 
     async fn close(&self) -> ConnectorResult<()> {
-        if self
-            .closed
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            self.client.clone().shutdown().await;
-        }
+        // Do not `Client::shutdown()` here. That waits until every clone of the
+        // client is dropped; this session still holds one, so shutdown never
+        // returns and the connection manager's session lock stays taken —
+        // later connects (e.g. SQLite after leaving a Mongo workspace) hang
+        // on "Connecting…". Dropping the client on session drop is enough.
+        self.closed.store(true, Ordering::SeqCst);
         Ok(())
     }
 

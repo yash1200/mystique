@@ -72,7 +72,7 @@ Beekeeper uses one wide table: classic SQL columns + large SSH/SSL surface + man
 | One profiles table + type discriminator | N× `redshiftOptions`, `snowflakeOptions`, … |
 | JSON bags for engine-specific fields | Passwords / SSH passwords in the DB file |
 | Color, read-only, folders/order (later) | Schema that grows one column per engine forever |
-| SSH as shared transport (later) | Copying their full column set |
+| SSH as shared transport | Copying their full column set |
 
 Mystique maps conceptually:
 
@@ -82,7 +82,7 @@ name, labelColor   → name, color_id
 readOnlyMode       → read_only
 host/port/path/url + *Options → plugin_config (single JSON)
 password           → keychain + secret_ref
-ssh*               → future ssh_config JSON + ssh_secret_ref (optional)
+ssh*               → ssh_config JSON + ssh_secret_ref (keychain pointer)
 ```
 
 ---
@@ -609,9 +609,10 @@ Do **not** put `password` on list/get DTOs.
 
 ## 9. Future extensions (planned, not in v1 DDL)
 
+SSH tunnel is implemented (`004_ssh_tunnel.sql`): `connections.ssh_config` + `ssh_secret_ref`, host keys in `ssh_known_hosts`. Bastion passwords stay in the OS keychain.
+
 | Feature | Suggested approach |
 | ------- | ------------------ |
-| SSH tunnel | `ssh_config TEXT DEFAULT '{}'` + `ssh_secret_ref` (or nested secrets) |
 | TLS file paths | Fields inside `plugin_config` or shared `tls_config TEXT` |
 | Connection folders | `connection_folders` table + `connections.folder_id`, `position` |
 | Workspaces | `workspace_id` on connections if multi-workspace ships |

@@ -33,6 +33,9 @@ fn save_list_delete_connection() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         },
     )
     .unwrap();
@@ -70,6 +73,9 @@ fn update_keeps_password_when_blank() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         },
     )
     .unwrap();
@@ -90,6 +96,9 @@ fn update_keeps_password_when_blank() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         },
     )
     .unwrap();
@@ -117,6 +126,9 @@ fn clear_secret_removes_password() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         },
     )
     .unwrap();
@@ -137,6 +149,9 @@ fn clear_secret_removes_password() {
             clear_secret: true,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         },
     )
     .unwrap();
@@ -164,6 +179,9 @@ fn ignores_legacy_placeholder_secret_ref() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
         },
     )
     .unwrap();
@@ -186,6 +204,9 @@ fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
         clear_secret: false,
         copy_secret_from: None,
         favorite,
+        ssh_config: crate::domain::SshConfig::default(),
+        ssh_password: None,
+        clear_ssh_secret: false,
     }
 }
 

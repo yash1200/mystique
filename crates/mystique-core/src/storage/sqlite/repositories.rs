@@ -5,4 +5,5 @@ pub mod history;
 pub mod ids;
 pub mod queries;
 pub mod settings;
+pub mod ssh_hosts;
 pub mod workspace_tabs;

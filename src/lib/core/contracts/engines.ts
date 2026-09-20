@@ -15,6 +15,28 @@ export interface OpenSessionRequest {
 	sessionId?: string | null
 	/** When password is omitted, resolve the OS-keychain secret for this profile. */
 	profileId?: string | null
+	ssh?: SshTunnelRequest | null
+}
+
+export type SshTunnelRequest = {
+	host: string
+	port: number
+	user: string
+	auth: 'password' | 'key' | 'agent'
+	password?: string | null
+	privateKeyPath?: string | null
+	passphrase?: string | null
+	trustedFingerprint?: string | null
+}
+
+export type SshHostKeyPrompt = {
+	code: 'sshHostKey' | string
+	kind: 'unknown' | 'mismatch' | string
+	host: string
+	port: number
+	fingerprint: string
+	keyType: string
+	publicKey?: string
 }
 export interface EngineDescriptor {
 	id: string
@@ -46,6 +68,7 @@ export interface TestResult {
 	serverVersion?: string | null
 	latencyMs: number
 	message: string
+	sshHostKey?: SshHostKeyPrompt | null
 }
 export interface ParsedConnectionUrl {
 	engine: string

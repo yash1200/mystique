@@ -45,6 +45,20 @@ export interface ConnectionProfile {
 	updatedAt: string
 	/** Ephemeral UI state; defaults to disconnected. */
 	status?: ConnectionStatus
+	/** SSH bastion (transport). Missing on old profiles. */
+	ssh?: SshConfig
+	sshPasswordSet?: boolean
+}
+
+export type SshAuth = 'password' | 'key' | 'agent'
+
+export interface SshConfig {
+	enabled: boolean
+	host: string
+	port: number
+	user: string
+	auth: SshAuth
+	privateKeyPath: string
 }
 
 /** Payload for create/update — matches backend `SaveConnectionInput`. */
@@ -67,6 +81,9 @@ export interface SaveConnectionInput {
 	secretRef?: string | null
 	/** Omit on update to leave the stored flag unchanged. */
 	favorite?: boolean
+	sshConfig?: SshConfig
+	sshPassword?: string | null
+	clearSshSecret?: boolean
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */
@@ -89,6 +106,15 @@ export interface ConnectionFormDraft {
 	readOnly: boolean
 	environment: Environment
 	notes: string
+	sshEnabled?: boolean
+	sshHost?: string
+	sshPort?: number
+	sshUser?: string
+	sshAuth?: SshAuth
+	sshPassword?: string
+	sshPrivateKeyPath?: string
+	sshPassphrase?: string
+	clearStoredSshPassword?: boolean
 }
 
 /** Picker-facing family label. Capability `EngineFamily` is the plugin enum. */

@@ -36,7 +36,9 @@
 			? '••••••••'
 			: runtime === 'mysql'
 				? '123'
-				: 'Optional',
+				: runtime === 'postgres'
+					? 'postgres'
+					: 'Optional',
 	)
 
 	function applyParsed(parsed: ParsedConnectionUrl) {

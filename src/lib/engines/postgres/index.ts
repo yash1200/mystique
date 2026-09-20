@@ -25,7 +25,8 @@ export const postgres: EngineAdapter = {
 			path: '',
 			uri: '',
 			username: 'postgres',
-			password: '',
+			// Docker seed: user/password postgres (Host placeholder matches).
+			password: 'postgres',
 			ssl: false,
 			readOnly: false,
 			environment: 'local',

@@ -88,6 +88,7 @@ pub fn run() {
             ipc::engines::parse_engine_connection_url,
             ipc::engines::format_engine_connection_url,
             ipc::engines::test_engine_connection,
+            ipc::engines::trust_ssh_host_key,
             ipc::engines::open_engine_session,
             ipc::engines::close_engine_session,
             ipc::engines::ping_engine_session,

@@ -38,6 +38,7 @@ import type {
 	TablePreviewStats,
 	TerminateSessionRequest,
 	TerminateSessionResult,
+	SshHostKeyPrompt,
 	TestResult,
 } from '../contracts/engines'
 
@@ -68,6 +69,11 @@ export async function testEngineConnection(
 ): Promise<TestResult> {
 	requireTauri()
 	return invoke('test_engine_connection', { request })
+}
+
+export async function trustSshHostKey(prompt: SshHostKeyPrompt): Promise<void> {
+	requireTauri()
+	return invoke('trust_ssh_host_key', { prompt })
 }
 
 export async function openEngineSession(

@@ -39,7 +39,7 @@ pub use mystique_connector_api::{
     ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, ObjectStructure,
     ObjectStructureRequest, ParsedConnectionUrl, PoolConfig, PoolStatus, PreviewImportRequest,
     PreviewImportResult, QueryColumn, QueryMode, QueryResult, ServerMetricsSnapshot, SessionInfo,
-    StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult, TableEditColumn,
-    TablePreviewColumnRef, TablePreviewResult, TablePreviewStats, TableRowInsert, TableRowUpdate,
-    TerminateSessionRequest, TerminateSessionResult, TestResult,
+    SshHostKeyPrompt, StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult,
+    TableEditColumn, TablePreviewColumnRef, TablePreviewResult, TablePreviewStats, TableRowInsert,
+    TableRowUpdate, TerminateSessionRequest, TerminateSessionResult, TestResult,
 };

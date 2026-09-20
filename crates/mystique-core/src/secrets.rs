@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::domain::{is_placeholder_secret_ref, secret_account};
+use crate::domain::{
+    is_legacy_keychain_pointer, is_placeholder_secret_ref, secret_account, ssh_secret_account,
+};
 use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "dev.mystique.db";
@@ -77,7 +79,23 @@ impl SecretBackend for KeyringBackend {
 }
 
 fn keyring_entry(account: &str) -> AppResult<keyring::Entry> {
+    ensure_native_keyring()?;
     keyring::Entry::new(SERVICE, account).map_err(secret_store_err)
+}
+
+/// keyring 3 has no default store. Missing features → in-process mock →
+/// save appears to work (our cache) then the secret is gone after restart.
+fn ensure_native_keyring() -> AppResult<()> {
+    use keyring::credential::CredentialPersistence;
+    match keyring::default::default_credential_builder().persistence() {
+        CredentialPersistence::UntilDelete | CredentialPersistence::UntilReboot => Ok(()),
+        CredentialPersistence::EntryOnly | CredentialPersistence::ProcessOnly => {
+            Err(secret_store_err(
+                "keyring is using a non-persistent store; enable apple-native, windows-native, or sync-secret-service",
+            ))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn secret_store_err(err: impl std::fmt::Display) -> AppError {
@@ -113,29 +131,24 @@ impl SecretStore {
     }
 
     pub fn get(&self, connection_id: &str) -> AppResult<Option<String>> {
-        let account = secret_account(connection_id);
-        if let Some(hit) = self.cache_lock().get(&account).cloned() {
-            return Ok(Some(hit));
+        self.get_account(&secret_account(connection_id))
+    }
+
+    /// Look up an exact keychain account (legacy `connection.{id}.password` pointers).
+    pub fn get_named(&self, account: &str) -> AppResult<Option<String>> {
+        let account = account.trim();
+        if account.is_empty() {
+            return Ok(None);
         }
-        let got = self.backend.get(&account)?;
-        if let Some(ref secret) = got {
-            self.cache_lock().insert(account, secret.clone());
-        }
-        Ok(got)
+        self.get_account(account)
     }
 
     pub fn set(&self, connection_id: &str, password: &str) -> AppResult<()> {
-        let account = secret_account(connection_id);
-        self.backend.set(&account, password)?;
-        self.cache_lock().insert(account, password.to_string());
-        Ok(())
+        self.set_account(&secret_account(connection_id), password)
     }
 
     pub fn delete(&self, connection_id: &str) -> AppResult<()> {
-        let account = secret_account(connection_id);
-        self.backend.delete(&account)?;
-        self.cache_lock().remove(&account);
-        Ok(())
+        self.delete_account(&secret_account(connection_id))
     }
 
     /// Copy a stored secret to a new connection id. Returns whether a secret existed.
@@ -148,12 +161,62 @@ impl SecretStore {
             None => Ok(false),
         }
     }
+
+    pub fn get_ssh(&self, connection_id: &str) -> AppResult<Option<String>> {
+        self.get_account(&ssh_secret_account(connection_id))
+    }
+
+    pub fn set_ssh(&self, connection_id: &str, secret: &str) -> AppResult<()> {
+        self.set_account(&ssh_secret_account(connection_id), secret)
+    }
+
+    pub fn delete_ssh(&self, connection_id: &str) -> AppResult<()> {
+        self.delete_account(&ssh_secret_account(connection_id))
+    }
+
+    pub fn copy_ssh(&self, from_id: &str, to_id: &str) -> AppResult<bool> {
+        match self.get_ssh(from_id)? {
+            Some(secret) => {
+                self.set_ssh(to_id, &secret)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn get_account(&self, account: &str) -> AppResult<Option<String>> {
+        if let Some(hit) = self.cache_lock().get(account).cloned() {
+            return Ok(Some(hit));
+        }
+        let got = self.backend.get(account)?;
+        if let Some(ref secret) = got {
+            self.cache_lock()
+                .insert(account.to_string(), secret.clone());
+        }
+        Ok(got)
+    }
+
+    fn set_account(&self, account: &str, secret: &str) -> AppResult<()> {
+        self.backend.set(account, secret)?;
+        self.cache_lock()
+            .insert(account.to_string(), secret.to_string());
+        Ok(())
+    }
+
+    fn delete_account(&self, account: &str) -> AppResult<()> {
+        self.backend.delete(account)?;
+        self.cache_lock().remove(account);
+        Ok(())
+    }
 }
 
 /// True when `secret_ref` is leftover plaintext, not a keychain pointer or placeholder.
 pub fn is_legacy_plaintext_secret(secret_ref: &str) -> bool {
     let t = secret_ref.trim();
-    !t.is_empty() && !is_placeholder_secret_ref(t) && !t.starts_with("conn.")
+    !t.is_empty()
+        && !is_placeholder_secret_ref(t)
+        && !t.starts_with("conn.")
+        && !is_legacy_keychain_pointer(t)
 }
 
 #[cfg(test)]
@@ -184,6 +247,19 @@ mod tests {
         assert!(is_legacy_plaintext_secret("s3cret"));
         assert!(!is_legacy_plaintext_secret("conn.12"));
         assert!(!is_legacy_plaintext_secret("mystique/conn/12"));
+        assert!(!is_legacy_plaintext_secret("connection.abc.password"));
         assert!(!is_legacy_plaintext_secret(""));
+    }
+
+    #[test]
+    fn default_keyring_is_not_the_in_process_mock() {
+        use keyring::credential::CredentialPersistence;
+        assert!(
+            !matches!(
+                keyring::default::default_credential_builder().persistence(),
+                CredentialPersistence::EntryOnly | CredentialPersistence::ProcessOnly
+            ),
+            "keyring 3 needs apple-native / windows-native / sync-secret-service or passwords vanish on restart"
+        );
     }
 }

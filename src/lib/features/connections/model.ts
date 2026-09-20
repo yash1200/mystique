@@ -139,6 +139,15 @@ export function draftFromProfile(
 		readOnly: profile.readOnly,
 		environment: asEnvironment(profile.environment),
 		notes: profile.notes ?? '',
+		sshEnabled: Boolean(profile.ssh?.enabled),
+		sshHost: profile.ssh?.host ?? '',
+		sshPort: profile.ssh?.port || 22,
+		sshUser: profile.ssh?.user ?? '',
+		sshAuth: profile.ssh?.auth ?? 'password',
+		sshPassword: '',
+		sshPrivateKeyPath: profile.ssh?.privateKeyPath ?? '',
+		sshPassphrase: '',
+		clearStoredSshPassword: false,
 	}
 }
 
@@ -186,13 +195,45 @@ export function saveInputFromDraft(
 		pluginConfig,
 	}
 
+	const typedPassword = (draft.password ?? '').trim()
 	if (
 		(options?.clearPassword || draft.clearStoredPassword) &&
-		draft.password.length === 0
+		typedPassword.length === 0
 	) {
 		input.clearSecret = true
-	} else if (draft.password.length > 0) {
-		input.password = draft.password
+	} else if (typedPassword.length > 0) {
+		input.password = typedPassword
+	}
+
+	const kind = connectionKindFromCaps(
+		adapterFor(draft.engine).defaultCapabilities,
+	)
+	if (kind === 'file' || !draft.sshEnabled) {
+		input.sshConfig = {
+			enabled: false,
+			host: '',
+			port: 22,
+			user: '',
+			auth: 'password',
+			privateKeyPath: '',
+		}
+		if (draft.clearStoredSshPassword) input.clearSshSecret = true
+	} else {
+		input.sshConfig = {
+			enabled: true,
+			host: draft.sshHost?.trim() ?? '',
+			port: Number(draft.sshPort) || 22,
+			user: draft.sshUser?.trim() ?? '',
+			auth: draft.sshAuth ?? 'password',
+			privateKeyPath: draft.sshPrivateKeyPath?.trim() ?? '',
+		}
+		if (draft.clearStoredSshPassword && !draft.sshPassword && !draft.sshPassphrase) {
+			input.clearSshSecret = true
+		} else if (draft.sshAuth === 'password' && draft.sshPassword) {
+			input.sshPassword = draft.sshPassword
+		} else if (draft.sshAuth === 'key' && draft.sshPassphrase) {
+			input.sshPassword = draft.sshPassphrase
+		}
 	}
 
 	return input
