@@ -3,8 +3,8 @@
 use std::time::Instant;
 
 use mystique_connector_api::{
-    split_sql_statements, ConnectorError, ConnectorResult, QueryColumn, QueryMode, QueryResult,
-    ValidatedQuery,
+    split_sql_statements_for, ConnectorError, ConnectorResult, QueryColumn, QueryMode, QueryResult,
+    SqlDialect, ValidatedQuery,
 };
 
 use super::encode::cell_json;
@@ -26,7 +26,7 @@ pub(super) async fn execute_query(
         .batch_execute(&format!("SET statement_timeout = {timeout}"))
         .await;
 
-    let stmts = split_sql_statements(&query.text);
+    let stmts = split_sql_statements_for(&query.text, SqlDialect::Postgres);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }

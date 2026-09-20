@@ -102,6 +102,8 @@ SSL is **shared** (`TlsSettings` in connector-api): `sslMode` disable/prefer/req
 
 **MCP policy (P3.2):** Global `mcp.policy` is `read-only` (default), `safe_write` (INSERT/UPDATE only), or `high_risk_write` (DDL/DROP still go through P3.1). `mcp.allowlist` is connection ids; empty means none, not all. The in-app agent uses the same policy object if write tools are added; it is not filtered by the allowlist. `AGENT_MAX_ROWS` is asserted below the driver `HARD_MAX_ROWS`.
 
+**SQL analysis (P4.1–4.2):** `mystique-sql` owns statement split, AST write-risk, and identifier quoting. `EngineQueryPolicy` for SQL engines, the query tab, agent, and MCP all call it. DELETE is allowed in Write mode (docs that said “always denied” were wrong). A fifth SQL dialect is a `SqlDialect` variant, not a copied keyword list. Mongo keeps its own policy.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

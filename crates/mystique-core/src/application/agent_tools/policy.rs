@@ -5,7 +5,9 @@
 
 use std::collections::HashSet;
 
-use mystique_connector_api::{mongo_is_safe_dml, runtime_id, sql_is_safe_dml, WriteRisk};
+use mystique_connector_api::{
+    mongo_is_safe_dml, runtime_id, sql_is_safe_dml_for, SqlDialect, WriteRisk,
+};
 
 use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repo;
@@ -95,7 +97,7 @@ pub fn parse_allowlist(raw: &str) -> Vec<String> {
 pub fn is_safe_dml(engine: &str, text: &str) -> bool {
     match runtime_id(engine).unwrap_or(engine.trim()) {
         "mongodb" => mongo_is_safe_dml(text),
-        _ => sql_is_safe_dml(text),
+        other => sql_is_safe_dml_for(text, SqlDialect::from_engine(other)),
     }
 }
 

@@ -5,8 +5,8 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    split_sql_statements, ConnectorError, ConnectorResult, QueryColumn, QueryMode, QueryResult,
-    ValidatedQuery,
+    split_sql_statements_for, ConnectorError, ConnectorResult, QueryColumn, QueryMode, QueryResult,
+    SqlDialect, ValidatedQuery,
 };
 use serde_json::Value as JsonValue;
 
@@ -32,7 +32,7 @@ pub(super) async fn execute_query(
         .query_drop(format!("SET SESSION max_execution_time = {timeout}"))
         .await;
 
-    let stmts = split_sql_statements(&query.text);
+    let stmts = split_sql_statements_for(&query.text, SqlDialect::Mysql);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }

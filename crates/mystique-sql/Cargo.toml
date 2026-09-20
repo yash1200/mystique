@@ -1,0 +1,9 @@
+[package]
+name = "mystique-sql"
+version = "0.1.0"
+edition = "2021"
+description = "Shared SQL split, AST risk, and identifier quoting (no app domain)"
+publish = false
+
+[dependencies]
+sqlparser = "0.58"

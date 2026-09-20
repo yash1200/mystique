@@ -3,7 +3,8 @@
 use std::time::Instant;
 
 use mystique_connector_api::{
-    split_sql_statements, ConnectorError, ConnectorResult, QueryColumn, QueryResult, ValidatedQuery,
+    split_sql_statements_for, ConnectorError, ConnectorResult, QueryColumn, QueryResult,
+    SqlDialect, ValidatedQuery,
 };
 
 use super::encode::value_ref_json;
@@ -20,7 +21,7 @@ pub(super) async fn execute_query(
     let pool = session.pool();
     let max_rows = query.max_rows as usize;
     let mode = query.mode;
-    let stmts = split_sql_statements(&query.text);
+    let stmts = split_sql_statements_for(&query.text, SqlDialect::Sqlite);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }

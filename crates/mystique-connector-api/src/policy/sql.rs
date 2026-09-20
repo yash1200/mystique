@@ -1,223 +1,86 @@
+use mystique_sql::StatementRisk;
+
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::query::QueryMode;
 use crate::WriteRisk;
 
-// ── Shared SQL helpers (Postgres / MySQL / SQLite) ──────────────────────────
+pub use mystique_sql::SqlDialect;
 
-fn strip_sql_comments(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let bytes = sql.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(bytes.len());
-            out.push(' ');
-            continue;
-        }
-        if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            out.push(' ');
-            continue;
-        }
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-    out
-}
-
-fn first_sql_keyword(sql: &str) -> Option<String> {
-    let cleaned = strip_sql_comments(sql);
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let word: String = trimmed
-        .chars()
-        .take_while(|c| c.is_ascii_alphabetic() || *c == '_')
-        .collect::<String>()
-        .to_ascii_lowercase();
-    if word.is_empty() {
-        None
-    } else {
-        Some(word)
-    }
-}
-
-/// Split a SQL batch into individual statements (`;`-separated, comments stripped).
-/// Multi-statement batches are allowed; callers should run each and keep the last result.
 pub fn split_sql_statements(sql: &str) -> Vec<String> {
-    let cleaned = strip_sql_comments(sql);
-    cleaned
-        .split(';')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
+    split_sql_statements_for(sql, SqlDialect::Generic)
 }
 
-const SQL_READ: &[&str] = &[
-    "select", "with", "show", "describe", "desc", "explain", "values", "table", "pragma",
-];
-/// Session / connection utilities (search_path, timezone, USE db, etc.) — allowed in read mode.
-const SQL_SESSION: &[&str] = &[
-    "set",
-    "reset",
-    "use",
-    "begin",
-    "start",
-    "commit",
-    "rollback",
-    "savepoint",
-    "release",
-    "discard",
-    "deallocate",
-    "prepare",
-    "execute",
-    "listen",
-    "unlisten",
-    "notify",
-];
-/// Inserts, updates, deletes, and DDL — allowed unless the connection is read-only.
-const SQL_WRITE: &[&str] = &[
-    "insert", "update", "replace", "merge", "delete", "truncate", "drop", "alter", "create",
-    "grant", "revoke", "comment", "vacuum", "reindex", "attach", "detach",
-];
-const SQL_DESTRUCTIVE: &[&str] = &["drop", "truncate"];
-
-fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
-    let Some(kw) = first_sql_keyword(text) else {
-        return Err(ConnectorError::Policy(
-            "Could not classify this SQL. Blocked (fail closed).".into(),
-        ));
-    };
-    if SQL_READ.contains(&kw.as_str()) {
-        return Ok(());
-    }
-    // e.g. SET search_path TO content; — session config, not a data write.
-    if SQL_SESSION.contains(&kw.as_str()) {
-        return Ok(());
-    }
-    if SQL_WRITE.contains(&kw.as_str()) {
-        if mode == QueryMode::Read {
-            return Err(ConnectorError::Policy(format!(
-                "Write statement ({}) blocked. This connection is read-only.",
-                kw.to_ascii_uppercase()
-            )));
-        }
-        return Ok(());
-    }
-    Err(ConnectorError::Policy(format!(
-        "Statement type “{}” is not allowed in this mode.",
-        kw.to_ascii_uppercase()
-    )))
+pub fn split_sql_statements_for(sql: &str, dialect: SqlDialect) -> Vec<String> {
+    mystique_sql::split_statements(sql, dialect)
 }
 
 /// INSERT / UPDATE / REPLACE / MERGE only (P3.2 `safe_write`). All statements in a batch must match.
 pub fn sql_is_safe_dml(text: &str) -> bool {
-    let stmts = split_sql_statements(text);
-    if stmts.is_empty() {
-        return false;
-    }
-    stmts.iter().all(|s| {
-        matches!(
-            first_sql_keyword(s).as_deref(),
-            Some("insert" | "update" | "replace" | "merge")
-        )
-    })
+    sql_is_safe_dml_for(text, SqlDialect::Generic)
 }
 
-/// Worst risk across a SQL batch. Fail-closed unknown statements count as Write.
+pub fn sql_is_safe_dml_for(text: &str, dialect: SqlDialect) -> bool {
+    mystique_sql::is_safe_dml(text, dialect)
+}
+
+/// Worst risk across a SQL batch. Unparsed statements count as Write.
 pub fn classify_sql_statement(text: &str) -> WriteRisk {
-    let stmts = split_sql_statements(text);
-    if stmts.is_empty() {
-        return WriteRisk::Read;
-    }
-    let mut worst = WriteRisk::Read;
-    for stmt in &stmts {
-        let risk = match first_sql_keyword(stmt).as_deref() {
-            Some(kw) if SQL_DESTRUCTIVE.contains(&kw) => WriteRisk::Destructive,
-            Some(kw) if SQL_WRITE.contains(&kw) => WriteRisk::Write,
-            Some(kw) if SQL_READ.contains(&kw) || SQL_SESSION.contains(&kw) => WriteRisk::Read,
-            _ => WriteRisk::Write,
-        };
-        if risk > worst {
-            worst = risk;
-        }
-    }
-    worst
+    classify_sql_statement_for(text, SqlDialect::Generic)
+}
+
+pub fn classify_sql_statement_for(text: &str, dialect: SqlDialect) -> WriteRisk {
+    to_write_risk(mystique_sql::classify(text, dialect))
 }
 
 /// Last identifier after DROP/TRUNCATE for type-to-confirm.
 pub fn sql_destructive_object_name(text: &str) -> Option<String> {
-    let stmts = split_sql_statements(text);
-    for stmt in stmts.iter().rev() {
-        let Some(kw) = first_sql_keyword(stmt) else {
-            continue;
-        };
-        if !SQL_DESTRUCTIVE.contains(&kw.as_str()) {
-            continue;
-        }
-        if let Some(name) = last_sql_ident(stmt) {
-            return Some(name);
-        }
-        return Some(kw.to_ascii_uppercase());
-    }
-    None
+    sql_destructive_object_name_for(text, SqlDialect::Generic)
 }
 
-fn last_sql_ident(sql: &str) -> Option<String> {
-    const SKIP: &[&str] = &[
-        "drop",
-        "truncate",
-        "table",
-        "index",
-        "schema",
-        "database",
-        "view",
-        "materialized",
-        "sequence",
-        "if",
-        "exists",
-        "only",
-        "cascade",
-        "restrict",
-        "concurrently",
-        "temporary",
-        "temp",
-    ];
-    let cleaned = strip_sql_comments(sql);
-    let mut last: Option<String> = None;
-    for raw in cleaned
-        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '"' | '`' | '.'))
-    {
-        let word = raw.trim_matches(|c: char| matches!(c, '"' | '`' | '[' | ']' | '.'));
-        if word.is_empty() {
-            continue;
-        }
-        let lower = word.to_ascii_lowercase();
-        if SKIP.contains(&lower.as_str()) {
-            continue;
-        }
-        last = Some(word.to_string());
-    }
-    last
+pub fn sql_destructive_object_name_for(text: &str, dialect: SqlDialect) -> Option<String> {
+    mystique_sql::destructive_object_name(text, dialect)
 }
 
-/// Shared SQL policy used by relational engines (dialect-agnostic keyword gate).
-/// Multi-statement batches are allowed; every statement is validated.
+fn to_write_risk(risk: StatementRisk) -> WriteRisk {
+    match risk {
+        StatementRisk::Read | StatementRisk::Session => WriteRisk::Read,
+        StatementRisk::Write => WriteRisk::Write,
+        StatementRisk::Destructive => WriteRisk::Destructive,
+    }
+}
+
+fn deny_write(risk: StatementRisk) -> ConnectorError {
+    let kind = match risk {
+        StatementRisk::Destructive => "DROP/TRUNCATE",
+        _ => "write",
+    };
+    ConnectorError::Policy(format!(
+        "Write statement ({kind}) blocked. This connection is read-only."
+    ))
+}
+
+/// Shared SQL policy. Multi-statement batches: every statement is classified.
 pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
-    let stmts = split_sql_statements(text);
+    validate_sql_statement_for(text, mode, SqlDialect::Generic)
+}
+
+pub fn validate_sql_statement_for(
+    text: &str,
+    mode: QueryMode,
+    dialect: SqlDialect,
+) -> ConnectorResult<()> {
+    let stmts = mystique_sql::split_statements(text, dialect);
     if stmts.is_empty() {
         return Err(ConnectorError::Policy("Query is empty.".into()));
     }
     for stmt in &stmts {
-        validate_one_sql_statement(stmt, mode)?;
+        let risk = mystique_sql::classify(stmt, dialect);
+        if risk.is_read_like() {
+            continue;
+        }
+        if mode == QueryMode::Read {
+            return Err(deny_write(risk));
+        }
     }
     Ok(())
 }
@@ -270,5 +133,45 @@ mod tests {
             classify_sql_statement("INSERT INTO t VALUES (1); DROP TABLE t;"),
             WriteRisk::Destructive
         );
+    }
+
+    #[test]
+    fn with_insert_denied_in_read_for_postgres_and_mysql() {
+        let sql = "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x";
+        assert!(validate_sql_statement_for(sql, QueryMode::Read, SqlDialect::Postgres).is_err());
+        assert!(validate_sql_statement_for(sql, QueryMode::Read, SqlDialect::Mysql).is_err());
+        assert!(validate_sql_statement_for(sql, QueryMode::Write, SqlDialect::Postgres).is_ok());
+    }
+
+    #[test]
+    fn with_select_allowed_in_read() {
+        let sql = "WITH cte AS (SELECT 1) SELECT * FROM cte";
+        assert!(validate_sql_statement_for(sql, QueryMode::Read, SqlDialect::Postgres).is_ok());
+    }
+
+    #[test]
+    fn select_into_and_explain_analyze_delete_denied_in_read() {
+        assert!(validate_sql_statement_for(
+            "SELECT * INTO new_table FROM old",
+            QueryMode::Read,
+            SqlDialect::Postgres
+        )
+        .is_err());
+        assert!(validate_sql_statement_for(
+            "EXPLAIN ANALYZE DELETE FROM t",
+            QueryMode::Read,
+            SqlDialect::Postgres
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn batch_write_fails_read_mode() {
+        assert!(validate_sql_statement_for(
+            "SELECT 1; DELETE FROM t;",
+            QueryMode::Read,
+            SqlDialect::Postgres
+        )
+        .is_err());
     }
 }

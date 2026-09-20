@@ -8,6 +8,7 @@
 mystique/
 ├── Cargo.toml
 ├── crates/
+│   ├── mystique-sql/               # statement split + AST write-risk + ident quoting
 │   ├── mystique-connector-api/     # SPI: connector + EngineQueryPolicy + DTOs (no drivers)
 │   ├── mystique-core/              # domain + storage + ConnectionManager + AgentTools
 │   │   └── src/connectors/         # registry (connectors + policies) + session/pool manager
@@ -25,7 +26,8 @@ mystique/
 
 | Layer | May depend on | Must not |
 | ----- | ------------- | -------- |
-| `mystique-connector-api` | serde, async-trait | engine drivers, tauri |
+| `mystique-sql` | sqlparser | connector-api, drivers, tauri |
+| `mystique-connector-api` | serde, async-trait, mystique-sql | engine drivers, tauri |
 | `plugins/*` | connector-api + one driver | tauri, mystique-core |
 | `mystique-core` | connector-api + plugins (registry only) | dialect-specific SQL/MQL parsing, HTTP/MCP |
 | `mystique-mcp` | mystique-core (AgentTools) + axum | tauri, engine drivers |
@@ -37,7 +39,7 @@ mystique/
 - Trait + shared request/result types live in **`mystique-connector-api`**.
 - **One `EngineQueryPolicy` implementation per engine plugin** (Postgres ≠ MySQL ≠ Mongo).
 - Core `QueryService`: resolve policy by session `engine_id` → `validate` → execute.
-- Modes: **Read** (default) · **Write** (opt-in) · **DELETE always denied** for now.
+- Modes: **Read** (default) · **Write** (opt-in). DELETE is a write (allowed in Write mode, blocked in Read). DROP/TRUNCATE are Destructive (P3.1 type-to-confirm). SQL risk comes from `mystique-sql` (AST), not a first-keyword list.
 - Limits (max rows, timeout): core hard caps applied on every request.
 
 ## Adding a new database

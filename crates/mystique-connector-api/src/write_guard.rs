@@ -65,7 +65,7 @@ impl std::fmt::Display for WriteGuardPrompt {
     }
 }
 
-/// How dangerous a statement is. Keyword-level until the SQL crate (#131).
+/// How dangerous a statement is. SQL uses the AST in `mystique-sql`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WriteRisk {
     Read = 0,

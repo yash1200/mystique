@@ -9,8 +9,10 @@ use crate::query::QueryMode;
 use crate::WriteRisk;
 
 pub use sql::{
-    classify_sql_statement, split_sql_statements, sql_destructive_object_name, sql_is_safe_dml,
-    validate_sql_statement,
+    classify_sql_statement, classify_sql_statement_for, split_sql_statements,
+    split_sql_statements_for, sql_destructive_object_name, sql_destructive_object_name_for,
+    sql_is_safe_dml, sql_is_safe_dml_for, validate_sql_statement, validate_sql_statement_for,
+    SqlDialect,
 };
 
 /// Engine-specific statement classification + allow/deny.
@@ -20,7 +22,7 @@ pub trait EngineQueryPolicy: Send + Sync {
     /// Fail closed: unknown / unparsed → error.
     fn validate(&self, text: &str, mode: QueryMode) -> ConnectorResult<()>;
 
-    /// Keyword-level risk. Default: Read if `validate(..., Read)` succeeds.
+    /// AST risk for SQL engines. Default: Read if `validate(..., Read)` succeeds.
     fn classify(&self, text: &str) -> WriteRisk {
         if self.validate(text, QueryMode::Read).is_ok() {
             WriteRisk::Read
@@ -38,6 +40,10 @@ impl SqlQueryPolicy {
     pub const fn new(id: &'static str) -> Self {
         Self { id }
     }
+
+    fn dialect(&self) -> SqlDialect {
+        SqlDialect::from_engine(self.id)
+    }
 }
 
 impl EngineQueryPolicy for SqlQueryPolicy {
@@ -46,11 +52,11 @@ impl EngineQueryPolicy for SqlQueryPolicy {
     }
 
     fn validate(&self, text: &str, mode: QueryMode) -> ConnectorResult<()> {
-        validate_sql_statement(text, mode)
+        validate_sql_statement_for(text, mode, self.dialect())
     }
 
     fn classify(&self, text: &str) -> WriteRisk {
-        classify_sql_statement(text)
+        classify_sql_statement_for(text, self.dialect())
     }
 }
 

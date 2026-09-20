@@ -1,6 +1,7 @@
 use mystique_connector_api::{
-    sql_destructive_object_name, ConnectorError, ConnectorResult, ExecuteQueryRequest, QueryMode,
-    QueryResult, ValidatedQuery, WriteRisk, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
+    sql_destructive_object_name_for, ConnectorError, ConnectorResult, ExecuteQueryRequest,
+    QueryMode, QueryResult, SqlDialect, ValidatedQuery, WriteRisk, DEFAULT_MAX_ROWS,
+    DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 
 use super::ConnectionManager;
@@ -27,7 +28,8 @@ impl ConnectionManager {
         } else {
             policy.classify(&req.text)
         };
-        let object_name = sql_destructive_object_name(&req.text);
+        let object_name =
+            sql_destructive_object_name_for(&req.text, SqlDialect::from_engine(&engine));
         self.enforce_write_guard(
             &req.session_id,
             risk,

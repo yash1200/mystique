@@ -145,6 +145,26 @@ mod tests {
             .validate("INSERT INTO t VALUES (1)", QueryMode::Read)
             .is_err());
         assert!(p.validate("DELETE FROM t", QueryMode::Read).is_err());
+        assert!(p
+            .validate(
+                "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+                QueryMode::Read
+            )
+            .is_err());
+        assert!(p
+            .validate("WITH cte AS (SELECT 1) SELECT * FROM cte", QueryMode::Read)
+            .is_ok());
+        assert!(p
+            .validate("EXPLAIN ANALYZE DELETE FROM t", QueryMode::Read)
+            .is_err());
+
+        let mysql = reg.policy("mysql").unwrap();
+        assert!(mysql
+            .validate(
+                "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+                QueryMode::Read
+            )
+            .is_err());
 
         let mongo = reg.policy("mongodb").unwrap();
         assert!(mongo

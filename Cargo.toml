@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/mystique-connector-api",
+    "crates/mystique-sql",
     "crates/mystique-core",
     "crates/mystique-mcp",
     "crates/mystique-agent",
