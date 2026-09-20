@@ -35,6 +35,7 @@ impl AgentTools {
                 max_rows: Some(max),
                 timeout_ms: Some(30_000),
                 profile_read_only: true,
+                confirm_object_name: None,
                 collection: collection
                     .map(str::trim)
                     .filter(|s| !s.is_empty())

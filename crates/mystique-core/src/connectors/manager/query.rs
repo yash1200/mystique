@@ -1,6 +1,6 @@
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, ExecuteQueryRequest, QueryMode, QueryResult, ValidatedQuery,
-    DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
+    sql_destructive_object_name, ConnectorError, ConnectorResult, ExecuteQueryRequest, QueryMode,
+    QueryResult, ValidatedQuery, WriteRisk, DEFAULT_MAX_ROWS, DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 
 use super::ConnectionManager;
@@ -21,6 +21,22 @@ impl ConnectionManager {
             ConnectorError::Internal(format!("no query policy registered for engine `{engine}`"))
         })?;
         policy.validate(&req.text, mode)?;
+
+        let risk = if mode == QueryMode::Read {
+            WriteRisk::Read
+        } else {
+            policy.classify(&req.text)
+        };
+        let object_name = sql_destructive_object_name(&req.text);
+        self.enforce_write_guard(
+            &req.session_id,
+            risk,
+            &req.text,
+            object_name.as_deref(),
+            req.confirm_object_name.as_deref(),
+            req.profile_read_only,
+        )
+        .await?;
 
         let max_rows = req
             .max_rows

@@ -19,6 +19,7 @@
 	} from '$features/workspace/grid'
 	import {
 		isSessionMissingError,
+		runWithWriteGuard,
 		workspaceSession,
 	} from '$features/workspace/shell'
 	import { appPrefs } from '$lib/app'
@@ -327,12 +328,23 @@
 			}
 			let result
 			try {
-				result = await executeEngineQuery(request)
+				result = await runWithWriteGuard(sid, (confirmObjectName) =>
+					executeEngineQuery({
+						...request,
+						confirmObjectName: confirmObjectName ?? null,
+					}),
+				)
 			} catch (e) {
 				if (!onreconnect || !isSessionMissingError(e)) throw e
 				const next = await onreconnect()
 				if (!next) throw e
-				result = await executeEngineQuery({ ...request, sessionId: next })
+				result = await runWithWriteGuard(next, (confirmObjectName) =>
+					executeEngineQuery({
+						...request,
+						sessionId: next,
+						confirmObjectName: confirmObjectName ?? null,
+					}),
+				)
 			}
 			const elapsedMs = Math.round(performance.now() - start)
 			runState = {

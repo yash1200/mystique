@@ -98,6 +98,8 @@ SSH is **transport on the profile** (`ssh_config` + keychain `ssh_secret_ref`), 
 
 SSL is **shared** (`TlsSettings` in connector-api): `sslMode` disable/prefer/require/verify-ca/verify-full plus optional CA and client cert paths. Plugins must not each invent a TLS builder. Host and URI forms show SSL extras; File/SQLite does not.
 
+**Write guard (P3.1):** `environment` is a runtime check in `ConnectionManager`, not a badge. Production and staging: first write in a session must confirm (unlock is in-memory, dies on disconnect/quit). DROP/TRUNCATE need type-to-confirm of the object name. Local: no extra prompt beyond read-only. Agent/MCP stay read-only and never unlock.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

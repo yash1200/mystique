@@ -39,6 +39,15 @@ export type SshHostKeyPrompt = {
 	keyType: string
 	publicKey?: string
 }
+
+export type WriteGuardPrompt = {
+	code: 'writeGuard' | string
+	kind: 'unlock' | 'typeConfirm' | string
+	environment: string
+	connectionName: string
+	preview: string
+	objectName?: string | null
+}
 export interface EngineDescriptor {
 	id: string
 	displayName: string
@@ -98,6 +107,7 @@ export interface ExecuteQueryRequest {
 	maxRows?: number
 	timeoutMs?: number
 	profileReadOnly?: boolean
+	confirmObjectName?: string | null
 	/** MongoDB collection name */
 	collection?: string | null
 	/** MongoDB database override (explorer multi-DB) */
@@ -192,6 +202,7 @@ export interface ApplyTableEditsRequest {
 	inserts: TableRowInsert[]
 	deletes?: TableRowDelete[]
 	profileReadOnly?: boolean
+	confirmObjectName?: string | null
 }
 
 export interface ApplyTableEditsResult {
@@ -315,6 +326,7 @@ export interface TableAdminRequest {
 	kind?: string | null
 	newName?: string | null
 	profileReadOnly?: boolean
+	confirmObjectName?: string | null
 }
 
 export interface TableAdminResult {

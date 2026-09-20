@@ -4,6 +4,7 @@
  */
 import type { ApplyTableEditsResult, TableMeta } from '$core/contracts'
 import { applyEngineTableEdits } from '$core/ipc'
+import { runWithWriteGuard } from '$features/workspace/shell'
 export type PersistResult = ApplyTableEditsResult
 
 function invokeError(err: unknown): string {
@@ -132,22 +133,25 @@ export async function persistTableEdits(input: {
 	}
 
 	try {
-		return await applyEngineTableEdits({
-			sessionId: input.sessionId,
-			table: input.table.name,
-			schema: input.table.schema || null,
-			database: input.table.database || null,
-			columns: input.table.columns.map((c) => ({
-				name: c.name,
-				dataType: c.type,
-				nullable: !!c.nullable,
-				pk: !!c.pk,
-			})),
-			updates,
-			inserts,
-			deletes,
-			profileReadOnly: input.profileReadOnly,
-		})
+		return await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
+			applyEngineTableEdits({
+				sessionId: input.sessionId,
+				table: input.table.name,
+				schema: input.table.schema || null,
+				database: input.table.database || null,
+				columns: input.table.columns.map((c) => ({
+					name: c.name,
+					dataType: c.type,
+					nullable: !!c.nullable,
+					pk: !!c.pk,
+				})),
+				updates,
+				inserts,
+				deletes,
+				profileReadOnly: input.profileReadOnly,
+				confirmObjectName: confirmObjectName ?? null,
+			}),
+		)
 	} catch (err) {
 		throw new Error(invokeError(err))
 	}

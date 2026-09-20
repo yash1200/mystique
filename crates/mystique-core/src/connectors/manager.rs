@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -9,10 +9,11 @@ use mystique_connector_api::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 mod catalog;
+mod guard;
 mod metrics;
 mod query;
 mod table;
@@ -59,6 +60,15 @@ pub struct OpenSessionRequest {
     /// Passphrase for an encrypted TLS client key. Never persisted in plugin_config.
     #[serde(default)]
     pub tls_key_passphrase: Option<String>,
+    /// Profile environment (`local` | `staging` | `production`). Filled from the profile.
+    #[serde(default)]
+    pub environment: Option<String>,
+    /// Connection display name for write-guard prompts.
+    #[serde(default)]
+    pub connection_name: Option<String>,
+    /// Profile `read_only`. Filled from the profile at attach.
+    #[serde(default)]
+    pub profile_read_only: bool,
 }
 
 struct LiveSession {
@@ -69,12 +79,17 @@ struct LiveSession {
     product_id: String,
     /// Held so the local forward stays up until close.
     _tunnel: Option<SshTunnel>,
+    environment: String,
+    read_only: bool,
+    connection_name: String,
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
 pub struct ConnectionManager {
     registry: ConnectorRegistry,
     sessions: RwLock<HashMap<String, LiveSession>>,
+    /// Session ids unlocked for writes this process (P3.1). Not persisted.
+    write_unlocks: Mutex<HashSet<String>>,
 }
 
 impl ConnectionManager {
@@ -82,6 +97,7 @@ impl ConnectionManager {
         Self {
             registry,
             sessions: RwLock::new(HashMap::new()),
+            write_unlocks: Mutex::new(HashSet::new()),
         }
     }
 
@@ -210,6 +226,21 @@ impl ConnectionManager {
             opened_at: info.opened_at.clone(),
             product_id: info.engine.clone(),
             _tunnel: tunneled.tunnel,
+            environment: req
+                .environment
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("local")
+                .to_ascii_lowercase(),
+            read_only: req.profile_read_only,
+            connection_name: req
+                .connection_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&info.display_name)
+                .to_string(),
         };
 
         // Swap under the lock; close the previous session after releasing it.
@@ -218,9 +249,10 @@ impl ConnectionManager {
         let prev = {
             let mut guard = self.sessions.write().await;
             let prev = guard.remove(&session_id);
-            guard.insert(session_id, live);
+            guard.insert(session_id.clone(), live);
             prev
         };
+        self.write_unlocks.lock().await.remove(&session_id);
         if let Some(prev) = prev {
             let _ = prev.session.close().await;
         }
@@ -233,6 +265,7 @@ impl ConnectionManager {
             guard.remove(session_id)
         };
         if let Some(live) = live {
+            self.write_unlocks.lock().await.remove(session_id);
             live.session.close().await?;
             Ok(())
         } else {
@@ -245,6 +278,19 @@ impl ConnectionManager {
     pub async fn ping(&self, session_id: &str) -> ConnectorResult<()> {
         let session = self.session(session_id).await?;
         session.ping().await
+    }
+
+    /// Allow writes on this live session until close or process exit (P3.1).
+    pub async fn unlock_writes(&self, session_id: &str) -> ConnectorResult<()> {
+        let id = session_id.trim();
+        if id.is_empty() {
+            return Err(ConnectorError::InvalidConfig(
+                "sessionId is required.".into(),
+            ));
+        }
+        let _ = self.session(id).await?;
+        self.write_unlocks.lock().await.insert(id.to_string());
+        Ok(())
     }
 
     pub async fn pool_status(&self, session_id: &str) -> ConnectorResult<Option<PoolStatus>> {

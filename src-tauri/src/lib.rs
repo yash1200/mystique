@@ -95,6 +95,7 @@ pub fn run() {
             ipc::engines::engine_session_pool_status,
             ipc::engines::list_engine_sessions,
             ipc::engines::get_engine_session,
+            ipc::engines::unlock_engine_writes,
             ipc::engines::execute_engine_query,
             ipc::engines::describe_engine_table,
             ipc::engines::list_engine_catalog_columns,

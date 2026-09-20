@@ -169,6 +169,9 @@ impl AgentTools {
             session_id: Some(profile.id.clone()),
             ssh,
             tls_key_passphrase: None,
+            environment: None,
+            connection_name: None,
+            profile_read_only: false,
         };
         self.connections.open_session(req).await?;
         let _ = self

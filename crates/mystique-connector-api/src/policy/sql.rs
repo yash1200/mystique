@@ -1,5 +1,6 @@
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::query::QueryMode;
+use crate::WriteRisk;
 
 // ── Shared SQL helpers (Postgres / MySQL / SQLite) ──────────────────────────
 
@@ -87,6 +88,7 @@ const SQL_WRITE: &[&str] = &[
     "insert", "update", "replace", "merge", "delete", "truncate", "drop", "alter", "create",
     "grant", "revoke", "comment", "vacuum", "reindex", "attach", "detach",
 ];
+const SQL_DESTRUCTIVE: &[&str] = &["drop", "truncate"];
 
 fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
     let Some(kw) = first_sql_keyword(text) else {
@@ -116,6 +118,83 @@ fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
     )))
 }
 
+/// Worst risk across a SQL batch. Fail-closed unknown statements count as Write.
+pub fn classify_sql_statement(text: &str) -> WriteRisk {
+    let stmts = split_sql_statements(text);
+    if stmts.is_empty() {
+        return WriteRisk::Read;
+    }
+    let mut worst = WriteRisk::Read;
+    for stmt in &stmts {
+        let risk = match first_sql_keyword(stmt).as_deref() {
+            Some(kw) if SQL_DESTRUCTIVE.contains(&kw) => WriteRisk::Destructive,
+            Some(kw) if SQL_WRITE.contains(&kw) => WriteRisk::Write,
+            Some(kw) if SQL_READ.contains(&kw) || SQL_SESSION.contains(&kw) => WriteRisk::Read,
+            _ => WriteRisk::Write,
+        };
+        if risk > worst {
+            worst = risk;
+        }
+    }
+    worst
+}
+
+/// Last identifier after DROP/TRUNCATE for type-to-confirm.
+pub fn sql_destructive_object_name(text: &str) -> Option<String> {
+    let stmts = split_sql_statements(text);
+    for stmt in stmts.iter().rev() {
+        let Some(kw) = first_sql_keyword(stmt) else {
+            continue;
+        };
+        if !SQL_DESTRUCTIVE.contains(&kw.as_str()) {
+            continue;
+        }
+        if let Some(name) = last_sql_ident(stmt) {
+            return Some(name);
+        }
+        return Some(kw.to_ascii_uppercase());
+    }
+    None
+}
+
+fn last_sql_ident(sql: &str) -> Option<String> {
+    const SKIP: &[&str] = &[
+        "drop",
+        "truncate",
+        "table",
+        "index",
+        "schema",
+        "database",
+        "view",
+        "materialized",
+        "sequence",
+        "if",
+        "exists",
+        "only",
+        "cascade",
+        "restrict",
+        "concurrently",
+        "temporary",
+        "temp",
+    ];
+    let cleaned = strip_sql_comments(sql);
+    let mut last: Option<String> = None;
+    for raw in cleaned
+        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '"' | '`' | '.'))
+    {
+        let word = raw.trim_matches(|c: char| matches!(c, '"' | '`' | '[' | ']' | '.'));
+        if word.is_empty() {
+            continue;
+        }
+        let lower = word.to_ascii_lowercase();
+        if SKIP.contains(&lower.as_str()) {
+            continue;
+        }
+        last = Some(word.to_string());
+    }
+    last
+}
+
 /// Shared SQL policy used by relational engines (dialect-agnostic keyword gate).
 /// Multi-statement batches are allowed; every statement is validated.
 pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()> {
@@ -127,4 +206,46 @@ pub fn validate_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
         validate_one_sql_statement(stmt, mode)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_select_is_read() {
+        assert_eq!(classify_sql_statement("SELECT 1"), WriteRisk::Read);
+    }
+
+    #[test]
+    fn classify_delete_is_write() {
+        assert_eq!(
+            classify_sql_statement("DELETE FROM users"),
+            WriteRisk::Write
+        );
+    }
+
+    #[test]
+    fn classify_drop_is_destructive() {
+        assert_eq!(
+            classify_sql_statement("DROP TABLE public.users"),
+            WriteRisk::Destructive
+        );
+        assert_eq!(
+            sql_destructive_object_name("DROP TABLE public.users").as_deref(),
+            Some("users")
+        );
+    }
+
+    #[test]
+    fn classify_batch_takes_worst() {
+        assert_eq!(
+            classify_sql_statement("SELECT 1; DELETE FROM t;"),
+            WriteRisk::Write
+        );
+        assert_eq!(
+            classify_sql_statement("INSERT INTO t VALUES (1); DROP TABLE t;"),
+            WriteRisk::Destructive
+        );
+    }
 }

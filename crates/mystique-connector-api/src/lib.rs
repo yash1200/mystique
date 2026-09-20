@@ -27,6 +27,7 @@ mod query;
 mod table;
 mod tls;
 mod types;
+mod write_guard;
 
 pub use capabilities::*;
 pub use catalog::*;
@@ -43,3 +44,7 @@ pub use query::*;
 pub use table::*;
 pub use tls::{SslMode, TlsSettings};
 pub use types::*;
+pub use write_guard::{
+    environment_needs_type_confirm, environment_needs_unlock, WriteGuardPrompt, WriteRisk,
+    WRITE_GUARD_CODE,
+};

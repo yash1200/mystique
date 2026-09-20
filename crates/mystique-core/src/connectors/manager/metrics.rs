@@ -1,6 +1,6 @@
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, FetchServerMetricsRequest, ServerMetricsSnapshot,
-    TerminateSessionRequest, TerminateSessionResult,
+    TerminateSessionRequest, TerminateSessionResult, WriteRisk,
 };
 
 use super::ConnectionManager;
@@ -23,11 +23,15 @@ impl ConnectionManager {
         &self,
         req: TerminateSessionRequest,
     ) -> ConnectorResult<TerminateSessionResult> {
-        if req.profile_read_only {
-            return Err(ConnectorError::Policy(
-                "This connection is read-only. Disable read-only to terminate sessions.".into(),
-            ));
-        }
+        self.enforce_write_guard(
+            &req.session_id,
+            WriteRisk::Write,
+            &format!("Terminate backend session {}", req.backend_session_id),
+            None,
+            None,
+            req.profile_read_only,
+        )
+        .await?;
         if req.session_id.trim().is_empty() {
             return Err(ConnectorError::InvalidConfig(
                 "sessionId is required.".into(),

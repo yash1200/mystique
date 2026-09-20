@@ -1,8 +1,8 @@
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
     ConnectorResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest, TableAdminOp,
-    TableAdminRequest, TableAdminResult, TablePreviewResult, TablePreviewStats, DEFAULT_MAX_ROWS,
-    HARD_MAX_ROWS,
+    TableAdminRequest, TableAdminResult, TablePreviewResult, TablePreviewStats, WriteRisk,
+    DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
 };
 
 use super::ConnectionManager;
@@ -13,15 +13,26 @@ impl ConnectionManager {
         &self,
         req: ApplyTableEditsRequest,
     ) -> ConnectorResult<ApplyTableEditsResult> {
-        if req.profile_read_only {
-            return Err(ConnectorError::Policy(
-                "This connection is read-only. Disable read-only to save edits.".into(),
-            ));
-        }
-        let session = self.session(&req.session_id).await?;
         if req.updates.is_empty() && req.inserts.is_empty() && req.deletes.is_empty() {
             return Ok(ApplyTableEditsResult::empty());
         }
+        let preview = format!(
+            "Save {} update(s), {} insert(s), {} delete(s) on {}",
+            req.updates.len(),
+            req.inserts.len(),
+            req.deletes.len(),
+            req.table
+        );
+        self.enforce_write_guard(
+            &req.session_id,
+            WriteRisk::Write,
+            &preview,
+            Some(req.table.as_str()),
+            req.confirm_object_name.as_deref(),
+            req.profile_read_only,
+        )
+        .await?;
+        let session = self.session(&req.session_id).await?;
         let input = ApplyTableEditsInput::from(req);
         session.apply_table_edits(&input).await
     }
@@ -47,7 +58,23 @@ impl ConnectionManager {
         &self,
         req: TableAdminRequest,
     ) -> ConnectorResult<TableAdminResult> {
-        if req.profile_read_only && req.op != TableAdminOp::CreateStatement {
+        let risk = match req.op {
+            TableAdminOp::CreateStatement => WriteRisk::Read,
+            TableAdminOp::Drop | TableAdminOp::Truncate => WriteRisk::Destructive,
+            _ => WriteRisk::Write,
+        };
+        if risk != WriteRisk::Read {
+            let preview = format!("{:?} {}", req.op, req.name);
+            self.enforce_write_guard(
+                &req.session_id,
+                risk,
+                &preview,
+                Some(req.name.as_str()),
+                req.confirm_object_name.as_deref(),
+                req.profile_read_only,
+            )
+            .await?;
+        } else if req.profile_read_only && req.op != TableAdminOp::CreateStatement {
             return Err(ConnectorError::Policy(
                 "This connection is read-only. Disable read-only to change objects.".into(),
             ));

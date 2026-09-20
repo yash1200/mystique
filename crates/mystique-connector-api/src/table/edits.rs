@@ -61,6 +61,8 @@ pub struct ApplyTableEditsRequest {
     pub deletes: Vec<TableRowDelete>,
     #[serde(default)]
     pub profile_read_only: bool,
+    #[serde(default)]
+    pub confirm_object_name: Option<String>,
 }
 
 /// Plugin-facing input (session already resolved).

@@ -37,6 +37,9 @@ pub enum ConnectorError {
 
     #[error("{0}")]
     SshHostKey(crate::SshHostKeyPrompt),
+
+    #[error("{0}")]
+    WriteGuard(crate::WriteGuardPrompt),
 }
 
 impl ConnectorError {
@@ -52,6 +55,7 @@ impl ConnectorError {
             Self::Policy(_) => "policy",
             Self::Internal(_) => "internal",
             Self::SshHostKey(_) => "ssh_host_key",
+            Self::WriteGuard(_) => "write_guard",
         }
     }
 }

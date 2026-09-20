@@ -104,6 +104,9 @@ async fn test_unknown_engine_returns_structured_fail() {
             profile_id: None,
             ssh: None,
             tls_key_passphrase: None,
+            environment: None,
+            connection_name: None,
+            profile_read_only: false,
         })
         .await
         .unwrap();
@@ -129,6 +132,9 @@ async fn test_postgres_missing_db_structured_fail() {
             profile_id: None,
             ssh: None,
             tls_key_passphrase: None,
+            environment: None,
+            connection_name: None,
+            profile_read_only: false,
         })
         .await
         .unwrap();
@@ -164,6 +170,9 @@ async fn test_postgres_unreachable_structured_fail() {
             profile_id: None,
             ssh: None,
             tls_key_passphrase: None,
+            environment: None,
+            connection_name: None,
+            profile_read_only: false,
         })
         .await
         .unwrap();
@@ -204,6 +213,9 @@ async fn test_postgres_local_success_when_available() {
             profile_id: None,
             ssh: None,
             tls_key_passphrase: None,
+            environment: None,
+            connection_name: None,
+            profile_read_only: false,
         })
         .await
         .unwrap();
@@ -245,6 +257,9 @@ async fn close_then_open_another_session_does_not_hang() {
         profile_id: None,
         ssh: None,
         tls_key_passphrase: None,
+        environment: None,
+        connection_name: None,
+        profile_read_only: false,
     };
     mgr.open_session(open(&a, "sess-a")).await.expect("open a");
     tokio::time::timeout(
@@ -264,4 +279,130 @@ async fn close_then_open_another_session_does_not_hang() {
     let _ = mgr.close_session("sess-b").await;
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
+}
+
+#[tokio::test]
+async fn production_write_requires_unlock() {
+    let path = std::env::temp_dir().join("mystique-guard.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(OpenSessionRequest {
+        engine: "sqlite".into(),
+        plugin_config: json!({ "path": path.to_string_lossy() }),
+        password: None,
+        pool: None,
+        session_id: Some("prod".into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: Some("production".into()),
+        connection_name: Some("Prod DB".into()),
+        profile_read_only: false,
+    })
+    .await
+    .expect("open");
+
+    let err = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "prod".into(),
+            text: "CREATE TABLE t (id INTEGER)".into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("blocked");
+    let msg = err.to_string();
+    assert!(msg.contains("writeGuard"), "{msg}");
+    assert!(msg.contains("unlock"), "{msg}");
+
+    mgr.unlock_writes("prod").await.expect("unlock");
+    mgr.execute_query(mystique_connector_api::ExecuteQueryRequest {
+        session_id: "prod".into(),
+        text: "CREATE TABLE t (id INTEGER)".into(),
+        mode: mystique_connector_api::QueryMode::Write,
+        max_rows: None,
+        timeout_ms: None,
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+    })
+    .await
+    .expect("write after unlock");
+
+    let drop_err = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "prod".into(),
+            text: "DROP TABLE t".into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("drop needs name");
+    let drop_msg = drop_err.to_string();
+    assert!(drop_msg.contains("typeConfirm"), "{drop_msg}");
+
+    mgr.execute_query(mystique_connector_api::ExecuteQueryRequest {
+        session_id: "prod".into(),
+        text: "DROP TABLE t".into(),
+        mode: mystique_connector_api::QueryMode::Write,
+        max_rows: None,
+        timeout_ms: None,
+        profile_read_only: false,
+        confirm_object_name: Some("t".into()),
+        collection: None,
+        database: None,
+    })
+    .await
+    .expect("drop after type confirm");
+
+    let _ = mgr.close_session("prod").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn local_write_skips_unlock() {
+    let path = std::env::temp_dir().join("mystique-guard-local.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(OpenSessionRequest {
+        engine: "sqlite".into(),
+        plugin_config: json!({ "path": path.to_string_lossy() }),
+        password: None,
+        pool: None,
+        session_id: Some("local".into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: Some("local".into()),
+        connection_name: Some("Local".into()),
+        profile_read_only: false,
+    })
+    .await
+    .expect("open");
+    mgr.execute_query(mystique_connector_api::ExecuteQueryRequest {
+        session_id: "local".into(),
+        text: "CREATE TABLE t (id INTEGER)".into(),
+        mode: mystique_connector_api::QueryMode::Write,
+        max_rows: None,
+        timeout_ms: None,
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+    })
+    .await
+    .expect("local write");
+    let _ = mgr.close_session("local").await;
+    let _ = std::fs::remove_file(&path);
 }

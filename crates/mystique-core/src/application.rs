@@ -83,6 +83,35 @@ impl AppServices {
         &self,
         mut req: OpenSessionRequest,
     ) -> AppResult<OpenSessionRequest> {
+        if let Some(id) = req
+            .profile_id
+            .as_deref()
+            .or(req.session_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Ok(profile) = self.profiles().get(id) {
+                if req
+                    .environment
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .is_none()
+                {
+                    req.environment = Some(profile.environment.clone());
+                }
+                if req
+                    .connection_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .is_none()
+                {
+                    req.connection_name = Some(profile.name.clone());
+                }
+                req.profile_read_only = req.profile_read_only || profile.read_only;
+            }
+        }
         req.password = self.password_for_request(&req)?;
         if req
             .password
@@ -324,6 +353,9 @@ mod attach_secrets_tests {
             profile_id: Some(profile_id),
             ssh: None,
             tls_key_passphrase: None,
+            environment: None,
+            connection_name: None,
+            profile_read_only: false,
         }
     }
 

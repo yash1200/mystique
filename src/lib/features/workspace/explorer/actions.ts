@@ -14,6 +14,7 @@ import {
 	requireActiveConnection,
 	structureCacheKey,
 	tableTabId,
+	runWithWriteGuard,
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
@@ -65,16 +66,19 @@ export async function onTableExplorerAction(
 	try {
 		workspaceStudio.setCatalogError(null)
 		const result = await withLiveSession(id, (sid) =>
-			applyEngineTableAdmin({
-				sessionId: sid,
-				op,
-				name: table.name,
-				schema: table.schema || null,
-				database: table.database || currentDatabaseName(),
-				kind: table.kind,
-				newName,
-				profileReadOnly: !!session.profile.readOnly,
-			}),
+			runWithWriteGuard(sid, (confirmObjectName) =>
+				applyEngineTableAdmin({
+					sessionId: sid,
+					op,
+					name: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName(),
+					kind: table.kind,
+					newName,
+					profileReadOnly: !!session.profile.readOnly,
+					confirmObjectName: confirmObjectName ?? null,
+				}),
+			),
 		)
 
 		if (action === 'create') {

@@ -125,6 +125,11 @@ export async function getEngineSession(
 	return invoke('get_engine_session', { sessionId })
 }
 
+export async function unlockEngineWrites(sessionId: string): Promise<void> {
+	requireTauri()
+	return invoke('unlock_engine_writes', { sessionId })
+}
+
 export async function executeEngineQuery(
 	request: ExecuteQueryRequest,
 ): Promise<QueryResult> {

@@ -28,6 +28,9 @@ pub struct ExecuteQueryRequest {
     /// When true, force Read regardless of `mode`.
     #[serde(default)]
     pub profile_read_only: bool,
+    /// Typed object name after a DROP/TRUNCATE confirm prompt.
+    #[serde(default)]
+    pub confirm_object_name: Option<String>,
     /// MongoDB: collection to query (required for document finds).
     #[serde(default)]
     pub collection: Option<String>,

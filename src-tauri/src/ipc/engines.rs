@@ -159,6 +159,19 @@ pub async fn get_engine_session(
 }
 
 #[tauri::command]
+pub async fn unlock_engine_writes(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .services
+        .connections()
+        .unlock_writes(&session_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn execute_engine_query(
     state: State<'_, AppState>,
     request: mystique_core::ExecuteQueryRequest,

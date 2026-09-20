@@ -81,5 +81,6 @@ export type {
 	SshHostKeyPrompt,
 	SshTunnelRequest,
 	TestResult,
+	WriteGuardPrompt,
 } from './engines'
 export type * from './session'

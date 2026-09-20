@@ -49,6 +49,7 @@
 	import type { SideNavMode } from './SessionsRail.svelte'
 	import SessionsRail from './SessionsRail.svelte'
 	import UnsavedCloseModal from './UnsavedCloseModal.svelte'
+	import WriteGuardModal from './WriteGuardModal.svelte'
 	import WorkspaceMainPane from './WorkspaceMainPane.svelte'
 	import WorkspaceSidePane from './WorkspaceSidePane.svelte'
 
@@ -452,6 +453,8 @@
 			onpick={(profile) => void connectAdditional(profile)}
 		/>
 	{/if}
+
+	<WriteGuardModal />
 
 	<UnsavedCloseModal
 		open={!!pendingCloseTab && !querySave.modalOpen}

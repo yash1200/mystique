@@ -6,8 +6,12 @@ mod sql;
 
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::query::QueryMode;
+use crate::WriteRisk;
 
-pub use sql::{split_sql_statements, validate_sql_statement};
+pub use sql::{
+    classify_sql_statement, split_sql_statements, sql_destructive_object_name,
+    validate_sql_statement,
+};
 
 /// Engine-specific statement classification + allow/deny.
 pub trait EngineQueryPolicy: Send + Sync {
@@ -15,6 +19,15 @@ pub trait EngineQueryPolicy: Send + Sync {
 
     /// Fail closed: unknown / unparsed → error.
     fn validate(&self, text: &str, mode: QueryMode) -> ConnectorResult<()>;
+
+    /// Keyword-level risk. Default: Read if `validate(..., Read)` succeeds.
+    fn classify(&self, text: &str) -> WriteRisk {
+        if self.validate(text, QueryMode::Read).is_ok() {
+            WriteRisk::Read
+        } else {
+            WriteRisk::Write
+        }
+    }
 }
 
 pub struct SqlQueryPolicy {
@@ -34,6 +47,10 @@ impl EngineQueryPolicy for SqlQueryPolicy {
 
     fn validate(&self, text: &str, mode: QueryMode) -> ConnectorResult<()> {
         validate_sql_statement(text, mode)
+    }
+
+    fn classify(&self, text: &str) -> WriteRisk {
+        classify_sql_statement(text)
     }
 }
 
@@ -106,4 +123,34 @@ impl EngineQueryPolicy for MongoQueryPolicy {
                 .into(),
         ))
     }
+
+    fn classify(&self, text: &str) -> WriteRisk {
+        classify_mongo_query(text)
+    }
+}
+
+fn classify_mongo_query(text: &str) -> WriteRisk {
+    let lower = text.trim().to_ascii_lowercase();
+    if lower.contains("dropdatabase")
+        || lower.contains("dropcollection")
+        || lower.contains(".drop(")
+        || lower.contains("$out")
+        || lower.contains("$merge")
+    {
+        return WriteRisk::Destructive;
+    }
+    if lower.contains("insertone")
+        || lower.contains("insertmany")
+        || lower.contains("updateone")
+        || lower.contains("updatemany")
+        || lower.contains("replaceone")
+        || lower.contains("bulkwrite")
+        || lower.contains("deleteone")
+        || lower.contains("deletemany")
+        || lower.contains("delete ")
+        || lower.contains(".remove(")
+    {
+        return WriteRisk::Write;
+    }
+    WriteRisk::Read
 }
