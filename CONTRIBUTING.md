@@ -90,7 +90,7 @@ Backend: new `mystique-plugin-<engine>` crate (`DatabaseConnector` + `ConnectorS
 
 Frontend: `src/lib/engines/<engine>/` with `index.ts`, then one `register()` in `engines/registry.ts`. Connection forms are Host / File / URI shells in `engines/ui/` keyed by `connectionKind` — do not add `Fields.svelte` per engine. Chrome reads `EngineCapabilities`, not `if (engine === '…')`.
 
-A **product** (picker / `connections.engine`) can share a **runtime** crate. Add a row to `crates/mystique-connector-api/src/products.rs` **and** `src/lib/engines/products.ts` — do not copy a plugin. `ConnectorRegistry::get("mariadb")` returns the MySQL connector. Picker cards for those products are Phase 1.4.
+A **product** (picker / `connections.engine`) can share a **runtime** crate. Add a row to `crates/mystique-connector-api/src/products.rs` **and** `src/lib/engines/products.ts` with `onPicker: true` — do not copy a plugin or add `Fields.svelte`. `ConnectorRegistry::get("mariadb")` returns the MySQL connector. Home cards come from `engineOptions()` / `onPicker`, not from extra `register()` calls.
 
 `supportDepth` (`operate` | `browse` | `connect`) is the overlay that hides ER/metrics/admin without engine-name branches. New products default to `operate` only if they really have that chrome.
 

@@ -26,6 +26,7 @@ export {
 
 export {
 	ENGINE_PRODUCTS,
+	pickerProducts,
 	productById,
 	runtimeFor,
 	type EngineProduct,

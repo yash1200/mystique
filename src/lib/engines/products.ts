@@ -3,7 +3,7 @@
  * `crates/mystique-connector-api/src/products.rs`.
  *
  * Product = picker / saved `engine` column. Runtime = plugin crate.
- * `onPicker: false` until Phase 1.4 (first-class cards).
+ * `onPicker` is a Home card; aliases (`postgresql`, `pg`, `mongo`) stay off.
  */
 export interface EngineProduct {
 	id: string
@@ -55,7 +55,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		mark: 'CR',
 		defaultPort: 26257,
 		description: 'Distributed SQL — Postgres wire protocol.',
-		onPicker: false,
+		onPicker: true,
 		supportDepth: 'operate',
 	},
 	{
@@ -76,7 +76,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		mark: 'Ma',
 		defaultPort: 3306,
 		description: 'MariaDB — MySQL wire protocol.',
-		onPicker: false,
+		onPicker: true,
 		supportDepth: 'operate',
 	},
 	{
@@ -86,7 +86,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		mark: 'Ti',
 		defaultPort: 4000,
 		description: 'TiDB — MySQL wire protocol.',
-		onPicker: false,
+		onPicker: true,
 		supportDepth: 'operate',
 	},
 	{
@@ -127,7 +127,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		mark: 'Doc',
 		defaultPort: 27017,
 		description: 'Amazon DocumentDB — MongoDB wire protocol.',
-		onPicker: false,
+		onPicker: true,
 		supportDepth: 'operate',
 	},
 ]
@@ -135,6 +135,11 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 export function productById(id: string): EngineProduct | undefined {
 	const key = String(id).trim().toLowerCase()
 	return ENGINE_PRODUCTS.find((p) => p.id === key)
+}
+
+/** Home “choose database” cards — aliases are resolve-only. */
+export function pickerProducts(): EngineProduct[] {
+	return ENGINE_PRODUCTS.filter((p) => p.onPicker)
 }
 
 export function runtimeFor(id: string): string | undefined {

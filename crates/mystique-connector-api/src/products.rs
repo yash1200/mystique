@@ -13,7 +13,7 @@ pub struct EngineProduct {
     pub mark: &'static str,
     pub default_port: u16,
     pub description: &'static str,
-    /// Home picker card. `false` = resolve-only until Phase 1.4.
+    /// Home picker card. Aliases stay `false` (resolve-only).
     pub on_picker: bool,
     pub support_depth: crate::SupportDepth,
 }
@@ -58,7 +58,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         mark: "CR",
         default_port: 26257,
         description: "Distributed SQL — Postgres wire protocol.",
-        on_picker: false,
+        on_picker: true,
         support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
@@ -78,7 +78,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         mark: "Ma",
         default_port: 3306,
         description: "MariaDB — MySQL wire protocol.",
-        on_picker: false,
+        on_picker: true,
         support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
@@ -88,7 +88,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         mark: "Ti",
         default_port: 4000,
         description: "TiDB — MySQL wire protocol.",
-        on_picker: false,
+        on_picker: true,
         support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
@@ -129,7 +129,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         mark: "Doc",
         default_port: 27017,
         description: "Amazon DocumentDB — MongoDB wire protocol.",
-        on_picker: false,
+        on_picker: true,
         support_depth: crate::SupportDepth::Operate,
     },
 ];
@@ -178,13 +178,44 @@ mod tests {
     }
 
     #[test]
-    fn picker_is_four_runtimes_until_phase_1_4() {
+    fn picker_includes_first_class_profiles() {
         let cards: Vec<_> = ENGINE_PRODUCTS
             .iter()
             .filter(|p| p.on_picker)
             .map(|p| p.id)
             .collect();
-        assert_eq!(cards, ["postgres", "mysql", "sqlite", "mongodb"]);
+        assert_eq!(
+            cards,
+            [
+                "postgres",
+                "cockroachdb",
+                "mysql",
+                "mariadb",
+                "tidb",
+                "sqlite",
+                "mongodb",
+                "documentdb",
+            ]
+        );
+    }
+
+    #[test]
+    fn aliases_are_not_picker_cards() {
+        for id in ["postgresql", "pg", "mongo"] {
+            assert!(!product(id).unwrap().on_picker);
+        }
+    }
+
+    #[test]
+    fn picker_products_reuse_four_runtimes() {
+        let mut runtimes: Vec<_> = ENGINE_PRODUCTS
+            .iter()
+            .filter(|p| p.on_picker)
+            .map(|p| p.runtime)
+            .collect();
+        runtimes.sort_unstable();
+        runtimes.dedup();
+        assert_eq!(runtimes, ["mongodb", "mysql", "postgres", "sqlite"]);
     }
 
     #[test]

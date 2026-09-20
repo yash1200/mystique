@@ -21,7 +21,7 @@ import {
 import { mongodb } from './mongodb'
 import { mysql } from './mysql'
 import { postgres } from './postgres'
-import { productById, type EngineProduct } from './products'
+import { pickerProducts, productById, type EngineProduct } from './products'
 import { sqlite } from './sqlite'
 import type { EngineAdapter } from './types'
 
@@ -108,22 +108,28 @@ export function adapterFor(engine: string): EngineAdapter {
 
 /** Engines offered on the Home “choose database” step. */
 export function engineOptions(): EngineOption[] {
-	return ORDERED.map((a) => ({
-		id: a.id as EngineId,
-		name: a.label,
-		description: a.description,
-		available: a.available,
-		queryLanguage: a.defaultCapabilities.queryLanguage,
-		family:
-			a.defaultCapabilities.family === 'DOCUMENT' ? 'document' : 'relational',
-		mark: a.mark,
-		defaultPort: a.defaultPort,
-		modelViewLabel: modelViewLabelFromCaps(a.defaultCapabilities),
-	}))
+	return pickerProducts().map((product) => {
+		const adapter = adapterFor(product.id)
+		return {
+			id: product.id as EngineId,
+			name: product.label,
+			description: product.description,
+			available: true,
+			queryLanguage: adapter.defaultCapabilities.queryLanguage,
+			family:
+				adapter.defaultCapabilities.family === 'DOCUMENT'
+					? 'document'
+					: 'relational',
+			mark: product.mark,
+			defaultPort: product.defaultPort,
+			modelViewLabel: modelViewLabelFromCaps(adapter.defaultCapabilities),
+		}
+	})
 }
 
 export function engineLabel(engine: string): string {
-	return ADAPTERS.get(String(engine).trim().toLowerCase())?.label ?? engine
+	const id = String(engine).trim()
+	return productById(id)?.label ?? ADAPTERS.get(id.toLowerCase())?.label ?? id
 }
 
 /** Fallback when no live session yet (browser / pre-connect). */
