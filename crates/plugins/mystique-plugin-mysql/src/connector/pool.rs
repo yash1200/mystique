@@ -1,6 +1,6 @@
-use mysql_async::{OptsBuilder, Pool, PoolConstraints, PoolOpts, SslOpts};
+use mysql_async::{ClientIdentity, OptsBuilder, Pool, PoolConstraints, PoolOpts, SslOpts};
 use mystique_connector_api::{
-    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult,
+    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult, TlsSettings,
 };
 
 pub(crate) fn format_error(err: &mysql_async::Error) -> String {
@@ -40,17 +40,40 @@ fn pretty_mysql_code(code: u16, message: &str) -> Option<String> {
 }
 
 pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {
-    if config.bool_field("ssl", false) {
-        return true;
+    TlsSettings::from_config(config).enabled()
+}
+
+fn ssl_opts(settings: &TlsSettings) -> ConnectorResult<SslOpts> {
+    let mut opts = SslOpts::default()
+        .with_danger_accept_invalid_certs(!settings.mode.verify_certs())
+        .with_danger_skip_domain_validation(!settings.mode.verify_hostname());
+    if let Some(ca) = &settings.ca_cert_path {
+        opts = opts
+            .with_root_certs(vec![ca.clone().into()])
+            .with_disable_built_in_roots(true);
     }
-    match config
-        .str_field("sslMode")
-        .or_else(|| config.str_field("ssl_mode"))
-        .as_deref()
-    {
-        Some("require") | Some("verify-ca") | Some("verify-full") | Some("prefer") => true,
-        _ => false,
+    let identity_path = settings
+        .client_key_path
+        .as_ref()
+        .or(settings.client_cert_path.as_ref());
+    if let Some(path) = identity_path {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ext != "p12" && ext != "pfx" {
+            return Err(ConnectorError::InvalidConfig(
+                "MySQL client certificate must be a PKCS#12 (.p12 or .pfx) file.".into(),
+            ));
+        }
+        let mut identity = ClientIdentity::new(path.clone().into());
+        if let Some(pw) = &settings.client_key_passphrase {
+            identity = identity.with_password(pw.clone());
+        }
+        opts = opts.with_client_identity(Some(identity));
     }
+    Ok(opts)
 }
 
 pub(super) fn build_opts(config: &ConnectionConfig) -> ConnectorResult<mysql_async::Opts> {
@@ -87,9 +110,9 @@ pub(super) fn build_opts(config: &ConnectionConfig) -> ConnectorResult<mysql_asy
         .wait_timeout(Some(wait_secs))
         .stmt_cache_size(0);
 
-    if wants_ssl(config) {
-        // Prefer TLS without verifying CA for local/dev; production can tighten later.
-        builder = builder.ssl_opts(Some(SslOpts::default()));
+    let tls = TlsSettings::from_config(config);
+    if tls.enabled() {
+        builder = builder.ssl_opts(Some(ssl_opts(&tls)?));
     }
 
     Ok(builder.into())

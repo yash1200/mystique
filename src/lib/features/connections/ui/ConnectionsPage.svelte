@@ -193,6 +193,7 @@
 			const typed = draft.password.trim()
 			const password = typed.length > 0 ? typed : null
 
+			const tlsPass = (draft.sslClientKeyPassphrase ?? '').trim()
 			const result = await testEngineConnection({
 				engine: String(draft.engine),
 				pluginConfig,
@@ -200,6 +201,7 @@
 				profileId:
 					editing && selectedId ? selectedId : undefined,
 				ssh: sshTunnelFromDraft(draft),
+				tlsKeyPassphrase: tlsPass || null,
 				pool: {
 					maxSize: 2,
 					minIdle: 0,

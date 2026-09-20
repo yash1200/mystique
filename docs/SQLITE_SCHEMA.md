@@ -178,7 +178,11 @@ Stored as **TEXT** containing a JSON object. The **connector plugin** for `engin
   "port": 5432,
   "database": "app",
   "username": "postgres",
-  "sslMode": "prefer"
+  "ssl": true,
+  "sslMode": "verify-full",
+  "caCertPath": "/path/to/rds-ca.pem",
+  "clientCertPath": "/path/to/client.pem",
+  "clientKeyPath": "/path/to/client.key"
 }
 ```
 

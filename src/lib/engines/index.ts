@@ -46,4 +46,12 @@ export {
 
 export type { SqlCompleteConfig } from './sql/complete'
 
+export {
+	emptySslDraft,
+	sslModeFromConfig,
+	sslPluginFields,
+	SSL_MODE_OPTIONS,
+	type SslMode,
+} from './ssl'
+
 export { default as EngineFields } from './ui/EngineFields.svelte'

@@ -16,6 +16,7 @@ export interface OpenSessionRequest {
 	/** When password is omitted, resolve the OS-keychain secret for this profile. */
 	profileId?: string | null
 	ssh?: SshTunnelRequest | null
+	tlsKeyPassphrase?: string | null
 }
 
 export type SshTunnelRequest = {

@@ -1,6 +1,7 @@
 /** PostgreSQL adapter — mirrors `crates/plugins/mystique-plugin-postgres`. */
 import { PostgreSQL } from '@codemirror/lang-sql'
 import { relationalCapabilities } from '../capabilities'
+import { emptySslDraft, sslPluginFields } from '../ssl'
 import { sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
@@ -27,7 +28,7 @@ export const postgres: EngineAdapter = {
 			username: 'postgres',
 			// Docker seed: user/password postgres (Host placeholder matches).
 			password: 'postgres',
-			ssl: false,
+			...emptySslDraft,
 			readOnly: false,
 			environment: 'local',
 			notes: '',
@@ -38,8 +39,7 @@ export const postgres: EngineAdapter = {
 			database: draft.database.trim() || 'postgres',
 			// Prefer explicit user; empty string is omitted so backend default applies
 			username: draft.username.trim() || 'postgres',
-			ssl: draft.ssl,
-			sslMode: draft.ssl ? 'require' : 'disable',
+			...sslPluginFields(draft),
 		}),
 		validate: (draft, mode) => {
 			if (!draft.host.trim() || !draft.database.trim()) {

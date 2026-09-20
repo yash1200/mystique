@@ -103,6 +103,7 @@ async fn test_unknown_engine_returns_structured_fail() {
             session_id: None,
             profile_id: None,
             ssh: None,
+            tls_key_passphrase: None,
         })
         .await
         .unwrap();
@@ -127,6 +128,7 @@ async fn test_postgres_missing_db_structured_fail() {
             session_id: None,
             profile_id: None,
             ssh: None,
+            tls_key_passphrase: None,
         })
         .await
         .unwrap();
@@ -161,6 +163,7 @@ async fn test_postgres_unreachable_structured_fail() {
             session_id: None,
             profile_id: None,
             ssh: None,
+            tls_key_passphrase: None,
         })
         .await
         .unwrap();
@@ -200,6 +203,7 @@ async fn test_postgres_local_success_when_available() {
             session_id: None,
             profile_id: None,
             ssh: None,
+            tls_key_passphrase: None,
         })
         .await
         .unwrap();
@@ -240,6 +244,7 @@ async fn close_then_open_another_session_does_not_hang() {
         session_id: Some(id.into()),
         profile_id: None,
         ssh: None,
+        tls_key_passphrase: None,
     };
     mgr.open_session(open(&a, "sess-a")).await.expect("open a");
     tokio::time::timeout(

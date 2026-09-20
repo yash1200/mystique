@@ -1,5 +1,6 @@
 /** MongoDB adapter — mirrors `crates/plugins/mystique-plugin-mongodb`. */
 import type { PluginConfig } from '$core/contracts'
+import { emptySslDraft, sslPluginFields } from '../ssl'
 import type { EngineAdapter } from '../types'
 import { mongoCompletionSource } from './complete'
 import { formatMql } from './format'
@@ -28,7 +29,7 @@ export const mongodb: EngineAdapter = {
 			uri: '',
 			username: '',
 			password: '',
-			ssl: false,
+			...emptySslDraft,
 			readOnly: false,
 			environment: 'local',
 			notes: '',
@@ -38,12 +39,13 @@ export const mongodb: EngineAdapter = {
 			const fromUri = databaseFromMongoUri(uri)
 			const database = draft.database.trim() || fromUri || ''
 			// Prefer URI when present; otherwise keep discrete fields for legacy profiles.
+			const ssl = sslPluginFields(draft)
 			if (uri) {
-				const cfg: PluginConfig = { uri }
+				const cfg: PluginConfig = { uri, ...ssl }
 				if (database) cfg.database = database
 				return cfg
 			}
-			const cfg: PluginConfig = {}
+			const cfg: PluginConfig = { ...ssl }
 			if (draft.host.trim()) cfg.host = draft.host.trim()
 			if (draft.port) cfg.port = Number(draft.port) || 27017
 			if (draft.username.trim()) cfg.username = draft.username.trim()

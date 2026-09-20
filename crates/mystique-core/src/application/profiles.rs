@@ -33,6 +33,8 @@ fn incoming_password(input: &SaveConnectionInput) -> Option<String> {
 fn strip_plugin_password(mut input: SaveConnectionInput) -> SaveConnectionInput {
     if let Some(obj) = input.plugin_config.as_object_mut() {
         obj.remove("password");
+        obj.remove("clientKeyPassphrase");
+        obj.remove("client_key_passphrase");
     }
     input
 }
@@ -63,6 +65,12 @@ impl ProfileService<'_> {
         let clear = input.clear_secret;
         let clear_ssh = input.clear_ssh_secret;
         let copy_ssh = copy_from.clone();
+        let incoming_tls = input
+            .tls_key_passphrase
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
         let input = strip_plugin_password(input);
 
         let mut saved = self.db.with_conn(|c| repo::connections::save(c, input))?;
@@ -76,8 +84,8 @@ impl ProfileService<'_> {
             self.db
                 .with_conn(|c| repo::connections::set_secret_ref(c, &saved.id, Some(&pointer)))?;
             saved.password_set = true;
-        } else if let Some(from) = copy_from {
-            if self.secrets.copy(&from, &saved.id)? {
+        } else if let Some(from) = copy_from.as_deref() {
+            if self.secrets.copy(from, &saved.id)? {
                 let pointer = secret_account(&saved.id);
                 self.db.with_conn(|c| {
                     repo::connections::set_secret_ref(c, &saved.id, Some(&pointer))
@@ -108,6 +116,12 @@ impl ProfileService<'_> {
             }
         }
 
+        if let Some(pw) = incoming_tls {
+            self.secrets.set_tls(&saved.id, &pw)?;
+        } else if let Some(from) = copy_from.as_deref() {
+            let _ = self.secrets.copy_tls(from, &saved.id);
+        }
+
         saved.password = None;
         Ok(saved)
     }
@@ -119,7 +133,16 @@ impl ProfileService<'_> {
         }
         let _ = self.secrets.delete(id);
         let _ = self.secrets.delete_ssh(id);
+        let _ = self.secrets.delete_tls(id);
         self.db.with_conn(|c| repo::connections::delete(c, id))
+    }
+
+    pub fn resolve_tls_secret(&self, id: &str) -> AppResult<Option<String>> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Err(AppError::Invalid("connection id is required".into()));
+        }
+        self.secrets.get_tls(id)
     }
 
     pub fn resolve_ssh_secret(&self, id: &str) -> AppResult<Option<String>> {
@@ -236,6 +259,7 @@ mod tests {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         }
     }
 

@@ -3,9 +3,9 @@ use std::time::Instant;
 use async_trait::async_trait;
 use mongodb::bson::doc;
 use mystique_connector_api::{
-    ConnectionConfig, ConnectionFormSchema, ConnectorError, ConnectorResult, ConnectorSession,
-    DatabaseConnector, EngineCapabilities, EngineFamily, FormField, FormFieldType,
-    FormattedConnectionUrl, TestResult,
+    tls_form_fields, ConnectionConfig, ConnectionFormSchema, ConnectorError, ConnectorResult,
+    ConnectorSession, DatabaseConnector, EngineCapabilities, EngineFamily, FormField,
+    FormFieldType, FormattedConnectionUrl, TestResult,
 };
 
 use crate::session::MongoSession;
@@ -54,7 +54,10 @@ impl DatabaseConnector for MongoConnector {
                     "mongodb://user:pass@127.0.0.1:27017/mydb?authSource=admin".into(),
                 ),
                 hint: None,
-            }],
+            }]
+            .into_iter()
+            .chain(tls_form_fields())
+            .collect(),
         }
     }
 

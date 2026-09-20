@@ -36,6 +36,7 @@ fn save_list_delete_connection() {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         },
     )
     .unwrap();
@@ -76,6 +77,7 @@ fn update_keeps_password_when_blank() {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         },
     )
     .unwrap();
@@ -99,6 +101,7 @@ fn update_keeps_password_when_blank() {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         },
     )
     .unwrap();
@@ -129,6 +132,7 @@ fn clear_secret_removes_password() {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         },
     )
     .unwrap();
@@ -152,6 +156,7 @@ fn clear_secret_removes_password() {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         },
     )
     .unwrap();
@@ -182,6 +187,7 @@ fn ignores_legacy_placeholder_secret_ref() {
             ssh_config: crate::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
+            tls_key_passphrase: None,
         },
     )
     .unwrap();
@@ -207,6 +213,7 @@ fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
         ssh_config: crate::domain::SshConfig::default(),
         ssh_password: None,
         clear_ssh_secret: false,
+        tls_key_passphrase: None,
     }
 }
 

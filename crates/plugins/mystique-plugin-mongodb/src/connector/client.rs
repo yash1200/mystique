@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use mongodb::options::{ClientOptions, Credential, ServerAddress};
+use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
 use mongodb::Client;
-use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult};
+use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult, TlsSettings};
 
 use super::url::database_from_mongo_uri;
 
@@ -61,6 +61,15 @@ pub(super) async fn build_client(
     }
 
     options.app_name = Some("Mystique".into());
+
+    let tls = TlsSettings::from_config(config);
+    if tls.enabled() {
+        let mut tls_opts = TlsOptions::default();
+        tls_opts.allow_invalid_certificates = Some(!tls.mode.verify_certs());
+        tls_opts.ca_file_path = tls.ca_cert_path.clone();
+        tls_opts.cert_key_file_path = tls.cert_key_file().map(|p| p.to_path_buf());
+        options.tls = Some(Tls::Enabled(tls_opts));
+    }
 
     let default_db = config
         .str_field("database")

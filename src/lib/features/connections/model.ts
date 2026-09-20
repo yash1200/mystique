@@ -14,6 +14,7 @@ import {
 	adapterFor,
 	connectionKindFromCaps,
 	defaultCapabilitiesForEngine,
+	sslModeFromConfig,
 } from '$engines'
 
 export const CONNECTION_COLORS: {
@@ -135,7 +136,17 @@ export function draftFromProfile(
 		username: configStr(c, 'username'),
 		password: '',
 		clearStoredPassword: false,
-		ssl: configBool(c, 'ssl', false) || configStr(c, 'sslMode') === 'require',
+		ssl:
+			configBool(c, 'ssl', false) ||
+			sslModeFromConfig(false, configStr(c, 'sslMode')) !== 'disable',
+		sslMode: sslModeFromConfig(
+			configBool(c, 'ssl', false),
+			configStr(c, 'sslMode'),
+		),
+		caCertPath: configStr(c, 'caCertPath'),
+		clientCertPath: configStr(c, 'clientCertPath'),
+		clientKeyPath: configStr(c, 'clientKeyPath'),
+		sslClientKeyPassphrase: '',
 		readOnly: profile.readOnly,
 		environment: asEnvironment(profile.environment),
 		notes: profile.notes ?? '',
@@ -204,6 +215,9 @@ export function saveInputFromDraft(
 	} else if (typedPassword.length > 0) {
 		input.password = typedPassword
 	}
+
+	const tlsPass = (draft.sslClientKeyPassphrase ?? '').trim()
+	if (tlsPass) input.tlsKeyPassphrase = tlsPass
 
 	const kind = connectionKindFromCaps(
 		adapterFor(draft.engine).defaultCapabilities,

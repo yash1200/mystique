@@ -96,6 +96,8 @@ A **product** (picker / `connections.engine`) can share a **runtime** crate. Add
 
 SSH is **transport on the profile** (`ssh_config` + keychain `ssh_secret_ref`), not plugin_config. `ConnectionManager` opens a local forward; plugins still connect to `127.0.0.1`. Do not add SSH fields to a plugin crate. SQLite/file forms have no SSH UI.
 
+SSL is **shared** (`TlsSettings` in connector-api): `sslMode` disable/prefer/require/verify-ca/verify-full plus optional CA and client cert paths. Plugins must not each invent a TLS builder. Host and URI forms show SSL extras; File/SQLite does not.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use deadpool_postgres::{Config as PoolCfg, ManagerConfig, RecyclingMethod, Runtime, SslMode};
 use mystique_connector_api::{
-    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult,
+    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult, SslMode as MystSslMode,
+    TlsSettings,
 };
 use tokio_postgres::error::{DbError, SqlState};
 use tokio_postgres::NoTls;
@@ -91,20 +92,6 @@ fn is_noise(s: &str) -> bool {
     )
 }
 
-pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {
-    if config.bool_field("ssl", false) {
-        return true;
-    }
-    match config
-        .str_field("sslMode")
-        .or_else(|| config.str_field("ssl_mode"))
-        .as_deref()
-    {
-        Some("require") | Some("verify-ca") | Some("verify-full") | Some("prefer") => true,
-        _ => false,
-    }
-}
-
 pub(crate) fn build_pool_config(config: &ConnectionConfig) -> ConnectorResult<PoolCfg> {
     let host = config
         .str_field("host")
@@ -131,12 +118,7 @@ pub(crate) fn build_pool_config(config: &ConnectionConfig) -> ConnectorResult<Po
     let timeout_ms = config.pool.acquire_timeout_ms.max(1_000);
     cfg.connect_timeout = Some(Duration::from_millis(timeout_ms.min(30_000)));
 
-    if wants_ssl(config) {
-        // Advertise SSL to the server; TLS connector is chosen in create_pool / connect_once.
-        cfg.ssl_mode = Some(SslMode::Require);
-    } else {
-        cfg.ssl_mode = Some(SslMode::Disable);
-    }
+    cfg.ssl_mode = Some(deadpool_ssl_mode(&TlsSettings::from_config(config)));
 
     cfg.manager = Some(ManagerConfig {
         recycling_method: RecyclingMethod::Fast,
@@ -179,11 +161,7 @@ pub(super) fn build_pg_config(
     pg.connect_timeout(Duration::from_millis(timeout_ms.min(30_000)));
     pg.application_name("Mystique");
 
-    if wants_ssl(config) {
-        pg.ssl_mode(tokio_postgres::config::SslMode::Require);
-    } else {
-        pg.ssl_mode(tokio_postgres::config::SslMode::Disable);
-    }
+    pg.ssl_mode(tokio_ssl_mode(&TlsSettings::from_config(config)));
 
     Ok(pg)
 }
@@ -194,10 +172,7 @@ pub(super) async fn connect_once(
 ) -> ConnectorResult<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
     let pg = build_pg_config(config)?;
 
-    if wants_ssl(config) {
-        let tls_connector = native_tls::TlsConnector::builder()
-            .build()
-            .map_err(|e| ConnectorError::Connect(format!("TLS init failed: {e}")))?;
+    if let Some(tls_connector) = TlsSettings::from_config(config).native_connector()? {
         let tls = postgres_native_tls::MakeTlsConnector::new(tls_connector);
         let (client, connection) = pg
             .connect(tls)
@@ -223,10 +198,7 @@ pub(super) async fn create_pool(
     config: &ConnectionConfig,
 ) -> ConnectorResult<deadpool_postgres::Pool> {
     let pool_cfg = build_pool_config(config)?;
-    if wants_ssl(config) {
-        let tls_connector = native_tls::TlsConnector::builder()
-            .build()
-            .map_err(|e| ConnectorError::Connect(format!("TLS init failed: {e}")))?;
+    if let Some(tls_connector) = TlsSettings::from_config(config).native_connector()? {
         let tls = postgres_native_tls::MakeTlsConnector::new(tls_connector);
         pool_cfg
             .create_pool(Some(Runtime::Tokio1), tls)
@@ -235,6 +207,22 @@ pub(super) async fn create_pool(
         pool_cfg
             .create_pool(Some(Runtime::Tokio1), NoTls)
             .map_err(|e| ConnectorError::Pool(format_error(&e)))
+    }
+}
+
+fn tokio_ssl_mode(settings: &TlsSettings) -> tokio_postgres::config::SslMode {
+    match settings.mode {
+        MystSslMode::Disable => tokio_postgres::config::SslMode::Disable,
+        MystSslMode::Prefer => tokio_postgres::config::SslMode::Prefer,
+        _ => tokio_postgres::config::SslMode::Require,
+    }
+}
+
+fn deadpool_ssl_mode(settings: &TlsSettings) -> SslMode {
+    match settings.mode {
+        MystSslMode::Disable => SslMode::Disable,
+        MystSslMode::Prefer => SslMode::Prefer,
+        _ => SslMode::Require,
     }
 }
 

@@ -1,4 +1,5 @@
 import type { ConnectionFormDraft, ParsedConnectionUrl } from '$core/contracts'
+import { sslModeFromConfig } from '../ssl'
 
 /** Apply a parsed URL onto a host-kind draft. Shared by every Host form. */
 export function applyParsedHostUrl(
@@ -18,7 +19,11 @@ export function applyParsedHostUrl(
 	if (typeof db === 'string') draft.database = db
 	const user = cfg.username ?? cfg.user
 	if (typeof user === 'string') draft.username = user
-	if (typeof cfg.ssl === 'boolean') draft.ssl = cfg.ssl
-	else if (cfg.sslMode === 'require') draft.ssl = true
+	const sslModeRaw = typeof cfg.sslMode === 'string' ? cfg.sslMode : ''
+	const sslBool = typeof cfg.ssl === 'boolean' ? cfg.ssl : false
+	if (sslModeRaw || typeof cfg.ssl === 'boolean') {
+		draft.sslMode = sslModeFromConfig(sslBool, sslModeRaw)
+		draft.ssl = draft.sslMode !== 'disable'
+	}
 	if (typeof parsed.password === 'string') draft.password = parsed.password
 }

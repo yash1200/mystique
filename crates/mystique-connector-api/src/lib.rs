@@ -25,6 +25,7 @@ mod pool;
 mod products;
 mod query;
 mod table;
+mod tls;
 mod types;
 
 pub use capabilities::*;
@@ -40,4 +41,5 @@ pub use pool::*;
 pub use products::{product, runtime_id, EngineProduct, ENGINE_PRODUCTS};
 pub use query::*;
 pub use table::*;
+pub use tls::{SslMode, TlsSettings};
 pub use types::*;

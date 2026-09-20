@@ -177,6 +177,25 @@ impl AppServices {
                 }
             }
         }
+        if req
+            .tls_key_passphrase
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none()
+        {
+            if let Some(id) = req
+                .profile_id
+                .as_deref()
+                .or(req.session_id.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                if let Ok(Some(pw)) = self.profiles().resolve_tls_secret(id) {
+                    req.tls_key_passphrase = Some(pw);
+                }
+            }
+        }
         Ok(req)
     }
 
@@ -290,6 +309,7 @@ mod attach_secrets_tests {
                 ssh_config: crate::domain::SshConfig::default(),
                 ssh_password: None,
                 clear_ssh_secret: false,
+                tls_key_passphrase: None,
             })
             .unwrap()
     }
@@ -303,6 +323,7 @@ mod attach_secrets_tests {
             session_id: None,
             profile_id: Some(profile_id),
             ssh: None,
+            tls_key_passphrase: None,
         }
     }
 

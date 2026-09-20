@@ -1,6 +1,7 @@
 /** MySQL / MariaDB adapter — mirrors `crates/plugins/mystique-plugin-mysql`. */
 import { MySQL } from '@codemirror/lang-sql'
 import { relationalCapabilities } from '../capabilities'
+import { emptySslDraft, sslPluginFields } from '../ssl'
 import { sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
@@ -26,7 +27,7 @@ export const mysql: EngineAdapter = {
 			uri: '',
 			username: 'admin',
 			password: '123',
-			ssl: false,
+			...emptySslDraft,
 			readOnly: false,
 			environment: 'local',
 			notes: '',
@@ -36,8 +37,7 @@ export const mysql: EngineAdapter = {
 			port: Number(draft.port) || 3306,
 			database: draft.database.trim() || 'mystique',
 			username: draft.username.trim() || 'admin',
-			ssl: draft.ssl,
-			sslMode: draft.ssl ? 'require' : 'disable',
+			...sslPluginFields(draft),
 		}),
 		validate: (draft, mode) => {
 			if (!draft.host.trim() || !draft.database.trim()) {

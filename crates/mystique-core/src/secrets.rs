@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::domain::{
     is_legacy_keychain_pointer, is_placeholder_secret_ref, secret_account, ssh_secret_account,
+    tls_secret_account,
 };
 use crate::error::{AppError, AppResult};
 
@@ -178,6 +179,28 @@ impl SecretStore {
         match self.get_ssh(from_id)? {
             Some(secret) => {
                 self.set_ssh(to_id, &secret)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    pub fn get_tls(&self, connection_id: &str) -> AppResult<Option<String>> {
+        self.get_account(&tls_secret_account(connection_id))
+    }
+
+    pub fn set_tls(&self, connection_id: &str, secret: &str) -> AppResult<()> {
+        self.set_account(&tls_secret_account(connection_id), secret)
+    }
+
+    pub fn delete_tls(&self, connection_id: &str) -> AppResult<()> {
+        self.delete_account(&tls_secret_account(connection_id))
+    }
+
+    pub fn copy_tls(&self, from_id: &str, to_id: &str) -> AppResult<bool> {
+        match self.get_tls(from_id)? {
+            Some(secret) => {
+                self.set_tls(to_id, &secret)?;
                 Ok(true)
             }
             None => Ok(false),

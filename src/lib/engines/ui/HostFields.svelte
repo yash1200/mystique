@@ -87,7 +87,6 @@
 	</FormGrid>
 
 	<div class="mt-3 flex flex-wrap gap-4">
-		<Checkbox bind:checked={draft.ssl} label="Require SSL" {disabled} />
 		<Checkbox bind:checked={draft.readOnly} label="Read-only" {disabled} />
 	</div>
 </Card>

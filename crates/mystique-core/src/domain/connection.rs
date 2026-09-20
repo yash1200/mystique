@@ -71,6 +71,9 @@ pub struct SaveConnectionInput {
     /// Clear the stored SSH secret on update.
     #[serde(default)]
     pub clear_ssh_secret: bool,
+    /// Passphrase for an encrypted TLS client key.
+    #[serde(default)]
+    pub tls_key_passphrase: Option<String>,
 }
 
 /// Old UI wrote keychain-style placeholders into `secret_ref` without a real secret.
@@ -82,6 +85,10 @@ pub fn is_placeholder_secret_ref(value: &str) -> bool {
 /// Opaque SQLite pointer / keychain account for a connection password.
 pub fn secret_account(connection_id: &str) -> String {
     format!("conn.{connection_id}")
+}
+
+pub fn tls_secret_account(connection_id: &str) -> String {
+    format!("conn.{connection_id}.tls")
 }
 
 pub fn is_keychain_pointer(secret_ref: &str) -> bool {

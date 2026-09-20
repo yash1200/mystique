@@ -3,8 +3,6 @@ use mystique_connector_api::{
 };
 use tokio_postgres::config::{Host, SslMode as PgSslMode};
 
-use super::pool::wants_ssl;
-
 pub(crate) fn parse_postgres_url(url: &str) -> ConnectorResult<ParsedConnectionUrl> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -13,7 +11,9 @@ pub(crate) fn parse_postgres_url(url: &str) -> ConnectorResult<ParsedConnectionU
         ));
     }
 
-    let cfg: tokio_postgres::Config = trimmed.parse().map_err(|e| {
+    let ssl_mode_hint = sslmode_from_url(trimmed);
+    let parseable = rewrite_sslmode_for_driver(trimmed);
+    let cfg: tokio_postgres::Config = parseable.parse().map_err(|e| {
         ConnectorError::InvalidConfig(format!("invalid PostgreSQL connection URL: {e}"))
     })?;
 
@@ -36,9 +36,12 @@ pub(crate) fn parse_postgres_url(url: &str) -> ConnectorResult<ParsedConnectionU
         .get_password()
         .map(|bytes| String::from_utf8_lossy(bytes).into_owned());
 
-    // Form has a binary “Require SSL”. Only `sslmode=require` (and stricter)
-    // turns it on — driver default `prefer` stays off so local URLs stay simple.
-    let ssl = matches!(cfg.get_ssl_mode(), PgSslMode::Require);
+    let ssl_mode = ssl_mode_hint.unwrap_or_else(|| match cfg.get_ssl_mode() {
+        PgSslMode::Require => "require",
+        PgSslMode::Prefer => "prefer",
+        _ => "disable",
+    });
+    let ssl = ssl_mode != "disable";
 
     Ok(ParsedConnectionUrl {
         engine: "postgres".into(),
@@ -48,10 +51,35 @@ pub(crate) fn parse_postgres_url(url: &str) -> ConnectorResult<ParsedConnectionU
             "database": database,
             "username": username,
             "ssl": ssl,
-            "sslMode": if ssl { "require" } else { "disable" },
+            "sslMode": ssl_mode,
         }),
         password,
     })
+}
+
+fn rewrite_sslmode_for_driver(url: &str) -> String {
+    // tokio-postgres accepts disable|prefer|require, not verify-ca|verify-full.
+    url.replace("sslmode=verify-full", "sslmode=require")
+        .replace("sslmode=verify-ca", "sslmode=require")
+        .replace("sslmode=verify_full", "sslmode=require")
+        .replace("sslmode=verify_ca", "sslmode=require")
+}
+
+fn sslmode_from_url(url: &str) -> Option<&'static str> {
+    let query = url.split_once('?')?.1;
+    for part in query.split(['&', '#']) {
+        let (k, v) = part.split_once('=')?;
+        if k.eq_ignore_ascii_case("sslmode") {
+            return Some(match v.trim().to_ascii_lowercase().as_str() {
+                "prefer" => "prefer",
+                "require" => "require",
+                "verify-ca" => "verify-ca",
+                "verify-full" => "verify-full",
+                _ => "disable",
+            });
+        }
+    }
+    None
 }
 
 /// Format discrete plugin config into a `postgresql://` URL (clipboard / share).
@@ -74,7 +102,7 @@ pub(crate) fn format_postgres_url(
         .clone()
         .or_else(|| config.str_field("password"))
         .filter(|s| !s.is_empty());
-    let ssl = wants_ssl(config);
+    let ssl_mode = mystique_connector_api::SslMode::from_config(config);
 
     // Keep host readable (IPv4 / hostnames); encode user/pass/db.
     let mut authority = format!("{host}:{port}");
@@ -92,7 +120,11 @@ pub(crate) fn format_postgres_url(
     } else {
         format!("/{}", encode_url_component(&database))
     };
-    let qs = if ssl { "?sslmode=require" } else { "" };
+    let qs = if ssl_mode.encrypts() {
+        format!("?sslmode={}", ssl_mode.as_str())
+    } else {
+        String::new()
+    };
     let url = format!("postgresql://{authority}{path}{qs}");
 
     // Round-trip through the driver parser so we never emit an unusable URL.
@@ -149,6 +181,15 @@ mod tests {
         assert_eq!(parsed.plugin_config["port"], 5432);
         assert_eq!(parsed.plugin_config["database"], "mydb");
         assert!(parsed.password.is_none());
+    }
+
+    #[test]
+    fn parse_connection_url_verify_full() {
+        let parsed =
+            parse_postgres_url("postgresql://app@db.example.com/appdb?sslmode=verify-full")
+                .expect("parse");
+        assert_eq!(parsed.plugin_config["ssl"], true);
+        assert_eq!(parsed.plugin_config["sslMode"], "verify-full");
     }
 
     #[test]

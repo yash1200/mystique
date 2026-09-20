@@ -5,6 +5,7 @@
 	import FileFields from './FileFields.svelte'
 	import HostFields from './HostFields.svelte'
 	import SshFields from './SshFields.svelte'
+	import SslFields from './SslFields.svelte'
 	import UriFields from './UriFields.svelte'
 
 	let {
@@ -26,8 +27,10 @@
 	<FileFields bind:draft {isEdit} {passwordSet} {disabled} />
 {:else if kind === 'uri'}
 	<UriFields bind:draft {isEdit} {passwordSet} {disabled} />
+	<SslFields bind:draft {isEdit} {passwordSet} {disabled} />
 	<SshFields bind:draft {isEdit} {sshPasswordSet} {disabled} />
 {:else}
 	<HostFields bind:draft {isEdit} {passwordSet} {disabled} />
+	<SslFields bind:draft {isEdit} {passwordSet} {disabled} />
 	<SshFields bind:draft {isEdit} {sshPasswordSet} {disabled} />
 {/if}

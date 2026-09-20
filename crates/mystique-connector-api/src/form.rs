@@ -36,3 +36,49 @@ pub enum FormFieldType {
     Path,
     Uri,
 }
+
+/// Extra SSL fields shared by host/URI engines (not SQLite).
+pub fn tls_form_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            name: "sslMode".into(),
+            label: "SSL mode".into(),
+            field_type: FormFieldType::Text,
+            required: false,
+            secret: false,
+            default: Some(serde_json::json!("disable")),
+            placeholder: None,
+            hint: Some("disable | prefer | require | verify-ca | verify-full".into()),
+        },
+        FormField {
+            name: "caCertPath".into(),
+            label: "CA certificate".into(),
+            field_type: FormFieldType::Path,
+            required: false,
+            secret: false,
+            default: None,
+            placeholder: Some("/path/to/ca.pem".into()),
+            hint: None,
+        },
+        FormField {
+            name: "clientCertPath".into(),
+            label: "Client certificate".into(),
+            field_type: FormFieldType::Path,
+            required: false,
+            secret: false,
+            default: None,
+            placeholder: None,
+            hint: None,
+        },
+        FormField {
+            name: "clientKeyPath".into(),
+            label: "Client key".into(),
+            field_type: FormFieldType::Path,
+            required: false,
+            secret: true,
+            default: None,
+            placeholder: None,
+            hint: None,
+        },
+    ]
+}

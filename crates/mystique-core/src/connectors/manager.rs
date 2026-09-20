@@ -56,6 +56,9 @@ pub struct OpenSessionRequest {
     /// Optional one-hop SSH tunnel. Plugins still see 127.0.0.1.
     #[serde(default)]
     pub ssh: Option<SshTunnelRequest>,
+    /// Passphrase for an encrypted TLS client key. Never persisted in plugin_config.
+    #[serde(default)]
+    pub tls_key_passphrase: Option<String>,
 }
 
 struct LiveSession {
@@ -157,12 +160,7 @@ impl ConnectionManager {
                 return Ok(test_fail(&req.engine, start, e));
             }
         };
-        let config = ConnectionConfig {
-            engine: connector.id().to_string(),
-            plugin_config: tunneled.config,
-            password: req.password.clone(),
-            pool: req.pool.clone().unwrap_or_default(),
-        };
+        let config = connection_config(connector.id(), tunneled.config, req);
 
         match connector.test_connection(&config).await {
             Ok(mut result) => {
@@ -186,12 +184,7 @@ impl ConnectionManager {
             .unwrap_or_else(|| req.engine.trim().to_string());
 
         let tunneled = prepare_plugin_config(&req).await?;
-        let config = ConnectionConfig {
-            engine: connector.id().to_string(),
-            plugin_config: tunneled.config,
-            password: req.password.clone(),
-            pool: req.pool.clone().unwrap_or_default(),
-        };
+        let config = connection_config(connector.id(), tunneled.config, &req);
 
         let session = connector.connect(&config).await?;
         let session: Arc<dyn ConnectorSession> = Arc::from(session);
@@ -304,6 +297,32 @@ impl ConnectionManager {
             ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
         })?;
         Ok(std::sync::Arc::clone(&live.session))
+    }
+}
+
+fn connection_config(
+    engine: &str,
+    mut plugin_config: JsonValue,
+    req: &OpenSessionRequest,
+) -> ConnectionConfig {
+    if let Some(pw) = req
+        .tls_key_passphrase
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if let Some(obj) = plugin_config.as_object_mut() {
+            obj.insert(
+                "clientKeyPassphrase".into(),
+                JsonValue::String(pw.to_string()),
+            );
+        }
+    }
+    ConnectionConfig {
+        engine: engine.to_string(),
+        plugin_config,
+        password: req.password.clone(),
+        pool: req.pool.clone().unwrap_or_default(),
     }
 }
 

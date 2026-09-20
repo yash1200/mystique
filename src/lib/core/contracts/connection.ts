@@ -84,6 +84,7 @@ export interface SaveConnectionInput {
 	sshConfig?: SshConfig
 	sshPassword?: string | null
 	clearSshSecret?: boolean
+	tlsKeyPassphrase?: string | null
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */
@@ -103,6 +104,11 @@ export interface ConnectionFormDraft {
 	/** Edit-only: wipe the stored keychain secret on save. */
 	clearStoredPassword?: boolean
 	ssl: boolean
+	sslMode?: 'disable' | 'prefer' | 'require' | 'verify-ca' | 'verify-full'
+	caCertPath?: string
+	clientCertPath?: string
+	clientKeyPath?: string
+	sslClientKeyPassphrase?: string
 	readOnly: boolean
 	environment: Environment
 	notes: string

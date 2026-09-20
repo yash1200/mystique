@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use mysql_async::prelude::*;
 use mysql_async::Pool;
 use mystique_connector_api::{
-    ConnectionConfig, ConnectionFormSchema, ConnectorError, ConnectorResult, ConnectorSession,
-    DatabaseConnector, EngineCapabilities, EngineFamily, FormField, FormFieldType,
-    FormattedConnectionUrl, ParsedConnectionUrl, TestResult,
+    tls_form_fields, ConnectionConfig, ConnectionFormSchema, ConnectorError, ConnectorResult,
+    ConnectorSession, DatabaseConnector, EngineCapabilities, EngineFamily, FormField,
+    FormFieldType, FormattedConnectionUrl, ParsedConnectionUrl, TestResult,
 };
 
 use crate::session::MysqlSession;
@@ -95,7 +95,10 @@ impl DatabaseConnector for MysqlConnector {
                     placeholder: None,
                     hint: None,
                 },
-            ],
+            ]
+            .into_iter()
+            .chain(tls_form_fields())
+            .collect(),
         }
     }
 
