@@ -25,6 +25,13 @@ export {
 } from './registry'
 
 export {
+	ENGINE_PRODUCTS,
+	productById,
+	runtimeFor,
+	type EngineProduct,
+} from './products'
+
+export {
 	connectionKindFromCaps,
 	familyFromCaps,
 	mergeCapabilities,

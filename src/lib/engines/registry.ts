@@ -19,6 +19,7 @@ import {
 import { mongodb } from './mongodb'
 import { mysql } from './mysql'
 import { postgres } from './postgres'
+import { productById, type EngineProduct } from './products'
 import { sqlite } from './sqlite'
 import type { EngineAdapter } from './types'
 
@@ -57,8 +58,49 @@ register(mysql)
 register(mongodb)
 register(sqlite)
 
+function overlayAdapter(
+	runtime: EngineAdapter,
+	product: EngineProduct,
+): EngineAdapter {
+	return {
+		...runtime,
+		id: product.id,
+		label: product.label,
+		mark: product.mark,
+		description: product.description,
+		available: product.onPicker,
+		defaultPort: product.defaultPort,
+		aliases: [],
+		defaultCapabilities: {
+			...runtime.defaultCapabilities,
+			engine: product.id,
+		},
+		connection: {
+			...runtime.connection,
+			emptyDraft: () => {
+				const draft = runtime.connection.emptyDraft()
+				return {
+					...draft,
+					engine: product.id,
+					port: product.defaultPort > 0 ? product.defaultPort : draft.port,
+				}
+			},
+		},
+	}
+}
+
 export function adapterFor(engine: string): EngineAdapter {
-	return ADAPTERS.get(String(engine).trim().toLowerCase()) ?? genericSql
+	const id = String(engine).trim().toLowerCase()
+	const product = productById(id)
+	if (product) {
+		const runtime = ADAPTERS.get(product.runtime)
+		if (runtime) {
+			return product.id === runtime.id
+				? runtime
+				: overlayAdapter(runtime, product)
+		}
+	}
+	return ADAPTERS.get(id) ?? genericSql
 }
 
 /** Engines offered on the Home “choose database” step. */

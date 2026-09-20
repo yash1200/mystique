@@ -90,6 +90,8 @@ Backend: new `mystique-plugin-<engine>` crate (`DatabaseConnector` + `ConnectorS
 
 Frontend: `src/lib/engines/<engine>/` with `index.ts` and `Fields.svelte`, then one `register()` in `engines/registry.ts`. Chrome reads `EngineCapabilities`, not `if (engine === '…')`.
 
+A **product** (picker / `connections.engine`) can share a **runtime** crate. Add a row to `crates/mystique-connector-api/src/products.rs` **and** `src/lib/engines/products.ts` — do not copy a plugin. `ConnectorRegistry::get("mariadb")` returns the MySQL connector. Picker cards for those products are Phase 1.4.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

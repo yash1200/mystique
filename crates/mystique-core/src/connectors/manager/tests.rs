@@ -24,12 +24,17 @@ fn parse_connection_url_postgres_and_mysql() {
     assert_eq!(my.plugin_config["username"], "admin");
     assert_eq!(my.password.as_deref(), Some("123"));
 
-    // MariaDB alias → mysql plugin
+    // Product ids resolve to the runtime plugin (P1.1).
     let md = mgr
         .parse_connection_url("mariadb", "mariadb://root@localhost/db")
         .expect("mariadb url");
     assert_eq!(md.engine, "mysql");
     assert_eq!(md.plugin_config["database"], "db");
+
+    let cr = mgr
+        .parse_connection_url("cockroachdb", "postgresql://root@localhost:26257/defaultdb")
+        .expect("cockroach url");
+    assert_eq!(cr.plugin_config["port"], 26257);
 }
 
 #[test]

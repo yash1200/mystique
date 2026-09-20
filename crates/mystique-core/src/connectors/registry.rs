@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    DatabaseConnector, EngineDescriptor, EngineQueryPolicy, MongoQueryPolicy, SqlQueryPolicy,
+    product, runtime_id, DatabaseConnector, EngineDescriptor, EngineQueryPolicy, MongoQueryPolicy,
+    SqlQueryPolicy,
 };
 
 /// Plugin catalog. Adding a DB = implement a plugin + policy + register both.
@@ -49,12 +50,30 @@ impl ConnectorRegistry {
         reg
     }
 
+    /// Crate id that opens the pool for this product (`cockroachdb` → `postgres`).
+    pub fn runtime_id(id: &str) -> Option<&'static str> {
+        runtime_id(id)
+    }
+
+    pub fn product(id: &str) -> Option<&'static mystique_connector_api::EngineProduct> {
+        product(id)
+    }
+
+    /// Resolve a **product** id (or alias) to the runtime connector.
     pub fn get(&self, id: &str) -> Option<Arc<dyn DatabaseConnector>> {
-        self.connectors.get(id).cloned()
+        let runtime = runtime_id(id).unwrap_or(id.trim());
+        self.connectors
+            .get(runtime)
+            .or_else(|| self.connectors.get(id.trim()))
+            .cloned()
     }
 
     pub fn policy(&self, id: &str) -> Option<Arc<dyn EngineQueryPolicy>> {
-        self.policies.get(id).cloned()
+        let runtime = runtime_id(id).unwrap_or(id.trim());
+        self.policies
+            .get(runtime)
+            .or_else(|| self.policies.get(id.trim()))
+            .cloned()
     }
 
     pub fn list(&self) -> Vec<EngineDescriptor> {
@@ -90,6 +109,26 @@ mod tests {
         assert_eq!(list.len(), 4);
         assert!(list.iter().all(|e| e.supports_pooling));
         assert!(reg.policy("mysql").is_some());
+    }
+
+    #[test]
+    fn get_resolves_products_to_runtime_connectors() {
+        let reg = ConnectorRegistry::bootstrap();
+        assert_eq!(reg.get("mariadb").unwrap().id(), "mysql");
+        assert_eq!(reg.get("tidb").unwrap().id(), "mysql");
+        assert_eq!(reg.get("cockroachdb").unwrap().id(), "postgres");
+        assert_eq!(reg.get("documentdb").unwrap().id(), "mongodb");
+        assert_eq!(reg.get("postgresql").unwrap().id(), "postgres");
+        assert_eq!(reg.get("PG").unwrap().id(), "postgres");
+        assert_eq!(reg.get("mongo").unwrap().id(), "mongodb");
+        assert_eq!(reg.get("MYSQL").unwrap().id(), "mysql");
+        assert!(reg.get("oracle").is_none());
+        assert_eq!(
+            ConnectorRegistry::runtime_id("cockroachdb"),
+            Some("postgres")
+        );
+        assert!(reg.policy("mariadb").is_some());
+        assert!(reg.policy("cockroachdb").is_some());
     }
 
     #[test]

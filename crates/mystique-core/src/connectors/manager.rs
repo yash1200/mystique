@@ -44,6 +44,8 @@ struct LiveSession {
     session: Arc<dyn ConnectorSession>,
     display_name: String,
     opened_at: String,
+    /// Product id the user picked (`cockroachdb`), not the runtime crate.
+    product_id: String,
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
@@ -72,22 +74,16 @@ impl ConnectionManager {
         self.registry.list()
     }
 
-    /// Resolve connector for URL helpers (`mariadb` → mysql plugin).
+    /// Resolve a product id (`cockroachdb`, `mariadb`) to the runtime connector.
     fn resolve_url_connector(
         &self,
         engine: &str,
     ) -> ConnectorResult<std::sync::Arc<dyn mystique_connector_api::DatabaseConnector>> {
-        let engine_key = engine.trim().to_ascii_lowercase();
-        if engine_key.is_empty() {
+        if engine.trim().is_empty() {
             return Err(ConnectorError::InvalidConfig("engine is required".into()));
         }
-        let engine_id = if engine_key == "mariadb" {
-            "mysql"
-        } else {
-            engine_key.as_str()
-        };
         self.registry
-            .get(engine_id)
+            .get(engine)
             .ok_or_else(|| ConnectorError::InvalidConfig(format!("unknown engine `{engine}`")))
     }
 
@@ -138,7 +134,7 @@ impl ConnectionManager {
         };
 
         let config = ConnectionConfig {
-            engine: req.engine.clone(),
+            engine: connector.id().to_string(),
             plugin_config: req.plugin_config.clone(),
             password: req.password.clone(),
             pool: req.pool.clone().unwrap_or_default(),
@@ -166,9 +162,13 @@ impl ConnectionManager {
         let connector = self.registry.get(&req.engine).ok_or_else(|| {
             ConnectorError::InvalidConfig(format!("unknown engine `{}`", req.engine))
         })?;
+        let product = ConnectorRegistry::product(&req.engine);
+        let product_id = product
+            .map(|p| p.id.to_string())
+            .unwrap_or_else(|| req.engine.trim().to_string());
 
         let config = ConnectionConfig {
-            engine: req.engine.clone(),
+            engine: connector.id().to_string(),
             plugin_config: req.plugin_config.clone(),
             password: req.password.clone(),
             pool: req.pool.clone().unwrap_or_default(),
@@ -183,8 +183,10 @@ impl ConnectionManager {
 
         let info = SessionInfo {
             session_id: session_id.clone(),
-            engine: session.engine_id().to_string(),
-            display_name: connector.display_name().to_string(),
+            engine: product_id,
+            display_name: product
+                .map(|p| p.display_name.to_string())
+                .unwrap_or_else(|| connector.display_name().to_string()),
             capabilities: session.capabilities(),
             pool: session.pool_status(),
             opened_at: Utc::now().to_rfc3339(),
@@ -194,6 +196,7 @@ impl ConnectionManager {
             session,
             display_name: info.display_name.clone(),
             opened_at: info.opened_at.clone(),
+            product_id: info.engine.clone(),
         };
 
         // Replace previous session with same id if any
@@ -239,7 +242,7 @@ impl ConnectionManager {
             .iter()
             .map(|(id, live)| SessionInfo {
                 session_id: id.clone(),
-                engine: live.session.engine_id().to_string(),
+                engine: live.product_id.clone(),
                 display_name: live.display_name.clone(),
                 capabilities: live.session.capabilities(),
                 pool: live.session.pool_status(),
@@ -252,7 +255,7 @@ impl ConnectionManager {
         let guard = self.sessions.read().await;
         guard.get(session_id).map(|live| SessionInfo {
             session_id: session_id.to_string(),
-            engine: live.session.engine_id().to_string(),
+            engine: live.product_id.clone(),
             display_name: live.display_name.clone(),
             capabilities: live.session.capabilities(),
             pool: live.session.pool_status(),
