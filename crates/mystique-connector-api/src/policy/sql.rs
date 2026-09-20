@@ -118,6 +118,20 @@ fn validate_one_sql_statement(text: &str, mode: QueryMode) -> ConnectorResult<()
     )))
 }
 
+/// INSERT / UPDATE / REPLACE / MERGE only (P3.2 `safe_write`). All statements in a batch must match.
+pub fn sql_is_safe_dml(text: &str) -> bool {
+    let stmts = split_sql_statements(text);
+    if stmts.is_empty() {
+        return false;
+    }
+    stmts.iter().all(|s| {
+        matches!(
+            first_sql_keyword(s).as_deref(),
+            Some("insert" | "update" | "replace" | "merge")
+        )
+    })
+}
+
 /// Worst risk across a SQL batch. Fail-closed unknown statements count as Write.
 pub fn classify_sql_statement(text: &str) -> WriteRisk {
     let stmts = split_sql_statements(text);
@@ -235,6 +249,15 @@ mod tests {
             sql_destructive_object_name("DROP TABLE public.users").as_deref(),
             Some("users")
         );
+    }
+
+    #[test]
+    fn safe_dml_insert_yes_delete_no() {
+        assert!(sql_is_safe_dml("INSERT INTO t VALUES (1)"));
+        assert!(sql_is_safe_dml("UPDATE t SET a = 1"));
+        assert!(!sql_is_safe_dml("DELETE FROM t"));
+        assert!(!sql_is_safe_dml("CREATE TABLE t (a int)"));
+        assert!(!sql_is_safe_dml("INSERT INTO t VALUES (1); DELETE FROM t"));
     }
 
     #[test]

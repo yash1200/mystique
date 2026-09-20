@@ -1,7 +1,7 @@
 mod defs;
 mod leaked;
 
-use mystique_core::AgentTools;
+use mystique_core::{AgentTools, ToolCaller};
 use serde_json::{json, Value as JsonValue};
 use thiserror::Error;
 
@@ -70,7 +70,7 @@ impl BoundTools {
         }
         let args = self.bind(args)?;
         self.tools
-            .call_tool(name, &args)
+            .call_tool(name, &args, ToolCaller::Agent)
             .await
             .map(redact)
             .map_err(|e| ToolErr(e.to_string()))

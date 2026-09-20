@@ -1,6 +1,15 @@
 use serde_json::json;
 
+use super::policy::AgentWritePolicy;
 use super::types::AgentToolSpec;
+
+pub fn tool_specs_for(policy: AgentWritePolicy) -> Vec<AgentToolSpec> {
+    let mut specs = tool_specs();
+    if !policy.allows_writes() {
+        specs.retain(|t| t.name != "execute_query");
+    }
+    specs
+}
 
 pub fn tool_specs() -> Vec<AgentToolSpec> {
     vec![
@@ -67,6 +76,24 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 "properties": {
                     "connection_id": { "type": "string" },
                     "query": { "type": "string", "description": "SQL or Mongo find/aggregate / JSON filter" },
+                    "database": { "type": "string" },
+                    "collection": { "type": "string", "description": "Mongo collection when required" },
+                    "max_rows": { "type": "integer", "minimum": 1, "maximum": 2000 },
+                    "format": { "type": "string", "enum": ["json", "csv"], "description": "json (default) or csv" }
+                },
+                "required": ["connection_id", "query"],
+                "additionalProperties": false
+            }),
+        },
+        AgentToolSpec {
+            name: "execute_query",
+            description:
+                "Run a query that may write. Honors the Mystique write policy: read-only blocks writes; safe_write allows INSERT/UPDATE only; high_risk_write allows DDL/DROP but production still needs an in-app unlock. Prefer execute_readonly_query for SELECT/find.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "connection_id": { "type": "string" },
+                    "query": { "type": "string", "description": "SQL or Mongo write / read" },
                     "database": { "type": "string" },
                     "collection": { "type": "string", "description": "Mongo collection when required" },
                     "max_rows": { "type": "integer", "minimum": 1, "maximum": 2000 },

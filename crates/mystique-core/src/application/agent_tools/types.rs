@@ -1,8 +1,14 @@
+use mystique_connector_api::HARD_MAX_ROWS;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 pub const AGENT_MAX_ROWS: u32 = 2_000;
 pub const AGENT_DEFAULT_ROWS: u32 = 200;
+
+const _: () = assert!(
+    AGENT_MAX_ROWS < HARD_MAX_ROWS,
+    "agent row cap must stay below the driver fetch ceiling"
+);
 
 /// Safe connection card for models (no host / password / URI).
 #[derive(Debug, Clone, Serialize, Deserialize)]

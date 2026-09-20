@@ -1,4 +1,4 @@
-use mystique_mcp::{McpHarness, McpStatus};
+use mystique_mcp::{McpAccess, McpHarness, McpStatus};
 use tauri::State;
 
 use crate::AppState;
@@ -39,5 +39,22 @@ pub async fn install_mcp_harness(
         .mcp
         .install_harness(&id)
         .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_mcp_access(state: State<'_, AppState>) -> Result<McpAccess, String> {
+    state.mcp.access().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_mcp_access(
+    state: State<'_, AppState>,
+    policy: String,
+    allowlist: Vec<String>,
+) -> Result<McpAccess, String> {
+    state
+        .mcp
+        .set_access(&policy, allowlist)
         .map_err(|e| e.to_string())
 }

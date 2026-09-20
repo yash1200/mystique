@@ -1,0 +1,218 @@
+use mystique_connector_api::HARD_MAX_ROWS;
+use serde_json::json;
+
+use super::*;
+use crate::connectors::ConnectionManager;
+use crate::domain::SaveConnectionInput;
+use crate::secrets::SecretStore;
+use crate::storage::AppDatabase;
+use crate::AppServices;
+
+fn app() -> AppServices {
+    AppServices::with_secrets(
+        AppDatabase::open_in_memory().unwrap(),
+        ConnectionManager::bootstrap(),
+        SecretStore::memory(),
+    )
+}
+
+fn save_pg(app: &AppServices, name: &str) -> crate::domain::ConnectionProfile {
+    app.profiles()
+        .save(SaveConnectionInput {
+            id: None,
+            name: name.into(),
+            engine: "postgres".into(),
+            color_id: "teal".into(),
+            environment: "production".into(),
+            read_only: false,
+            notes: None,
+            plugin_config: json!({"host": "127.0.0.1", "database": "postgres"}),
+            password: None,
+            secret_ref: None,
+            clear_secret: false,
+            copy_secret_from: None,
+            favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
+            tls_key_passphrase: None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn agent_max_rows_is_below_driver_ceiling() {
+    assert!(
+        AGENT_MAX_ROWS < HARD_MAX_ROWS,
+        "{AGENT_MAX_ROWS} must be < {HARD_MAX_ROWS}"
+    );
+}
+
+#[test]
+fn tool_specs_omit_execute_query_when_read_only() {
+    assert!(tool_specs_for(AgentWritePolicy::ReadOnly)
+        .iter()
+        .all(|t| t.name != "execute_query"));
+    assert!(tool_specs_for(AgentWritePolicy::SafeWrite)
+        .iter()
+        .any(|t| t.name == "execute_query"));
+}
+
+#[tokio::test]
+async fn mcp_list_connections_empty_allowlist_is_none() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    let tools = app.agent_tools();
+    let mcp = tools.list_connections(ToolCaller::Mcp).await.unwrap();
+    assert!(mcp.is_empty(), "empty allowlist must hide all connections");
+    let agent = tools.list_connections(ToolCaller::Agent).await.unwrap();
+    assert_eq!(agent.len(), 1);
+    assert_eq!(agent[0].id, saved.id);
+}
+
+#[tokio::test]
+async fn mcp_list_connections_returns_allowlisted_only() {
+    let app = app();
+    let a = save_pg(&app, "a");
+    let _b = save_pg(&app, "b");
+    app.settings()
+        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, a.id))
+        .unwrap();
+    let tools = app.agent_tools();
+    let mcp = tools.list_connections(ToolCaller::Mcp).await.unwrap();
+    assert_eq!(mcp.len(), 1);
+    assert_eq!(mcp[0].id, a.id);
+}
+
+#[tokio::test]
+async fn mcp_rejects_connection_not_on_allowlist() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    let err = app
+        .agent_tools()
+        .call_tool(
+            "execute_readonly_query",
+            &json!({
+                "connection_id": saved.id,
+                "query": "SELECT 1"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("allowlist"),
+        "expected allowlist error, got {err}"
+    );
+}
+
+#[tokio::test]
+async fn default_policy_blocks_insert_even_when_allowlisted() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    app.settings()
+        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, saved.id))
+        .unwrap();
+    let err = app
+        .agent_tools()
+        .call_tool(
+            "execute_query",
+            &json!({
+                "connection_id": saved.id,
+                "query": "INSERT INTO t VALUES (1)"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("read-only"),
+        "expected read-only policy error, got {msg}"
+    );
+}
+
+#[tokio::test]
+async fn safe_write_blocks_drop() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    app.settings()
+        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, saved.id))
+        .unwrap();
+    app.settings()
+        .set(SETTING_MCP_POLICY, "safe_write")
+        .unwrap();
+    let err = app
+        .agent_tools()
+        .call_tool(
+            "execute_query",
+            &json!({
+                "connection_id": saved.id,
+                "query": "DROP TABLE t"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("safe_write"),
+        "expected safe_write policy error, got {msg}"
+    );
+}
+
+#[tokio::test]
+async fn safe_write_blocks_delete() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    app.settings()
+        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, saved.id))
+        .unwrap();
+    app.settings()
+        .set(SETTING_MCP_POLICY, "safe_write")
+        .unwrap();
+    let err = app
+        .agent_tools()
+        .call_tool(
+            "execute_query",
+            &json!({
+                "connection_id": saved.id,
+                "query": "DELETE FROM t"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("safe_write"),
+        "expected safe_write policy error, got {msg}"
+    );
+}
+
+#[tokio::test]
+async fn agent_caller_is_not_filtered_by_allowlist() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    let err = app
+        .agent_tools()
+        .call_tool(
+            "execute_query",
+            &json!({
+                "connection_id": saved.id,
+                "query": "INSERT INTO t VALUES (1)"
+            }),
+            ToolCaller::Agent,
+        )
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        !msg.contains("allowlist"),
+        "in-app agent must not use the MCP allowlist, got {msg}"
+    );
+    assert!(
+        msg.contains("read-only"),
+        "in-app agent still uses the shared write policy, got {msg}"
+    );
+}

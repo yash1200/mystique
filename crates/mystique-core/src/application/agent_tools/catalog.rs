@@ -6,11 +6,15 @@ use mystique_connector_api::{
 
 use super::super::dbml::catalog_to_dbml;
 use super::args::{object_info, profile_database};
+use super::policy::ToolCaller;
 use super::types::{AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo};
 use super::AgentTools;
 
 impl AgentTools {
-    pub async fn list_connections(&self) -> AppResult<Vec<AgentConnectionInfo>> {
+    pub async fn list_connections(
+        &self,
+        caller: ToolCaller,
+    ) -> AppResult<Vec<AgentConnectionInfo>> {
         let profiles = self.db.with_conn(repo::connections::list_all)?;
         let live: std::collections::HashSet<String> = self
             .connections
@@ -19,8 +23,10 @@ impl AgentTools {
             .into_iter()
             .map(|s| s.session_id)
             .collect();
+        let allow = (caller == ToolCaller::Mcp).then(|| self.mcp_allowlist());
         Ok(profiles
             .into_iter()
+            .filter(|p| allow.as_ref().is_none_or(|set| set.contains(&p.id)))
             .map(|p| AgentConnectionInfo {
                 connected: live.contains(&p.id),
                 database: profile_database(&p),

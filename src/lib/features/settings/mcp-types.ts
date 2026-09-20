@@ -15,3 +15,17 @@ export interface McpHarness {
 	installed: boolean
 	stale: boolean
 }
+
+export type McpWritePolicy = 'read-only' | 'safe_write' | 'high_risk_write'
+
+export interface McpAllowlistConnection {
+	id: string
+	name: string
+	engine: string
+}
+
+export interface McpAccess {
+	policy: McpWritePolicy
+	allowlist: string[]
+	connections: McpAllowlistConnection[]
+}

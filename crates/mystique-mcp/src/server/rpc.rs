@@ -1,4 +1,4 @@
-use mystique_core::{tool_specs, AgentTools};
+use mystique_core::{AgentTools, ToolCaller};
 use serde_json::{json, Value as JsonValue};
 
 pub(super) async fn handle_method(
@@ -27,12 +27,13 @@ pub(super) async fn handle_method(
                     "name": "mystique",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": "Mystique is a desktop database studio. Tools are read-only: schema (DBML), list/describe tables or collections, run SELECT/find, save and list queries. Use list_connections first. Never ask the user to paste schema."
+                "instructions": tools.mcp_instructions()
             }))
         }
         "ping" => Ok(json!({})),
         "tools/list" => {
-            let tools: Vec<JsonValue> = tool_specs()
+            let listed: Vec<JsonValue> = tools
+                .advertised_tools(ToolCaller::Mcp)
                 .into_iter()
                 .map(|t| {
                     json!({
@@ -42,7 +43,7 @@ pub(super) async fn handle_method(
                     })
                 })
                 .collect();
-            Ok(json!({ "tools": tools }))
+            Ok(json!({ "tools": listed }))
         }
         "tools/call" => {
             let name = params
@@ -50,7 +51,7 @@ pub(super) async fn handle_method(
                 .and_then(|v| v.as_str())
                 .ok_or((-32602, "tools/call requires name".into()))?;
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            match tools.call_tool(name, &args).await {
+            match tools.call_tool(name, &args, ToolCaller::Mcp).await {
                 Ok(value) => Ok(json!({
                     "content": [{
                         "type": "text",
@@ -82,7 +83,7 @@ pub(super) async fn handle_method(
             let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
             if uri == "mystique://connections" {
                 let list = tools
-                    .list_connections()
+                    .list_connections(ToolCaller::Mcp)
                     .await
                     .map_err(|e| (-32000, e.to_string()))?;
                 let text = serde_json::to_string_pretty(&list).unwrap_or_default();
@@ -96,6 +97,9 @@ pub(super) async fn handle_method(
             }
             if let Some(rest) = uri.strip_prefix("mystique://connections/") {
                 if let Some(id) = rest.strip_suffix("/schema.dbml") {
+                    tools
+                        .require_allowlisted(ToolCaller::Mcp, id)
+                        .map_err(|e| (-32000, e.to_string()))?;
                     let dbml = tools
                         .get_schema_dbml(id, None)
                         .await

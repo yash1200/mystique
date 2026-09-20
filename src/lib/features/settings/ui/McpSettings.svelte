@@ -1,24 +1,58 @@
 <script lang="ts">
 	import { isTauri } from '$core/ipc'
-	import { Button, Switch } from '$core/ui'
-	import { onMount } from 'svelte'
-	import type { McpHarness, McpStatus } from '../api'
 	import {
+		Button,
+		Checkbox,
+		ControlGroup,
+		ControlRow,
+		Segmented,
+		Switch,
+		type SegmentedOption,
+	} from '$core/ui'
+	import { engineLabel } from '$engines'
+	import { onMount } from 'svelte'
+	import type { McpAccess, McpHarness, McpStatus, McpWritePolicy } from '../api'
+	import {
+		getMcpAccess,
 		getMcpStatus,
 		installMcpHarness,
 		listMcpHarnesses,
 		mcpClientSnippet,
 		rotateMcpToken,
+		setMcpAccess,
 		setMcpEnabled,
 	} from '../api'
 	import McpHarnesses from './McpHarnesses.svelte'
 
 	let mcp = $state<McpStatus>({ enabled: false, running: false })
+	let access = $state<McpAccess>({
+		policy: 'read-only',
+		allowlist: [],
+		connections: [],
+	})
 	let harnesses = $state<McpHarness[]>([])
 	let busy = $state(false)
 	let busyId = $state<string | null>(null)
 	let error = $state<string | null>(null)
 	let copied = $state<string | null>(null)
+
+	const policyOptions: SegmentedOption[] = [
+		{ value: 'read-only', label: 'Read-only' },
+		{ value: 'safe_write', label: 'Safe write' },
+		{ value: 'high_risk_write', label: 'High-risk' },
+	]
+
+	function isPolicy(v: string): v is McpWritePolicy {
+		return v === 'read-only' || v === 'safe_write' || v === 'high_risk_write'
+	}
+
+	const policyHint = $derived(
+		access.policy === 'safe_write'
+			? 'INSERT and UPDATE on allowlisted connections. DELETE, DROP, and DDL stay blocked.'
+			: access.policy === 'high_risk_write'
+				? 'DDL and DROP allowed on allowlisted connections. Production still needs the in-app write unlock.'
+				: 'SELECT and find only. Writes are blocked even if the connection is not read-only.',
+	)
 
 	const snippet = $derived(mcpClientSnippet(mcp))
 	const desktop = isTauri()
@@ -33,15 +67,47 @@
 		}
 	}
 
+	async function loadAccess() {
+		if (!desktop) return
+		access = await getMcpAccess()
+	}
+
 	async function load() {
 		if (!desktop) return
 		try {
 			mcp = await getMcpStatus()
 			error = null
+			await loadAccess()
 			await loadHarnesses()
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e)
 		}
+	}
+
+	async function persistAccess(policy: McpWritePolicy, allowlist: string[]) {
+		if (!desktop) return
+		busy = true
+		error = null
+		try {
+			access = await setMcpAccess(policy, allowlist)
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err)
+			await loadAccess()
+		} finally {
+			busy = false
+		}
+	}
+
+	function onPolicy(v: string) {
+		if (!isPolicy(v) || v === access.policy) return
+		void persistAccess(v, access.allowlist)
+	}
+
+	function onToggleConn(id: string, on: boolean) {
+		const next = on
+			? [...new Set([...access.allowlist, id])]
+			: access.allowlist.filter((x) => x !== id)
+		void persistAccess(access.policy, next)
 	}
 
 	async function onEnable(on: boolean) {
@@ -118,6 +184,63 @@
 		label="Enable MCP on localhost"
 		onchange={onEnable}
 	/>
+
+	<section class="mt-5">
+		<p
+			class="m-0 mb-1 text-label font-semibold tracking-wider text-fg-muted uppercase"
+		>
+			Access
+		</p>
+		<p class="mt-0 mb-2 text-caption text-fg-muted">
+			Empty allowlist means MCP cannot see any database. Reconnect
+			clients after changing policy so they see the updated tools.
+		</p>
+		<ControlGroup>
+			<ControlRow label="Write policy" description={policyHint}>
+				<Segmented
+					label="Write policy"
+					value={access.policy}
+					options={policyOptions}
+					disabled={busy}
+					onchange={onPolicy}
+				/>
+			</ControlRow>
+		</ControlGroup>
+		{#if access.connections.length === 0}
+			<p class="mt-3 mb-0 text-caption text-fg-muted">
+				Save a connection first, then allow it here.
+			</p>
+		{:else}
+			<div
+				class="mt-3 overflow-hidden rounded-lg border border-line bg-panel"
+			>
+				<ul class="m-0 flex list-none flex-col divide-y divide-line p-0">
+					{#each access.connections as c (c.id)}
+						<li class="px-3 py-2.5">
+							<Checkbox
+								checked={access.allowlist.includes(c.id)}
+								disabled={busy}
+								onchange={(e) =>
+									onToggleConn(
+										c.id,
+										(e.currentTarget as HTMLInputElement).checked,
+									)}
+							>
+								<span class="flex min-w-0 flex-col">
+									<span class="truncate text-label font-medium text-fg"
+										>{c.name}</span
+									>
+									<span class="text-caption text-fg-muted"
+										>{engineLabel(c.engine)}</span
+									>
+								</span>
+							</Checkbox>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+	</section>
 
 	{#if ready}
 		<div

@@ -14,8 +14,9 @@ mod workspace_tabs;
 
 pub use agent_chat::AgentChatService;
 pub use agent_tools::{
-    tool_specs, AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload,
-    AgentToolSpec, AgentTools,
+    parse_allowlist, tool_specs, tool_specs_for, AgentColumnInfo, AgentConnectionInfo,
+    AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, AgentWritePolicy, ToolCaller,
+    AGENT_MAX_ROWS, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
 };
 pub use ai_secrets::AiSecretsService;
 pub use history::HistoryService;

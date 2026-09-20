@@ -10,4 +10,4 @@ mod settings;
 pub use clients::{McpEndpoint, McpHarness};
 pub use server::McpStatus;
 pub use service::McpService;
-pub use settings::DEFAULT_MCP_PORT;
+pub use settings::{McpAccess, McpAllowlistConnection, DEFAULT_MCP_PORT};

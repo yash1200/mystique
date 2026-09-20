@@ -98,7 +98,9 @@ SSH is **transport on the profile** (`ssh_config` + keychain `ssh_secret_ref`), 
 
 SSL is **shared** (`TlsSettings` in connector-api): `sslMode` disable/prefer/require/verify-ca/verify-full plus optional CA and client cert paths. Plugins must not each invent a TLS builder. Host and URI forms show SSL extras; File/SQLite does not.
 
-**Write guard (P3.1):** `environment` is a runtime check in `ConnectionManager`, not a badge. Production and staging: first write in a session must confirm (unlock is in-memory, dies on disconnect/quit). DROP/TRUNCATE need type-to-confirm of the object name. Local: no extra prompt beyond read-only. Agent/MCP stay read-only and never unlock.
+**Write guard (P3.1):** `environment` is a runtime check in `ConnectionManager`, not a badge. Production and staging: first write in a session must confirm (unlock is in-memory, dies on disconnect/quit). DROP/TRUNCATE need type-to-confirm of the object name. Local: no extra prompt beyond read-only. Agent/MCP never call unlock; production writes fail unless the session is already unlocked in-app.
+
+**MCP policy (P3.2):** Global `mcp.policy` is `read-only` (default), `safe_write` (INSERT/UPDATE only), or `high_risk_write` (DDL/DROP still go through P3.1). `mcp.allowlist` is connection ids; empty means none, not all. The in-app agent uses the same policy object if write tools are added; it is not filtered by the allowlist. `AGENT_MAX_ROWS` is asserted below the driver `HARD_MAX_ROWS`.
 
 ## Git
 

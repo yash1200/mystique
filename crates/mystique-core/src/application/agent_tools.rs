@@ -1,11 +1,13 @@
-//! Reusable read-only workspace tools.
+//! Shared workspace tools for MCP and the in-app agent.
 //!
-//! The MCP HTTP server and the in-app agent both call these methods.
-//! They never return passwords, hosts, or connection strings.
+//! They never return passwords, hosts, or connection strings. Writes are gated
+//! by [`AgentWritePolicy`] (P3.2). MCP also applies a connection allowlist
+//! (empty = none).
 
 mod args;
 mod catalog;
 mod download;
+mod policy;
 mod query;
 mod specs;
 mod types;
@@ -24,12 +26,16 @@ use crate::storage::AppDatabase;
 
 use self::args::{opt_str, req_str};
 
-pub use specs::tool_specs;
+pub use policy::{
+    parse_allowlist, AgentWritePolicy, ToolCaller, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
+};
+pub use specs::{tool_specs, tool_specs_for};
 pub use types::{
     AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload, AgentToolSpec,
+    AGENT_MAX_ROWS,
 };
 
-/// Shared tool surface: list schema, run read queries, save/list queries.
+/// Shared tool surface: list schema, run queries, save/list queries.
 #[derive(Clone)]
 pub struct AgentTools {
     db: Arc<AppDatabase>,
@@ -54,12 +60,38 @@ impl AgentTools {
         tool_specs()
     }
 
-    /// Dispatch by tool name. Used by MCP and (later) the in-app agent.
-    pub async fn call_tool(&self, name: &str, args: &JsonValue) -> AppResult<JsonValue> {
+    pub fn advertised_tools(&self, _caller: ToolCaller) -> Vec<AgentToolSpec> {
+        tool_specs_for(self.write_policy())
+    }
+
+    pub fn mcp_instructions(&self) -> String {
+        match self.write_policy() {
+            AgentWritePolicy::ReadOnly => {
+                "Mystique is a desktop database studio. Tools are read-only: schema (DBML), list/describe tables or collections, run SELECT/find, save and list queries. Use list_connections first. Never ask the user to paste schema.".into()
+            }
+            AgentWritePolicy::SafeWrite => {
+                "Mystique is a desktop database studio. Reads plus INSERT/UPDATE on allowlisted connections. DELETE, DROP, and DDL are blocked. Use list_connections first. Never ask the user to paste schema.".into()
+            }
+            AgentWritePolicy::HighRiskWrite => {
+                "Mystique is a desktop database studio. Writes including DDL/DROP are allowed on allowlisted connections. Production and staging still need an in-app write unlock. Use list_connections first. Never ask the user to paste schema.".into()
+            }
+        }
+    }
+
+    /// Dispatch by tool name. Used by MCP and the in-app agent.
+    pub async fn call_tool(
+        &self,
+        name: &str,
+        args: &JsonValue,
+        caller: ToolCaller,
+    ) -> AppResult<JsonValue> {
+        if let Some(id) = opt_str(args, "connection_id") {
+            self.require_allowlisted(caller, &id)?;
+        }
         match name {
             "list_connections" => {
                 // MCP structuredContent must be an object, not a top-level array.
-                Ok(json!({ "connections": self.list_connections().await? }))
+                Ok(json!({ "connections": self.list_connections(caller).await? }))
             }
             "get_schema_dbml" => {
                 let id = req_str(args, "connection_id")?;
@@ -105,9 +137,32 @@ impl AgentTools {
                     .await?;
                 Ok(serde_json::to_value(result)?)
             }
+            "execute_query" => {
+                let id = req_str(args, "connection_id")?;
+                let query = req_str(args, "query")?;
+                let database = opt_str(args, "database");
+                let collection = opt_str(args, "collection");
+                let format = opt_str(args, "format").unwrap_or_else(|| "json".into());
+                let max_rows = args
+                    .get("max_rows")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as u32);
+                let result = self
+                    .execute_query(
+                        &id,
+                        &query,
+                        database.as_deref(),
+                        collection.as_deref(),
+                        max_rows,
+                        &format,
+                    )
+                    .await?;
+                Ok(serde_json::to_value(result)?)
+            }
             "list_saved_queries" => {
                 let id = opt_str(args, "connection_id");
                 let rows = self.list_saved_queries(id.as_deref())?;
+                let rows = self.filter_saved_queries(caller, rows);
                 Ok(json!({ "queries": rows }))
             }
             "save_query" => {
@@ -155,6 +210,7 @@ impl AgentTools {
                 ssh.trusted_fingerprint = Some(known.fingerprint);
             }
         }
+        let tls_key_passphrase = profiles.resolve_tls_secret(id).ok().flatten();
         let req = OpenSessionRequest {
             engine: profile.engine.clone(),
             plugin_config: profile.plugin_config.clone(),
@@ -168,10 +224,10 @@ impl AgentTools {
             }),
             session_id: Some(profile.id.clone()),
             ssh,
-            tls_key_passphrase: None,
-            environment: None,
-            connection_name: None,
-            profile_read_only: false,
+            tls_key_passphrase,
+            environment: Some(profile.environment.clone()),
+            connection_name: Some(profile.name.clone()),
+            profile_read_only: profile.read_only,
         };
         self.connections.open_session(req).await?;
         let _ = self
@@ -180,3 +236,6 @@ impl AgentTools {
         Ok(profile.id)
     }
 }
+
+#[cfg(test)]
+mod access_tests;

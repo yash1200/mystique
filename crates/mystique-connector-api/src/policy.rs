@@ -9,7 +9,7 @@ use crate::query::QueryMode;
 use crate::WriteRisk;
 
 pub use sql::{
-    classify_sql_statement, split_sql_statements, sql_destructive_object_name,
+    classify_sql_statement, split_sql_statements, sql_destructive_object_name, sql_is_safe_dml,
     validate_sql_statement,
 };
 
@@ -129,6 +129,18 @@ impl EngineQueryPolicy for MongoQueryPolicy {
     }
 }
 
+/// INSERT / UPDATE / REPLACE only (P3.2 `safe_write`). Deletes and `$out`/`$merge` are not.
+pub fn mongo_is_safe_dml(text: &str) -> bool {
+    if classify_mongo_query(text) != WriteRisk::Write {
+        return false;
+    }
+    let lower = text.trim().to_ascii_lowercase();
+    if lower.contains("delete") || lower.contains(".remove(") || lower.contains("bulkwrite") {
+        return false;
+    }
+    lower.contains("insert") || lower.contains("update") || lower.contains("replace")
+}
+
 fn classify_mongo_query(text: &str) -> WriteRisk {
     let lower = text.trim().to_ascii_lowercase();
     if lower.contains("dropdatabase")
@@ -153,4 +165,22 @@ fn classify_mongo_query(text: &str) -> WriteRisk {
         return WriteRisk::Write;
     }
     WriteRisk::Read
+}
+
+#[cfg(test)]
+mod mongo_safe_dml_tests {
+    use super::*;
+
+    #[test]
+    fn insert_is_safe_dml() {
+        assert!(mongo_is_safe_dml("db.t.insertOne({a:1})"));
+        assert!(mongo_is_safe_dml("db.t.updateOne({a:1}, {$set:{b:2}})"));
+    }
+
+    #[test]
+    fn delete_and_drop_are_not_safe_dml() {
+        assert!(!mongo_is_safe_dml("db.t.deleteOne({a:1})"));
+        assert!(!mongo_is_safe_dml("db.t.drop()"));
+        assert!(!mongo_is_safe_dml("db.t.find({})"));
+    }
 }
