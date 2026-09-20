@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use mystique_connector_api::{
-    ConnectionConfig, ConnectorError, ConnectorResult, ConnectorSession, EngineDescriptor,
-    FormattedConnectionUrl, ParsedConnectionUrl, PoolConfig, PoolStatus, SessionInfo, TestResult,
+    ConnectionConfig, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
+    EngineDescriptor, EngineProduct, FormattedConnectionUrl, ParsedConnectionUrl, PoolConfig,
+    PoolStatus, SessionInfo, TestResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -21,6 +22,18 @@ mod transfer;
 mod tests;
 
 use super::ConnectorRegistry;
+
+fn overlay_session_caps(
+    session: &dyn ConnectorSession,
+    product: Option<&EngineProduct>,
+) -> EngineCapabilities {
+    let mut caps = session.capabilities();
+    if let Some(p) = product {
+        caps.engine = p.id.to_string();
+        caps.apply_support_depth(p.support_depth);
+    }
+    caps
+}
 
 /// API request to open a pooled session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,7 +200,7 @@ impl ConnectionManager {
             display_name: product
                 .map(|p| p.display_name.to_string())
                 .unwrap_or_else(|| connector.display_name().to_string()),
-            capabilities: session.capabilities(),
+            capabilities: overlay_session_caps(session.as_ref(), product),
             pool: session.pool_status(),
             opened_at: Utc::now().to_rfc3339(),
         };
@@ -244,7 +257,10 @@ impl ConnectionManager {
                 session_id: id.clone(),
                 engine: live.product_id.clone(),
                 display_name: live.display_name.clone(),
-                capabilities: live.session.capabilities(),
+                capabilities: overlay_session_caps(
+                    live.session.as_ref(),
+                    ConnectorRegistry::product(&live.product_id),
+                ),
                 pool: live.session.pool_status(),
                 opened_at: live.opened_at.clone(),
             })
@@ -257,7 +273,10 @@ impl ConnectionManager {
             session_id: session_id.to_string(),
             engine: live.product_id.clone(),
             display_name: live.display_name.clone(),
-            capabilities: live.session.capabilities(),
+            capabilities: overlay_session_caps(
+                live.session.as_ref(),
+                ConnectorRegistry::product(&live.product_id),
+            ),
             pool: live.session.pool_status(),
             opened_at: live.opened_at.clone(),
         })

@@ -101,6 +101,21 @@ pub enum ConnectionKind {
     File,
 }
 
+/// How much of the IDE this product actually supports.
+///
+/// Chrome reads the boolean flags this depth clamps — never `if engine ===`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SupportDepth {
+    /// Full chrome (today’s four runtimes).
+    #[default]
+    Operate,
+    /// Catalog, query, grid, export. No ER/metrics/mutating admin.
+    Browse,
+    /// Test connection + query. No explorer/ER/metrics/admin.
+    Connect,
+}
+
 /// Capability flags returned to the UI / API consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,6 +164,46 @@ pub struct EngineCapabilities {
     /// Terminate a backend session from the metrics tab.
     #[serde(default)]
     pub supports_terminate_session: bool,
+    /// Object explorer (catalog tree). Off at [`SupportDepth::Connect`].
+    #[serde(default = "default_true")]
+    pub supports_explorer: bool,
+    /// Product honesty: `operate` | `browse` | `connect`.
+    #[serde(default)]
+    pub support_depth: SupportDepth,
+}
+
+impl EngineCapabilities {
+    /// Clamp feature flags to `depth`. `operate` leaves plugin flags as-is.
+    pub fn apply_support_depth(&mut self, depth: SupportDepth) {
+        self.support_depth = depth;
+        match depth {
+            SupportDepth::Operate => {
+                self.supports_explorer = true;
+            }
+            SupportDepth::Browse => {
+                self.supports_explorer = true;
+                self.supports_er_diagram = false;
+                self.supports_model_view = false;
+                self.model_view_kind = ModelViewKind::None;
+                self.supports_server_metrics = false;
+                self.supports_terminate_session = false;
+                self.table_admin.create_statement = false;
+                self.table_admin.rename = false;
+                self.table_admin.drop = false;
+                self.table_admin.truncate = false;
+                self.table_admin.duplicate = false;
+                self.explorer.can_create_database = false;
+                self.explorer.can_create_group = false;
+                self.explorer.can_create_object = false;
+            }
+            SupportDepth::Connect => {
+                self.apply_support_depth(SupportDepth::Browse);
+                self.support_depth = SupportDepth::Connect;
+                self.supports_explorer = false;
+                self.table_admin.view_structure = false;
+            }
+        }
+    }
 }
 
 fn default_code_filter_placeholder() -> String {

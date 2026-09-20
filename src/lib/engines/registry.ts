@@ -12,6 +12,7 @@ import type {
 	EngineOption,
 } from '$core/contracts'
 import {
+	applySupportDepth,
 	mergeCapabilities,
 	modelViewLabelFromCaps,
 	relationalCapabilities,
@@ -71,10 +72,11 @@ function overlayAdapter(
 		available: product.onPicker,
 		defaultPort: product.defaultPort,
 		aliases: [],
-		defaultCapabilities: {
+		defaultCapabilities: applySupportDepth({
 			...runtime.defaultCapabilities,
 			engine: product.id,
-		},
+			supportDepth: product.supportDepth,
+		}),
 		connection: {
 			...runtime.connection,
 			emptyDraft: () => {
@@ -135,7 +137,7 @@ export function resolveCapabilities(
 	engine: string,
 	caps?: EngineCapabilities | null,
 ): EngineCapabilities {
-	return caps ?? defaultCapabilitiesForEngine(engine)
+	return applySupportDepth(caps ?? defaultCapabilitiesForEngine(engine))
 }
 
 /** Merge raw plugin JSON onto the adapter's defaults. */

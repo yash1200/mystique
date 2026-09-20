@@ -85,7 +85,11 @@
 	}
 
 	function selectConnection(id: string) {
-		onmode('explorer')
+		const s = sessionById(id)
+		const caps = s
+			? normalizeCapabilities(s.capabilities, String(s.profile.engine))
+			: null
+		onmode(caps && caps.supportsExplorer === false ? 'saved-queries' : 'explorer')
 		onselect(id)
 	}
 

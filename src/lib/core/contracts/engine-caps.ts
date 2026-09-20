@@ -19,6 +19,9 @@ export type ExplorerLayout = 'schema-tree' | 'flat'
 
 export type ConnectionKind = 'host' | 'uri' | 'file'
 
+/** How much of the IDE this product actually supports. */
+export type SupportDepth = 'operate' | 'browse' | 'connect'
+
 export interface ObjectLabels {
 	namespace: string
 	container: string
@@ -86,4 +89,8 @@ export interface EngineCapabilities {
 	supportsServerMetrics: boolean
 	/** Terminate a backend session from the metrics tab. */
 	supportsTerminateSession: boolean
+	/** Object explorer. Off at `connect` depth. */
+	supportsExplorer: boolean
+	/** Product honesty: operate | browse | connect. */
+	supportDepth: SupportDepth
 }

@@ -2,7 +2,7 @@
 
 use super::{
     default_export_formats, sql_export_formats, ConnectionKind, EngineCapabilities, EngineFamily,
-    ExplorerConfig, ModelViewKind, ObjectLabels, TableAdminFeatures,
+    ExplorerConfig, ModelViewKind, ObjectLabels, SupportDepth, TableAdminFeatures,
 };
 
 impl EngineCapabilities {
@@ -33,6 +33,8 @@ impl EngineCapabilities {
             export_formats: sql_export_formats(),
             supports_server_metrics: true,
             supports_terminate_session: true,
+            supports_explorer: true,
+            support_depth: SupportDepth::Operate,
         }
     }
 
@@ -63,6 +65,8 @@ impl EngineCapabilities {
             export_formats: sql_export_formats(),
             supports_server_metrics: true,
             supports_terminate_session: false,
+            supports_explorer: true,
+            support_depth: SupportDepth::Operate,
         }
     }
 
@@ -93,6 +97,8 @@ impl EngineCapabilities {
             export_formats: default_export_formats(),
             supports_server_metrics: true,
             supports_terminate_session: true,
+            supports_explorer: true,
+            support_depth: SupportDepth::Operate,
         }
     }
 
@@ -123,6 +129,8 @@ impl EngineCapabilities {
             export_formats: sql_export_formats(),
             supports_server_metrics: true,
             supports_terminate_session: true,
+            supports_explorer: true,
+            support_depth: SupportDepth::Operate,
         }
     }
 }
@@ -145,6 +153,84 @@ mod create_caps_tests {
         let sq = EngineCapabilities::sqlite_defaults();
         assert!(sq.supports_server_metrics);
         assert!(!sq.supports_terminate_session);
+    }
+
+    #[test]
+    fn four_runtimes_default_to_operate() {
+        for caps in [
+            EngineCapabilities::postgres_defaults(),
+            EngineCapabilities::mysql_defaults(),
+            EngineCapabilities::sqlite_defaults(),
+            EngineCapabilities::mongodb_defaults(),
+        ] {
+            assert_eq!(caps.support_depth, SupportDepth::Operate);
+            assert!(caps.supports_explorer);
+        }
+    }
+
+    #[test]
+    fn browse_hides_model_metrics_and_mutating_admin() {
+        let mut caps = EngineCapabilities::postgres_defaults();
+        caps.apply_support_depth(SupportDepth::Browse);
+        assert_eq!(caps.support_depth, SupportDepth::Browse);
+        assert!(caps.supports_explorer);
+        assert!(!caps.supports_er_diagram);
+        assert!(!caps.supports_model_view);
+        assert!(!caps.supports_server_metrics);
+        assert!(!caps.table_admin.drop);
+        assert!(caps.table_admin.view_structure);
+        assert!(!caps.explorer.can_create_object);
+    }
+
+    #[test]
+    fn connect_hides_explorer() {
+        let mut caps = EngineCapabilities::postgres_defaults();
+        caps.apply_support_depth(SupportDepth::Connect);
+        assert_eq!(caps.support_depth, SupportDepth::Connect);
+        assert!(!caps.supports_explorer);
+        assert!(!caps.supports_er_diagram);
+        assert!(!caps.table_admin.view_structure);
+    }
+
+    #[test]
+    fn missing_support_depth_deserializes_as_operate() {
+        let v = serde_json::json!({
+            "engine": "postgres",
+            "family": "RELATIONAL",
+            "queryLanguage": "SQL",
+            "supportsSchema": true,
+            "supportsForeignKeys": true,
+            "supportsErDiagram": true,
+            "supportsModelView": true,
+            "modelViewKind": "ER",
+            "supportsPagination": true,
+            "supportsWrite": false,
+            "supportsCancelQuery": true,
+            "supportsPooling": true,
+            "bindsSessionToDatabase": true,
+            "objectLabels": { "namespace": "Schema", "container": "Table", "field": "Column" },
+            "explorer": {
+                "layout": "schema-tree",
+                "multiDatabase": true,
+                "canCreateDatabase": true,
+                "canCreateObject": true,
+                "databaseLabel": "Database",
+                "groupLabel": "Schema",
+                "objectLabel": "tables",
+                "objectLabelSingular": "table",
+                "filterPlaceholder": "Filter"
+            },
+            "tableAdmin": {
+                "createStatement": true,
+                "rename": true,
+                "drop": true,
+                "truncate": true,
+                "duplicate": true
+            }
+        });
+        let caps: EngineCapabilities = serde_json::from_value(v).unwrap();
+        assert_eq!(caps.support_depth, SupportDepth::Operate);
+        assert!(caps.supports_explorer);
     }
 
     #[test]

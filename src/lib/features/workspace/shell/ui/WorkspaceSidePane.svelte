@@ -28,6 +28,7 @@
 		EXPLORER_PANEL_WIDTH_MIN,
 	} from '$lib/app'
 	import { onMount } from 'svelte'
+	import { resolveCapabilities } from '$engines'
 	import { liveStatusMark } from '../live-session'
 	import { catalogsFor, selectedDatabaseName } from '../lookup'
 	import { workspaceSession } from '../session.svelte'
@@ -61,6 +62,13 @@
 	let infoOpen = $state(false)
 	const connectionName = $derived(activeSession?.profile.name?.trim() || '')
 	const liveMark = $derived(liveStatusMark(activeSession?.liveStatus))
+	const explorerOk = $derived(
+		!activeSession ||
+			resolveCapabilities(
+				String(activeSession.profile.engine),
+				activeSession.capabilities,
+			).supportsExplorer,
+	)
 
 	onMount(() => {
 		const onDetails = () => {
@@ -119,7 +127,7 @@
 					onrefresh={() => void refreshHistory({ force: true })}
 					loading={workspaceStudio.historyLoading}
 				/>
-			{:else if activeSession}
+			{:else if activeSession && explorerOk}
 				<ObjectExplorer
 					engine={String(activeSession.profile.engine)}
 					{databases}
@@ -142,6 +150,15 @@
 					readOnly={!!activeSession.profile.readOnly}
 					capabilities={activeSession.capabilities}
 				/>
+			{:else if activeSession}
+				<aside
+					class="flex h-full w-full flex-col items-center justify-center px-4 text-center"
+					aria-label="Catalog unavailable"
+				>
+					<p class="text-caption text-fg-muted">
+						Catalog is not available for this connection.
+					</p>
+				</aside>
 			{:else}
 				<aside
 					class="flex h-full w-full flex-col items-center justify-center px-4 text-center"

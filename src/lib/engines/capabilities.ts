@@ -9,6 +9,7 @@ import type {
 	EngineCapabilities,
 	ExplorerConfig,
 	ObjectLabels,
+	SupportDepth,
 	TableAdminFeatures,
 } from '$core/contracts'
 
@@ -77,8 +78,57 @@ export function relationalCapabilities(
 		exportFormats: [...SQL_EXPORT_FORMATS],
 		supportsServerMetrics: true,
 		supportsTerminateSession: true,
+		supportsExplorer: true,
+		supportDepth: 'operate',
 		...over,
 		explorer,
+	}
+}
+
+export function parseSupportDepth(v: unknown, fallback: SupportDepth): SupportDepth {
+	const s = String(v ?? '')
+		.toLowerCase()
+		.trim()
+	if (s === 'operate' || s === 'browse' || s === 'connect') return s
+	return fallback
+}
+
+/** Clamp chrome flags to supportDepth. `operate` leaves plugin flags as-is. */
+export function applySupportDepth(caps: EngineCapabilities): EngineCapabilities {
+	const depth = parseSupportDepth(caps.supportDepth, 'operate')
+	if (depth === 'operate') {
+		return { ...caps, supportDepth: 'operate', supportsExplorer: true }
+	}
+	const browse: EngineCapabilities = {
+		...caps,
+		supportDepth: 'browse',
+		supportsExplorer: true,
+		supportsErDiagram: false,
+		supportsModelView: false,
+		modelViewKind: 'NONE',
+		supportsServerMetrics: false,
+		supportsTerminateSession: false,
+		tableAdmin: {
+			...caps.tableAdmin,
+			createStatement: false,
+			rename: false,
+			drop: false,
+			truncate: false,
+			duplicate: false,
+		},
+		explorer: {
+			...caps.explorer,
+			canCreateDatabase: false,
+			canCreateGroup: false,
+			canCreateObject: false,
+		},
+	}
+	if (depth === 'browse') return browse
+	return {
+		...browse,
+		supportDepth: 'connect',
+		supportsExplorer: false,
+		tableAdmin: { ...browse.tableAdmin, viewStructure: false },
 	}
 }
 
@@ -127,7 +177,7 @@ export function mergeCapabilities(
 		string,
 		unknown
 	>
-	return {
+	const merged: EngineCapabilities = {
 		...fallback,
 		...c,
 		engine: c.engine || fallback.engine,
@@ -184,7 +234,17 @@ export function mergeCapabilities(
 			),
 		},
 		objectLabels: { ...fallback.objectLabels, ...(c.objectLabels ?? {}) },
+		supportsExplorer: asBool(
+			c.supportsExplorer ??
+				(c as { supports_explorer?: unknown }).supports_explorer,
+			fallback.supportsExplorer,
+		),
+		supportDepth: parseSupportDepth(
+			c.supportDepth ?? (c as { support_depth?: unknown }).support_depth,
+			fallback.supportDepth,
+		),
 	}
+	return applySupportDepth(merged)
 }
 
 function normalizeExplorer(

@@ -92,6 +92,8 @@ Frontend: `src/lib/engines/<engine>/` with `index.ts` and `Fields.svelte`, then 
 
 A **product** (picker / `connections.engine`) can share a **runtime** crate. Add a row to `crates/mystique-connector-api/src/products.rs` **and** `src/lib/engines/products.ts` — do not copy a plugin. `ConnectorRegistry::get("mariadb")` returns the MySQL connector. Picker cards for those products are Phase 1.4.
 
+`supportDepth` (`operate` | `browse` | `connect`) is the overlay that hides ER/metrics/admin without engine-name branches. New products default to `operate` only if they really have that chrome.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

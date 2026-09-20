@@ -15,6 +15,7 @@ pub struct EngineProduct {
     pub description: &'static str,
     /// Home picker card. `false` = resolve-only until Phase 1.4.
     pub on_picker: bool,
+    pub support_depth: crate::SupportDepth,
 }
 
 /// Identity runtimes plus products that share a wire protocol.
@@ -28,6 +29,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         description:
             "Relational studio — schemas, tables, SQL, and classic ER Model view from foreign keys.",
         on_picker: true,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "postgresql",
@@ -37,6 +39,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 5432,
         description: "PostgreSQL (postgresql alias).",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "pg",
@@ -46,6 +49,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 5432,
         description: "PostgreSQL (pg alias).",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "cockroachdb",
@@ -55,6 +59,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 26257,
         description: "Distributed SQL — Postgres wire protocol.",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "mysql",
@@ -64,6 +69,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 3306,
         description: "MySQL — databases, tables, SQL query space, and relational Model view.",
         on_picker: true,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "mariadb",
@@ -73,6 +79,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 3306,
         description: "MariaDB — MySQL wire protocol.",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "tidb",
@@ -82,6 +89,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 4000,
         description: "TiDB — MySQL wire protocol.",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "sqlite",
@@ -91,6 +99,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 0,
         description: "Local file database.",
         on_picker: true,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "mongodb",
@@ -101,6 +110,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         description:
             "Document studio — databases, collections, find/aggregation, and collection Model map.",
         on_picker: true,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "mongo",
@@ -110,6 +120,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 27017,
         description: "MongoDB (mongo alias).",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
     EngineProduct {
         id: "documentdb",
@@ -119,6 +130,7 @@ pub const ENGINE_PRODUCTS: &[EngineProduct] = &[
         default_port: 27017,
         description: "Amazon DocumentDB — MongoDB wire protocol.",
         on_picker: false,
+        support_depth: crate::SupportDepth::Operate,
     },
 ];
 
@@ -173,5 +185,12 @@ mod tests {
             .map(|p| p.id)
             .collect();
         assert_eq!(cards, ["postgres", "mysql", "sqlite", "mongodb"]);
+    }
+
+    #[test]
+    fn products_default_to_operate() {
+        assert!(ENGINE_PRODUCTS
+            .iter()
+            .all(|p| p.support_depth == crate::SupportDepth::Operate));
     }
 }

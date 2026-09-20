@@ -32,11 +32,13 @@ export {
 } from './products'
 
 export {
+	applySupportDepth,
 	connectionKindFromCaps,
 	familyFromCaps,
 	mergeCapabilities,
 	modelTabTitle,
 	modelViewLabelFromCaps,
+	parseSupportDepth,
 	presentationFromCaps,
 	queryLangFromCaps,
 } from './capabilities'

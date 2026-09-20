@@ -13,6 +13,7 @@ export interface EngineProduct {
 	defaultPort: number
 	description: string
 	onPicker: boolean
+	supportDepth: 'operate' | 'browse' | 'connect'
 }
 
 export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
@@ -25,6 +26,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		description:
 			'Relational studio — schemas, tables, SQL, and classic ER Model view from foreign keys.',
 		onPicker: true,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'postgresql',
@@ -34,6 +36,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 5432,
 		description: 'PostgreSQL (postgresql alias).',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'pg',
@@ -43,6 +46,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 5432,
 		description: 'PostgreSQL (pg alias).',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'cockroachdb',
@@ -52,6 +56,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 26257,
 		description: 'Distributed SQL — Postgres wire protocol.',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'mysql',
@@ -62,6 +67,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		description:
 			'MySQL — databases, tables, SQL query space, and relational Model view.',
 		onPicker: true,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'mariadb',
@@ -71,6 +77,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 3306,
 		description: 'MariaDB — MySQL wire protocol.',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'tidb',
@@ -80,6 +87,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 4000,
 		description: 'TiDB — MySQL wire protocol.',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'sqlite',
@@ -89,6 +97,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 0,
 		description: 'Local file database.',
 		onPicker: true,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'mongodb',
@@ -99,6 +108,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		description:
 			'Document studio — databases, collections, find/aggregation, and collection Model map.',
 		onPicker: true,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'mongo',
@@ -108,6 +118,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 27017,
 		description: 'MongoDB (mongo alias).',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 	{
 		id: 'documentdb',
@@ -117,6 +128,7 @@ export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 		defaultPort: 27017,
 		description: 'Amazon DocumentDB — MongoDB wire protocol.',
 		onPicker: false,
+		supportDepth: 'operate',
 	},
 ]
 
