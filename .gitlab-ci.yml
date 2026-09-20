@@ -1,0 +1,50 @@
+# P0.2 — typecheck + unit tests on main and merge requests.
+# No live databases. Tauri/GTK is excluded (no tests in src-tauri).
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+stages:
+  - check
+
+variables:
+  CARGO_TERM_COLOR: always
+  # rust-toolchain.toml lists macOS targets for local builds; CI uses the image toolchain.
+  RUSTUP_TOOLCHAIN: stable
+  PNPM_STORE: .pnpm-store
+
+.frontend:
+  image: node:22-bookworm
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - ${PNPM_STORE}
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@12.5.1 --activate
+    - pnpm config set store-dir "${PNPM_STORE}"
+    - pnpm install --frozen-lockfile
+
+frontend:
+  extends: .frontend
+  stage: check
+  interruptible: true
+  script:
+    - pnpm check
+
+rust:
+  image: rust:1-bookworm
+  stage: check
+  interruptible: true
+  cache:
+    key: cargo-${CI_COMMIT_REF_SLUG}
+    paths:
+      - target/
+      - /usr/local/cargo/registry/
+  script:
+    # `mystique` is the Tauri shell — needs WebKit/GTK, has no unit tests.
+    - cargo test --workspace --exclude mystique --locked

@@ -15,6 +15,21 @@ cargo test              # from repo root
 
 `rust-toolchain.toml` pulls `aarch64-apple-darwin` and `x86_64-apple-darwin`. First `tauri dev` is slow.
 
+## CI
+
+GitLab (`.gitlab-ci.yml`) runs on `main` and merge requests:
+
+- `pnpm check` — import boundaries + `svelte-check`
+- `cargo test --workspace --exclude mystique --locked` — Rust unit tests (no Tauri/GTK, no live DB)
+
+Live plugin tests (`#[ignore]`, local Postgres/MySQL/Mongo) stay off the default job:
+
+```bash
+cargo test -- --ignored
+```
+
+`pnpm tauri:build` also runs `pnpm check` via `beforeBuildCommand`.
+
 ## Layout
 
 ```text

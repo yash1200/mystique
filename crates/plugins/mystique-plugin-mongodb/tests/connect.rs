@@ -3,6 +3,7 @@ use mystique_plugin_mongodb::MongoConnector;
 use serde_json::json;
 
 #[tokio::test]
+#[ignore = "needs local MongoDB"]
 async fn test_connection_against_local_docker() {
     let config = ConnectionConfig {
         engine: "mongodb".into(),

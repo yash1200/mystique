@@ -7,6 +7,7 @@ use mystique_connector_api::{ConnectorSession, QueryMode, ValidatedQuery};
 use super::MongoSession;
 
 #[tokio::test]
+#[ignore = "needs local MongoDB"]
 async fn list_databases_and_find_users_on_mystique() {
     let uri = "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin";
     let client = match Client::with_uri_str(uri).await {

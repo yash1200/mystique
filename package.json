@@ -16,6 +16,7 @@
 		"tauri:build:x86": "tauri build --target x86_64-apple-darwin",
 		"tauri:build:windows": "tauri build --target x86_64-pc-windows-msvc"
 	},
+	"packageManager": "pnpm@12.5.1",
 	"license": "MIT",
 	"dependencies": {
 		"@codemirror/autocomplete": "6.20.3",

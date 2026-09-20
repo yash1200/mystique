@@ -35,6 +35,7 @@ async fn test_connection_refused_returns_err() {
 }
 
 #[tokio::test]
+#[ignore = "needs local MySQL"]
 async fn test_connection_against_local_docker() {
     let config = ConnectionConfig {
         engine: "mysql".into(),

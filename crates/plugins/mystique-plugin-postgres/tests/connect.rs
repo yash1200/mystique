@@ -37,6 +37,7 @@ async fn test_connection_refused_returns_err() {
 }
 
 #[tokio::test]
+#[ignore = "needs local Postgres"]
 async fn test_connection_against_local_homebrew() {
     let user = std::env::var("USER").unwrap_or_else(|_| "yashjohri".into());
     let config = ConnectionConfig {
@@ -72,6 +73,7 @@ async fn test_connection_against_local_homebrew() {
 }
 
 #[tokio::test]
+#[ignore = "needs local Postgres"]
 async fn test_connection_default_user_postgres_has_clear_error() {
     let config = ConnectionConfig {
         engine: "postgres".into(),
@@ -104,6 +106,7 @@ async fn test_connection_default_user_postgres_has_clear_error() {
 }
 
 #[tokio::test]
+#[ignore = "needs local Postgres"]
 async fn bad_sql_surfaces_postgres_message() {
     let user = std::env::var("USER").unwrap_or_else(|_| "yashjohri".into());
     let config = ConnectionConfig {

@@ -24,6 +24,7 @@ fn local_config() -> ConnectionConfig {
 }
 
 #[tokio::test]
+#[ignore = "needs local MySQL"]
 async fn list_tables_and_preview_users() {
     let session = MysqlConnector
         .connect(&local_config())
@@ -72,6 +73,7 @@ async fn list_tables_and_preview_users() {
 }
 
 #[tokio::test]
+#[ignore = "needs local MySQL"]
 async fn information_schema_columns_and_fks() {
     let session = MysqlConnector
         .connect(&local_config())
