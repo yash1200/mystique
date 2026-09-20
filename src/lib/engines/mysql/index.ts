@@ -2,7 +2,7 @@
 import { MySQL } from '@codemirror/lang-sql'
 import { relationalCapabilities } from '../capabilities'
 import { emptySslDraft, sslPluginFields } from '../ssl'
-import { sqlSchemaFromColumns } from '../sql/complete'
+import { sqlCatalogCompletion, sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
 
@@ -54,7 +54,12 @@ export const mysql: EngineAdapter = {
 		id: 'sql',
 		format: sqlFormatter('mysql'),
 		sqlDialect: MySQL,
-		completion: () => null,
+		completion: (rows) =>
+			sqlCatalogCompletion(rows, {
+				nestSchemas: false,
+				dialect: MySQL,
+				kind: 'mysql',
+			}),
 		// MySQL databases are not schemas — keep the table list flat.
 		sqlSchema: (rows) => sqlSchemaFromColumns(rows, { nestSchemas: false }),
 	},

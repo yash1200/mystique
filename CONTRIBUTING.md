@@ -104,6 +104,8 @@ SSL is **shared** (`TlsSettings` in connector-api): `sslMode` disable/prefer/req
 
 **SQL analysis (P4.1–4.2):** `mystique-sql` owns statement split, AST write-risk, and identifier quoting. `EngineQueryPolicy` for SQL engines, the query tab, agent, and MCP all call it. DELETE is allowed in Write mode (docs that said “always denied” were wrong). A fifth SQL dialect is a `SqlDialect` variant, not a copied keyword list. Mongo keeps its own policy.
 
+**SQL completion (P4.3):** Query-tab catalog completion comes from `sqlSchemaFromColumns` (lang-sql schema + aliases) plus `sqlCatalogCompletion` (tables after `FROM `, small dialect snippets). Wire `completion` on the runtime adapter; MariaDB/Cockroach/TiDB inherit it. Mongo stays on `mongoCompletionSource`.
+
 ## Git
 
 Branches: `feat/…`, `fix/…`, `docs/…`, `chore/…` off `main`. Conventional commits. MRs go to `main` with how to test.

@@ -149,12 +149,20 @@
 				...(autocomplete ? [javascriptLanguage.data.of({ autocomplete })] : []),
 			]
 		}
+		const dialect = language.sqlDialect ?? StandardSQL
 		const complete = language.sqlSchema?.(cols)
-		return sql({
-			dialect: language.sqlDialect ?? StandardSQL,
+		const extra = language.completion(cols)
+		const support = sql({
+			dialect,
 			schema: (complete?.schema ?? {}) as SQLNamespace,
 			defaultSchema: complete?.defaultSchema,
+			upperCaseKeywords: true,
 		})
+		if (!extra) return support
+		return [
+			support,
+			dialect.language.data.of({ autocomplete: extra }),
+		]
 	}
 
 	function buildExtensions(lang: string, ph: string): Extension[] {
