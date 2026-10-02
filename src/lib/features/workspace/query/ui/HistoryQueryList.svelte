@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { cn, formatRelativeTime } from '$core/util'
-	import { CatalogIcon } from '$features/workspace/catalog'
+	import { cn, formatRelativeTime } from '#core/util'
+	import { CatalogIcon } from '#features/workspace/catalog'
 	import { previewSql } from '../display'
 	import type { QueryHistoryEntry } from '../history-types'
 

@@ -3,7 +3,7 @@
 	 * Object structure — columns, indexes, relations, and engine metadata.
 	 * Plugin-owned data; this panel only renders sections.
 	 */
-	import type { ObjectStructure, StructureSection } from '$core/contracts'
+	import type { ObjectStructure, StructureSection } from '#core/contracts'
 	import {
 		Alert,
 		Button,
@@ -12,17 +12,17 @@
 		IconButton,
 		Pill,
 		StatusBar,
-	} from '$core/ui'
+	} from '#core/ui'
 	import {
 		cn,
 		copyTextToClipboard,
 		fetchedLabel,
 		randomLoadingPun,
-	} from '$core/util'
-	import { showToast } from '$features/toast'
-	import type { CatalogIconName } from '$features/workspace/catalog'
-	import { CatalogIcon, iconToneForName } from '$features/workspace/catalog'
-	import type { IconName } from '$icons'
+	} from '#core/util'
+	import { showToast } from '#features/toast'
+	import type { CatalogIconName } from '#features/workspace/catalog'
+	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
+	import type { IconName } from '#icons'
 	import { SvelteSet } from 'svelte/reactivity'
 	import ExplorerSearch from './ExplorerSearch.svelte'
 

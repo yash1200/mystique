@@ -1,4 +1,4 @@
-import type { ConnectionFormDraft, PluginConfig } from '$core/contracts'
+import type { ConnectionFormDraft, PluginConfig } from '#core/contracts'
 
 export type SslMode =
 	| 'disable'

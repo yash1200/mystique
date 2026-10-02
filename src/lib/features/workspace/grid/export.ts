@@ -1,14 +1,14 @@
 /**
  * Serialize result rows as CSV / TSV / JSON / Markdown / Excel / PDF.
- * File dialogs and byte writing live in `$core/util/files`.
+ * File dialogs and byte writing live in `#core/util/files.js`.
  */
-import type { TableFileFormat } from '$core/contracts'
+import type { TableFileFormat } from '#core/contracts'
 import {
 	safeFileBase,
 	saveBytesWithPrompt,
 	shortStamp,
 	type SaveResult,
-} from '$core/util/files'
+} from '#core/util/files.js'
 import { jsPDF } from 'jspdf'
 
 export type { SaveResult, TableFileFormat }

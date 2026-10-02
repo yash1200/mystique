@@ -1,5 +1,5 @@
-import type { WriteGuardPrompt } from '$core/contracts'
-import { unlockEngineWrites } from '$core/ipc'
+import type { WriteGuardPrompt } from '#core/contracts'
+import { unlockEngineWrites } from '#core/ipc'
 
 function invokeErrorMessage(err: unknown): string {
 	if (typeof err === 'string') return err

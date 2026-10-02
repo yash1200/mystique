@@ -8,7 +8,7 @@
 		Input,
 		PasswordInput,
 		Select,
-	} from '$core/ui'
+	} from '#core/ui'
 	import type { EngineFieldsProps } from '../types'
 	import { pickDatabaseFilePath } from './pick-database-file'
 

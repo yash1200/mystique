@@ -5,11 +5,11 @@
 	 * Everyday scrolling is native compositing of already-painted rows, so
 	 * the pane does not go blank while Svelte mounts the next slice.
 	 */
-	import type { QueryResult } from '$core/contracts'
-	import { ContextMenu, type ContextMenuItem } from '$core/ui'
-	import { copyTextToClipboard } from '$core/util'
-	import { isMacPlatform, labelForKey } from '$features/shortcuts'
-	import { showToast } from '$features/toast'
+	import type { QueryResult } from '#core/contracts'
+	import { ContextMenu, type ContextMenuItem } from '#core/ui'
+	import { copyTextToClipboard } from '#core/util'
+	import { isMacPlatform, labelForKey } from '#features/shortcuts'
+	import { showToast } from '#features/toast'
 	import {
 		CellValueModal,
 		buildCsv,
@@ -17,8 +17,8 @@
 		buildMarkdown,
 		buildTsv,
 		valueToEditorText,
-	} from '$features/workspace/grid'
-	import { appPrefs } from '$lib/app'
+	} from '#features/workspace/grid'
+	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import {
 		RESULT_HEADER_H,

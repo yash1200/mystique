@@ -1,6 +1,6 @@
 /** Query history list. */
-import { isTauri } from '$core/ipc'
-import { workspaceSession, workspaceStudio } from '$features/workspace/shell'
+import { isTauri } from '#core/ipc'
+import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 import {
 	historyItemToEntry,
 	listQueryHistory,

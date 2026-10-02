@@ -11,7 +11,7 @@ import type {
 	EngineCapabilities,
 	EngineId,
 	EngineOption,
-} from '$core/contracts'
+} from '#core/contracts'
 import {
 	applySupportDepth,
 	mergeCapabilities,

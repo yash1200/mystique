@@ -1,31 +1,31 @@
 <script lang="ts">
-	import { EmptyState } from '$core/ui'
-	import { randomLoadingPun } from '$core/util'
-	import { familyFromCaps, resolveCapabilities } from '$engines'
-	import { colorHex } from '$features/connections'
-	import { AgentChatPane } from '$features/workspace/agent'
+	import { EmptyState } from '#core/ui'
+	import { randomLoadingPun } from '#core/util'
+	import { familyFromCaps, resolveCapabilities } from '#engines'
+	import { colorHex } from '#features/connections'
+	import { AgentChatPane } from '#features/workspace/agent'
 	import {
 		ErWorkspace,
 		hydrateActiveModel,
 		openModelDiagram,
-	} from '$features/workspace/er'
+	} from '#features/workspace/er'
 	import {
 		hydrateActiveStructure,
 		openObjectStructure,
 		StructurePanel,
-	} from '$features/workspace/explorer'
+	} from '#features/workspace/explorer'
 	import {
 		DataGrid,
 		RowInspector,
 		tablePreview,
-	} from '$features/workspace/grid'
-	import { ServerMetricsView } from '$features/workspace/metrics'
+	} from '#features/workspace/grid'
+	import { ServerMetricsView } from '#features/workspace/metrics'
 	import {
 		prependHistoryItem,
 		QueryCanvas,
 		querySave,
-	} from '$features/workspace/query'
-	import { appPrefs } from '$lib/app'
+	} from '#features/workspace/query'
+	import { appPrefs } from '#lib/app'
 	import { reconnectActiveSession } from '../live-session'
 	import {
 		catalogsFor,

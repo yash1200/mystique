@@ -3,9 +3,9 @@
 		ColumnReference,
 		TableMeta,
 		TablePreviewSortDir,
-	} from '$core/contracts'
-	import { Icon } from '$core/ui'
-	import { cn } from '$core/util'
+	} from '#core/contracts'
+	import { Icon } from '#core/ui'
+	import { cn } from '#core/util'
 	import { selectOptionsForColumn, usesSelectEditor } from '../column-editor'
 	import { cellText } from '../filters'
 	export type CellRef = { row: number; col: string }

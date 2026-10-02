@@ -1,7 +1,7 @@
 /** Load a live ER diagram for a table. */
-import type { TableMeta } from '$core/contracts'
-import { isTauri } from '$core/ipc'
-import { modelTabTitle, resolveCapabilities } from '$engines'
+import type { TableMeta } from '#core/contracts'
+import { isTauri } from '#core/ipc'
+import { modelTabTitle, resolveCapabilities } from '#engines'
 import {
 	currentDatabaseName,
 	isSessionMissingError,
@@ -11,7 +11,7 @@ import {
 	sessionDatabase,
 	workspaceSession,
 	workspaceStudio,
-} from '$features/workspace/shell'
+} from '#features/workspace/shell'
 import { loadLiveErDiagram } from './api'
 
 export async function openModelDiagram(

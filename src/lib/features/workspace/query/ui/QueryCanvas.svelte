@@ -3,12 +3,12 @@
 	 * Query space: Run → BE execute → results table.
 	 * Composes toolbar / editor / results; native paste via bind:value.
 	 */
-	import type { EngineCapabilities, QueryMode } from '$core/contracts'
-	import { executeEngineQuery, isTauri } from '$core/ipc'
-	import { Resizable } from '$core/ui'
-	import { copyTextToClipboard } from '$core/util'
-	import { showToast } from '$features/toast'
-	import { catalogColumnsCache } from '$features/workspace/catalog'
+	import type { EngineCapabilities, QueryMode } from '#core/contracts'
+	import { executeEngineQuery, isTauri } from '#core/ipc'
+	import { Resizable } from '#core/ui'
+	import { copyTextToClipboard } from '#core/util'
+	import { showToast } from '#features/toast'
+	import { catalogColumnsCache } from '#features/workspace/catalog'
 	import {
 		buildCsv,
 		buildJson,
@@ -16,13 +16,13 @@
 		exportRowsAsCsv,
 		exportRowsAsExcel,
 		exportRowsAsJson,
-	} from '$features/workspace/grid'
+	} from '#features/workspace/grid'
 	import {
 		isSessionMissingError,
 		runWithWriteGuard,
 		workspaceSession,
-	} from '$features/workspace/shell'
-	import { appPrefs } from '$lib/app'
+	} from '#features/workspace/shell'
+	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'

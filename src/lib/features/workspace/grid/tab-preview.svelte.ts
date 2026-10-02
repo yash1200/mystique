@@ -4,14 +4,14 @@ import type {
 	TableMeta,
 	TablePreviewFilter,
 	TablePreviewSort,
-} from '$core/contracts'
-import { isTauri } from '$core/ipc'
+} from '#core/contracts'
+import { isTauri } from '#core/ipc'
 import {
 	applyPreviewStats,
 	loadTablePreview,
 	loadTablePreviewStats,
 	selectDatabase,
-} from '$features/workspace/catalog'
+} from '#features/workspace/catalog'
 import {
 	catalogsFor,
 	currentDatabaseName,
@@ -24,7 +24,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '$features/workspace/shell'
+} from '#features/workspace/shell'
 
 class TablePreview {
 	hydratedTabs = $state<Record<string, boolean>>({})

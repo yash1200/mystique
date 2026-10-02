@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { DatabaseMeta, TableMeta } from '$core/contracts'
-	import { Icon } from '$core/ui'
-	import { cn, randomLoadingPun } from '$core/util'
-	import { CatalogIcon, iconToneForName } from '$features/workspace/catalog'
-	import { appPrefs } from '$lib/app'
+	import type { DatabaseMeta, TableMeta } from '#core/contracts'
+	import { Icon } from '#core/ui'
+	import { cn, randomLoadingPun } from '#core/util'
+	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
+	import { appPrefs } from '#lib/app'
 	interface Props {
 		objectLabel: string
 		groupLabel: string

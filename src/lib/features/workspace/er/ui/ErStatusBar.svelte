@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button, Icon, IconButton, StatusBar } from '$core/ui'
-	import { cn } from '$core/util'
+	import { Button, Icon, IconButton, StatusBar } from '#core/ui'
+	import { cn } from '#core/util'
 	interface Props {
 		entityWord: string
 		hasDiagram: boolean

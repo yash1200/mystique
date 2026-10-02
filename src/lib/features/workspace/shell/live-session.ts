@@ -2,15 +2,15 @@
  * Engine-session helpers used by catalog / grid / query / ER.
  * Not UI — WorkspaceShell only mounts chrome around these.
  */
-import type { ConnectionProfile, SessionLiveStatus } from '$core/contracts'
+import type { ConnectionProfile, SessionLiveStatus } from '#core/contracts'
 import {
 	ensureEngineSession,
 	getEngineSession,
 	isTauri,
 	openEngineSession,
-} from '$core/ipc'
-import { resolveCapabilities } from '$engines'
-import { pluginConfigForSession } from '$features/connections'
+} from '#core/ipc'
+import { resolveCapabilities } from '#engines'
+import { pluginConfigForSession } from '#features/connections'
 import { isSessionMissingError, preferredDbForProfile } from './session-utils'
 import { workspaceSession } from './session.svelte'
 import { workspaceStudio } from './studio.svelte'

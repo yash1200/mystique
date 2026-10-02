@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { resolveCapabilities } from '$engines'
-	import { workspaceSession, workspaceStudio } from '$features/workspace/shell'
+	import { resolveCapabilities } from '#engines'
+	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 	import {
 		closeImport,
 		confirmExport,

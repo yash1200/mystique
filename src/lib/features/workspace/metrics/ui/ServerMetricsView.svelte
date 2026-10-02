@@ -3,11 +3,11 @@
 		ActiveBackendSession,
 		EngineCapabilities,
 		ServerMetricsSnapshot,
-	} from '$core/contracts'
-	import { Button, EmptyState } from '$core/ui'
-	import { cn, randomLoadingPun } from '$core/util'
-	import { resolveCapabilities } from '$engines'
-	import { showToast } from '$features/toast'
+	} from '#core/contracts'
+	import { Button, EmptyState } from '#core/ui'
+	import { cn, randomLoadingPun } from '#core/util'
+	import { resolveCapabilities } from '#engines'
+	import { showToast } from '#features/toast'
 	import { fetchServerMetrics, terminateBackendSession } from '../api'
 	import { backendSessionLabel } from '../presentation'
 	import type { MetricsPane } from '../types'

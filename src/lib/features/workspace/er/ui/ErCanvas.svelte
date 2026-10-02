@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { EmptyState } from '$core/ui'
+	import { EmptyState } from '#core/ui'
 	import { ER_GRID, isBrokenEdge } from '../constants'
 	import type { EdgeSpine, ErGeometry } from '../geometry'
 	import type { ErDiagramState, ErEdge, ErFocusedLink } from '../types'

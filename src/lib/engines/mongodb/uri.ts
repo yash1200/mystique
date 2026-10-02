@@ -1,5 +1,5 @@
 /** mongodb:// URI parsing and assembly (legacy host-field profiles). */
-import type { PluginConfig } from '$core/contracts'
+import type { PluginConfig } from '#core/contracts'
 
 /** Extract `/dbname` from a mongodb:// or mongodb+srv:// URI (before `?` / `#`). */
 export function databaseFromMongoUri(uri: string): string | null {

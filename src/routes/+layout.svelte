@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { isTauri, listenNativeMenu } from '$core/ipc'
+	import { isTauri, listenNativeMenu } from '#core/ipc'
 	import {
 		applyPreferredUiScale,
 		applyUiScale,
 		blockHistoryBackspace,
 		setAppTitle,
 		writeScalePreference,
-	} from '$core/util'
-	import { AboutModal, appAboutUi, appSettingsUi } from '$features/settings'
-	import { appShortcutsUi, KeyboardShortcutsModal } from '$features/shortcuts'
-	import { ToastContext } from '$features/toast'
-	import { resetAppToHome } from '$features/workspace/shell'
-	import { appPrefs } from '$lib/app'
+	} from '#core/util'
+	import { AboutModal, appAboutUi, appSettingsUi } from '#features/settings'
+	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
+	import { ToastContext } from '#features/toast'
+	import { resetAppToHome } from '#features/workspace/shell'
+	import { appPrefs } from '#lib/app'
 	import { onMount } from 'svelte'
 	import '../app.css'
 

@@ -45,7 +45,7 @@ src/
     └── styles/                   # tokens.css, app.css
 ```
 
-Aliases: `$core`, `$engines`, `$features` (see `svelte.config.js`).
+Subpath imports: `#core`, `#engines`, `#features`, `#lib` (see `package.json` `imports`). Folder barrels are mapped there, so import `#core/ui` rather than the `index` file. A file import still needs the `.js` extension SvelteKit 3 expects.
 
 ## Anatomy of a feature
 
@@ -59,7 +59,7 @@ features/workspace/er/
 ```
 
 Inside a feature, import files directly (`../model`, `./ErCanvas.svelte`).
-Across features, import the barrel (`$features/workspace/grid`) — never a file
+Across features, import the barrel (`#features/workspace/grid`) — never a file
 inside one.
 
 ## Boundary rules
@@ -69,10 +69,10 @@ enforces it (also part of `npm run check`).
 
 | Zone | May import | Must not |
 | ---- | ---------- | -------- |
-| `routes/*` | A feature's `index.ts`, `$core/*` | Feature internals; styling beyond the page frame |
-| `features/x/*` | Own files, `$core/*`, `$engines`, other features' `index.ts` | Another feature's internals; `routes/*` |
-| `app/*` | `$core/*` | Features — it is a leaf they read |
-| `engines/*` | `$core/*` | `$features/*` — adapters are data, not screens |
+| `routes/*` | A feature's `index.ts`, `#core/*` | Feature internals; styling beyond the page frame |
+| `features/x/*` | Own files, `#core/*`, `#engines`, other features' `index.ts` | Another feature's internals; `routes/*` |
+| `app/*` | `#core/*` | Features — it is a leaf they read |
+| `engines/*` | `#core/*` | `#features/*` — adapters are data, not screens |
 | `core/*` | `core/*` only | Everything domain: engines, MCP, profiles, sessions |
 
 Two more rules that keep the graph readable:
@@ -80,7 +80,7 @@ Two more rules that keep the graph readable:
 - **Types live next to the code that owns them.** The exception is
   `core/contracts` — those DTOs mirror `mystique-connector-api` and are not ours
   to reshape. Generate them from Rust when we get round to it.
-- **No global barrels.** There is no `$lib/utils` or `$lib/types`. Each feature
+- **No global barrels.** There is no `#lib/utils` or `#lib/types`. Each feature
   exports a small surface from its own `index.ts`.
 
 ## Adding a database engine
@@ -106,7 +106,7 @@ supplies what a session cannot (a form, a dialect, a badge mark).
 - Type: only `text-micro|caption|label|body|body-lg|title|display` — **no** `text-[Npx]`
 - Color: only semantic tokens — **no** hex / `bg-gray-*` in components
 - Theme via `data-theme` on `<html>` — never `dark:bg-*` for chrome
-- Helper: `$core/util`'s `cn` for class composition
+- Helper: `#core/util`'s `cn` for class composition
 
 ## Component rules
 
@@ -120,11 +120,11 @@ supplies what a session cannot (a form, a dialect, a badge mark).
 ## Import style
 
 ```ts
-import { Button, Field, Input, Select } from '$core/ui'
-import type { ConnectionProfile } from '$core/contracts'
-import { listEngineCatalog } from '$core/ipc'
-import { adapterFor, formatQuery } from '$engines'
-import { DataGrid } from '$features/workspace/grid'
+import { Button, Field, Input, Select } from '#core/ui'
+import type { ConnectionProfile } from '#core/contracts'
+import { listEngineCatalog } from '#core/ipc'
+import { adapterFor, formatQuery } from '#engines'
+import { DataGrid } from '#features/workspace/grid'
 import { workspaceSession } from '../session.svelte' // same feature
 ```
 

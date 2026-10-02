@@ -9,13 +9,13 @@ import type {
 	ObjectStructure,
 	PreviewImportResult,
 	TableMeta,
-} from '$core/contracts'
-import { showToast } from '$features/toast'
-import type { ErDiagramState } from '$features/workspace/er'
+} from '#core/contracts'
+import { showToast } from '#features/toast'
+import type { ErDiagramState } from '#features/workspace/er'
 import type {
 	QueryHistoryEntry,
 	SavedQueryListItem,
-} from '$features/workspace/query'
+} from '#features/workspace/query'
 export type StudioSideMode = 'explorer' | 'saved-queries' | 'history'
 
 export type LiveModel = {

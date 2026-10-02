@@ -1,7 +1,7 @@
 /**
  * Column edit UX helpers: detect boolean / enum columns and build select options.
  */
-import type { ColumnDef } from '$core/contracts'
+import type { ColumnDef } from '#core/contracts'
 export type SelectOption = {
 	/** Serialized draft value; empty string means SQL NULL. */
 	value: string

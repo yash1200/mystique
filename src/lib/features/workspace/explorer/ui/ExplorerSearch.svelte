@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, Input } from '$core/ui'
+	import { Icon, Input } from '#core/ui'
 	interface Props {
 		value?: string
 		placeholder?: string

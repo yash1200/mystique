@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Input, Segmented, Select, type SelectOption } from '$core/ui'
+	import { Input, Segmented, Select, type SelectOption } from '#core/ui'
 	import type { MetricsPane } from '../types'
 
 	interface Props {

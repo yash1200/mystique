@@ -1,5 +1,5 @@
-import type { ConnectionFormDraft, SshHostKeyPrompt, SshTunnelRequest } from '$core/contracts'
-import { trustSshHostKey } from '$core/ipc'
+import type { ConnectionFormDraft, SshHostKeyPrompt, SshTunnelRequest } from '#core/contracts'
+import { trustSshHostKey } from '#core/ipc'
 
 export function sshTunnelFromDraft(
 	draft: ConnectionFormDraft,

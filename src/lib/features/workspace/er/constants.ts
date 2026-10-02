@@ -1,4 +1,4 @@
-import type { DataFamily } from '$core/contracts'
+import type { DataFamily } from '#core/contracts'
 import type {
 	ErDiagramState,
 	ErEdge,

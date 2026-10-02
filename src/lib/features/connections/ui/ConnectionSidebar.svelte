@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '$core/contracts'
+	import type { ConnectionProfile } from '#core/contracts'
 	import {
 		Button,
 		ContextMenu,
@@ -9,16 +9,16 @@
 		Resizable,
 		StatusBar,
 		type ContextMenuItem,
-	} from '$core/ui'
-	import { SettingsModal } from '$features/settings'
-	import { appShortcutsUi } from '$features/shortcuts'
-	import type { ConnectionListSort } from '$lib/app'
+	} from '#core/ui'
+	import { SettingsModal } from '#features/settings'
+	import { appShortcutsUi } from '#features/shortcuts'
+	import type { ConnectionListSort } from '#lib/app'
 	import {
 		appPrefs,
 		HOME_SIDEBAR_WIDTH_DEFAULT,
 		HOME_SIDEBAR_WIDTH_MAX,
 		HOME_SIDEBAR_WIDTH_MIN,
-	} from '$lib/app'
+	} from '#lib/app'
 	import BrandMark from './BrandMark.svelte'
 	import ConnectionListItem from './ConnectionListItem.svelte'
 

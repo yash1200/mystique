@@ -1,14 +1,14 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '$core/contracts'
-	import { formatEngineConnectionUrl, isTauri } from '$core/ipc'
-	import { Icon, IconButton, Modal, Pill } from '$core/ui'
-	import { cn, copyTextToClipboard } from '$core/util'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { formatEngineConnectionUrl, isTauri } from '#core/ipc'
+	import { Icon, IconButton, Modal, Pill } from '#core/ui'
+	import { cn, copyTextToClipboard } from '#core/util'
 	import {
 		connectionKindFromCaps,
 		databaseFromUri,
 		defaultCapabilitiesForEngine,
 		engineLabel,
-	} from '$engines'
+	} from '#engines'
 	import {
 		EngineBadge,
 		colorHex,
@@ -17,8 +17,8 @@
 		configStr,
 		connectionEndpoint,
 		connectionInitial,
-	} from '$features/connections'
-	import { showToast } from '$features/toast'
+	} from '#features/connections'
+	import { showToast } from '#features/toast'
 	import { liveStatusMark } from '../live-session'
 	import { workspaceSession } from '../session.svelte'
 

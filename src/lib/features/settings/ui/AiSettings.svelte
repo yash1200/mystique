@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isTauri } from '$core/ipc'
+	import { isTauri } from '#core/ipc'
 	import {
 		Button,
 		EmptyState,
@@ -9,13 +9,13 @@
 		PasswordInput,
 		Select,
 		Switch,
-	} from '$core/ui'
+	} from '#core/ui'
 	import {
 		aiSettings,
 		availableToAdd,
 		configuredProviders,
 		type AgentProviderInfo,
-	} from '$features/workspace/agent'
+	} from '#features/workspace/agent'
 	import { onMount } from 'svelte'
 
 	const view = $derived(aiSettings.view)

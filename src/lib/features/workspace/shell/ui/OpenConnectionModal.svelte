@@ -1,15 +1,15 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '$core/contracts'
-	import { Button, Icon, Input, Modal, Pill } from '$core/ui'
-	import { cn, randomLoadingPun } from '$core/util'
-	import { engineLabel } from '$engines'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { Button, Icon, Input, Modal, Pill } from '#core/ui'
+	import { cn, randomLoadingPun } from '#core/util'
+	import { engineLabel } from '#engines'
 	import {
 		EngineBadge,
 		colorHex,
 		connectionEndpoint,
 		connectionInitial,
 		connectionProfiles,
-	} from '$features/connections'
+	} from '#features/connections'
 	import { onMount } from 'svelte'
 
 	interface Props {

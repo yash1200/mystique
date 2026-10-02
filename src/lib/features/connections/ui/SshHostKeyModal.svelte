@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { SshHostKeyPrompt } from '$core/contracts'
-	import { Button, Modal } from '$core/ui'
+	import type { SshHostKeyPrompt } from '#core/contracts'
+	import { Button, Modal } from '#core/ui'
 
 	interface Props {
 		prompt: SshHostKeyPrompt | null

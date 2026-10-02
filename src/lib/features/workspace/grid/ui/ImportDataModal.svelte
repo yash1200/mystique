@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { ImportFormat } from '$core/contracts'
-	import { isTauri } from '$core/ipc'
-	import { Button, Field, Input, Modal } from '$core/ui'
-	import { inferFormatFromPath, pickDataFile } from '$core/util'
+	import type { ImportFormat } from '#core/contracts'
+	import { isTauri } from '#core/ipc'
+	import { Button, Field, Input, Modal } from '#core/ui'
+	import { inferFormatFromPath, pickDataFile } from '#core/util'
 	export type ImportFileSpec = {
 		path: string
 		format: ImportFormat

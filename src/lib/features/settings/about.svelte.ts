@@ -1,5 +1,5 @@
 /** App-wide About dialog. Open from Mystique → About (or Help on Windows). */
-import { isTauri } from '$core/ipc'
+import { isTauri } from '#core/ipc'
 
 class AppAboutUi {
 	open = $state(false)

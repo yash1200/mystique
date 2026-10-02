@@ -1,7 +1,7 @@
 /** Shared catalog-column dump per engine session + database. */
 
-import type { CatalogColumnRow } from '$core/contracts'
-import { listEngineCatalogColumns } from '$core/ipc'
+import type { CatalogColumnRow } from '#core/contracts'
+import { listEngineCatalogColumns } from '#core/ipc'
 
 function keyOf(sessionId: string, database: string | null | undefined): string {
 	return `${sessionId}::${database?.trim() || ''}`

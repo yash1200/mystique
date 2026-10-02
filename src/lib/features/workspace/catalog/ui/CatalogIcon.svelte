@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Icon, type IconName } from '$core/ui'
-	import { cn } from '$core/util'
+	import { Icon, type IconName } from '#core/ui'
+	import { cn } from '#core/util'
 	import type { CatalogIconName, CatalogIconTone } from '../icon-types'
 	interface Props {
 		name: CatalogIconName

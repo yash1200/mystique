@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Card, Checkbox, Field, Input } from '$core/ui'
+	import { Card, Checkbox, Field, Input } from '#core/ui'
 	import { adapterFor } from '../registry'
 	import type { EngineFieldsProps } from '../types'
 

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { SlowQuery } from '$core/contracts'
-	import { EmptyState, Pill } from '$core/ui'
+	import type { SlowQuery } from '#core/contracts'
+	import { EmptyState, Pill } from '#core/ui'
 	import { formatDurationMs } from '../format'
 	import { filterSlowQueries } from '../presentation'
 

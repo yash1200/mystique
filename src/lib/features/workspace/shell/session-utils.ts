@@ -1,6 +1,6 @@
-import type { ConnectionProfile } from '$core/contracts'
-import { databaseFromUri, defaultCapabilitiesForEngine } from '$engines'
-import { configStr, pluginConfigForSession } from '$features/connections'
+import type { ConnectionProfile } from '#core/contracts'
+import { databaseFromUri, defaultCapabilitiesForEngine } from '#engines'
+import { configStr, pluginConfigForSession } from '#features/connections'
 /** Postgres / MySQL pools bind to one database; switching requires a new session. */
 export function engineBindsSessionToDatabase(
 	engine: string,

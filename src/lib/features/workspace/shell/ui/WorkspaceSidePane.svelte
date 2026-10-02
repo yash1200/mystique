@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, IconButton, Resizable } from '$core/ui'
+	import { Icon, IconButton, Resizable } from '#core/ui'
 	import {
 		createCatalogGroup,
 		createCatalogObject,
@@ -7,12 +7,12 @@
 		refreshCurrentTables,
 		refreshDatabases,
 		selectDatabase,
-	} from '$features/workspace/catalog'
+	} from '#features/workspace/catalog'
 	import {
 		ObjectExplorer,
 		onTableExplorerAction,
-	} from '$features/workspace/explorer'
-	import { tablePreview } from '$features/workspace/grid'
+	} from '#features/workspace/explorer'
+	import { tablePreview } from '#features/workspace/grid'
 	import {
 		queryLibrary,
 		QueryListPanel,
@@ -20,15 +20,15 @@
 		refreshSavedQueries,
 		selectHistory,
 		selectSavedQuery,
-	} from '$features/workspace/query'
+	} from '#features/workspace/query'
 	import {
 		appPrefs,
 		EXPLORER_PANEL_WIDTH_DEFAULT,
 		EXPLORER_PANEL_WIDTH_MAX,
 		EXPLORER_PANEL_WIDTH_MIN,
-	} from '$lib/app'
+	} from '#lib/app'
 	import { onMount } from 'svelte'
-	import { resolveCapabilities } from '$engines'
+	import { resolveCapabilities } from '#engines'
 	import { liveStatusMark } from '../live-session'
 	import { catalogsFor, selectedDatabaseName } from '../lookup'
 	import { workspaceSession } from '../session.svelte'

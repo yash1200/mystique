@@ -1,4 +1,4 @@
-import { isMacPlatform } from '$core/util'
+import { isMacPlatform } from '#core/util'
 import type {
 	ConnectionListSort,
 	DensityPref,

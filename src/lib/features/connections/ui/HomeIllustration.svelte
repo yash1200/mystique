@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { cn } from '$core/util'
-	import { labradorRest, labradorSit } from '$illustrations'
+	import { cn } from '#core/util'
+	import { labradorRest, labradorSit } from '#illustrations'
 	import { onMount } from 'svelte'
 
 	/** Late night: the dog is asleep. Otherwise it sits and watches. */

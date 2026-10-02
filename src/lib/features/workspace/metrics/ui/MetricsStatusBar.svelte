@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { ServerMetricsSnapshot } from '$core/contracts'
-	import { StatusBar } from '$core/ui'
-	import { fetchedLabel, randomLoadingPun } from '$core/util'
+	import type { ServerMetricsSnapshot } from '#core/contracts'
+	import { StatusBar } from '#core/ui'
+	import { fetchedLabel, randomLoadingPun } from '#core/util'
 
 	interface Props {
 		fetchedAt: number | null

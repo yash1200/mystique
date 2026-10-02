@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { ColumnDef } from '$core/contracts'
-	import { Input, Select } from '$core/ui'
-	import { cn } from '$core/util'
+	import type { ColumnDef } from '#core/contracts'
+	import { Input, Select } from '#core/ui'
+	import { cn } from '#core/util'
 	import {
 		selectDraftToValue,
 		selectOptionsForColumn,

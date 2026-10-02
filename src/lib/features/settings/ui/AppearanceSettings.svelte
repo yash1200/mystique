@@ -4,14 +4,14 @@
 		ControlRow,
 		Segmented,
 		type SegmentedOption,
-	} from '$core/ui'
+	} from '#core/ui'
 	import {
 		applyUiScale,
 		currentUiScale,
 		writeScalePreference,
-	} from '$core/util'
-	import type { ThemePref } from '$lib/app'
-	import { appPrefs } from '$lib/app'
+	} from '#core/util'
+	import type { ThemePref } from '#lib/app'
+	import { appPrefs } from '#lib/app'
 	let scale = $state(String(currentUiScale()))
 
 	const themeOptions: SegmentedOption[] = [

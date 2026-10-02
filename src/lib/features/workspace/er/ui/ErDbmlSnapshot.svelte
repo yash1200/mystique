@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, IconButton, Pill, Textarea } from '$core/ui'
+	import { Icon, IconButton, Pill, Textarea } from '#core/ui'
 	interface Props {
 		text: string
 		busy: boolean

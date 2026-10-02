@@ -15,7 +15,7 @@ import type {
 	ConnectionProfile,
 	EngineCapabilities,
 	PluginConfig,
-} from '$core/contracts'
+} from '#core/contracts'
 import type { CompletionSource } from '@codemirror/autocomplete'
 import type { SQLDialect } from '@codemirror/lang-sql'
 

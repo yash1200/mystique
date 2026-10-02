@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { MetricValue } from '$core/contracts'
-	import { cn } from '$core/util'
+	import type { MetricValue } from '#core/contracts'
+	import { cn } from '#core/util'
 	import { formatMetric, formatMetricHint } from '../format'
 	import { metricOccupancy, metricTone } from '../presentation'
 

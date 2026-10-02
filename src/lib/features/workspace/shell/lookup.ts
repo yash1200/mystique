@@ -4,7 +4,7 @@ import type {
 	CatalogObjectKind,
 	DatabaseMeta,
 	TableMeta,
-} from '$core/contracts'
+} from '#core/contracts'
 
 export function catalogsFor(
 	catalogs: Record<string, DatabaseMeta[]>,

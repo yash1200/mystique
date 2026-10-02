@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
-	import type { ConnectionProfile } from '$core/contracts'
-	import { ensureEngineSession, isTauri } from '$core/ipc'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { ensureEngineSession, isTauri } from '#core/ipc'
 	import {
 		connectionProfiles,
 		pluginConfigForSession,
-	} from '$features/connections'
+	} from '#features/connections'
 	import { onMount } from 'svelte'
 	import { workspaceSession } from '../session.svelte'
 	import WorkspaceShell from './WorkspaceShell.svelte'

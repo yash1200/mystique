@@ -3,7 +3,7 @@
 		ConnectionFormDraft,
 		ConnectionProfile,
 		EngineId,
-	} from '$core/contracts'
+	} from '#core/contracts'
 	import {
 		Alert,
 		Button,
@@ -16,8 +16,8 @@
 		Select,
 		Stack,
 		Textarea,
-	} from '$core/ui'
-	import { adapterFor, emptyDraft, EngineFields, engineOptions } from '$engines'
+	} from '#core/ui'
+	import { adapterFor, emptyDraft, EngineFields, engineOptions } from '#engines'
 	import {
 		CONNECTION_COLORS,
 		draftFromProfile,

@@ -10,12 +10,12 @@ import type {
 	TablePreviewResult,
 	TablePreviewSort,
 	TablePreviewStats,
-} from '$core/contracts'
+} from '#core/contracts'
 import {
 	fetchEngineTablePreview,
 	fetchEngineTablePreviewStats,
 	listEngineCatalog,
-} from '$core/ipc'
+} from '#core/ipc'
 const MONGO_SYSTEM_DBS = new Set(['admin', 'local', 'config'])
 
 function emptyLeaf(

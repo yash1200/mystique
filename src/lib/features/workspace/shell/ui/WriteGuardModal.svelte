@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Field, Input, Modal } from '$core/ui'
+	import { Button, Field, Input, Modal } from '#core/ui'
 	import {
 		currentWriteGuard,
 		resolveWriteGuard,

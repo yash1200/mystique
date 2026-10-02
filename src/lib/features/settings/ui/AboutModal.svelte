@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, IconButton, Modal } from '$core/ui'
+	import { Icon, IconButton, Modal } from '#core/ui'
 	import { appAboutUi } from '../about.svelte'
 </script>
 

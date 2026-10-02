@@ -3,11 +3,11 @@
 	 * Query editor with CodeMirror 6 syntax highlighting (SQL / MQL).
 	 * Highlighting is frontend-only — live as you type, no backend.
 	 */
-	import type { CatalogColumnRow } from '$core/contracts'
-	import { Button, Icon, Input, Pill } from '$core/ui'
-	import { adapterFor, formatQuery } from '$engines'
-	import { showToast } from '$features/toast'
-	import { appPrefs } from '$lib/app'
+	import type { CatalogColumnRow } from '#core/contracts'
+	import { Button, Icon, Input, Pill } from '#core/ui'
+	import { adapterFor, formatQuery } from '#engines'
+	import { showToast } from '#features/toast'
+	import { appPrefs } from '#lib/app'
 	import { autocompletion } from '@codemirror/autocomplete'
 	import { indentWithTab } from '@codemirror/commands'
 	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'

@@ -2,7 +2,7 @@
  * Query history API (local app SQLite via Tauri IPC).
  * Used by every engine (Postgres / MySQL / Mongo / SQLite).
  */
-import { isTauri } from '$core/ipc'
+import { isTauri } from '#core/ipc'
 import { invoke } from '@tauri-apps/api/core'
 import type {
 	AppendHistoryInput,

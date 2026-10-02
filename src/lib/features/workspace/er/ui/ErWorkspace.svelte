@@ -2,10 +2,10 @@
 	/**
 	 * Live ER viewer — catalog schema, rearrange-only.
 	 */
-	import type { DataFamily } from '$core/contracts'
-	import { ContextMenu } from '$core/ui'
-	import { currentUiScale, exportPng, onUiScaleChange } from '$core/util'
-	import { showToast } from '$features/toast'
+	import type { DataFamily } from '#core/contracts'
+	import { ContextMenu } from '#core/ui'
+	import { currentUiScale, exportPng, onUiScaleChange } from '#core/util'
+	import { showToast } from '#features/toast'
 	import { onMount, tick } from 'svelte'
 	import {
 		ER_HEADER_H_BASE,

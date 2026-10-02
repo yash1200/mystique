@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Input, Modal } from '$core/ui'
+	import { Button, Input, Modal } from '#core/ui'
 	interface Props {
 		open: boolean
 		initialName?: string

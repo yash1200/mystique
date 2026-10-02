@@ -2,7 +2,7 @@
  * Native file picker for file-kind connections (SQLite, later DuckDB).
  * Tauri desktop only — browser previews cannot expose full filesystem paths.
  */
-import { isTauri } from '$core/ipc'
+import { isTauri } from '#core/ipc'
 
 export type PickDatabaseFileResult =
 	| { ok: true; path: string }

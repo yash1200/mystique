@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isTauri } from '$core/ipc'
+	import { isTauri } from '#core/ipc'
 	import {
 		Alert,
 		Icon,
@@ -7,17 +7,17 @@
 		Resizable,
 		Select,
 		Textarea,
-	} from '$core/ui'
-	import { cn, randomLoadingPun } from '$core/util'
-	import { appSettingsUi } from '$features/settings'
-	import { isMacPlatform, labelForKey } from '$features/shortcuts'
-	import { workspaceSession } from '$features/workspace/shell'
+	} from '#core/ui'
+	import { cn, randomLoadingPun } from '#core/util'
+	import { appSettingsUi } from '#features/settings'
+	import { isMacPlatform, labelForKey } from '#features/shortcuts'
+	import { workspaceSession } from '#features/workspace/shell'
 	import {
 		AGENT_CHAT_PANEL_WIDTH_DEFAULT,
 		AGENT_CHAT_PANEL_WIDTH_MAX,
 		AGENT_CHAT_PANEL_WIDTH_MIN,
 		appPrefs,
-	} from '$lib/app'
+	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import {
 		listAgentChats,

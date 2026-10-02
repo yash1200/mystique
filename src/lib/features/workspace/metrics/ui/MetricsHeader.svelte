@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, IconButton, Switch } from '$core/ui'
+	import { Icon, IconButton, Switch } from '#core/ui'
 
 	interface Props {
 		live: boolean

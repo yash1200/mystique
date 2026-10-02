@@ -1,7 +1,7 @@
 /**
  * Fence language classification for chat code blocks.
  */
-import type { SyntaxLang } from '$core/util'
+import type { SyntaxLang } from '#core/util'
 import { inferFenceLang } from './markdown'
 
 export function classifyLang(lang: string, source: string): SyntaxLang {

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button, Kbd, Modal, Textarea } from '$core/ui'
-	import { cn } from '$core/util'
+	import { Button, Kbd, Modal, Textarea } from '#core/ui'
+	import { cn } from '#core/util'
 	import { onMount, untrack } from 'svelte'
 	import {
 		CELL_VIEW_MODES,

@@ -1,11 +1,11 @@
 /** Import / export a table. Owned by the grid. */
-import type { ImportEncoding, ImportFormat, TableMeta } from '$core/contracts'
+import type { ImportEncoding, ImportFormat, TableMeta } from '#core/contracts'
 import {
 	exportEngineObject,
 	importEngineObject,
 	isTauri,
 	previewEngineImport,
-} from '$core/ipc'
+} from '#core/ipc'
 import {
 	currentDatabaseName,
 	requireActiveConnection,
@@ -13,7 +13,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '$features/workspace/shell'
+} from '#features/workspace/shell'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
 import type { ImportFileSpec } from './ui/ImportDataModal.svelte'
 import type { ImportRunSpec } from './ui/ImportPreviewModal.svelte'

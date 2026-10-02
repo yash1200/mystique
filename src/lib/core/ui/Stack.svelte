@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from '$core/util'
+	import { cn } from '#core/util'
 	import type { Snippet } from 'svelte'
 
 	interface Props {

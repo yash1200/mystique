@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Icon, IconButton, Modal, type IconName } from '$core/ui'
-	import { cn, overlayFade } from '$core/util'
+	import { Icon, IconButton, Modal, type IconName } from '#core/ui'
+	import { cn, overlayFade } from '#core/util'
 	import { appSettingsUi } from '../model.svelte'
 	import type { SettingsSection } from '../prefs'
 	import AiSettings from './AiSettings.svelte'

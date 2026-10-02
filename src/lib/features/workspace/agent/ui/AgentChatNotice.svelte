@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button, Icon } from '$core/ui'
-	import type { IconName } from '$icons'
+	import { Button, Icon } from '#core/ui'
+	import type { IconName } from '#icons'
 
 	interface Props {
 		icon: IconName

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '$core/contracts'
-	import { Icon, Pill, StatusDot } from '$core/ui'
-	import { cn } from '$core/util'
-	import { engineLabel } from '$engines'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { Icon, Pill, StatusDot } from '#core/ui'
+	import { cn } from '#core/util'
+	import { engineLabel } from '#engines'
 	import { colorHex, connectionEndpoint, connectionInitial } from '../model'
 
 	const ENGINE_RANK: Record<string, string> = {

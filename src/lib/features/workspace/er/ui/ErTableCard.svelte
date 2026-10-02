@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Pill } from '$core/ui'
-	import { cn } from '$core/util'
-	import type { CatalogIconName } from '$features/workspace/catalog'
-	import { CatalogIcon, iconToneForName } from '$features/workspace/catalog'
+	import { Pill } from '#core/ui'
+	import { cn } from '#core/util'
+	import type { CatalogIconName } from '#features/workspace/catalog'
+	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
 	import { erNodeKindShort } from '../constants'
 	import type { ErNode } from '../types'
 	interface Props {

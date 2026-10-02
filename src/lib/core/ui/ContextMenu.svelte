@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { cn, popover } from '$core/util'
-	import type { IconName } from '$icons'
+	import { cn, popover } from '#core/util'
+	import type { IconName } from '#icons'
 	import { onMount } from 'svelte'
 	import Icon from './Icon.svelte'
 

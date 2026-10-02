@@ -23,7 +23,7 @@ import {
 	runScopeHandlers,
 	type ViewUpdate,
 } from '@codemirror/view'
-import { iconInner, type IconName } from '$icons'
+import { iconInner, type IconName } from '#icons'
 
 const MATCH_CAP = 2_000
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ConnectionsPage } from '$features/connections'
+	import { ConnectionsPage } from '#features/connections'
 </script>
 
 <ConnectionsPage />

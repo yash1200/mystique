@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { CatalogObjectKind } from '$core/contracts'
-	import { ContextMenu, Draggable, Icon, type ContextMenuItem } from '$core/ui'
-	import { cn } from '$core/util'
+	import type { CatalogObjectKind } from '#core/contracts'
+	import { ContextMenu, Draggable, Icon, type ContextMenuItem } from '#core/ui'
+	import { cn } from '#core/util'
 	import {
 		CatalogIcon,
 		iconNameForTab,
 		iconToneForName,
-	} from '$features/workspace/catalog'
+	} from '#features/workspace/catalog'
 	import { tick } from 'svelte'
 	import { flip } from 'svelte/animate'
 	import type { WorkspaceTab } from '../types'

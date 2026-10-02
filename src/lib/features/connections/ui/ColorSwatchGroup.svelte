@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from '$core/util'
+	import { cn } from '#core/util'
 	export interface ColorOption {
 		id: string
 		name: string

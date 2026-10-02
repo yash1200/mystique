@@ -1,5 +1,5 @@
 /** Collection + field completions for the Mongo / JS query editor. */
-import type { CatalogColumnRow } from '$core/contracts'
+import type { CatalogColumnRow } from '#core/contracts'
 import type { Completion, CompletionSource } from '@codemirror/autocomplete'
 
 const MONGO_METHODS: Completion[] = [

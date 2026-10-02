@@ -16,7 +16,7 @@ This document is the **code contract**. Every UI class must come from this langu
 2. **Semantic over raw** — Prefer `text-body text-fg-secondary` over `text-[13px] text-[#9aa6bd]`.
 3. **One theme map** — Light/dark swap CSS variables; components never pair `dark:` / `light:` colors.
 4. **Dense by default** — Body UI is 13px (`text-body`); use larger steps sparingly.
-5. **Primitives first** — Build screens from `$core/ui`; don’t restyle buttons per screen.
+5. **Primitives first** — Build screens from `#core/ui`; don’t restyle buttons per screen.
 6. **No magic numbers** — If a value isn’t in this doc, add it to the language first, then use it.
 
 ### Forbidden
@@ -303,7 +303,7 @@ Input padding: `px-2.5` horizontal; textareas `px-2.5 py-2`.
 
 ## 9. Motion
 
-Tokens live on `:root` in `tokens.css`. Helpers in `$core/util/motion`.
+Tokens live on `:root` in `tokens.css`. Helpers in `#core/util/motion`.
 
 | Token | Value | Use |
 | ----- | ----- | --- |

@@ -4,9 +4,9 @@
 </script>
 
 <script lang="ts">
-	import type { ColumnDef } from '$core/contracts'
-	import { Icon, IconButton, Segmented, StatusBar } from '$core/ui'
-	import { cn, copyTextToClipboard } from '$core/util'
+	import type { ColumnDef } from '#core/contracts'
+	import { Icon, IconButton, Segmented, StatusBar } from '#core/ui'
+	import { cn, copyTextToClipboard } from '#core/util'
 	import { onDestroy } from 'svelte'
 	import { buildRowJson } from '../export'
 	import JsonHighlightEditor from './JsonHighlightEditor.svelte'

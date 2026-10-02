@@ -1,5 +1,5 @@
-import type { ConnectionProfile, SaveConnectionInput } from '$core/contracts'
-import { isTauri } from '$core/ipc'
+import type { ConnectionProfile, SaveConnectionInput } from '#core/contracts'
+import { isTauri } from '#core/ipc'
 import { invoke } from '@tauri-apps/api/core'
 import { asColorId, asEnvironment } from './model'
 

@@ -3,9 +3,9 @@ import type {
 	ServerMetricsSnapshot,
 	TerminateSessionRequest,
 	TerminateSessionResult,
-} from '$core/contracts'
-import { fetchEngineServerMetrics, terminateEngineSession } from '$core/ipc'
-import { runWithWriteGuard } from '$features/workspace/shell'
+} from '#core/contracts'
+import { fetchEngineServerMetrics, terminateEngineSession } from '#core/ipc'
+import { runWithWriteGuard } from '#features/workspace/shell'
 
 export function fetchServerMetrics(
 	request: FetchServerMetricsRequest,

@@ -1,6 +1,6 @@
 /** Saved connection profiles. One list for home, workspace boot, and the picker. */
 
-import type { ConnectionProfile, SaveConnectionInput } from '$core/contracts'
+import type { ConnectionProfile, SaveConnectionInput } from '#core/contracts'
 import {
 	deleteProfile,
 	listProfiles,

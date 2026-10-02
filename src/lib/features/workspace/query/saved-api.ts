@@ -1,7 +1,7 @@
 /**
  * Saved queries API (per connection, no groups).
  */
-import { isTauri } from '$core/ipc'
+import { isTauri } from '#core/ipc'
 import { invoke } from '@tauri-apps/api/core'
 import type {
 	SaveQueryInput,

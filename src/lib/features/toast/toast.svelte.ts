@@ -7,7 +7,7 @@ export type ToastMessage = {
 	message: string
 }
 
-/** Visible duration. Enter/exit motion is `DURATION.toast` in `$core/util`. */
+/** Visible duration. Enter/exit motion is `DURATION.toast` in `#core/util`. */
 const DISMISS_MS = 3600
 
 class AppToast {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn, highlightCode, tokenClass } from '$core/util'
+	import { cn, highlightCode, tokenClass } from '#core/util'
 	interface Props {
 		value?: string
 		readonly?: boolean

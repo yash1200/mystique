@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { EngineId } from '$core/contracts'
-	import { Badge } from '$core/ui'
-	import { adapterFor, engineLabel } from '$engines'
+	import type { EngineId } from '#core/contracts'
+	import { Badge } from '#core/ui'
+	import { adapterFor, engineLabel } from '#engines'
 	interface Props {
 		engine: EngineId
 		size?: 'sm' | 'md'

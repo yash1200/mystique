@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { cn } from '$core/util'
-	import { iconInner, type IconName } from '$icons'
+	import { cn } from '#core/util'
+	import { iconInner, type IconName } from '#icons'
 	interface Props {
 		name: IconName
 		class?: string

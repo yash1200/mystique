@@ -11,7 +11,7 @@ import type {
 	ObjectLabels,
 	SupportDepth,
 	TableAdminFeatures,
-} from '$core/contracts'
+} from '#core/contracts'
 
 /** Table admin surface shared by every SQL engine. */
 export const SQL_ADMIN: TableAdminFeatures = {

@@ -5,8 +5,8 @@
 		Segmented,
 		Switch,
 		type SegmentedOption,
-	} from '$core/ui'
-	import { appPrefs } from '$lib/app'
+	} from '#core/ui'
+	import { appPrefs } from '#lib/app'
 	const densityOptions: SegmentedOption[] = [
 		{ value: 'compact', label: 'Compact' },
 		{ value: 'comfortable', label: 'Comfortable' },

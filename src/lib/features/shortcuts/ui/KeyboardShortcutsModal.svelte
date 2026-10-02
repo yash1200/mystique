@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Icon, IconButton, Input, Kbd, Modal, type IconName } from '$core/ui'
-	import { cn } from '$core/util'
+	import { Icon, IconButton, Input, Kbd, Modal, type IconName } from '#core/ui'
+	import { cn } from '#core/util'
 	import {
 		APP_SHORTCUT_GROUPS,
 		isMacPlatform,

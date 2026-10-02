@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Modal } from '$core/ui'
+	import { Button, Modal } from '#core/ui'
 	interface Props {
 		open: boolean
 		busy?: boolean

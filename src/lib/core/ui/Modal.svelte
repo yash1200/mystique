@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn, modalPanel, overlayFade } from '$core/util'
+	import { cn, modalPanel, overlayFade } from '#core/util'
 	import type { Snippet } from 'svelte'
 	import Icon from './Icon.svelte'
 	import IconButton from './IconButton.svelte'

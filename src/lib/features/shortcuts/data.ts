@@ -1,4 +1,4 @@
-import { isMacPlatform } from '$core/util'
+import { isMacPlatform } from '#core/util'
 /** Keyboard shortcuts shown in the Help modal. Tokens: `mod` `shift` `alt` `enter` `delete` `backspace`. */
 
 export type ShortcutItem = {

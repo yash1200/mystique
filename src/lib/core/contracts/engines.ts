@@ -1,4 +1,4 @@
-/** Engine / session IPC types. Functions live in $core/ipc. */
+/** Engine / session IPC types. Functions live in #core/ipc. */
 import type { EngineCapabilities } from './engine-caps'
 
 export interface PoolConfig {

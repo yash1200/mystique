@@ -2,7 +2,7 @@
  * DBML serialize (dbdiagram.io-compatible subset).
  * Docs: https://dbml.dbdiagram.io/docs
  */
-import type { DataFamily } from '$core/contracts'
+import type { DataFamily } from '#core/contracts'
 import type { ErDiagramState, ErEdge, ErNode } from './types'
 function quoteIdent(name: string): string {
 	const n = name.trim() || 'unnamed'

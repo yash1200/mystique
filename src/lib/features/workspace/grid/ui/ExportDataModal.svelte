@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { isTauri } from '$core/ipc'
-	import { Button, Field, Input, Modal, Select } from '$core/ui'
-	import type { TableFileFormat } from '$core/util'
+	import { isTauri } from '#core/ipc'
+	import { Button, Field, Input, Modal, Select } from '#core/ui'
+	import type { TableFileFormat } from '#core/util'
 	import {
 		applyFormatExtension,
 		defaultDownloadsDir,
 		extensionForFormat,
 		pickDirectory,
 		safeExportFileBase,
-	} from '$core/util'
+	} from '#core/util'
 	import type { SelectOption } from '../column-editor'
 	export type ExportDataSpec = {
 		fileName: string

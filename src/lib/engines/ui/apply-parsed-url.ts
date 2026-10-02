@@ -1,4 +1,4 @@
-import type { ConnectionFormDraft, ParsedConnectionUrl } from '$core/contracts'
+import type { ConnectionFormDraft, ParsedConnectionUrl } from '#core/contracts'
 import { sslModeFromConfig } from '../ssl'
 
 /** Apply a parsed URL onto a host-kind draft. Shared by every Host form. */

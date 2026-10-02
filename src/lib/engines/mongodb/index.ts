@@ -1,5 +1,5 @@
 /** MongoDB adapter — mirrors `crates/plugins/mystique-plugin-mongodb`. */
-import type { PluginConfig } from '$core/contracts'
+import type { PluginConfig } from '#core/contracts'
 import { emptySslDraft, sslPluginFields } from '../ssl'
 import type { EngineAdapter } from '../types'
 import { mongoCompletionSource } from './complete'

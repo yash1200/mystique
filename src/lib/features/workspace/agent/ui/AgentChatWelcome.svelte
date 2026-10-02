@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Icon } from '$core/ui'
-	import { cn } from '$core/util'
-	import { labradorRest, labradorSit } from '$illustrations'
+	import { Icon } from '#core/ui'
+	import { cn } from '#core/util'
+	import { labradorRest, labradorSit } from '#illustrations'
 
 	const STARTERS = [
 		{

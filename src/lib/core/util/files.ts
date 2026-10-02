@@ -3,8 +3,8 @@
  * Native dialog under Tauri; File System Access or download fallback in the browser.
  * Domain-free: knows about bytes and paths, never about rows or engines.
  */
-import type { TableFileFormat } from '$core/contracts'
-import { isTauri } from '$core/ipc'
+import type { TableFileFormat } from '#core/contracts'
+import { isTauri } from '#core/ipc'
 export type SaveResult =
 	| { ok: true; path: string }
 	| { ok: false; cancelled: true }

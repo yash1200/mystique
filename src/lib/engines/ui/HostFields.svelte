@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ParsedConnectionUrl } from '$core/contracts'
+	import type { ParsedConnectionUrl } from '#core/contracts'
 	import {
 		Card,
 		Checkbox,
@@ -7,7 +7,7 @@
 		FormGrid,
 		Input,
 		PasswordInput,
-	} from '$core/ui'
+	} from '#core/ui'
 	import { adapterFor } from '../registry'
 	import { runtimeFor } from '../products'
 	import type { EngineFieldsProps } from '../types'

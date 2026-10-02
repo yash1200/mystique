@@ -8,7 +8,7 @@
 		Input,
 		PasswordInput,
 		Select,
-	} from '$core/ui'
+	} from '#core/ui'
 	import type { EngineFieldsProps } from '../types'
 	import { SSL_MODE_OPTIONS, sslModeFromConfig } from '../ssl'
 	import { pickDatabaseFilePath } from './pick-database-file'

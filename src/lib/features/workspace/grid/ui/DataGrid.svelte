@@ -4,12 +4,12 @@
 		TableMeta,
 		TablePreviewFilter,
 		TablePreviewSortDir,
-	} from '$core/contracts'
-	import { ContextMenu, type ContextMenuItem } from '$core/ui'
-	import { copyTextToClipboard } from '$core/util'
-	import { showToast } from '$features/toast'
-	import { isSessionMissingError } from '$features/workspace/shell'
-	import { appPrefs } from '$lib/app'
+	} from '#core/contracts'
+	import { ContextMenu, type ContextMenuItem } from '#core/ui'
+	import { copyTextToClipboard } from '#core/util'
+	import { showToast } from '#features/toast'
+	import { isSessionMissingError } from '#features/workspace/shell'
+	import { appPrefs } from '#lib/app'
 	import { onMount, tick } from 'svelte'
 	import { persistTableEdits } from '../api'
 	import { valueToEditorText } from '../cell-view'

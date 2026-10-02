@@ -2,9 +2,9 @@
  * Collect grid edits and hand them to the engine plugin.
  * Dialects / execution live in Rust (`apply_table_edits`).
  */
-import type { ApplyTableEditsResult, TableMeta } from '$core/contracts'
-import { applyEngineTableEdits } from '$core/ipc'
-import { runWithWriteGuard } from '$features/workspace/shell'
+import type { ApplyTableEditsResult, TableMeta } from '#core/contracts'
+import { applyEngineTableEdits } from '#core/ipc'
+import { runWithWriteGuard } from '#features/workspace/shell'
 export type PersistResult = ApplyTableEditsResult
 
 function invokeError(err: unknown): string {

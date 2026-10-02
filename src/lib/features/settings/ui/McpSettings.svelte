@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isTauri } from '$core/ipc'
+	import { isTauri } from '#core/ipc'
 	import {
 		Button,
 		Checkbox,
@@ -8,8 +8,8 @@
 		Segmented,
 		Switch,
 		type SegmentedOption,
-	} from '$core/ui'
-	import { engineLabel } from '$engines'
+	} from '#core/ui'
+	import { engineLabel } from '#engines'
 	import { onMount } from 'svelte'
 	import type { McpAccess, McpHarness, McpStatus, McpWritePolicy } from '../api'
 	import {

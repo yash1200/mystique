@@ -1,5 +1,5 @@
 /** Display helpers for the engine-agnostic metrics contract. */
-import type { MetricValue } from '$core/contracts'
+import type { MetricValue } from '#core/contracts'
 
 export function formatBytes(n: number): string {
 	const abs = Math.abs(n)

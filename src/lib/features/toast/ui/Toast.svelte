@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import { cn, toastSlide } from '$core/util'
+	import { cn, toastSlide } from '#core/util'
 	import type { ToastTone } from '../toast.svelte'
 
 	interface Props {

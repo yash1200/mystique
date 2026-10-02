@@ -7,10 +7,10 @@ import type {
 	ConnectionProfile,
 	EngineCapabilities,
 	SessionLiveStatus,
-} from '$core/contracts'
-import { isTauri } from '$core/ipc'
-import { normalizeCapabilities } from '$engines'
-import type { QueryRunCache } from '$features/workspace/query'
+} from '#core/contracts'
+import { isTauri } from '#core/ipc'
+import { normalizeCapabilities } from '#engines'
+import type { QueryRunCache } from '#features/workspace/query'
 import {
 	listWorkspaceTabs,
 	recordToWorkspaceTab,
@@ -19,7 +19,7 @@ import {
 } from './api'
 import type { SelectedRow, TableTabPreview, WorkspaceTab } from './types'
 
-export type { ConnectedSession } from '$core/contracts'
+export type { ConnectedSession } from '#core/contracts'
 
 export function tableTabId(connectionId: string, tableId: string): string {
 	return `${connectionId}::table::${tableId}`

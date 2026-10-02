@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { ServerMetricsSnapshot } from '$core/contracts'
-	import { Alert } from '$core/ui'
+	import type { ServerMetricsSnapshot } from '#core/contracts'
+	import { Alert } from '#core/ui'
 	import { formatMetric } from '../format'
 	import MetricTile from './MetricTile.svelte'
 

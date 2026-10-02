@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button, Icon, IconButton, Pager, StatusBar } from '$core/ui'
-	import { cn, fetchedLabel } from '$core/util'
+	import { Button, Icon, IconButton, Pager, StatusBar } from '#core/ui'
+	import { cn, fetchedLabel } from '#core/util'
 	interface Props {
 		dirtyCount: number
 		/** Epoch ms of the last engine preview fetch. */

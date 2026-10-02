@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Card, Checkbox, Field, Input } from '$core/ui'
+	import { Button, Card, Checkbox, Field, Input } from '#core/ui'
 	import type { EngineFieldsProps } from '../types'
 	import { pickDatabaseFilePath } from './pick-database-file'
 

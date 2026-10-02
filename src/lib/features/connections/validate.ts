@@ -2,8 +2,8 @@
  * Form-level checks. Anything engine-specific (which fields matter, what the
  * seed credentials are) is the adapter's `connection.validate`.
  */
-import type { ConnectionFormDraft } from '$core/contracts'
-import { adapterFor, connectionKindFromCaps, engineOptions } from '$engines'
+import type { ConnectionFormDraft } from '#core/contracts'
+import { adapterFor, connectionKindFromCaps, engineOptions } from '#engines'
 
 function validateSsh(draft: ConnectionFormDraft): string | null {
 	const kind = connectionKindFromCaps(

@@ -1,7 +1,7 @@
 /** Live catalog load / refresh / create. Owned by the catalog feature. */
-import type { DatabaseMeta, TableMeta } from '$core/contracts'
-import { applyEngineTableAdmin, isTauri } from '$core/ipc'
-import { resolveCapabilities } from '$engines'
+import type { DatabaseMeta, TableMeta } from '#core/contracts'
+import { applyEngineTableAdmin, isTauri } from '#core/ipc'
+import { resolveCapabilities } from '#engines'
 import {
 	engineBindsSessionToDatabase,
 	isSessionMissingError,
@@ -12,7 +12,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '$features/workspace/shell'
+} from '#features/workspace/shell'
 import {
 	loadLiveCatalog,
 	mergeCatalogKeepCached,

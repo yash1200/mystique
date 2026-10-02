@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '$core/contracts'
-	import { Button, Kbd } from '$core/ui'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { Button, Kbd } from '#core/ui'
 	import {
 		APP_SHORTCUT_GROUPS,
 		isMacPlatform,
 		labelForKey,
 		type ShortcutItem,
-	} from '$features/shortcuts'
+	} from '#features/shortcuts'
 	interface Props {
 		profile: ConnectionProfile
 		onnewquery?: () => void

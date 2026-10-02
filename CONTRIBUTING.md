@@ -62,9 +62,9 @@ scripts/check-boundaries.mjs
 Imports go **down**: `routes → features → engines → core`. Features import each other only through that feature’s `index.ts`. `pnpm check` runs `scripts/check-boundaries.mjs` and fails on a deep import.
 
 ```ts
-import { Button } from '$core/ui'
-import { adapterFor } from '$engines'
-import { DataGrid } from '$features/workspace/grid'
+import { Button } from '#core/ui'
+import { adapterFor } from '#engines'
+import { DataGrid } from '#features/workspace/grid'
 import { workspaceSession } from '../session.svelte' // same feature
 ```
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn, fadeRise } from '$core/util'
+	import { cn, fadeRise } from '#core/util'
 	import type { Snippet } from 'svelte'
 
 	type Tone = 'info' | 'success' | 'warning' | 'danger'

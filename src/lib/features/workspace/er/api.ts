@@ -7,10 +7,10 @@ import type {
 	CatalogRelationship,
 	DataFamily,
 	EngineCapabilities,
-} from '$core/contracts'
-import { listEngineRelationships } from '$core/ipc'
-import { familyFromCaps, modelTabTitle, resolveCapabilities } from '$engines'
-import { catalogColumnsCache } from '$features/workspace/catalog'
+} from '#core/contracts'
+import { listEngineRelationships } from '#core/ipc'
+import { familyFromCaps, modelTabTitle, resolveCapabilities } from '#engines'
+import { catalogColumnsCache } from '#features/workspace/catalog'
 import { layoutErNodes } from './layout'
 import type {
 	ErColumn,

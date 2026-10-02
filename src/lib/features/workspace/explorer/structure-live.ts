@@ -1,6 +1,6 @@
 /** Load object structure for the structure tab. */
-import type { TableMeta } from '$core/contracts'
-import { describeEngineObjectStructure, isTauri } from '$core/ipc'
+import type { TableMeta } from '#core/contracts'
+import { describeEngineObjectStructure, isTauri } from '#core/ipc'
 import {
 	currentDatabaseName,
 	requireActiveConnection,
@@ -8,7 +8,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '$features/workspace/shell'
+} from '#features/workspace/shell'
 
 export async function openObjectStructure(table: TableMeta, force = false) {
 	const active = requireActiveConnection()

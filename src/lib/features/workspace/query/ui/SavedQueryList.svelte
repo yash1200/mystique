@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { ContextMenu, Icon, type ContextMenuItem } from '$core/ui'
-	import { cn, formatRelativeTime } from '$core/util'
-	import { CatalogIcon } from '$features/workspace/catalog'
+	import { ContextMenu, Icon, type ContextMenuItem } from '#core/ui'
+	import { cn, formatRelativeTime } from '#core/util'
+	import { CatalogIcon } from '#features/workspace/catalog'
 	import type { SavedQueryListItem } from '../saved-types'
 
 	export type SavedQueryMenuAction =

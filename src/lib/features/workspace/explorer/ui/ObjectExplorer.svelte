@@ -3,7 +3,7 @@
 		DatabaseMeta,
 		EngineCapabilities,
 		TableMeta,
-	} from '$core/contracts'
+	} from '#core/contracts'
 	import {
 		Button,
 		ContextMenu,
@@ -12,11 +12,11 @@
 		Modal,
 		Select,
 		type ContextMenuItem,
-	} from '$core/ui'
-	import { cn } from '$core/util'
-	import { defaultCapabilitiesForEngine, presentationFromCaps } from '$engines'
-	import { CatalogIcon } from '$features/workspace/catalog'
-	import { SaveQueryModal } from '$features/workspace/query'
+	} from '#core/ui'
+	import { cn } from '#core/util'
+	import { defaultCapabilitiesForEngine, presentationFromCaps } from '#engines'
+	import { CatalogIcon } from '#features/workspace/catalog'
+	import { SaveQueryModal } from '#features/workspace/query'
 	import CreateDatabaseForm from './CreateDatabaseForm.svelte'
 	import ExplorerSearch from './ExplorerSearch.svelte'
 	import ObjectTree from './ObjectTree.svelte'

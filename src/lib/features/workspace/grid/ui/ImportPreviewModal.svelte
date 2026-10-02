@@ -4,9 +4,9 @@
 		ImportEncoding,
 		ImportOnDuplicate,
 		PreviewImportResult,
-	} from '$core/contracts'
-	import { Button, Field, Modal, Select } from '$core/ui'
-	import { cn } from '$core/util'
+	} from '#core/contracts'
+	import { Button, Field, Modal, Select } from '#core/ui'
+	import { cn } from '#core/util'
 	import type { SelectOption } from '../column-editor'
 	const ENCODING_OPTIONS: SelectOption[] = [
 		{ value: 'utf8', label: 'UTF-8' },

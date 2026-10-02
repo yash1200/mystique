@@ -3,7 +3,7 @@ import type {
 	ActiveBackendSession,
 	MetricValue,
 	SlowQuery,
-} from '$core/contracts'
+} from '#core/contracts'
 
 export function metricOccupancy(m: MetricValue): number | null {
 	if (!m.available || m.value == null || m.max == null || m.max <= 0) {

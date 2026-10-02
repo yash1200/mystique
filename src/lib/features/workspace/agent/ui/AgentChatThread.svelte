@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button, Icon } from '$core/ui'
-	import { cn } from '$core/util'
+	import { Button, Icon } from '#core/ui'
+	import { cn } from '#core/util'
 	import { fade } from 'svelte/transition'
 	import { inferFenceLang, isQueryLang, parseChatMarkdown } from '../markdown'
 	import type { AgentMessage } from '../types'

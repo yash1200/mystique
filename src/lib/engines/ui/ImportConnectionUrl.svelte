@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { ParsedConnectionUrl } from '$core/contracts'
-	import { isTauri, parseEngineConnectionUrl } from '$core/ipc'
+	import type { ParsedConnectionUrl } from '#core/contracts'
+	import { isTauri, parseEngineConnectionUrl } from '#core/ipc'
 	import { runtimeFor } from '../products'
-	import { Alert, Button, Icon, IconButton } from '$core/ui'
-	import { DURATION, cn, easeOut, reducedMotion } from '$core/util'
+	import { Alert, Button, Icon, IconButton } from '#core/ui'
+	import { DURATION, cn, easeOut, reducedMotion } from '#core/util'
 	import { onMount } from 'svelte'
 	import { fade } from 'svelte/transition'
 

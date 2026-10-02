@@ -1,6 +1,6 @@
 /**
  * Connection profile ↔ form draft, and the colour palette for connection
- * chrome. Everything engine-specific is delegated to `$engines`.
+ * chrome. Everything engine-specific is delegated to `#engines`.
  */
 import type {
 	ConnectionColorId,
@@ -9,13 +9,13 @@ import type {
 	Environment,
 	PluginConfig,
 	SaveConnectionInput,
-} from '$core/contracts'
+} from '#core/contracts'
 import {
 	adapterFor,
 	connectionKindFromCaps,
 	defaultCapabilitiesForEngine,
 	sslModeFromConfig,
-} from '$engines'
+} from '#engines'
 
 export const CONNECTION_COLORS: {
 	id: ConnectionColorId

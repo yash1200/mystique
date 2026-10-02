@@ -1,5 +1,5 @@
-import type { CatalogObjectKind } from '$core/contracts'
-import type { WorkspaceTabKind } from '$features/workspace/shell'
+import type { CatalogObjectKind } from '#core/contracts'
+import type { WorkspaceTabKind } from '#features/workspace/shell'
 import type { CatalogIconName, CatalogIconTone } from './icon-types'
 /** Shared kind → glyph. Table tabs use the live object kind (table / view / collection). */
 export function iconNameForTab(

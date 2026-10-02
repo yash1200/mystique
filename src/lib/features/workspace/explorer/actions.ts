@@ -1,14 +1,14 @@
 /** Explorer context-menu actions. */
-import type { TableAdminOp, TableMeta } from '$core/contracts'
-import { applyEngineTableAdmin, isTauri } from '$core/ipc'
-import { refreshCurrentTables } from '$features/workspace/catalog'
-import { openModelDiagram } from '$features/workspace/er'
+import type { TableAdminOp, TableMeta } from '#core/contracts'
+import { applyEngineTableAdmin, isTauri } from '#core/ipc'
+import { refreshCurrentTables } from '#features/workspace/catalog'
+import { openModelDiagram } from '#features/workspace/er'
 import {
 	beginExport,
 	beginImport,
 	tablePreview,
-} from '$features/workspace/grid'
-import { openSqlInEditor } from '$features/workspace/query'
+} from '#features/workspace/grid'
+import { openSqlInEditor } from '#features/workspace/query'
 import {
 	currentDatabaseName,
 	requireActiveConnection,
@@ -18,7 +18,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '$features/workspace/shell'
+} from '#features/workspace/shell'
 import { openObjectStructure } from './structure-live'
 import type { TableExplorerAction } from './ui/ObjectExplorer.svelte'
 

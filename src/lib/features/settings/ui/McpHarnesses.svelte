@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button, Pill } from '$core/ui'
+	import { Badge, Button, Pill } from '#core/ui'
 	import type { McpHarness } from '../mcp-types'
 
 	interface Props {

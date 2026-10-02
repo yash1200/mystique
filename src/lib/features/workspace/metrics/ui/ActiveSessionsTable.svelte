@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { ActiveBackendSession } from '$core/contracts'
-	import { Button, EmptyState, Pill } from '$core/ui'
+	import type { ActiveBackendSession } from '#core/contracts'
+	import { Button, EmptyState, Pill } from '#core/ui'
 	import { formatDurationMs } from '../format'
 	import { filterSessions, sessionStateTone } from '../presentation'
 

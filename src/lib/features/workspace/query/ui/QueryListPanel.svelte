@@ -5,9 +5,9 @@
 		IconButton,
 		Input,
 		type ContextMenuItem,
-	} from '$core/ui'
-	import { randomLoadingPun } from '$core/util'
-	import { appPrefs, type SavedQueryListSort } from '$lib/app'
+	} from '#core/ui'
+	import { randomLoadingPun } from '#core/util'
+	import { appPrefs, type SavedQueryListSort } from '#lib/app'
 	import type { QueryHistoryEntry } from '../history-types'
 	import type { SavedQueryListItem } from '../saved-types'
 	import HistoryQueryList from './HistoryQueryList.svelte'

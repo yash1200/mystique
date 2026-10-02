@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Input, Modal, Select } from '$core/ui'
+	import { Button, Input, Modal, Select } from '#core/ui'
 	interface Props {
 		open: boolean
 		value?: string

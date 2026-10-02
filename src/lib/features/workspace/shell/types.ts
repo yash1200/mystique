@@ -1,6 +1,6 @@
 /** Workspace chrome types: what a tab is, and what row is selected. */
 
-import type { TablePreviewFilter, TablePreviewSort } from '$core/contracts'
+import type { TablePreviewFilter, TablePreviewSort } from '#core/contracts'
 
 /** Main workspace tab: query canvas, table data, ER / model, structure, or server metrics. */
 export type WorkspaceTabKind = 'query' | 'table' | 'model' | 'structure' | 'metrics'

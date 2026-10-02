@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { Button, Icon, IconButton } from '$core/ui'
+	import { Button, Icon, IconButton } from '#core/ui'
 	import {
 		cn,
 		copyTextToClipboard,
 		highlightCode,
 		tokenClass,
-	} from '$core/util'
+	} from '#core/util'
 	import { onDestroy } from 'svelte'
 	import { inferFenceLang, isQueryLang } from '../markdown'
 	import { classifyLang } from '../prettify'

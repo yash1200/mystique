@@ -1,6 +1,6 @@
 /** Saved-query library list + rename / delete / favorite. */
-import { isTauri } from '$core/ipc'
-import { workspaceSession, workspaceStudio } from '$features/workspace/shell'
+import { isTauri } from '#core/ipc'
+import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 import { queryLanguageFor } from './policy'
 import {
 	deleteSavedQuery,

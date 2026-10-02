@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from '$core/ui'
+import type { ContextMenuItem } from '#core/ui'
 import type { ErCtxMenu } from './types'
 export type { ErCtxMenu }
 

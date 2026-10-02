@@ -1,8 +1,8 @@
 /**
  * Design-system primitives. No product domain (engines, MCP, shortcuts).
- * Features import from `$core/ui`.
+ * Features import from `#core/ui`.
  */
-export type { IconName } from '$icons'
+export type { IconName } from '#icons'
 export { default as Alert } from './Alert.svelte'
 export { default as Badge } from './Badge.svelte'
 export { default as Button } from './Button.svelte'

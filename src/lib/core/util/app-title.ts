@@ -1,4 +1,4 @@
-import { isTauri } from '$core/ipc'
+import { isTauri } from '#core/ipc'
 /** Product name shown in the OS / browser window title bar. */
 export const APP_TITLE = 'Mystique'
 

@@ -1,4 +1,4 @@
-import type { QueryMode, QueryResult } from '$core/contracts'
+import type { QueryMode, QueryResult } from '#core/contracts'
 
 export type RunState =
 	| { status: 'idle' }

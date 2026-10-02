@@ -30,13 +30,15 @@ function zoneOf(file) {
 
 /** Which zone an import specifier points at, and whether it is a deep import. */
 function targetOf(fromFile, spec) {
-	if (spec.startsWith('$core')) return { kind: 'core', id: 'core', deep: false }
-	if (spec.startsWith('$engines')) {
-		return { kind: 'engines', id: 'engines', deep: spec !== '$engines' }
+	if (spec.startsWith('#core/') || spec === '#core') {
+		return { kind: 'core', id: 'core', deep: false }
 	}
-	if (spec.startsWith('$lib/app')) return { kind: 'app', id: 'app', deep: false }
-	if (spec.startsWith('$features/')) {
-		const rest = spec.slice('$features/'.length)
+	if (spec === '#engines' || spec.startsWith('#engines/')) {
+		return { kind: 'engines', id: 'engines', deep: spec !== '#engines' }
+	}
+	if (spec.startsWith('#lib/app')) return { kind: 'app', id: 'app', deep: false }
+	if (spec.startsWith('#features/')) {
+		const rest = spec.slice('#features/'.length).replace(/\/index\.js$/, '')
 		const m = rest.match(/^(workspace\/[^/]+|[^/]+)(\/.*)?$/)
 		if (!m) return null
 		return { kind: 'feature', id: m[1], deep: !!m[2] }
@@ -106,14 +108,14 @@ for (const file of files) {
 		// Cross-feature: public surface only.
 		if (from.kind === 'feature' && to.kind === 'feature' && to.deep) {
 			violations.push(
-				`${where}\n    reach another feature through '$features/${to.id}', not its files`,
+				`${where}\n    reach another feature through '#features/${to.id}', not its files`,
 			)
 			continue
 		}
 
 		// Engines are one module to everyone outside them.
 		if (from.kind !== 'engines' && to.kind === 'engines' && to.deep) {
-			violations.push(`${where}\n    import '$engines', not an engine folder`)
+			violations.push(`${where}\n    import '#engines', not an engine folder`)
 		}
 	}
 }

@@ -4,7 +4,7 @@
 		ConnectionFormDraft,
 		ConnectionProfile,
 		SshHostKeyPrompt,
-	} from '$core/contracts'
+	} from '#core/contracts'
 	import {
 		ensureEngineSession,
 		formatEngineConnectionUrl,
@@ -12,15 +12,15 @@
 		listenNativeMenu,
 		setNativeMenu,
 		testEngineConnection,
-	} from '$core/ipc'
-	import { Button, EmptyState, Modal } from '$core/ui'
+	} from '#core/ipc'
+	import { Button, EmptyState, Modal } from '#core/ui'
 	import {
 		copyTextToClipboard,
 		randomLoadingPun,
 		setAppTitle,
-	} from '$core/util'
-	import { showToast } from '$features/toast'
-	import { workspaceSession } from '$features/workspace/shell'
+	} from '#core/util'
+	import { showToast } from '#features/toast'
+	import { workspaceSession } from '#features/workspace/shell'
 	import { onMount } from 'svelte'
 	import {
 		draftFromProfile,
@@ -445,7 +445,7 @@
 	async function openWorkspace(
 		profile: ConnectionProfile,
 		engineSessionId?: string | null,
-		capabilities?: import('$core/contracts').EngineCapabilities | null,
+		capabilities?: import('#core/contracts').EngineCapabilities | null,
 	) {
 		workspaceSession.connect(
 			{ ...profile, status: 'connected' },

@@ -3,7 +3,7 @@
 	 * Custom select — same look on every OS (no native <select> menu).
 	 * Menu is position:fixed so it isn’t clipped by overflow parents.
 	 */
-	import { cn, popover } from '$core/util'
+	import { cn, popover } from '#core/util'
 	import type { Snippet } from 'svelte'
 	import Icon from './Icon.svelte'
 

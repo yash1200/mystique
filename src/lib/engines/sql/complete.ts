@@ -3,7 +3,7 @@
  * FROM-clause / snippet completions. `nestSchemas` is passed by the adapter —
  * Postgres nests, MySQL does not.
  */
-import type { CatalogColumnRow } from '$core/contracts'
+import type { CatalogColumnRow } from '#core/contracts'
 import {
 	CompletionContext,
 	type Completion,

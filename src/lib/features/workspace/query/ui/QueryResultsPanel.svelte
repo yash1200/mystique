@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { QueryResult } from '$core/contracts'
+	import type { QueryResult } from '#core/contracts'
 	import {
 		Badge,
 		Button,
@@ -10,9 +10,9 @@
 		Pager,
 		StatusBar,
 		type ContextMenuItem,
-	} from '$core/ui'
-	import { cn, copyTextToClipboard, randomLoadingPun } from '$core/util'
-	import { isMacPlatform, labelForKey } from '$features/shortcuts'
+	} from '#core/ui'
+	import { cn, copyTextToClipboard, randomLoadingPun } from '#core/util'
+	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import type { RunState } from '../run-types'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
 

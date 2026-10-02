@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '$core/contracts'
-	import { Button, ContentPanel, Pill, StatusDot } from '$core/ui'
-	import { cn } from '$core/util'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { Button, ContentPanel, Pill, StatusDot } from '#core/ui'
+	import { cn } from '#core/util'
 	import {
 		connectionKindFromCaps,
 		defaultCapabilitiesForEngine,
 		engineLabel,
-	} from '$engines'
+	} from '#engines'
 	import {
 		colorHex,
 		configBool,

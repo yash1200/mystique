@@ -3,7 +3,7 @@
  * Used by ⌘/Ctrl+Shift+R.
  */
 import { resolve } from '$app/paths'
-import { closeEngineSession, isTauri, listEngineSessions } from '$core/ipc'
+import { closeEngineSession, isTauri, listEngineSessions } from '#core/ipc'
 import { workspaceSession } from './session.svelte'
 let inFlight = false
 

@@ -5,7 +5,7 @@
 		ConnectionProfile,
 		SshHostKeyPrompt,
 		TableMeta,
-	} from '$core/contracts'
+	} from '#core/contracts'
 	import {
 		closeEngineSession,
 		ensureEngineSession,
@@ -13,8 +13,8 @@
 		listenNativeMenu,
 		setNativeMenu,
 		testEngineConnection,
-	} from '$core/ipc'
-	import { setAppTitle } from '$core/util'
+	} from '#core/ipc'
+	import { setAppTitle } from '#core/util'
 	import {
 		acceptSshHostKey,
 		colorHex,
@@ -22,19 +22,19 @@
 		parseSshHostKey,
 		pluginConfigForSession,
 		SshHostKeyModal,
-	} from '$features/connections'
+	} from '#features/connections'
 	import {
 		catalogColumnsCache,
 		ensureCatalogForActiveSession,
 		ensureLiveCatalog,
-	} from '$features/workspace/catalog'
-	import { GridTransferHost, tablePreview } from '$features/workspace/grid'
+	} from '#features/workspace/catalog'
+	import { GridTransferHost, tablePreview } from '#features/workspace/grid'
 	import {
 		querySave,
 		QuerySaveHost,
 		refreshHistory,
 		refreshSavedQueries,
-	} from '$features/workspace/query'
+	} from '#features/workspace/query'
 	import { onDestroy, onMount } from 'svelte'
 	import {
 		probeSessionHealth,

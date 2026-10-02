@@ -1,19 +1,19 @@
 <script lang="ts">
-	import type { ConnectedSession } from '$core/contracts'
-	import { formatEngineConnectionUrl, isTauri } from '$core/ipc'
+	import type { ConnectedSession } from '#core/contracts'
+	import { formatEngineConnectionUrl, isTauri } from '#core/ipc'
 	import {
 		ContextMenu,
 		Draggable,
 		Icon,
 		IconButton,
 		type ContextMenuItem,
-	} from '$core/ui'
-	import { cn, copyTextToClipboard } from '$core/util'
-	import { engineLabel, normalizeCapabilities } from '$engines'
-	import { BrandMark, colorHex, connectionInitial } from '$features/connections'
-	import { SettingsModal } from '$features/settings'
-	import { appShortcutsUi } from '$features/shortcuts'
-	import { showToast } from '$features/toast'
+	} from '#core/ui'
+	import { cn, copyTextToClipboard } from '#core/util'
+	import { engineLabel, normalizeCapabilities } from '#engines'
+	import { BrandMark, colorHex, connectionInitial } from '#features/connections'
+	import { SettingsModal } from '#features/settings'
+	import { appShortcutsUi } from '#features/shortcuts'
+	import { showToast } from '#features/toast'
 	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
 	import { resetAppToHome } from '../reset'

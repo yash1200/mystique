@@ -1,8 +1,8 @@
 /**
  * Query-canvas language helpers. Execution policy lives in the engine plugins.
  */
-import type { EngineCapabilities } from '$core/contracts'
-import { queryLangFromCaps, resolveCapabilities } from '$engines'
+import type { EngineCapabilities } from '#core/contracts'
+import { queryLangFromCaps, resolveCapabilities } from '#engines'
 
 export function queryLanguageFor(
 	engine: string,

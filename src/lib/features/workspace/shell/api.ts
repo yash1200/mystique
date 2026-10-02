@@ -1,7 +1,7 @@
 /**
  * Persisted open workspace tabs (query / table / model) per connection.
  */
-import { isTauri } from '$core/ipc'
+import { isTauri } from '#core/ipc'
 import { invoke } from '@tauri-apps/api/core'
 import type { WorkspaceTab, WorkspaceTabKind } from './types'
 
