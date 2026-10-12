@@ -437,3 +437,16 @@ pub(super) async fn list_relationships(
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn catalog_names_are_bound() {
+        let src = include_str!("catalog.rs");
+        let payload = "x\\'; DROP TABLE users; -- ";
+        assert!(!src.contains(payload));
+        assert!(src.contains("table_schema = $1"));
+        assert!(src.contains("table_name = $2"));
+        assert!(!src.contains("replace('\'', \"''\")"));
+    }
+}

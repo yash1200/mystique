@@ -20,6 +20,57 @@ type RelationshipRow = (
     String,
 );
 
+const DESCRIBE_COLUMNS_SQL: &str = "\
+SELECT column_name, column_type, is_nullable, column_key, column_default, extra \
+FROM information_schema.columns \
+WHERE table_schema = ? AND table_name = ? \
+ORDER BY ordinal_position";
+
+const LIST_COLUMNS_ONE_SCHEMA_SQL: &str = "\
+SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
+FROM information_schema.columns \
+WHERE table_schema = ? \
+ORDER BY table_schema, table_name, ordinal_position";
+
+const LIST_COLUMNS_ALL_SCHEMAS_SQL: &str = "\
+SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
+FROM information_schema.columns \
+WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+ORDER BY table_schema, table_name, ordinal_position";
+
+const LIST_RELATIONSHIPS_ONE_SCHEMA_SQL: &str = "\
+SELECT table_name, column_name, referenced_table_name, referenced_column_name, constraint_name \
+FROM information_schema.key_column_usage \
+WHERE table_schema = ? AND referenced_table_name IS NOT NULL \
+ORDER BY table_name, ordinal_position";
+
+const LIST_RELATIONSHIPS_ALL_SCHEMAS_SQL: &str = "\
+SELECT table_schema, table_name, column_name, referenced_table_schema, referenced_table_name, referenced_column_name, constraint_name \
+FROM information_schema.key_column_usage \
+WHERE referenced_table_name IS NOT NULL \
+  AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+ORDER BY table_schema, table_name";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_names_are_bound_not_concatenated() {
+        let payload = "x\\'; DROP TABLE users; -- ";
+        for sql in [
+            DESCRIBE_COLUMNS_SQL,
+            LIST_COLUMNS_ONE_SCHEMA_SQL,
+            LIST_RELATIONSHIPS_ONE_SCHEMA_SQL,
+        ] {
+            assert!(sql.contains('?'), "{sql}");
+            assert!(!sql.contains(payload), "{sql}");
+            assert!(!sql.to_ascii_lowercase().contains("drop table"), "{sql}");
+            assert!(!sql.contains("'{"), "{sql}");
+        }
+    }
+}
+
 pub(super) async fn describe_columns(
     session: &MysqlSession,
     database: Option<&str>,
@@ -30,19 +81,14 @@ pub(super) async fn describe_columns(
     let db_name = database.or(schema).ok_or_else(|| {
         ConnectorError::InvalidConfig("MySQL describe_table requires database/schema".into())
     })?;
-    let db = db_name.replace('\'', "''");
-    let tbl = table.replace('\'', "''");
     let mut conn = session.conn().await?;
 
     // column_type is already DDL-style (varchar(255), datetime, timestamp, …)
-    let sql = format!(
-        "SELECT column_name, column_type, is_nullable, column_key, column_default, extra \
-         FROM information_schema.columns \
-         WHERE table_schema = '{db}' AND table_name = '{tbl}' \
-         ORDER BY ordinal_position"
-    );
-    let rows: Vec<(String, String, String, String, Option<String>, String)> =
-        conn.query(sql).await.map_err(query_failed)?;
+    // Names are bound. Concatenating them reopens SEC-04 (`\'` is a quote on MySQL).
+    let rows: Vec<(String, String, String, String, Option<String>, String)> = conn
+        .exec(DESCRIBE_COLUMNS_SQL, (db_name, table))
+        .await
+        .map_err(query_failed)?;
 
     let mut out = Vec::with_capacity(rows.len());
     for (name, column_type, is_nullable, column_key, column_default, extra) in rows {
@@ -132,24 +178,16 @@ pub(super) async fn list_catalog_columns(
     session.ensure_open()?;
     let mut conn = session.conn().await?;
 
-    let sql = if let Some(db) = database.or(schema) {
-        let db = db.replace('\'', "''");
-        format!(
-            "SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
-             FROM information_schema.columns \
-             WHERE table_schema = '{db}' \
-             ORDER BY table_schema, table_name, ordinal_position"
-        )
-    } else {
-        "SELECT table_schema, table_name, column_name, column_type, is_nullable, column_key \
-         FROM information_schema.columns \
-         WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
-         ORDER BY table_schema, table_name, ordinal_position"
-            .to_string()
-    };
-
     let rows: Vec<(String, String, String, String, String, String)> =
-        conn.query(sql).await.map_err(query_failed)?;
+        if let Some(db) = database.or(schema) {
+            conn.exec(LIST_COLUMNS_ONE_SCHEMA_SQL, (db,))
+                .await
+                .map_err(query_failed)?
+        } else {
+            conn.query(LIST_COLUMNS_ALL_SCHEMAS_SQL)
+                .await
+                .map_err(query_failed)?
+        };
 
     Ok(rows
         .into_iter()
@@ -263,25 +301,11 @@ pub(super) async fn list_relationships(
 ) -> ConnectorResult<Vec<CatalogRelationship>> {
     session.ensure_open()?;
     let mut conn = session.conn().await?;
-    let sql = if let Some(db) = database.map(str::trim).filter(|s| !s.is_empty()) {
-        let db = db.replace('\'', "''");
-        format!(
-            "SELECT table_name, column_name, referenced_table_name, referenced_column_name, constraint_name \
-             FROM information_schema.key_column_usage \
-             WHERE table_schema = '{db}' AND referenced_table_name IS NOT NULL \
-             ORDER BY table_name, ordinal_position"
-        )
-    } else {
-        "SELECT table_schema, table_name, column_name, referenced_table_schema, referenced_table_name, referenced_column_name, constraint_name \
-         FROM information_schema.key_column_usage \
-         WHERE referenced_table_name IS NOT NULL \
-           AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
-         ORDER BY table_schema, table_name"
-            .into()
-    };
-    if database.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-        let rows: Vec<(String, String, String, String, String)> =
-            conn.query(sql).await.map_err(query_failed)?;
+    if let Some(db) = database.map(str::trim).filter(|s| !s.is_empty()) {
+        let rows: Vec<(String, String, String, String, String)> = conn
+            .exec(LIST_RELATIONSHIPS_ONE_SCHEMA_SQL, (db,))
+            .await
+            .map_err(query_failed)?;
         let schema = database.unwrap().trim().to_string();
         return Ok(rows
             .into_iter()
@@ -298,7 +322,10 @@ pub(super) async fn list_relationships(
             )
             .collect());
     }
-    let rows: Vec<RelationshipRow> = conn.query(sql).await.map_err(query_failed)?;
+    let rows: Vec<RelationshipRow> = conn
+        .query(LIST_RELATIONSHIPS_ALL_SCHEMAS_SQL)
+        .await
+        .map_err(query_failed)?;
     Ok(rows
         .into_iter()
         .map(

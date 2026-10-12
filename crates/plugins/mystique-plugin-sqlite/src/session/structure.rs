@@ -4,6 +4,7 @@ use mystique_connector_api::{
     cell_bool, ConnectorError, ConnectorResult, ObjectStructure, StructureSection,
 };
 
+use super::catalog::sqlite_pragma_invoke;
 use super::query_failed;
 use super::SqliteSession;
 
@@ -23,11 +24,8 @@ pub(super) async fn describe_object_structure(
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-            let safe = table_owned.replace('\'', "''");
-
-            let mut col_stmt = conn
-                .prepare(&format!("PRAGMA table_info('{safe}')"))
-                .map_err(query_failed)?;
+            let table_info = sqlite_pragma_invoke("table_info", &table_owned)?;
+            let mut col_stmt = conn.prepare(&table_info).map_err(query_failed)?;
             let col_rows: Vec<Vec<String>> = col_stmt
                 .query_map([], |row| {
                     let name: String = row.get(1)?;
@@ -65,7 +63,7 @@ pub(super) async fn describe_object_structure(
             .with_empty_message("No columns found.");
 
             let mut idx_list = conn
-                .prepare(&format!("PRAGMA index_list('{safe}')"))
+                .prepare(&sqlite_pragma_invoke("index_list", &table_owned)?)
                 .map_err(query_failed)?;
             let indexes_meta: Vec<(String, bool, String)> = idx_list
                 .query_map([], |row| {
@@ -80,9 +78,8 @@ pub(super) async fn describe_object_structure(
 
             let mut index_rows = Vec::new();
             for (name, unique, origin) in indexes_meta {
-                let safe_idx = name.replace('\'', "''");
                 let mut info = conn
-                    .prepare(&format!("PRAGMA index_info('{safe_idx}')"))
+                    .prepare(&sqlite_pragma_invoke("index_info", &name)?)
                     .map_err(query_failed)?;
                 let cols: Vec<String> = info
                     .query_map([], |row| {
@@ -117,7 +114,7 @@ pub(super) async fn describe_object_structure(
             .with_empty_message("No indexes.");
 
             let mut fk_stmt = conn
-                .prepare(&format!("PRAGMA foreign_key_list('{safe}')"))
+                .prepare(&sqlite_pragma_invoke("foreign_key_list", &table_owned)?)
                 .map_err(query_failed)?;
             let fk_rows: Vec<Vec<String>> = fk_stmt
                 .query_map([], |row| {

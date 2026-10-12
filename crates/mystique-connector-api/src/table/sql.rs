@@ -84,6 +84,27 @@ fn bool_sql(style: SqlIdentStyle, v: bool) -> &'static str {
     }
 }
 
+/// One SQL string literal. MySQL also escapes `\` because `\'` is a quote there.
+pub fn sql_string_literal(style: SqlIdentStyle, s: &str) -> String {
+    match style {
+        SqlIdentStyle::Mysql => {
+            let mut out = String::with_capacity(s.len() + 2);
+            out.push('\'');
+            for c in s.chars() {
+                match c {
+                    '\\' => out.push_str("\\\\"),
+                    '\'' => out.push_str("''"),
+                    '\0' => out.push_str("\\0"),
+                    _ => out.push(c),
+                }
+            }
+            out.push('\'');
+            out
+        }
+        SqlIdentStyle::Postgres => format!("'{}'", s.replace('\'', "''")),
+    }
+}
+
 pub fn sql_literal(style: SqlIdentStyle, value: &JsonValue, data_type: &str) -> String {
     match value {
         JsonValue::Null => "NULL".into(),
@@ -98,22 +119,9 @@ pub fn sql_literal(style: SqlIdentStyle, value: &JsonValue, data_type: &str) -> 
             if is_numeric_type(data_type) && !t.is_empty() && is_plain_number(t) {
                 return t.to_string();
             }
-            match style {
-                SqlIdentStyle::Mysql => {
-                    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
-                }
-                SqlIdentStyle::Postgres => format!("'{}'", s.replace('\'', "''")),
-            }
+            sql_string_literal(style, s)
         }
-        other => {
-            let s = other.to_string();
-            match style {
-                SqlIdentStyle::Mysql => {
-                    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
-                }
-                SqlIdentStyle::Postgres => format!("'{}'", s.replace('\'', "''")),
-            }
-        }
+        other => sql_string_literal(style, &other.to_string()),
     }
 }
 

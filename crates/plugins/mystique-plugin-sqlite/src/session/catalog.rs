@@ -1,8 +1,8 @@
 //! Databases, tables, columns, and foreign-key relationships.
 
 use mystique_connector_api::{
-    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
-    ColumnReference, ConnectorError, ConnectorResult,
+    quote_ident, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
+    ColumnReference, ConnectorError, ConnectorResult, SqlIdentStyle,
 };
 
 use super::query_failed;
@@ -22,17 +22,8 @@ pub(super) async fn describe_table(
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-            // Quote safely: only allow simple identifiers for pragma
-            if !table
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-                && !table.contains('"')
-            {
-                // allow quoted names via replace
-            }
-            let safe = table.replace('\'', "''");
             let mut stmt = conn
-                .prepare(&format!("PRAGMA table_info('{safe}')"))
+                .prepare(&sqlite_pragma_invoke("table_info", &table)?)
                 .map_err(query_failed)?;
             let mut rows = stmt.query([]).map_err(query_failed)?;
             let mut out = Vec::new();
@@ -58,7 +49,9 @@ pub(super) async fn describe_table(
             }
 
             // PRAGMA foreign_key_list: id, seq, table, from, to, on_update, on_delete, match
-            if let Ok(mut fk_stmt) = conn.prepare(&format!("PRAGMA foreign_key_list('{safe}')")) {
+            if let Ok(mut fk_stmt) =
+                conn.prepare(&sqlite_pragma_invoke("foreign_key_list", &table)?)
+            {
                 use std::collections::HashMap;
                 let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
                 if let Ok(mut rows) = fk_stmt.query([]) {
@@ -116,9 +109,8 @@ pub(super) async fn list_catalog_columns(
 
             let mut out = Vec::new();
             for table in tables {
-                let safe = table.replace('\'', "''");
                 let mut stmt = conn
-                    .prepare(&format!("PRAGMA table_info('{safe}')"))
+                    .prepare(&sqlite_pragma_invoke("table_info", &table)?)
                     .map_err(query_failed)?;
                 let mut rows = stmt.query([]).map_err(query_failed)?;
                 while let Some(row) = rows.next().map_err(query_failed)? {
@@ -220,9 +212,8 @@ pub(super) async fn list_relationships(
 
             let mut out = Vec::new();
             for table in tables {
-                let safe = table.replace('\'', "''");
                 let mut fk_stmt = conn
-                    .prepare(&format!("PRAGMA foreign_key_list('{safe}')"))
+                    .prepare(&sqlite_pragma_invoke("foreign_key_list", &table)?)
                     .map_err(query_failed)?;
                 let mut rows = fk_stmt.query([]).map_err(query_failed)?;
                 while let Some(row) = rows.next().map_err(query_failed)? {
@@ -244,4 +235,29 @@ pub(super) async fn list_relationships(
             Ok(out)
         })
         .await
+}
+
+/// `PRAGMA name(ident)`. The argument is an identifier, not a quoted string,
+/// so a value like `x'; DROP TABLE users` cannot close the statement.
+pub(super) fn sqlite_pragma_invoke(pragma: &str, name: &str) -> ConnectorResult<String> {
+    if name.chars().any(|c| c == '\0' || c.is_control()) {
+        return Err(ConnectorError::Query("invalid object name".into()));
+    }
+    Ok(format!(
+        "PRAGMA {pragma}({})",
+        quote_ident(SqlIdentStyle::Postgres, name)
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sqlite_pragma_invoke;
+
+    #[test]
+    fn pragma_argument_cannot_become_a_second_statement() {
+        let payload = "x'; DROP TABLE users; -- ";
+        let sql = sqlite_pragma_invoke("table_info", payload).unwrap();
+        assert_eq!(sql, "PRAGMA table_info(\"x'; DROP TABLE users; -- \")");
+        assert!(sqlite_pragma_invoke("table_info", "a\0b").is_err());
+    }
 }
