@@ -1,6 +1,10 @@
 //! AST write-risk for a SQL statement. Parse failure is Write (fail closed).
 
-use sqlparser::ast::{ObjectName, Query, SetExpr, Statement};
+use sqlparser::ast::{
+    AlterTableOperation, ContextModifier, Expr, Function, FunctionArg, FunctionArgExpr,
+    FunctionArguments, JoinConstraint, JoinOperator, MergeAction, ObjectName, Query, Select,
+    SelectItem, Set, SetExpr, Statement, TableFactor,
+};
 use sqlparser::parser::Parser;
 
 use super::{split_statements, SqlDialect};
@@ -97,15 +101,24 @@ fn options_enable_analyze(options: &Option<Vec<sqlparser::ast::UtilityOption>>) 
     })
 }
 
-/// Last identifier on a DROP / TRUNCATE in the batch (type-to-confirm).
+/// Every destructive target in the batch, in source order, joined for type-to-confirm.
+///
+/// `DROP TABLE important, trivial` asks for `important, trivial`, not only the last name.
 pub fn destructive_object_name(sql: &str, dialect: SqlDialect) -> Option<String> {
-    let stmts = split_statements(sql, dialect);
-    for stmt in stmts.iter().rev() {
-        if let Some(name) = one_destructive_name(stmt, dialect) {
-            return Some(name);
+    let mut names = Vec::new();
+    for stmt in split_statements(sql, dialect) {
+        let Some(parsed) = parse(&stmt, dialect) else {
+            continue;
+        };
+        for statement in &parsed {
+            names.extend(ast_destructive_names(statement));
         }
     }
-    None
+    if names.is_empty() {
+        None
+    } else {
+        Some(names.join(", "))
+    }
 }
 
 fn parse(sql: &str, dialect: SqlDialect) -> Option<Vec<Statement>> {
@@ -120,17 +133,100 @@ fn parse(sql: &str, dialect: SqlDialect) -> Option<Vec<Statement>> {
 }
 
 fn classify_one(sql: &str, dialect: SqlDialect) -> StatementRisk {
+    // MySQL executes the body of `/*! */`, `/*M! */`, and `/*T! */`. The parser
+    // drops the comment, so the AST looks like a read.
+    if has_versioned_comment(sql) {
+        return StatementRisk::Write;
+    }
+    // `DO $$ … $$` often fails to parse. It can hide a DROP. Fail closed.
+    if looks_like_do_block(sql) {
+        return StatementRisk::Destructive;
+    }
     let Some(parsed) = parse(sql, dialect) else {
+        // Postgres `TABLE t` is `SELECT * FROM t`. sqlparser 0.58 does not parse it.
+        if looks_like_table_read(sql) || looks_like_pragma_read(sql) {
+            return StatementRisk::Read;
+        }
         return StatementRisk::Write;
     };
     let mut worst = StatementRisk::Read;
     for stmt in &parsed {
-        let risk = classify_ast(stmt);
+        let mut risk = classify_ast(stmt);
+        if matches!(stmt, Statement::Set(_)) && set_text_is_privileged(sql) {
+            risk = risk.max(StatementRisk::Write);
+        }
         if risk > worst {
             worst = risk;
         }
     }
     worst
+}
+
+fn has_versioned_comment(sql: &str) -> bool {
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    let mut in_single = false;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'\'' {
+            in_single = !in_single;
+            i += 1;
+            continue;
+        }
+        if !in_single && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            let rest = sql[i + 2..].trim_start();
+            if rest.starts_with('!')
+                || rest.len() >= 2
+                    && (rest[..2].eq_ignore_ascii_case("m!")
+                        || rest[..2].eq_ignore_ascii_case("t!"))
+            {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+fn looks_like_table_read(sql: &str) -> bool {
+    let trimmed = sql.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("table") else {
+        return false;
+    };
+    rest.starts_with(|c: char| c.is_whitespace())
+        && !rest.contains(';')
+        && !rest.contains("for update")
+        && !rest.contains("for share")
+}
+
+fn looks_like_pragma_read(sql: &str) -> bool {
+    let lower = sql.trim().to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("pragma") else {
+        return false;
+    };
+    // `PRAGMA table_info(t)` reads. `PRAGMA query_only = ON` writes.
+    rest.starts_with(|c: char| c.is_whitespace()) && !rest.contains('=') && !rest.contains(';')
+}
+
+fn looks_like_do_block(sql: &str) -> bool {
+    let trimmed = sql.trim_start();
+    let Some(rest) = trimmed.get(2..) else {
+        return false;
+    };
+    trimmed[..2].eq_ignore_ascii_case("do")
+        && rest
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_whitespace() || c == '$' || c == '\'')
+}
+
+fn set_text_is_privileged(sql: &str) -> bool {
+    let lower = sql.trim_start().to_ascii_lowercase();
+    lower.starts_with("set persist")
+        || lower.starts_with("set global")
+        || lower.starts_with("set @@global")
+        || lower.starts_with("set @@persist")
+        || lower.starts_with("set @@session.transaction_read_only")
 }
 
 fn one_is_safe_dml(sql: &str, dialect: SqlDialect) -> bool {
@@ -140,23 +236,16 @@ fn one_is_safe_dml(sql: &str, dialect: SqlDialect) -> bool {
     !parsed.is_empty() && parsed.iter().all(ast_is_safe_dml)
 }
 
-fn one_destructive_name(sql: &str, dialect: SqlDialect) -> Option<String> {
-    let parsed = parse(sql, dialect)?;
-    for stmt in parsed.iter().rev() {
-        if let Some(name) = ast_destructive_name(stmt) {
-            return Some(name);
-        }
-    }
-    None
-}
-
 fn classify_ast(stmt: &Statement) -> StatementRisk {
     match stmt {
         Statement::Query(q) => classify_query(q),
         Statement::Explain {
-            analyze, statement, ..
+            analyze,
+            options,
+            statement,
+            ..
         } => {
-            if *analyze {
+            if *analyze || options_enable_analyze(options) {
                 classify_ast(statement)
             } else {
                 StatementRisk::Read
@@ -194,8 +283,8 @@ fn classify_ast(stmt: &Statement) -> StatementRisk {
         | Statement::DropSecret { .. }
         | Statement::DropConnector { .. } => StatementRisk::Destructive,
 
-        Statement::Set(_)
-        | Statement::Use(_)
+        Statement::Set(set) => set_risk(set),
+        Statement::Use(_)
         | Statement::StartTransaction { .. }
         | Statement::Commit { .. }
         | Statement::Rollback { .. }
@@ -210,6 +299,27 @@ fn classify_ast(stmt: &Statement) -> StatementRisk {
 
         // EXECUTE may run a prepared write — fail closed.
         Statement::Execute { .. } => StatementRisk::Write,
+        // CALL / anonymous DO can hide DDL. Type-to-confirm on production.
+        Statement::Call(_) => StatementRisk::Destructive,
+        // `PRAGMA table_info(t)` is a read. `PRAGMA query_only = ON` assigns.
+        Statement::Pragma { is_eq, .. } => {
+            if *is_eq {
+                StatementRisk::Write
+            } else {
+                StatementRisk::Read
+            }
+        }
+
+        Statement::AlterTable { operations, .. } => {
+            if operations
+                .iter()
+                .any(|op| matches!(op, AlterTableOperation::DropColumn { .. }))
+            {
+                StatementRisk::Destructive
+            } else {
+                StatementRisk::Write
+            }
+        }
 
         Statement::CreateView { .. }
         | Statement::CreateTable(_)
@@ -228,7 +338,6 @@ fn classify_ast(stmt: &Statement) -> StatementRisk {
         | Statement::CreatePolicy { .. }
         | Statement::CreateServer(_)
         | Statement::CreateConnector(_)
-        | Statement::AlterTable { .. }
         | Statement::AlterIndex { .. }
         | Statement::AlterView { .. }
         | Statement::AlterType(_)
@@ -248,55 +357,371 @@ fn classify_ast(stmt: &Statement) -> StatementRisk {
     }
 }
 
-fn classify_query(q: &Query) -> StatementRisk {
-    if !q.locks.is_empty() {
-        return StatementRisk::Write;
+fn set_risk(set: &Set) -> StatementRisk {
+    match set {
+        Set::SetRole { .. } => StatementRisk::Write,
+        Set::SingleAssignment {
+            scope, variable, ..
+        } => {
+            if matches!(scope, Some(ContextModifier::Global)) || variable_is_sensitive(variable) {
+                StatementRisk::Write
+            } else {
+                StatementRisk::Session
+            }
+        }
+        Set::MultipleAssignments { assignments } => {
+            if assignments.iter().any(|assignment| {
+                matches!(assignment.scope, Some(ContextModifier::Global))
+                    || variable_is_sensitive(&assignment.name)
+            }) {
+                StatementRisk::Write
+            } else {
+                StatementRisk::Session
+            }
+        }
+        _ => StatementRisk::Session,
     }
-    classify_set_expr(&q.body)
+}
+
+fn variable_is_sensitive(name: &ObjectName) -> bool {
+    let text = name.to_string().to_ascii_lowercase();
+    if text.contains("@@global") || text.contains("@@persist") {
+        return true;
+    }
+    let last = text.rsplit('.').next().unwrap_or(&text);
+    let last = last.trim_start_matches('@');
+    matches!(
+        last,
+        "default_transaction_read_only"
+            | "transaction_read_only"
+            | "statement_timeout"
+            | "lock_timeout"
+            | "idle_in_transaction_session_timeout"
+            | "idle_session_timeout"
+            | "session_authorization"
+            | "role"
+            | "read_only"
+    )
+}
+
+fn classify_query(q: &Query) -> StatementRisk {
+    let mut risk = if q.locks.is_empty() {
+        StatementRisk::Read
+    } else {
+        StatementRisk::Write
+    };
+    if let Some(with) = &q.with {
+        for cte in &with.cte_tables {
+            risk = risk.max(classify_query(&cte.query));
+        }
+    }
+    risk.max(classify_set_expr(&q.body))
 }
 
 fn classify_set_expr(expr: &SetExpr) -> StatementRisk {
     match expr {
-        SetExpr::Select(select) => {
-            if select.into.is_some() {
-                StatementRisk::Write
-            } else {
-                StatementRisk::Read
-            }
-        }
+        SetExpr::Select(select) => classify_select(select),
         SetExpr::Query(inner) => classify_query(inner),
         SetExpr::SetOperation { left, right, .. } => {
             classify_set_expr(left).max(classify_set_expr(right))
         }
-        SetExpr::Values(_) => StatementRisk::Read,
+        SetExpr::Values(values) => values
+            .rows
+            .iter()
+            .flatten()
+            .fold(StatementRisk::Read, |risk, expr| risk.max(expr_risk(expr))),
         SetExpr::Table(_) => StatementRisk::Read,
         SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Delete(_) => StatementRisk::Write,
     }
 }
 
+fn classify_select(select: &Select) -> StatementRisk {
+    let mut risk = if select.into.is_some() {
+        StatementRisk::Write
+    } else {
+        StatementRisk::Read
+    };
+    for item in &select.projection {
+        risk = risk.max(select_item_risk(item));
+    }
+    for from in &select.from {
+        risk = risk.max(table_factor_risk(&from.relation));
+        for join in &from.joins {
+            risk = risk.max(table_factor_risk(&join.relation));
+            risk = risk.max(join_operator_risk(&join.join_operator));
+        }
+    }
+    for expr in [
+        select.selection.as_ref(),
+        select.prewhere.as_ref(),
+        select.having.as_ref(),
+        select.qualify.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        risk = risk.max(expr_risk(expr));
+    }
+    risk
+}
+
+fn select_item_risk(item: &SelectItem) -> StatementRisk {
+    match item {
+        SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => expr_risk(expr),
+        _ => StatementRisk::Read,
+    }
+}
+
+fn table_factor_risk(factor: &TableFactor) -> StatementRisk {
+    match factor {
+        TableFactor::Derived { subquery, .. } => classify_query(subquery),
+        TableFactor::TableFunction { expr, .. } => expr_risk(expr),
+        TableFactor::Function { name, args, .. } => {
+            function_name_risk(name).max(args.iter().fold(StatementRisk::Read, |risk, arg| {
+                risk.max(function_arg_risk(arg))
+            }))
+        }
+        TableFactor::UNNEST { array_exprs, .. } => array_exprs
+            .iter()
+            .fold(StatementRisk::Read, |risk, expr| risk.max(expr_risk(expr))),
+        _ => StatementRisk::Read,
+    }
+}
+
+fn join_operator_risk(op: &JoinOperator) -> StatementRisk {
+    match op {
+        JoinOperator::Join(constraint)
+        | JoinOperator::Inner(constraint)
+        | JoinOperator::Left(constraint)
+        | JoinOperator::LeftOuter(constraint)
+        | JoinOperator::Right(constraint)
+        | JoinOperator::RightOuter(constraint)
+        | JoinOperator::FullOuter(constraint)
+        | JoinOperator::Semi(constraint)
+        | JoinOperator::LeftSemi(constraint)
+        | JoinOperator::RightSemi(constraint)
+        | JoinOperator::Anti(constraint)
+        | JoinOperator::LeftAnti(constraint)
+        | JoinOperator::RightAnti(constraint)
+        | JoinOperator::StraightJoin(constraint) => constraint_risk(constraint),
+        JoinOperator::AsOf {
+            match_condition,
+            constraint,
+        } => expr_risk(match_condition).max(constraint_risk(constraint)),
+        JoinOperator::CrossJoin | JoinOperator::CrossApply | JoinOperator::OuterApply => {
+            StatementRisk::Read
+        }
+    }
+}
+
+fn constraint_risk(constraint: &JoinConstraint) -> StatementRisk {
+    match constraint {
+        JoinConstraint::On(expr) => expr_risk(expr),
+        _ => StatementRisk::Read,
+    }
+}
+
+fn expr_risk(expr: &Expr) -> StatementRisk {
+    match expr {
+        Expr::Function(function) => function_risk(function),
+        Expr::Subquery(query)
+        | Expr::Exists {
+            subquery: query, ..
+        } => classify_query(query),
+        Expr::InSubquery { expr, subquery, .. } => expr_risk(expr).max(classify_query(subquery)),
+        Expr::Nested(inner)
+        | Expr::IsNull(inner)
+        | Expr::IsNotNull(inner)
+        | Expr::IsTrue(inner)
+        | Expr::IsNotTrue(inner)
+        | Expr::IsFalse(inner)
+        | Expr::IsNotFalse(inner) => expr_risk(inner),
+        Expr::BinaryOp { left, right, .. }
+        | Expr::IsDistinctFrom(left, right)
+        | Expr::IsNotDistinctFrom(left, right) => expr_risk(left).max(expr_risk(right)),
+        Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } | Expr::Extract { expr, .. } => {
+            expr_risk(expr)
+        }
+        Expr::InList { expr, list, .. } => list
+            .iter()
+            .fold(expr_risk(expr), |risk, item| risk.max(expr_risk(item))),
+        Expr::Between {
+            expr, low, high, ..
+        } => expr_risk(expr).max(expr_risk(low)).max(expr_risk(high)),
+        Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
+            expr_risk(expr).max(expr_risk(pattern))
+        }
+        Expr::Case {
+            operand,
+            conditions,
+            else_result,
+            ..
+        } => {
+            let mut risk = operand
+                .as_deref()
+                .map(expr_risk)
+                .unwrap_or(StatementRisk::Read);
+            for when in conditions {
+                risk = risk
+                    .max(expr_risk(&when.condition))
+                    .max(expr_risk(&when.result));
+            }
+            if let Some(else_result) = else_result {
+                risk = risk.max(expr_risk(else_result));
+            }
+            risk
+        }
+        _ => StatementRisk::Read,
+    }
+}
+
+fn function_risk(function: &Function) -> StatementRisk {
+    function_name_risk(&function.name)
+        .max(function_arguments_risk(&function.args))
+        .max(function_arguments_risk(&function.parameters))
+        .max(
+            function
+                .filter
+                .as_deref()
+                .map(expr_risk)
+                .unwrap_or(StatementRisk::Read),
+        )
+}
+
+fn function_arguments_risk(args: &FunctionArguments) -> StatementRisk {
+    match args {
+        FunctionArguments::None => StatementRisk::Read,
+        FunctionArguments::Subquery(query) => classify_query(query),
+        FunctionArguments::List(list) => list.args.iter().fold(StatementRisk::Read, |risk, arg| {
+            risk.max(function_arg_risk(arg))
+        }),
+    }
+}
+
+fn function_arg_risk(arg: &FunctionArg) -> StatementRisk {
+    match arg {
+        FunctionArg::Named { arg, .. } | FunctionArg::Unnamed(arg) => function_arg_expr_risk(arg),
+        FunctionArg::ExprNamed { name, arg, .. } => {
+            expr_risk(name).max(function_arg_expr_risk(arg))
+        }
+    }
+}
+
+fn function_arg_expr_risk(arg: &FunctionArgExpr) -> StatementRisk {
+    match arg {
+        FunctionArgExpr::Expr(expr) => expr_risk(expr),
+        _ => StatementRisk::Read,
+    }
+}
+
+fn function_name_risk(name: &ObjectName) -> StatementRisk {
+    match basename(name).as_str() {
+        "pg_terminate_backend" | "pg_cancel_backend" | "load_extension" => {
+            StatementRisk::Destructive
+        }
+        "set_config" | "dblink_exec" | "dblink_connect" | "nextval" | "lo_import" | "lo_export"
+        | "lo_unlink" | "get_lock" | "release_lock" | "is_used_lock" | "sleep" | "benchmark" => {
+            StatementRisk::Write
+        }
+        _ => StatementRisk::Read,
+    }
+}
+
+fn basename(name: &ObjectName) -> String {
+    let raw = name
+        .0
+        .last()
+        .map(|part| part.to_string())
+        .unwrap_or_default();
+    let trimmed = raw.trim_matches(|c| matches!(c, '"' | '`' | '[' | ']'));
+    trimmed
+        .rsplit('.')
+        .next()
+        .unwrap_or(trimmed)
+        .to_ascii_lowercase()
+}
+
 fn ast_is_safe_dml(stmt: &Statement) -> bool {
     match stmt {
-        Statement::Insert(_) | Statement::Update { .. } | Statement::Merge { .. } => true,
-        Statement::Query(q) => matches!(q.body.as_ref(), SetExpr::Insert(_) | SetExpr::Update(_)),
+        Statement::Insert(_) | Statement::Update { .. } => true,
+        Statement::Merge { clauses, .. } => clauses.iter().all(|clause| {
+            matches!(
+                clause.action,
+                MergeAction::Insert(_) | MergeAction::Update { .. }
+            )
+        }),
+        Statement::Query(query) => query_is_safe_dml(query),
         _ => false,
     }
 }
 
-fn ast_destructive_name(stmt: &Statement) -> Option<String> {
-    match stmt {
-        Statement::Drop { names, .. } => names.last().and_then(last_object_ident),
-        Statement::Truncate { table_names, .. } => {
-            table_names.last().and_then(|t| last_object_ident(&t.name))
+fn query_is_safe_dml(query: &Query) -> bool {
+    if let Some(with) = &query.with {
+        if with
+            .cte_tables
+            .iter()
+            .any(|cte| !query_is_safe_dml(&cte.query))
+        {
+            return false;
         }
-        Statement::DropFunction { func_desc, .. } => {
-            func_desc.last().and_then(|f| last_object_ident(&f.name))
+    }
+    set_expr_is_safe_dml(&query.body)
+}
+
+fn set_expr_is_safe_dml(expr: &SetExpr) -> bool {
+    match expr {
+        SetExpr::Insert(_) | SetExpr::Update(_) => true,
+        SetExpr::Query(inner) => query_is_safe_dml(inner),
+        SetExpr::SetOperation { left, right, .. } => {
+            set_expr_is_safe_dml(left) && set_expr_is_safe_dml(right)
+        }
+        _ => false,
+    }
+}
+
+fn ast_destructive_names(stmt: &Statement) -> Vec<String> {
+    match stmt {
+        Statement::Drop { names, .. } => names.iter().filter_map(last_object_ident).collect(),
+        Statement::Truncate { table_names, .. } => table_names
+            .iter()
+            .filter_map(|target| last_object_ident(&target.name))
+            .collect(),
+        Statement::DropFunction { func_desc, .. } => func_desc
+            .iter()
+            .filter_map(|desc| last_object_ident(&desc.name))
+            .collect(),
+        Statement::DropProcedure { proc_desc, .. } => proc_desc
+            .iter()
+            .filter_map(|desc| last_object_ident(&desc.name))
+            .collect(),
+        Statement::DropTrigger { trigger_name, .. } => {
+            last_object_ident(trigger_name).into_iter().collect()
+        }
+        Statement::AlterTable { operations, .. } => operations
+            .iter()
+            .flat_map(|op| match op {
+                AlterTableOperation::DropColumn { column_names, .. } => column_names
+                    .iter()
+                    .map(|ident| ident.value.clone())
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect(),
+        Statement::Call(function) => {
+            let name = basename(&function.name);
+            if name.is_empty() {
+                vec!["CALL".to_string()]
+            } else {
+                vec![name]
+            }
         }
         Statement::Explain {
-            analyze: true,
+            analyze,
+            options,
             statement,
             ..
-        } => ast_destructive_name(statement),
-        _ => None,
+        } if *analyze || options_enable_analyze(options) => ast_destructive_names(statement),
+        _ => Vec::new(),
     }
 }
 
