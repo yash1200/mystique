@@ -216,3 +216,86 @@ async fn agent_caller_is_not_filtered_by_allowlist() {
         "in-app agent still uses the shared write policy, got {msg}"
     );
 }
+
+#[tokio::test]
+async fn mcp_save_query_does_not_overwrite_another_connection() {
+    let app = app();
+    let scratch = save_pg(&app, "scratch");
+    let prod = save_pg(&app, "prod");
+    app.settings()
+        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, scratch.id))
+        .unwrap();
+    let tools = app.agent_tools();
+    let saved = tools
+        .save_query(crate::domain::SaveQueryInput {
+            id: None,
+            connection_id: prod.id.clone(),
+            name: "prod query".into(),
+            body: "SELECT secret".into(),
+            language: Some("sql".into()),
+            sort_order: 0,
+            favorite: None,
+        })
+        .unwrap();
+
+    let err = tools
+        .call_tool(
+            "save_query",
+            &json!({
+                "id": saved.id,
+                "connection_id": scratch.id,
+                "name": "hijack",
+                "body": "SELECT 1"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("allowlist"),
+        "existing row must be allowlisted, got {err}"
+    );
+    let still = app
+        .db
+        .with_conn(|c| crate::storage::sqlite::repo::queries::get_query(c, &saved.id))
+        .unwrap();
+    assert_eq!(still.body, "SELECT secret");
+    assert_eq!(still.name, "prod query");
+}
+
+#[tokio::test]
+async fn mcp_save_query_updates_its_own_row() {
+    let app = app();
+    let scratch = save_pg(&app, "scratch");
+    app.settings()
+        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, scratch.id))
+        .unwrap();
+    let tools = app.agent_tools();
+    let created = tools
+        .call_tool(
+            "save_query",
+            &json!({
+                "connection_id": scratch.id,
+                "name": "mine",
+                "body": "SELECT 1"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap();
+    let id = created["id"].as_str().unwrap();
+    let updated = tools
+        .call_tool(
+            "save_query",
+            &json!({
+                "id": id,
+                "connection_id": scratch.id,
+                "name": "mine",
+                "body": "SELECT 2"
+            }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated["body"], "SELECT 2");
+}

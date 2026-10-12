@@ -1,6 +1,6 @@
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, ExportObjectRequest, ExportObjectResult, ImportObjectRequest,
-    ImportObjectResult, PreviewImportRequest, PreviewImportResult,
+    ImportObjectResult, PreviewImportRequest, PreviewImportResult, WriteRisk,
 };
 
 use super::ConnectionManager;
@@ -61,11 +61,6 @@ impl ConnectionManager {
         &self,
         req: ImportObjectRequest,
     ) -> ConnectorResult<ImportObjectResult> {
-        if req.profile_read_only {
-            return Err(ConnectorError::Policy(
-                "This connection is read-only. Disable read-only to import data.".into(),
-            ));
-        }
         if req.name.trim().is_empty() {
             return Err(ConnectorError::InvalidConfig(
                 "Object name is required.".into(),
@@ -84,6 +79,18 @@ impl ConnectionManager {
                 "this engine does not import {format} files"
             )));
         }
+        // Upsert is still a write. The live session's read-only bit wins inside
+        // the guard; the client flag can only make the call stricter.
+        let preview = format!("Import into {}", req.name.trim());
+        self.enforce_write_guard(
+            &req.session_id,
+            WriteRisk::Write,
+            &preview,
+            None,
+            None,
+            req.profile_read_only,
+        )
+        .await?;
         session.import_object(&req.into_input()).await
     }
 }

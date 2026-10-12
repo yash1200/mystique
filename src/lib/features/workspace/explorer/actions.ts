@@ -65,20 +65,23 @@ export async function onTableExplorerAction(
 
 	try {
 		workspaceStudio.setCatalogError(null)
-		const result = await withLiveSession(id, (sid) =>
-			runWithWriteGuard(sid, (confirmObjectName) =>
-				applyEngineTableAdmin({
-					sessionId: sid,
-					op,
-					name: table.name,
-					schema: table.schema || null,
-					database: table.database || currentDatabaseName(),
-					kind: table.kind,
-					newName,
-					profileReadOnly: !!session.profile.readOnly,
-					confirmObjectName: confirmObjectName ?? null,
-				}),
-			),
+		const result = await withLiveSession(
+			id,
+			(sid) =>
+				runWithWriteGuard(sid, (confirmObjectName) =>
+					applyEngineTableAdmin({
+						sessionId: sid,
+						op,
+						name: table.name,
+						schema: table.schema || null,
+						database: table.database || currentDatabaseName(),
+						kind: table.kind,
+						newName,
+						profileReadOnly: !!session.profile.readOnly,
+						confirmObjectName: confirmObjectName ?? null,
+					}),
+				),
+			{ replay: false },
 		)
 
 		if (action === 'create') {

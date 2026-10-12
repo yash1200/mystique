@@ -1,5 +1,9 @@
-use super::*;
+use mystique_connector_api::{
+    ConnectorResult, ConnectorSession, EngineCapabilities, PoolConfig, PoolStatus,
+};
 use serde_json::json;
+
+use super::{ConnectionManager, LiveSession, OpenSessionRequest};
 
 #[test]
 fn parse_connection_url_postgres_and_mysql() {
@@ -491,6 +495,334 @@ async fn live_read_only_ignores_a_client_write_flag() {
 
     let _ = mgr.close_session("ro").await;
     let _ = std::fs::remove_file(&path);
+}
+
+fn sqlite_open(
+    path: &std::path::Path,
+    session_id: &str,
+    environment: &str,
+    read_only: bool,
+) -> OpenSessionRequest {
+    OpenSessionRequest {
+        engine: "sqlite".into(),
+        plugin_config: json!({ "path": path.to_string_lossy() }),
+        password: None,
+        pool: None,
+        session_id: Some(session_id.into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: Some(environment.into()),
+        connection_name: Some(session_id.into()),
+        profile_read_only: read_only,
+    }
+}
+
+fn temp_db(label: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "mystique-{label}-{}-{nanos}.sqlite",
+        std::process::id()
+    ))
+}
+
+fn import_req(
+    session_id: &str,
+    path: &str,
+    read_only: bool,
+) -> mystique_connector_api::ImportObjectRequest {
+    mystique_connector_api::ImportObjectRequest {
+        session_id: session_id.into(),
+        name: "t".into(),
+        schema: None,
+        database: None,
+        kind: None,
+        path: path.into(),
+        format: mystique_connector_api::ImportFormat::Csv,
+        encoding: mystique_connector_api::ImportEncoding::Utf8,
+        mapping: Vec::new(),
+        on_duplicate: mystique_connector_api::ImportOnDuplicate::UpdateOnDuplicate,
+        profile_read_only: read_only,
+    }
+}
+
+async fn count_rows(mgr: &ConnectionManager, session_id: &str) -> i64 {
+    let count = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: session_id.into(),
+            text: "SELECT COUNT(*) FROM t".into(),
+            mode: mystique_connector_api::QueryMode::Read,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect("count");
+    count.rows[0][0].as_i64().expect("count cell")
+}
+
+#[tokio::test]
+async fn import_into_production_requires_unlock_before_apply() {
+    let db_path = temp_db("import-prod");
+    let csv_path = db_path.with_extension("csv");
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(&csv_path);
+    std::fs::write(&csv_path, "id\n7\n").expect("csv");
+
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&db_path, "seed", "local", false))
+        .await
+        .expect("open seed");
+    mgr.execute_query(write_req("seed", "CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+        .await
+        .expect("create");
+    mgr.close_session("seed").await.expect("close seed");
+
+    mgr.open_session(sqlite_open(&db_path, "prod", "production", false))
+        .await
+        .expect("open prod");
+    let err = mgr
+        .import_object(import_req("prod", &csv_path.to_string_lossy(), false))
+        .await
+        .expect_err("production import prompts");
+    let msg = err.to_string();
+    assert!(msg.contains("writeGuard"), "{msg}");
+    assert!(msg.contains("unlock"), "{msg}");
+    assert_eq!(count_rows(&mgr, "prod").await, 0);
+
+    mgr.unlock_writes("prod").await.expect("unlock");
+    mgr.import_object(import_req("prod", &csv_path.to_string_lossy(), false))
+        .await
+        .expect("import after unlock");
+    assert_eq!(count_rows(&mgr, "prod").await, 1);
+
+    let _ = mgr.close_session("prod").await;
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(&csv_path);
+}
+
+#[tokio::test]
+async fn import_into_read_only_session_ignores_client_flag() {
+    let db_path = temp_db("import-ro");
+    let csv_path = db_path.with_extension("csv");
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(&csv_path);
+    std::fs::write(&csv_path, "id\n7\n").expect("csv");
+
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&db_path, "seed", "local", false))
+        .await
+        .expect("open seed");
+    mgr.execute_query(write_req(
+        "seed",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+    mgr.close_session("seed").await.expect("close seed");
+
+    mgr.open_session(sqlite_open(&db_path, "ro", "local", true))
+        .await
+        .expect("open read-only");
+    let err = mgr
+        .import_object(import_req("ro", &csv_path.to_string_lossy(), false))
+        .await
+        .expect_err("client flag must not override the session");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("read-only"),
+        "{err}"
+    );
+    assert_eq!(count_rows(&mgr, "ro").await, 1);
+
+    let _ = mgr.close_session("ro").await;
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(&csv_path);
+}
+
+struct GuardProbe {
+    ran: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[async_trait::async_trait]
+impl ConnectorSession for GuardProbe {
+    fn engine_id(&self) -> &str {
+        "mongodb"
+    }
+
+    fn capabilities(&self) -> EngineCapabilities {
+        EngineCapabilities::mongodb_defaults()
+    }
+
+    async fn ping(&self) -> ConnectorResult<()> {
+        Ok(())
+    }
+
+    fn pool_status(&self) -> Option<PoolStatus> {
+        None
+    }
+
+    async fn close(&self) -> ConnectorResult<()> {
+        Ok(())
+    }
+
+    async fn execute_query(
+        &self,
+        query: &mystique_connector_api::ValidatedQuery,
+    ) -> ConnectorResult<mystique_connector_api::QueryResult> {
+        self.ran.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(mystique_connector_api::QueryResult {
+            engine: "mongodb".into(),
+            mode: query.mode,
+            columns: Vec::new(),
+            rows: Vec::new(),
+            row_count: 0,
+            truncated: false,
+            duration_ms: 0,
+            message: Some(query.text.clone()),
+        })
+    }
+}
+
+async fn insert_probe(
+    mgr: &ConnectionManager,
+    session_id: &str,
+    read_only: bool,
+) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let session: std::sync::Arc<dyn ConnectorSession> = std::sync::Arc::new(GuardProbe {
+        ran: std::sync::Arc::clone(&ran),
+    });
+    mgr.sessions.write().await.insert(
+        session_id.into(),
+        LiveSession {
+            session,
+            display_name: "Mongo".into(),
+            opened_at: String::new(),
+            product_id: "mongodb".into(),
+            _tunnel: None,
+            environment: "production".into(),
+            read_only,
+            connection_name: "Prod Mongo".into(),
+        },
+    );
+    ran
+}
+
+#[tokio::test]
+async fn mongo_delete_many_on_production_prompts() {
+    let mgr = ConnectionManager::bootstrap();
+    let ran = insert_probe(&mgr, "prod-mongo", false).await;
+    let err = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "prod-mongo".into(),
+            text: r#"{"op":"deleteMany","filter":{"note":"do not delete this"}}"#.into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("deleteMany prompts");
+    let msg = err.to_string();
+    assert!(msg.contains("writeGuard"), "{msg}");
+    assert!(msg.contains("unlock"), "{msg}");
+    assert!(
+        !ran.load(std::sync::atomic::Ordering::SeqCst),
+        "deleteMany must not run before unlock"
+    );
+
+    ran.store(false, std::sync::atomic::Ordering::SeqCst);
+    let shell = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "prod-mongo".into(),
+            text: r#"db.users.deleteMany({status: "keep"})"#.into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("shell deleteMany prompts");
+    assert!(shell.to_string().contains("writeGuard"), "{shell}");
+    assert!(!ran.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn mongo_filter_delete_text_is_a_read() {
+    let mgr = ConnectionManager::bootstrap();
+    let ran = insert_probe(&mgr, "prod-mongo", false).await;
+    let result = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "prod-mongo".into(),
+            text: r#"{"name":"please delete this"}"#.into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect("filter value is not a write");
+    assert!(ran.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(
+        result.message.as_deref(),
+        Some(r#"{"name":"please delete this"}"#)
+    );
+
+    ran.store(false, std::sync::atomic::Ordering::SeqCst);
+    mgr.execute_query(mystique_connector_api::ExecuteQueryRequest {
+        session_id: "prod-mongo".into(),
+        text: r#"db.users.find({name: "please deleteMany this"})"#.into(),
+        mode: mystique_connector_api::QueryMode::Write,
+        max_rows: None,
+        timeout_ms: None,
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+    })
+    .await
+    .expect("shell find stays a read");
+    assert!(ran.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn mongo_write_on_read_only_session_ignores_client_flag() {
+    let mgr = ConnectionManager::bootstrap();
+    let ran = insert_probe(&mgr, "ro-mongo", true).await;
+    let err = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "ro-mongo".into(),
+            text: r#"{"op":"deleteMany","filter":{}}"#.into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("live read-only blocks the write");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("read-only"),
+        "{err}"
+    );
+    assert!(!ran.load(std::sync::atomic::Ordering::SeqCst));
 }
 
 fn write_req(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQueryRequest {

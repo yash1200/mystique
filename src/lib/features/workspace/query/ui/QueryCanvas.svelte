@@ -335,7 +335,8 @@
 					}),
 				)
 			} catch (e) {
-				if (!onreconnect || !isSessionMissingError(e)) throw e
+				// Read mode rolls back. A write may already have landed.
+				if (mode === 'write' || !onreconnect || !isSessionMissingError(e)) throw e
 				const next = await onreconnect()
 				if (!next) throw e
 				result = await runWithWriteGuard(next, (confirmObjectName) =>

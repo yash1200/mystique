@@ -104,32 +104,5 @@ pub(super) struct MongoWriteCmd {
 }
 
 pub(super) fn is_mongo_write_command(text: &str) -> bool {
-    if let Ok(cmd) = serde_json::from_str::<MongoWriteCmd>(text.trim()) {
-        return matches!(
-            cmd.op.to_ascii_lowercase().as_str(),
-            "insertone"
-                | "insertmany"
-                | "updateone"
-                | "updatemany"
-                | "replaceone"
-                | "bulkwrite"
-                | "deleteone"
-                | "deletemany"
-        );
-    }
-    let lower = text.to_ascii_lowercase();
-    lower.contains("insertone")
-        || lower.contains("insertmany")
-        || lower.contains("updateone")
-        || lower.contains("updatemany")
-        || lower.contains("replaceone")
-        || lower.contains("bulkwrite")
-        || lower.contains("deleteone")
-        || lower.contains("deletemany")
-        || lower.contains(".drop(")
-        || lower.contains("dropdatabase")
-        || lower.contains("dropcollection")
-        || lower.contains("$out")
-        || lower.contains("$merge")
-        || lower.contains(".remove(")
+    mystique_connector_api::mongo_is_write_command(text)
 }

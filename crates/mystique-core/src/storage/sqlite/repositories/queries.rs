@@ -106,7 +106,7 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
               sort_order = ?4,
               favorite = COALESCE(?5, favorite),
               updated_at = ?6
-            WHERE id = ?7
+            WHERE id = ?7 AND connection_id = ?8
             ",
             params![
                 input.name.trim(),
@@ -116,6 +116,7 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
                 favorite,
                 now,
                 id_n,
+                connection_id,
             ],
         )?;
         if n == 0 {
@@ -235,5 +236,73 @@ mod tests {
         assert_eq!(updated.name, "Active users v2");
         assert!(updated.favorite);
         assert_eq!(list_queries(&conn, &profile.id).unwrap().len(), 1);
+    }
+
+    fn save_profile(conn: &Connection, name: &str) -> crate::domain::ConnectionProfile {
+        connections::save(
+            conn,
+            SaveConnectionInput {
+                id: None,
+                name: name.into(),
+                engine: "postgres".into(),
+                color_id: "slate".into(),
+                environment: "local".into(),
+                read_only: false,
+                notes: None,
+                plugin_config: json!({}),
+                password: None,
+                secret_ref: None,
+                clear_secret: false,
+                copy_secret_from: None,
+                favorite: None,
+                ssh_config: crate::domain::SshConfig::default(),
+                ssh_password: None,
+                clear_ssh_secret: false,
+                tls_key_passphrase: None,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn update_does_not_cross_connections() {
+        let conn = mem();
+        let scratch = save_profile(&conn, "scratch");
+        let prod = save_profile(&conn, "prod");
+        let saved = save_query(
+            &conn,
+            SaveQueryInput {
+                id: None,
+                connection_id: prod.id.clone(),
+                name: "prod query".into(),
+                body: "SELECT secret".into(),
+                language: Some("sql".into()),
+                sort_order: 0,
+                favorite: None,
+            },
+        )
+        .unwrap();
+
+        let err = save_query(
+            &conn,
+            SaveQueryInput {
+                id: Some(saved.id.clone()),
+                connection_id: scratch.id,
+                name: "hijack".into(),
+                body: "SELECT 1".into(),
+                language: Some("sql".into()),
+                sort_order: 0,
+                favorite: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("not found"),
+            "cross-connection update must miss the row, got {err}"
+        );
+        let still = get_query(&conn, &saved.id).unwrap();
+        assert_eq!(still.body, "SELECT secret");
+        assert_eq!(still.connection_id, prod.id);
+        assert_eq!(still.name, "prod query");
     }
 }

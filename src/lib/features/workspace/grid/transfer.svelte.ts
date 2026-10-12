@@ -9,6 +9,7 @@ import {
 import {
 	currentDatabaseName,
 	requireActiveConnection,
+	runWithWriteGuard,
 	tableTabId,
 	withLiveSession,
 	workspaceSession,
@@ -91,20 +92,25 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 	workspaceStudio.importBusy = true
 	workspaceStudio.importError = null
 	try {
-		await withLiveSession(active.id, (sid) =>
-			importEngineObject({
-				sessionId: sid,
-				name: table.name,
-				schema: table.schema || null,
-				database: table.database || currentDatabaseName(),
-				kind: table.kind,
-				path: workspaceStudio.importPath,
-				format: workspaceStudio.importFormat,
-				encoding: spec.encoding,
-				mapping: spec.mapping,
-				onDuplicate: spec.onDuplicate,
-				profileReadOnly: !!active.session.profile.readOnly,
-			}),
+		await withLiveSession(
+			active.id,
+			(sid) =>
+				runWithWriteGuard(sid, () =>
+					importEngineObject({
+						sessionId: sid,
+						name: table.name,
+						schema: table.schema || null,
+						database: table.database || currentDatabaseName(),
+						kind: table.kind,
+						path: workspaceStudio.importPath,
+						format: workspaceStudio.importFormat,
+						encoding: spec.encoding,
+						mapping: spec.mapping,
+						onDuplicate: spec.onDuplicate,
+						profileReadOnly: !!active.session.profile.readOnly,
+					}),
+				),
+			{ replay: false },
 		)
 		workspaceStudio.importTable = null
 		workspaceStudio.importPreview = null

@@ -175,6 +175,13 @@ impl AgentTools {
                     sort_order: args.get("sort_order").and_then(|v| v.as_i64()).unwrap_or(0),
                     favorite: args.get("favorite").and_then(|v| v.as_bool()),
                 };
+                // The request connection is checked above. An update also has
+                // to be allowed on the row that already exists, or a scratch
+                // connection can rewrite a production saved query by id.
+                if let Some(id) = input.id.as_deref().filter(|s| !s.is_empty()) {
+                    let existing = self.db.with_conn(|c| repo::queries::get_query(c, id))?;
+                    self.require_allowlisted(caller, &existing.connection_id)?;
+                }
                 let saved = self.save_query(input)?;
                 Ok(serde_json::to_value(saved)?)
             }

@@ -102,6 +102,7 @@ export async function reopenEngineSession(
 export async function withLiveSession<T>(
 	connectionId: string,
 	fn: (sessionId: string) => Promise<T>,
+	options?: { replay?: boolean },
 ): Promise<T> {
 	const session = workspaceSession.sessions.find(
 		(s) => s.profile.id === connectionId,
@@ -119,7 +120,8 @@ export async function withLiveSession<T>(
 		workspaceSession.setLiveStatus(connectionId, 'connected')
 		return result
 	} catch (e) {
-		if (!isSessionMissingError(e)) throw e
+		// A write that already reached the server must not run again.
+		if (options?.replay === false || !isSessionMissingError(e)) throw e
 		sid = await reopenTracked(connectionId, session.profile, db)
 		const result = await fn(sid)
 		workspaceSession.setLiveStatus(connectionId, 'connected')

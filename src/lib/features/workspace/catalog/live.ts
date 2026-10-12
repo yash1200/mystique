@@ -7,6 +7,7 @@ import {
 	isSessionMissingError,
 	reopenEngineSession,
 	requireActiveConnection,
+	runWithWriteGuard,
 	sessionDatabase,
 	systemDbNames,
 	withLiveSession,
@@ -254,14 +255,20 @@ export async function createCatalogGroup(name: string) {
 	workspaceStudio.createBusy = true
 	workspaceStudio.setCatalogError(null)
 	try {
-		await withLiveSession(id, (sid) =>
-			applyEngineTableAdmin({
-				sessionId: sid,
-				op: 'createGroup',
-				name,
-				database: currentDb(id),
-				profileReadOnly: !!session.profile.readOnly,
-			}),
+		await withLiveSession(
+			id,
+			(sid) =>
+				runWithWriteGuard(sid, (confirmObjectName) =>
+					applyEngineTableAdmin({
+						sessionId: sid,
+						op: 'createGroup',
+						name,
+						database: currentDb(id),
+						profileReadOnly: !!session.profile.readOnly,
+						confirmObjectName: confirmObjectName ?? null,
+					}),
+				),
+			{ replay: false },
 		)
 		await refreshCurrentTables()
 	} catch (e) {
@@ -309,16 +316,22 @@ export async function createCatalogObject(name: string, group?: string) {
 	workspaceStudio.createBusy = true
 	workspaceStudio.setCatalogError(null)
 	try {
-		await withLiveSession(id, (sid) =>
-			applyEngineTableAdmin({
-				sessionId: sid,
-				op: 'createObject',
-				name,
-				schema: group || null,
-				database: dbName,
-				kind,
-				profileReadOnly: !!session.profile.readOnly,
-			}),
+		await withLiveSession(
+			id,
+			(sid) =>
+				runWithWriteGuard(sid, (confirmObjectName) =>
+					applyEngineTableAdmin({
+						sessionId: sid,
+						op: 'createObject',
+						name,
+						schema: group || null,
+						database: dbName,
+						kind,
+						profileReadOnly: !!session.profile.readOnly,
+						confirmObjectName: confirmObjectName ?? null,
+					}),
+				),
+			{ replay: false },
 		)
 		await refreshCurrentTables()
 	} catch (e) {

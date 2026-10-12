@@ -8,7 +8,6 @@
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
 	import { showToast } from '#features/toast'
-	import { isSessionMissingError } from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount, tick } from 'svelte'
 	import { persistTableEdits } from '../api'
@@ -2016,15 +2015,8 @@
 				})
 			let sid = sessionId
 			if (!sid && onreconnect) sid = await onreconnect()
-			let result
-			try {
-				result = await persist(sid ?? '')
-			} catch (err) {
-				if (!onreconnect || !isSessionMissingError(err)) throw err
-				const next = await onreconnect()
-				if (!next) throw err
-				result = await persist(next)
-			}
+			// Do not retry after a dropped connection: the save may have landed.
+			const result = await persist(sid ?? '')
 			if (pendingDbDeletes > 0 && (result.deleted ?? 0) < pendingDbDeletes) {
 				throw new Error(
 					'Delete did not apply. Restart Mystique (`npm run tauri dev`) so the engine can run DELETE.',
