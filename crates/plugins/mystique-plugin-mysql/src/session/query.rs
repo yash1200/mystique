@@ -5,8 +5,8 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    split_sql_statements_for, ConnectorError, ConnectorResult, QueryColumn, QueryMode, QueryResult,
-    SqlDialect, ValidatedQuery,
+    split_sql_statements_for, sql_explain_executes, ConnectorError, ConnectorResult, QueryColumn,
+    QueryMode, QueryResult, SqlDialect, ValidatedQuery,
 };
 use serde_json::Value as JsonValue;
 
@@ -24,19 +24,65 @@ pub(super) async fn execute_query(
     let start = Instant::now();
     let mut conn = session.conn().await?;
 
-    let max_rows = query.max_rows as usize;
-    let mode = query.mode;
-
-    let timeout = query.timeout_ms.max(1);
-    let _ = conn
-        .query_drop(format!("SET SESSION max_execution_time = {timeout}"))
-        .await;
-
     let stmts = split_sql_statements_for(&query.text, SqlDialect::Mysql);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
 
+    let timeout = query.timeout_ms.max(1);
+    // Same lock as Postgres: Read mode and EXPLAIN ANALYZE cannot write even
+    // when the classifier misses. A rejected START TRANSACTION fails the query
+    // closed — we do not fall through to an unconstrained connection.
+    let lock_writes = query.mode == QueryMode::Read
+        || stmts
+            .iter()
+            .any(|sql| sql_explain_executes(sql, SqlDialect::Mysql));
+
+    let _ = conn
+        .query_drop(format!("SET SESSION max_execution_time = {timeout}"))
+        .await;
+
+    let ran = if lock_writes {
+        if let Err(err) = conn.query_drop("START TRANSACTION READ ONLY").await {
+            let _ = conn.query_drop("SET SESSION max_execution_time = 0").await;
+            return Err(query_failed(err));
+        }
+        let result = run_batch(&mut conn, query, &stmts, true).await;
+        end_read_only_txn(conn, result).await?
+    } else {
+        let result = run_batch(&mut conn, query, &stmts, false).await;
+        let _ = conn.query_drop("SET SESSION max_execution_time = 0").await;
+        result?
+    };
+
+    let mut out = ran;
+    out.duration_ms = start.elapsed().as_millis() as u64;
+    Ok(out)
+}
+
+async fn end_read_only_txn(
+    mut conn: mysql_async::Conn,
+    result: ConnectorResult<QueryResult>,
+) -> ConnectorResult<QueryResult> {
+    let rolled_back = conn.query_drop("ROLLBACK").await;
+    let _ = conn.query_drop("SET SESSION max_execution_time = 0").await;
+    match rolled_back {
+        Ok(()) => result,
+        Err(err) => {
+            let _ = conn.disconnect().await;
+            result.and(Err(query_failed(err)))
+        }
+    }
+}
+
+async fn run_batch(
+    conn: &mut mysql_async::Conn,
+    query: &ValidatedQuery,
+    stmts: &[String],
+    locked: bool,
+) -> ConnectorResult<QueryResult> {
+    let max_rows = query.max_rows as usize;
+    let mode = query.mode;
     let batch_n = stmts.len();
     let mut last: Option<QueryResult> = None;
 
@@ -134,9 +180,24 @@ pub(super) async fn execute_query(
         };
 
         last = Some(result);
+        if locked {
+            ensure_still_read_only(conn).await?;
+        }
     }
 
-    let mut out = last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))?;
-    out.duration_ms = start.elapsed().as_millis() as u64;
-    Ok(out)
+    last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))
+}
+
+async fn ensure_still_read_only(conn: &mut mysql_async::Conn) -> ConnectorResult<()> {
+    // Cast so a numeric or string column both come back as text.
+    let value: Option<String> = conn
+        .query_first("SELECT CASE WHEN @@transaction_read_only = 1 THEN 'on' ELSE 'off' END")
+        .await
+        .map_err(query_failed)?;
+    if value.as_deref() == Some("on") {
+        return Ok(());
+    }
+    Err(ConnectorError::Query(
+        "The read-only transaction ended before every statement ran. Later statements were not executed.".into(),
+    ))
 }

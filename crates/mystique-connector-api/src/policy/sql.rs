@@ -15,6 +15,10 @@ pub fn split_sql_statements_for(sql: &str, dialect: SqlDialect) -> Vec<String> {
 }
 
 /// INSERT / UPDATE / REPLACE / MERGE only (P3.2 `safe_write`). All statements in a batch must match.
+pub fn sql_explain_executes(text: &str, dialect: SqlDialect) -> bool {
+    mystique_sql::explain_executes(text, dialect)
+}
+
 pub fn sql_is_safe_dml(text: &str) -> bool {
     sql_is_safe_dml_for(text, SqlDialect::Generic)
 }

@@ -1,5 +1,6 @@
 //! File-backed SQLite session — thin [`ConnectorSession`] facade over focused modules.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
@@ -30,17 +31,23 @@ pub(crate) use error::query_failed;
 
 pub struct SqliteSession {
     pool: Pool<SqliteConnectionManager>,
+    path: PathBuf,
     max_size: u32,
     closed: AtomicBool,
 }
 
 impl SqliteSession {
-    pub fn new(pool: Pool<SqliteConnectionManager>, max_size: u32) -> Self {
+    pub fn new(pool: Pool<SqliteConnectionManager>, path: PathBuf, max_size: u32) -> Self {
         Self {
             pool,
+            path,
             max_size,
             closed: AtomicBool::new(false),
         }
+    }
+
+    pub(super) fn path(&self) -> PathBuf {
+        self.path.clone()
     }
 
     pub(super) fn ensure_open(&self) -> ConnectorResult<()> {

@@ -338,11 +338,23 @@ impl ConnectionManager {
         &self,
         session_id: &str,
     ) -> ConnectorResult<std::sync::Arc<dyn ConnectorSession>> {
+        let (session, _) = self.session_and_read_only(session_id).await?;
+        Ok(session)
+    }
+
+    /// The session plus the profile read-only bit stored at open.
+    ///
+    /// Callers must use this bit, not a client-sent `profile_read_only: false`,
+    /// to decide whether a query is allowed to write.
+    pub(super) async fn session_and_read_only(
+        &self,
+        session_id: &str,
+    ) -> ConnectorResult<(std::sync::Arc<dyn ConnectorSession>, bool)> {
         let guard = self.sessions.read().await;
         let live = guard.get(session_id).ok_or_else(|| {
             ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
         })?;
-        Ok(std::sync::Arc::clone(&live.session))
+        Ok((std::sync::Arc::clone(&live.session), live.read_only))
     }
 }
 

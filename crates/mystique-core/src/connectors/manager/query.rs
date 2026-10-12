@@ -9,14 +9,12 @@ use super::ConnectionManager;
 impl ConnectionManager {
     /// Validate via per-engine policy SPI, then execute on the live session.
     pub async fn execute_query(&self, req: ExecuteQueryRequest) -> ConnectorResult<QueryResult> {
-        let session = self.session(&req.session_id).await?;
+        let (session, live_read_only) = self.session_and_read_only(&req.session_id).await?;
 
         let engine = session.engine_id().to_string();
-        let mode = if req.profile_read_only {
-            QueryMode::Read
-        } else {
-            req.mode
-        };
+        // The live session wins. A client can only make the call stricter.
+        let read_only = live_read_only || req.profile_read_only;
+        let mode = if read_only { QueryMode::Read } else { req.mode };
 
         let policy = self.registry.policy(&engine).ok_or_else(|| {
             ConnectorError::Internal(format!("no query policy registered for engine `{engine}`"))
@@ -36,7 +34,7 @@ impl ConnectionManager {
             &req.text,
             object_name.as_deref(),
             req.confirm_object_name.as_deref(),
-            req.profile_read_only,
+            read_only,
         )
         .await?;
 

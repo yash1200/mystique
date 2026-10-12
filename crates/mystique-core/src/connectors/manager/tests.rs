@@ -406,3 +406,103 @@ async fn local_write_skips_unlock() {
     let _ = mgr.close_session("local").await;
     let _ = std::fs::remove_file(&path);
 }
+
+#[tokio::test]
+async fn live_read_only_ignores_a_client_write_flag() {
+    let path = std::env::temp_dir().join(format!("mystique-live-ro-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    let path_str = path.to_string_lossy().to_string();
+
+    mgr.open_session(OpenSessionRequest {
+        engine: "sqlite".into(),
+        plugin_config: json!({ "path": path_str }),
+        password: None,
+        pool: None,
+        session_id: Some("seed".into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: Some("local".into()),
+        connection_name: None,
+        profile_read_only: false,
+    })
+    .await
+    .expect("open seed");
+    mgr.execute_query(write_req(
+        "seed",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+    mgr.close_session("seed").await.expect("close seed");
+
+    mgr.open_session(OpenSessionRequest {
+        engine: "sqlite".into(),
+        plugin_config: json!({ "path": path_str }),
+        password: None,
+        pool: None,
+        session_id: Some("ro".into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: Some("local".into()),
+        connection_name: None,
+        profile_read_only: true,
+    })
+    .await
+    .expect("open read-only");
+
+    let err = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "ro".into(),
+            text: "DELETE FROM t".into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect_err("client write flag must not override the session");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("read-only")
+            || err.to_string().to_ascii_lowercase().contains("readonly"),
+        "{err}"
+    );
+
+    let count = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "ro".into(),
+            text: "SELECT COUNT(*) FROM t".into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+        })
+        .await
+        .expect("count");
+    assert_eq!(count.rows[0][0], json!(1));
+
+    let _ = mgr.close_session("ro").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+fn write_req(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQueryRequest {
+    mystique_connector_api::ExecuteQueryRequest {
+        session_id: session_id.into(),
+        text: text.into(),
+        mode: mystique_connector_api::QueryMode::Write,
+        max_rows: None,
+        timeout_ms: None,
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+    }
+}

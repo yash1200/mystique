@@ -3,9 +3,10 @@
 use std::time::Instant;
 
 use mystique_connector_api::{
-    split_sql_statements_for, ConnectorError, ConnectorResult, QueryColumn, QueryResult,
-    SqlDialect, ValidatedQuery,
+    split_sql_statements_for, sql_explain_executes, ConnectorError, ConnectorResult, QueryColumn,
+    QueryMode, QueryResult, SqlDialect, ValidatedQuery,
 };
+use rusqlite::Connection;
 
 use super::encode::value_ref_json;
 use super::query_failed;
@@ -26,11 +27,32 @@ pub(super) async fn execute_query(
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
 
+    let lock_writes = mode == QueryMode::Read
+        || stmts
+            .iter()
+            .any(|sql| sql_explain_executes(sql, SqlDialect::Sqlite));
+    // `PRAGMA query_only` must not be set on a pooled connection. A later
+    // checkout would stay read-only if we forgot to turn it off. A dedicated
+    // connection is dropped at the end of this call, which is the only way
+    // the pragma is cleared.
+    let path = session.path();
+
     let result = session
         .blocking(move || -> ConnectorResult<QueryResult> {
-            let conn = pool
-                .get()
-                .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+            let pooled;
+            let dedicated;
+            let conn: &Connection = if lock_writes {
+                dedicated = Connection::open(&path).map_err(query_failed)?;
+                dedicated
+                    .execute_batch("PRAGMA query_only = ON")
+                    .map_err(query_failed)?;
+                &dedicated
+            } else {
+                pooled = pool
+                    .get()
+                    .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+                &pooled
+            };
 
             let batch_n = stmts.len();
             let mut last: Option<QueryResult> = None;
@@ -124,6 +146,9 @@ pub(super) async fn execute_query(
                 };
 
                 last = Some(result);
+                if lock_writes {
+                    ensure_still_read_only(conn)?;
+                }
             }
 
             last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))
@@ -134,4 +159,162 @@ pub(super) async fn execute_query(
         duration_ms: start.elapsed().as_millis() as u64,
         ..result
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use mystique_connector_api::{
+        ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
+    };
+    use serde_json::json;
+
+    use crate::SqliteConnector;
+
+    fn query(text: &str, mode: QueryMode) -> ValidatedQuery {
+        ValidatedQuery {
+            text: text.into(),
+            mode,
+            max_rows: 50,
+            timeout_ms: 5_000,
+            collection: None,
+            database: None,
+        }
+    }
+
+    fn temp_path() -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("mystique-ro-{}-{nanos}.sqlite", std::process::id()))
+    }
+
+    #[tokio::test]
+    async fn read_mode_delete_does_not_write_and_pooled_write_still_works() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = SqliteConnector
+            .connect(&ConnectionConfig {
+                engine: "sqlite".into(),
+                plugin_config: json!({ "path": path.to_string_lossy() }),
+                password: None,
+                pool: PoolConfig {
+                    max_size: 1,
+                    min_idle: 0,
+                    acquire_timeout_ms: 3_000,
+                    idle_timeout_secs: 5,
+                },
+            })
+            .await
+            .expect("connect");
+
+        session
+            .execute_query(&query(
+                "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+                QueryMode::Write,
+            ))
+            .await
+            .expect("seed");
+
+        let err = session
+            .execute_query(&query("DELETE FROM t", QueryMode::Read))
+            .await
+            .expect_err("delete in read mode");
+        let msg = err.to_string().to_ascii_lowercase();
+        assert!(
+            msg.contains("readonly") || msg.contains("read-only"),
+            "{msg}"
+        );
+
+        let count = session
+            .execute_query(&query("SELECT COUNT(*) FROM t", QueryMode::Read))
+            .await
+            .expect("count");
+        assert_eq!(count.rows[0][0], json!(1));
+
+        let drop_err = session
+            .execute_query(&query("DROP TABLE t", QueryMode::Read))
+            .await
+            .expect_err("drop in read mode");
+        assert!(
+            drop_err
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("readonly")
+                || drop_err
+                    .to_string()
+                    .to_ascii_lowercase()
+                    .contains("read-only"),
+            "{drop_err}"
+        );
+
+        session
+            .execute_query(&query("DELETE FROM t", QueryMode::Write))
+            .await
+            .expect("pooled write after read-only");
+
+        let pragma = session
+            .execute_query(&query("PRAGMA query_only", QueryMode::Write))
+            .await
+            .expect("pragma");
+        assert_eq!(pragma.rows[0][0], json!(0));
+
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn disabling_query_only_does_not_run_the_following_delete() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = SqliteConnector
+            .connect(&ConnectionConfig {
+                engine: "sqlite".into(),
+                plugin_config: json!({ "path": path.to_string_lossy() }),
+                password: None,
+                pool: PoolConfig::default(),
+            })
+            .await
+            .expect("connect");
+        session
+            .execute_query(&query(
+                "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+                QueryMode::Write,
+            ))
+            .await
+            .expect("seed");
+
+        let err = session
+            .execute_query(&query(
+                "PRAGMA query_only = OFF; DELETE FROM t",
+                QueryMode::Read,
+            ))
+            .await
+            .expect_err("batch must stop");
+        assert!(err.to_string().contains("turned off"), "{}", err);
+
+        let count = session
+            .execute_query(&query("SELECT COUNT(*) FROM t", QueryMode::Write))
+            .await
+            .expect("count");
+        assert_eq!(count.rows[0][0], json!(1));
+
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
+}
+
+fn ensure_still_read_only(conn: &Connection) -> ConnectorResult<()> {
+    let on: i64 = conn
+        .query_row("PRAGMA query_only", [], |row| row.get(0))
+        .map_err(query_failed)?;
+    if on != 0 {
+        return Ok(());
+    }
+    Err(ConnectorError::Query(
+        "The read-only connection was turned off before every statement ran. Later statements were not executed.".into(),
+    ))
 }

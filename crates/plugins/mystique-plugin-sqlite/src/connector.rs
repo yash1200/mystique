@@ -91,6 +91,7 @@ impl DatabaseConnector for SqliteConnector {
         &self,
         config: &ConnectionConfig,
     ) -> ConnectorResult<Box<dyn ConnectorSession>> {
+        let path = resolve_path(config)?;
         let config = config.clone();
         let max_size = config.pool.max_size;
         let pool = tokio::task::spawn_blocking(move || build_pool(&config))
@@ -110,6 +111,6 @@ impl DatabaseConnector for SqliteConnector {
             .map_err(|e| ConnectorError::Internal(e.to_string()))??;
         }
 
-        Ok(Box::new(SqliteSession::new(pool, max_size)))
+        Ok(Box::new(SqliteSession::new(pool, path, max_size)))
     }
 }

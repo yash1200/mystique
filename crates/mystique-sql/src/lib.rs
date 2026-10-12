@@ -10,5 +10,5 @@ mod split;
 
 pub use dialect::SqlDialect;
 pub use ident::{quote_ident, quote_path};
-pub use risk::{classify, destructive_object_name, is_safe_dml, StatementRisk};
+pub use risk::{classify, destructive_object_name, explain_executes, is_safe_dml, StatementRisk};
 pub use split::split_statements;

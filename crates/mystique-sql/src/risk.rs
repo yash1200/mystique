@@ -45,6 +45,58 @@ pub fn is_safe_dml(sql: &str, dialect: SqlDialect) -> bool {
     stmts.iter().all(|s| one_is_safe_dml(s, dialect))
 }
 
+/// True when a statement will execute its target, not only plan it.
+///
+/// `EXPLAIN ANALYZE` and `EXPLAIN (ANALYZE …)` run the inner statement.
+/// Plain `EXPLAIN` and SQLite `EXPLAIN QUERY PLAN` do not. Parse failure
+/// still returns true when the text is an `EXPLAIN` that mentions `ANALYZE`,
+/// so a parenthesised form we cannot parse is not run unconstrained.
+pub fn explain_executes(sql: &str, dialect: SqlDialect) -> bool {
+    let Some(parsed) = parse(sql, dialect) else {
+        return looks_like_explain_analyze(sql);
+    };
+    parsed.iter().any(ast_explain_executes)
+}
+
+fn looks_like_explain_analyze(sql: &str) -> bool {
+    let lower = sql.trim_start().to_ascii_lowercase();
+    lower.starts_with("explain") && lower.contains("analyze")
+}
+
+fn ast_explain_executes(stmt: &Statement) -> bool {
+    let Statement::Explain {
+        analyze,
+        query_plan,
+        options,
+        ..
+    } = stmt
+    else {
+        return false;
+    };
+    if *query_plan && !*analyze && !options_enable_analyze(options) {
+        return false;
+    }
+    *analyze || options_enable_analyze(options)
+}
+
+fn options_enable_analyze(options: &Option<Vec<sqlparser::ast::UtilityOption>>) -> bool {
+    let Some(options) = options else {
+        return false;
+    };
+    options.iter().any(|opt| {
+        if !opt.name.value.eq_ignore_ascii_case("analyze") {
+            return false;
+        }
+        match &opt.arg {
+            None => true,
+            Some(expr) => {
+                let text = expr.to_string().to_ascii_lowercase();
+                !matches!(text.as_str(), "false" | "off" | "0" | "no")
+            }
+        }
+    })
+}
+
 /// Last identifier on a DROP / TRUNCATE in the batch (type-to-confirm).
 pub fn destructive_object_name(sql: &str, dialect: SqlDialect) -> Option<String> {
     let stmts = split_statements(sql, dialect);
@@ -310,6 +362,40 @@ mod tests {
     #[test]
     fn explain_select_is_read() {
         assert_eq!(pg("EXPLAIN SELECT 1"), StatementRisk::Read);
+    }
+
+    #[test]
+    fn explain_analyze_executes_including_parenthesised_options() {
+        assert!(explain_executes(
+            "EXPLAIN ANALYZE DELETE FROM t",
+            SqlDialect::Postgres
+        ));
+        assert!(explain_executes(
+            "EXPLAIN (ANALYZE) DELETE FROM t",
+            SqlDialect::Postgres
+        ));
+        assert!(explain_executes(
+            "EXPLAIN (ANALYZE true, FORMAT JSON) DELETE FROM t",
+            SqlDialect::Postgres
+        ));
+        assert!(explain_executes(
+            "EXPLAIN ANALYZE SELECT 1",
+            SqlDialect::Mysql
+        ));
+    }
+
+    #[test]
+    fn plain_explain_does_not_execute() {
+        assert!(!explain_executes("EXPLAIN SELECT 1", SqlDialect::Postgres));
+        assert!(!explain_executes(
+            "EXPLAIN (ANALYZE false) DELETE FROM t",
+            SqlDialect::Postgres
+        ));
+        assert!(!explain_executes(
+            "EXPLAIN QUERY PLAN SELECT 1",
+            SqlDialect::Sqlite
+        ));
+        assert!(!explain_executes("SELECT 1", SqlDialect::Postgres));
     }
 
     #[test]
