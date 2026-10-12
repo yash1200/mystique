@@ -19,7 +19,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::Er,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: true,
+            supports_cancel_query: false,
             supports_pooling: true,
             binds_session_to_database: true,
             prefer_database_from_uri: false,
@@ -83,7 +83,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::CollectionMap,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: true,
+            supports_cancel_query: false,
             supports_pooling: true,
             binds_session_to_database: false,
             prefer_database_from_uri: true,
@@ -115,7 +115,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::Er,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: true,
+            supports_cancel_query: false,
             supports_pooling: true,
             binds_session_to_database: true,
             prefer_database_from_uri: false,
@@ -138,6 +138,22 @@ impl EngineCapabilities {
 #[cfg(test)]
 mod create_caps_tests {
     use super::*;
+
+    #[test]
+    fn cancel_is_off_until_a_real_cancel_api() {
+        for caps in [
+            EngineCapabilities::postgres_defaults(),
+            EngineCapabilities::mysql_defaults(),
+            EngineCapabilities::sqlite_defaults(),
+            EngineCapabilities::mongodb_defaults(),
+        ] {
+            assert!(
+                !caps.supports_cancel_query,
+                "{} still advertises cancel",
+                caps.engine
+            );
+        }
+    }
 
     #[test]
     fn server_metrics_flags_per_engine() {

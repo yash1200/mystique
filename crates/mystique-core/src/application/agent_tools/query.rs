@@ -6,7 +6,7 @@ use crate::storage::sqlite::repo;
 
 use super::download::download_from_result;
 use super::policy::{is_safe_dml, ToolCaller};
-use super::types::{AgentQueryDownload, AGENT_DEFAULT_ROWS, AGENT_MAX_ROWS};
+use super::types::{clamp_agent_max_rows, AgentQueryDownload};
 use super::AgentTools;
 
 impl AgentTools {
@@ -24,9 +24,7 @@ impl AgentTools {
         if text.is_empty() {
             return Err(AppError::Invalid("query is required".into()));
         }
-        let max = max_rows
-            .unwrap_or(AGENT_DEFAULT_ROWS)
-            .clamp(1, AGENT_MAX_ROWS);
+        let max = clamp_agent_max_rows(max_rows);
         let result = self
             .connections
             .execute_query(ExecuteQueryRequest {
@@ -76,9 +74,7 @@ impl AgentTools {
             ));
         }
         let sid = self.ensure_session(connection_id).await?;
-        let max = max_rows
-            .unwrap_or(AGENT_DEFAULT_ROWS)
-            .clamp(1, AGENT_MAX_ROWS);
+        let max = clamp_agent_max_rows(max_rows);
         let mode = if risk == WriteRisk::Read {
             QueryMode::Read
         } else {

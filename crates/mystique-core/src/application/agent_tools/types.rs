@@ -5,10 +5,30 @@ use serde_json::Value as JsonValue;
 pub const AGENT_MAX_ROWS: u32 = 2_000;
 pub const AGENT_DEFAULT_ROWS: u32 = 200;
 
+/// Cap passed to the driver. Postgres fetches only this many rows from the server.
+pub fn clamp_agent_max_rows(max_rows: Option<u32>) -> u32 {
+    max_rows
+        .unwrap_or(AGENT_DEFAULT_ROWS)
+        .clamp(1, AGENT_MAX_ROWS)
+}
+
 const _: () = assert!(
     AGENT_MAX_ROWS < HARD_MAX_ROWS,
     "agent row cap must stay below the driver fetch ceiling"
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_row_cap_clamps_zero_and_huge() {
+        assert_eq!(clamp_agent_max_rows(None), AGENT_DEFAULT_ROWS);
+        assert_eq!(clamp_agent_max_rows(Some(0)), 1);
+        assert_eq!(clamp_agent_max_rows(Some(50)), 50);
+        assert_eq!(clamp_agent_max_rows(Some(u32::MAX)), AGENT_MAX_ROWS);
+    }
+}
 
 /// Safe connection card for models (no host / password / URI).
 #[derive(Debug, Clone, Serialize, Deserialize)]

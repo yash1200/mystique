@@ -93,7 +93,7 @@ export const mongodb: EngineAdapter = {
 		modelViewKind: 'COLLECTION_MAP',
 		supportsPagination: true,
 		supportsWrite: false,
-		supportsCancelQuery: true,
+		supportsCancelQuery: false,
 		supportsPooling: true,
 		bindsSessionToDatabase: false,
 		preferDatabaseFromUri: true,
