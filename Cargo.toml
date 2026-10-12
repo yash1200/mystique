@@ -13,10 +13,14 @@ members = [
     "src-tauri",
 ]
 
-# Shared release profile for all workspace members
+# Shared release profile for all workspace members.
+# `panic = "unwind"` so a plugin bug is caught at the Tauri IPC boundary
+# (`src-tauri/src/ipc/mod.rs`, `guard` / `guard_sync`) and returned as
+# `internal error: …` instead of aborting the desktop process.
+# Do not set this back to "abort" while those guards are the safety net.
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+panic = "unwind"
 strip = true

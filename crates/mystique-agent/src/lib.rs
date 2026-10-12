@@ -3,6 +3,8 @@
 //! Calls [`mystique_core::AgentTools`] directly (never the MCP HTTP server).
 //! LLM traffic goes through Rig.
 
+#![deny(clippy::indexing_slicing, clippy::unwrap_used)]
+
 mod providers;
 mod runtime;
 mod secrets;

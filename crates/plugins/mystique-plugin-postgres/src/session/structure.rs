@@ -3,8 +3,8 @@
 use mystique_connector_api::{cell_bool, ConnectorResult, ObjectStructure, StructureSection};
 
 use super::catalog;
-use super::query_failed;
 use super::PostgresSession;
+use super::{pg_col, query_failed};
 
 pub(super) async fn describe_object_structure(
     session: &PostgresSession,
@@ -74,17 +74,17 @@ pub(super) async fn describe_object_structure(
         )
         .await
         .map_err(query_failed)?;
-    let index_rows: Vec<Vec<String>> = idx_rows
-        .iter()
-        .map(|r| {
-            vec![
-                r.get::<_, String>(0),
-                cell_bool(r.get::<_, bool>(1)),
-                cell_bool(r.get::<_, bool>(2)),
-                r.get::<_, String>(3),
-            ]
-        })
-        .collect();
+    let mut index_rows = Vec::with_capacity(idx_rows.len());
+    for r in &idx_rows {
+        let unique: bool = pg_col(r, 1)?;
+        let primary: bool = pg_col(r, 2)?;
+        index_rows.push(vec![
+            pg_col::<String>(r, 0)?,
+            cell_bool(unique),
+            cell_bool(primary),
+            pg_col::<String>(r, 3)?,
+        ]);
+    }
     let indexes_sec = StructureSection::table(
         "indexes",
         "Indexes",
@@ -123,19 +123,17 @@ pub(super) async fn describe_object_structure(
         )
         .await
         .map_err(query_failed)?;
-    let fk_display: Vec<Vec<String>> = fk_rows
-        .iter()
-        .map(|r| {
-            let to_schema: String = r.get(2);
-            let to_table: String = r.get(3);
-            vec![
-                r.get::<_, String>(0),
-                r.get::<_, String>(1),
-                format!("{to_schema}.{to_table}"),
-                r.get::<_, String>(4),
-            ]
-        })
-        .collect();
+    let mut fk_display = Vec::with_capacity(fk_rows.len());
+    for r in &fk_rows {
+        let to_schema: String = pg_col(r, 2)?;
+        let to_table: String = pg_col(r, 3)?;
+        fk_display.push(vec![
+            pg_col::<String>(r, 0)?,
+            pg_col::<String>(r, 1)?,
+            format!("{to_schema}.{to_table}"),
+            pg_col::<String>(r, 4)?,
+        ]);
+    }
     let fks_sec = StructureSection::table(
         "foreign_keys",
         "Foreign keys",
@@ -174,19 +172,17 @@ pub(super) async fn describe_object_structure(
         )
         .await
         .map_err(query_failed)?;
-    let inbound_display: Vec<Vec<String>> = inbound
-        .iter()
-        .map(|r| {
-            let from_schema: String = r.get(1);
-            let from_table: String = r.get(2);
-            vec![
-                r.get::<_, String>(0),
-                format!("{from_schema}.{from_table}"),
-                r.get::<_, String>(3),
-                r.get::<_, String>(4),
-            ]
-        })
-        .collect();
+    let mut inbound_display = Vec::with_capacity(inbound.len());
+    for r in &inbound {
+        let from_schema: String = pg_col(r, 1)?;
+        let from_table: String = pg_col(r, 2)?;
+        inbound_display.push(vec![
+            pg_col::<String>(r, 0)?,
+            format!("{from_schema}.{from_table}"),
+            pg_col::<String>(r, 3)?,
+            pg_col::<String>(r, 4)?,
+        ]);
+    }
     let refs_sec = StructureSection::table(
         "referenced_by",
         "Referenced by",
@@ -217,17 +213,15 @@ pub(super) async fn describe_object_structure(
         )
         .await
         .map_err(query_failed)?;
-    let trigger_display: Vec<Vec<String>> = trig_rows
-        .iter()
-        .map(|r| {
-            vec![
-                r.get::<_, String>(0),
-                r.get::<_, String>(1),
-                r.get::<_, String>(2),
-                r.get::<_, String>(3),
-            ]
-        })
-        .collect();
+    let mut trigger_display = Vec::with_capacity(trig_rows.len());
+    for r in &trig_rows {
+        trigger_display.push(vec![
+            pg_col::<String>(r, 0)?,
+            pg_col::<String>(r, 1)?,
+            pg_col::<String>(r, 2)?,
+            pg_col::<String>(r, 3)?,
+        ]);
+    }
     let triggers_sec = StructureSection::table(
         "triggers",
         "Triggers",
@@ -260,10 +254,10 @@ pub(super) async fn describe_object_structure(
         )
         .await
         .map_err(query_failed)?;
-    let check_display: Vec<Vec<String>> = check_rows
-        .iter()
-        .map(|r| vec![r.get::<_, String>(0), r.get::<_, String>(1)])
-        .collect();
+    let mut check_display = Vec::with_capacity(check_rows.len());
+    for r in &check_rows {
+        check_display.push(vec![pg_col::<String>(r, 0)?, pg_col::<String>(r, 1)?]);
+    }
     let checks_sec = StructureSection::table(
         "checks",
         "Check constraints",

@@ -12,7 +12,7 @@ use crate::session::PostgresSession;
 pub(crate) mod pool;
 pub(crate) mod url;
 
-use pool::{connect_once, create_pool, format_error};
+use pool::{connect_once, create_pool, format_error, pg_col};
 use url::{format_postgres_url, parse_postgres_url};
 
 pub struct PostgresConnector;
@@ -119,7 +119,7 @@ impl DatabaseConnector for PostgresConnector {
             .query_one("SELECT version()", &[])
             .await
             .map_err(|e| ConnectorError::Query(format_error(&e)))?;
-        let version: String = row.get(0);
+        let version: String = pg_col(&row, 0)?;
         let latency_ms = start.elapsed().as_millis() as u64;
 
         drop(client);

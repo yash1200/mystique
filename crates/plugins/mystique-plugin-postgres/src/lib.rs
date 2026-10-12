@@ -2,6 +2,8 @@
 //!
 //! Pooling: [`deadpool_postgres`] over [`tokio_postgres`].
 
+#![deny(clippy::indexing_slicing, clippy::unwrap_used)]
+
 mod connector;
 mod session;
 

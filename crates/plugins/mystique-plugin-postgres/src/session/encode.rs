@@ -118,7 +118,10 @@ pub(super) fn fmt_naive_time(t: NaiveTime) -> String {
 }
 
 pub(super) fn cell_json(row: &Row, idx: usize) -> JsonValue {
-    decode_cell(row, idx, row.columns()[idx].type_())
+    match row.columns().get(idx) {
+        Some(column) => decode_cell(row, idx, column.type_()),
+        None => JsonValue::Null,
+    }
 }
 
 fn decode_cell(row: &Row, idx: usize, ty: &Type) -> JsonValue {

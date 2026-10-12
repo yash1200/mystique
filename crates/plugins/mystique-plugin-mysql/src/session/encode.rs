@@ -119,33 +119,40 @@ pub(super) fn parse_mysql_enum_values(column_type: &str) -> Option<Vec<String>> 
         return None;
     }
     let mut values = Vec::new();
-    let bytes = column_type.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\'' {
-            i += 1;
-            let mut s = String::new();
-            while i < bytes.len() {
-                if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                    s.push(bytes[i + 1] as char);
-                    i += 2;
-                    continue;
-                }
-                if bytes[i] == b'\'' {
-                    i += 1;
-                    break;
-                }
-                s.push(bytes[i] as char);
-                i += 1;
-            }
-            values.push(s);
-        } else {
-            i += 1;
+    let mut chars = column_type.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\'' {
+            continue;
         }
+        let mut s = String::new();
+        loop {
+            match chars.next() {
+                None => break,
+                Some('\\') => {
+                    if let Some(next) = chars.next() {
+                        s.push(next);
+                    }
+                }
+                Some('\'') => break,
+                Some(c) => s.push(c),
+            }
+        }
+        values.push(s);
     }
     if values.is_empty() {
         None
     } else {
         Some(values)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enum_values_keep_utf8() {
+        let values = parse_mysql_enum_values("enum('日本','Zürich')").expect("enum");
+        assert_eq!(values, vec!["日本".to_string(), "Zürich".to_string()]);
     }
 }

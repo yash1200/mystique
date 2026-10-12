@@ -25,7 +25,7 @@ pub(super) const AGENT_TIMEOUT_SECS: u64 = 180;
 pub(crate) fn history_from(prior: &[AgentMessage]) -> Vec<Message> {
     let mut out = Vec::new();
     let start = prior.len().saturating_sub(20);
-    for msg in &prior[start..] {
+    for msg in prior.get(start..).unwrap_or(&[]) {
         match msg.role.as_str() {
             "user" => out.push(Message::user(&msg.content)),
             "assistant" => out.push(Message::assistant(&msg.content)),

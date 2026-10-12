@@ -34,6 +34,45 @@ pub(crate) fn query_failed(err: tokio_postgres::Error) -> ConnectorError {
     ConnectorError::Query(format_error(&err))
 }
 
+/// `Row::get` panics on NULL or a width mismatch (Cockroach INT8 vs INT4).
+pub(crate) fn pg_col<'a, T>(row: &'a tokio_postgres::Row, idx: usize) -> ConnectorResult<T>
+where
+    T: tokio_postgres::types::FromSql<'a>,
+{
+    row.try_get(idx)
+        .map_err(|err| ConnectorError::Query(format!("Could not read column {idx}: {err}")))
+}
+
+/// Length and precision columns are int4 on Postgres and int8 on Cockroach.
+pub(crate) fn pg_i32_col(row: &tokio_postgres::Row, idx: usize) -> ConnectorResult<Option<i32>> {
+    match row.try_get::<_, Option<i32>>(idx) {
+        Ok(value) => Ok(value),
+        Err(err) => match row.try_get::<_, Option<i64>>(idx) {
+            Ok(value) => value
+                .map(i32::try_from)
+                .transpose()
+                .map_err(|_| ConnectorError::Query(format!("Column {idx} does not fit in int4."))),
+            Err(_) => Err(ConnectorError::Query(format!(
+                "Could not read column {idx}: {err}"
+            ))),
+        },
+    }
+}
+
+/// `oid` is u32 on Postgres and may arrive as int8 on Cockroach.
+pub(crate) fn pg_u32_col(row: &tokio_postgres::Row, idx: usize) -> ConnectorResult<u32> {
+    if let Ok(value) = row.try_get::<_, u32>(idx) {
+        return Ok(value);
+    }
+    if let Ok(value) = row.try_get::<_, i64>(idx) {
+        return u32::try_from(value)
+            .map_err(|_| ConnectorError::Query(format!("Column {idx} does not fit in u32.")));
+    }
+    let value: i32 = pg_col(row, idx)?;
+    u32::try_from(value)
+        .map_err(|_| ConnectorError::Query(format!("Column {idx} does not fit in u32.")))
+}
+
 fn find_db_error<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a DbError> {
     let mut cur = Some(err);
     while let Some(e) = cur {

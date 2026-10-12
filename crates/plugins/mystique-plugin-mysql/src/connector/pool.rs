@@ -93,9 +93,9 @@ pub(super) fn build_opts(config: &ConnectionConfig) -> ConnectorResult<mysql_asy
 
     let max_size = config.pool.max_size.max(1) as usize;
     let min_idle = (config.pool.min_idle as usize).min(max_size);
-    let constraints = PoolConstraints::new(min_idle, max_size).unwrap_or_else(|| {
-        PoolConstraints::new(0, max_size.max(1)).expect("valid pool constraints")
-    });
+    let constraints = PoolConstraints::new(min_idle, max_size)
+        .or_else(|| PoolConstraints::new(0, max_size.max(1)))
+        .ok_or_else(|| ConnectorError::InvalidConfig("invalid MySQL pool size".into()))?;
     let pool_opts = PoolOpts::default().with_constraints(constraints);
 
     // wait_timeout is server-side idle timeout in seconds (not connect timeout).

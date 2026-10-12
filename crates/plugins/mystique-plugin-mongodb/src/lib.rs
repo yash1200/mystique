@@ -1,5 +1,7 @@
 //! MongoDB engine plugin — official driver manages the connection pool.
 
+#![deny(clippy::indexing_slicing, clippy::unwrap_used)]
+
 mod connector;
 mod preview_filter;
 mod session;

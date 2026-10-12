@@ -24,7 +24,7 @@ mod query;
 mod structure;
 mod transfer;
 
-pub(super) use crate::connector::pool::query_failed;
+pub(super) use crate::connector::pool::{pg_col, pg_i32_col, pg_u32_col, query_failed};
 
 pub struct PostgresSession {
     pool: Pool,

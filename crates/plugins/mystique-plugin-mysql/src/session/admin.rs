@@ -27,11 +27,18 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::CreateStatement => {
             let kw = if is_view { "VIEW" } else { "TABLE" };
             let sql = format!("SHOW CREATE {kw} {qname}");
-            let row: Option<mysql_async::Row> =
-                conn.query_first(sql).await.map_err(query_failed)?;
+            let row = crate::rows::query_first_opt::<mysql_async::Row>(&mut conn, &sql).await?;
             let row =
                 row.ok_or_else(|| ConnectorError::Query(format!("Object {qname} was not found.")))?;
-            let create: Option<String> = row.get(1);
+            let create = match row.get_opt::<Option<String>, _>(1) {
+                Some(Ok(value)) => value,
+                Some(Err(err)) => {
+                    return Err(ConnectorError::Query(format!(
+                        "Could not read CREATE text for {qname}: {err}"
+                    )));
+                }
+                None => None,
+            };
             let statement = create
                 .filter(|s| !s.trim().is_empty())
                 .ok_or_else(|| ConnectorError::Query(format!("No CREATE text for {qname}.")))?;

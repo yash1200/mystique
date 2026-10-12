@@ -6320,6 +6320,8 @@ dependencies = [
 name = "mystique"
 version = "0.1.0"
 dependencies = [
+ "futures-executor",
+ "futures-util",
  "mystique-agent",
  "mystique-core",
  "mystique-mcp",

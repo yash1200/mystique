@@ -29,13 +29,13 @@ pub(crate) fn format_sqlite_url(
         return Err(ConnectorError::InvalidConfig("missing `path`".into()));
     }
 
+    let bytes = path.as_bytes();
+    let windows_drive = bytes.first().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && matches!(bytes.get(2), Some(b'\\' | b'/'));
     let url = if path.starts_with('/') {
         format!("file://{path}")
-    } else if path.len() >= 3
-        && path.as_bytes()[0].is_ascii_alphabetic()
-        && path.as_bytes()[1] == b':'
-        && (path.as_bytes()[2] == b'\\' || path.as_bytes()[2] == b'/')
-    {
+    } else if windows_drive {
         let normalized = path.replace('\\', "/");
         format!("file:///{normalized}")
     } else {

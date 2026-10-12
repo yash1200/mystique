@@ -43,7 +43,7 @@ pub struct AppState {
 
 #[tauri::command]
 fn set_native_menu(app: tauri::AppHandle, state: NativeMenuState) -> Result<(), String> {
-    menu::apply_menu(&app, &state).map_err(|e| e.to_string())
+    crate::ipc::guard_sync(|| menu::apply_menu(&app, &state).map_err(|e| e.to_string()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

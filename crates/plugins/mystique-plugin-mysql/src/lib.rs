@@ -2,7 +2,10 @@
 //!
 //! Pooling: [`mysql_async::Pool`].
 
+#![deny(clippy::indexing_slicing, clippy::unwrap_used)]
+
 mod connector;
+mod rows;
 mod session;
 
 pub use connector::MysqlConnector;

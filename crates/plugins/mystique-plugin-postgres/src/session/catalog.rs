@@ -6,8 +6,8 @@ use mystique_connector_api::{
 };
 
 use super::encode::{pg_opt_i32, pg_type_label};
-use super::query_failed;
 use super::PostgresSession;
+use super::{pg_col, pg_i32_col, query_failed};
 
 pub(super) async fn describe_columns(
     session: &PostgresSession,
@@ -24,10 +24,10 @@ pub(super) async fn describe_columns(
           c.column_name,
           c.data_type,
           c.udt_name,
-          c.character_maximum_length,
-          c.numeric_precision,
-          c.numeric_scale,
-          c.datetime_precision,
+          c.character_maximum_length::int4,
+          c.numeric_precision::int4,
+          c.numeric_scale::int4,
+          c.datetime_precision::int4,
           c.is_nullable,
           (
             SELECT string_agg(e.enumlabel, E'\x1f' ORDER BY e.enumsortorder)
@@ -61,17 +61,17 @@ pub(super) async fn describe_columns(
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let name: String = row.get(0);
-        let data_type: String = row.get(1);
-        let udt_name: String = row.get(2);
-        let char_max: Option<i32> = row.get(3);
-        let num_prec: Option<i32> = row.get(4);
-        let num_scale: Option<i32> = row.get(5);
-        let dt_prec: Option<i32> = row.get(6);
-        let is_nullable: String = row.get(7);
-        let enum_labels: Option<String> = row.get(8);
-        let is_pk: bool = row.get(9);
-        let column_default: Option<String> = row.get(10);
+        let name: String = pg_col(&row, 0)?;
+        let data_type: String = pg_col(&row, 1)?;
+        let udt_name: String = pg_col(&row, 2)?;
+        let char_max = pg_i32_col(&row, 3)?;
+        let num_prec = pg_i32_col(&row, 4)?;
+        let num_scale = pg_i32_col(&row, 5)?;
+        let dt_prec = pg_i32_col(&row, 6)?;
+        let is_nullable: String = pg_col(&row, 7)?;
+        let enum_labels: Option<String> = pg_col(&row, 8)?;
+        let is_pk: bool = pg_col(&row, 9)?;
+        let column_default: Option<String> = pg_col(&row, 10)?;
 
         let enum_values = enum_labels.and_then(|labels| {
             let vals: Vec<String> = if labels.contains('\u{001f}') {
@@ -153,13 +153,16 @@ pub(super) async fn table_references(
     use std::collections::HashMap;
     let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
     for row in fk_rows {
-        let from_col: String = row.get(0);
+        let from_col: String = pg_col(&row, 0)?;
+        let ref_schema: Option<String> = pg_col(&row, 1)?;
+        let ref_table: String = pg_col(&row, 2)?;
+        let ref_column: String = pg_col(&row, 3)?;
         // First FK segment wins for multi-column keys (still navigable).
         by_col.entry(from_col).or_insert(ColumnReference {
             database: None,
-            schema: row.get::<_, Option<String>>(1),
-            table: row.get(2),
-            column: row.get(3),
+            schema: ref_schema,
+            table: ref_table,
+            column: ref_column,
         });
     }
     Ok(by_col.into_iter().collect())
@@ -195,8 +198,8 @@ pub(super) async fn list_catalog_columns(
             r#"
             SELECT c.table_schema, c.table_name, c.column_name,
                    c.data_type, c.udt_name,
-                   c.character_maximum_length, c.numeric_precision,
-                   c.numeric_scale, c.datetime_precision, c.is_nullable,
+                   c.character_maximum_length::int4, c.numeric_precision::int4,
+                   c.numeric_scale::int4, c.datetime_precision::int4, c.is_nullable,
                    EXISTS (
                      SELECT 1
                      FROM information_schema.table_constraints tc
@@ -219,8 +222,8 @@ pub(super) async fn list_catalog_columns(
             r#"
             SELECT c.table_schema, c.table_name, c.column_name,
                    c.data_type, c.udt_name,
-                   c.character_maximum_length, c.numeric_precision,
-                   c.numeric_scale, c.datetime_precision, c.is_nullable,
+                   c.character_maximum_length::int4, c.numeric_precision::int4,
+                   c.numeric_scale::int4, c.datetime_precision::int4, c.is_nullable,
                    EXISTS (
                      SELECT 1
                      FROM information_schema.table_constraints tc
@@ -248,17 +251,17 @@ pub(super) async fn list_catalog_columns(
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let table_schema: String = row.get(0);
-        let table_name: String = row.get(1);
-        let column_name: String = row.get(2);
-        let data_type: String = row.get(3);
-        let udt_name: String = row.get(4);
-        let char_max: Option<i32> = row.get(5);
-        let num_prec: Option<i32> = row.get(6);
-        let num_scale: Option<i32> = row.get(7);
-        let dt_prec: Option<i32> = row.get(8);
-        let is_nullable: String = row.get(9);
-        let is_pk: bool = row.get(10);
+        let table_schema: String = pg_col(&row, 0)?;
+        let table_name: String = pg_col(&row, 1)?;
+        let column_name: String = pg_col(&row, 2)?;
+        let data_type: String = pg_col(&row, 3)?;
+        let udt_name: String = pg_col(&row, 4)?;
+        let char_max = pg_i32_col(&row, 5)?;
+        let num_prec = pg_i32_col(&row, 6)?;
+        let num_scale = pg_i32_col(&row, 7)?;
+        let dt_prec = pg_i32_col(&row, 8)?;
+        let is_nullable: String = pg_col(&row, 9)?;
+        let is_pk: bool = pg_col(&row, 10)?;
 
         out.push(CatalogColumnRow {
             database: None,
@@ -286,7 +289,7 @@ pub(super) async fn list_catalog(
         .query_one("SELECT current_database()", &[])
         .await
         .map_err(query_failed)?;
-    let current: String = db_row.get(0);
+    let current: String = pg_col(&db_row, 0)?;
 
     // Postgres connections are per-database; still list every connectable
     // database on the server so the explorer picker can switch.
@@ -304,7 +307,10 @@ pub(super) async fn list_catalog(
         )
         .await
         .map_err(query_failed)?;
-    let mut names: Vec<String> = db_rows.iter().map(|row| row.get(0)).collect();
+    let mut names = Vec::with_capacity(db_rows.len());
+    for row in &db_rows {
+        names.push(pg_col(row, 0)?);
+    }
     if !names.iter().any(|n| n == &current) {
         names.push(current.clone());
     }
@@ -329,9 +335,9 @@ pub(super) async fn list_catalog(
             .await
             .map_err(query_failed)?;
         for row in table_rows {
-            let schema: String = row.get(0);
-            let name: String = row.get(1);
-            let raw_type: String = row.get(2);
+            let schema: String = pg_col(&row, 0)?;
+            let name: String = pg_col(&row, 1)?;
+            let raw_type: String = pg_col(&row, 2)?;
             let kind = if raw_type.to_ascii_lowercase().contains("view") {
                 "view"
             } else {
@@ -426,13 +432,13 @@ pub(super) async fn list_relationships(
     let mut out = Vec::new();
     for row in rows {
         out.push(CatalogRelationship {
-            from_schema: row.get::<_, Option<String>>(0),
-            from_table: row.get(1),
-            from_column: row.get(2),
-            to_schema: row.get::<_, Option<String>>(3),
-            to_table: row.get(4),
-            to_column: row.get(5),
-            name: row.get::<_, Option<String>>(6),
+            from_schema: pg_col(&row, 0)?,
+            from_table: pg_col(&row, 1)?,
+            from_column: pg_col(&row, 2)?,
+            to_schema: pg_col(&row, 3)?,
+            to_table: pg_col(&row, 4)?,
+            to_column: pg_col(&row, 5)?,
+            name: pg_col(&row, 6)?,
         });
     }
     Ok(out)
@@ -447,6 +453,15 @@ mod tests {
         assert!(!src.contains(payload));
         assert!(src.contains("table_schema = $1"));
         assert!(src.contains("table_name = $2"));
+        assert!(src.contains("character_maximum_length::int4"));
+        assert!(src.contains("numeric_precision::int4"));
+        assert!(src.contains("numeric_scale::int4"));
+        assert!(src.contains("datetime_precision::int4"));
+        // `include_str!` covers this test, so scan only the production half.
+        // The needle is split so this file does not contain the literal call.
+        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let row_get = concat!("row.", "get(");
+        assert!(!prod.contains(row_get), "catalog still calls row.get");
         assert!(!src.contains("replace('\'', \"''\")"));
     }
 }

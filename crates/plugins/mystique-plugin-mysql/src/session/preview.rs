@@ -129,10 +129,8 @@ pub(super) async fn fetch_table_preview_stats(
     let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
     let count_fut = async {
         let mut conn = session.conn().await?;
-        let total: u64 = conn
-            .query_first(count_sql)
-            .await
-            .map_err(query_failed)?
+        let total = crate::rows::query_first_opt::<u64>(&mut conn, &count_sql)
+            .await?
             .unwrap_or(0);
         ConnectorResult::Ok(total)
     };

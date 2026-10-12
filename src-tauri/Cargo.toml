@@ -5,6 +5,11 @@ description = "Mystique desktop shell (Tauri)"
 authors = ["you"]
 edition = "2021"
 
+# Release panic policy lives on the workspace `[profile.release]` in ../Cargo.toml
+# (`panic = "unwind"`). This shell catches a plugin panic in `src/ipc/mod.rs`
+# (`guard` / `guard_sync`) and returns `internal error: …`. A `[profile]` here
+# would be ignored.
+
 [lib]
 name = "mystique_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -20,5 +25,7 @@ tauri = { version = "2", features = ["image-png"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+futures-executor = "0.3.34"
+futures-util = "0.3.34"
 tauri-plugin-dialog = "2.7.3"
 tauri-plugin-fs = "2.5.2"

@@ -70,28 +70,38 @@ fn replace_ctor(
     let b = input.as_bytes();
 
     while i < b.len() {
-        if let Some(rel) = input_lower[i..].find(&name_lower) {
+        let Some(tail) = input_lower.get(i..) else {
+            return Err(ConnectorError::Query(
+                "filter slice was not on a character boundary".into(),
+            ));
+        };
+        if let Some(rel) = tail.find(&name_lower) {
             let abs = i + rel;
             let boundary_ok = abs == 0
-                || !b
-                    .get(abs - 1)
-                    .map(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'.')
-                    .unwrap_or(false);
+                || b.get(abs - 1)
+                    .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != b'_' && *c != b'.');
             // skip `new ` prefix handling: "new Date" — name Date matches after new
             if boundary_ok {
                 let mut j = abs + name.len();
-                while j < b.len() && b[j].is_ascii_whitespace() {
+                while b.get(j).is_some_and(|c| c.is_ascii_whitespace()) {
                     j += 1;
                 }
-                if j < b.len() && b[j] == b'(' {
-                    out.push_str(&input[i..abs]);
+                if b.get(j) == Some(&b'(') {
+                    let Some(prefix) = input.get(i..abs) else {
+                        return Err(ConnectorError::Query(
+                            "filter slice was not on a character boundary".into(),
+                        ));
+                    };
+                    out.push_str(prefix);
                     j += 1;
                     let arg_start = j;
                     let mut depth = 1usize;
                     let mut in_str: Option<u8> = None;
                     let mut esc = false;
                     while j < b.len() && depth > 0 {
-                        let c = b[j];
+                        let Some(c) = b.get(j).copied() else {
+                            break;
+                        };
                         if let Some(q) = in_str {
                             if esc {
                                 esc = false;
@@ -117,18 +127,27 @@ fn replace_ctor(
                             "unclosed {name}(…) in filter"
                         )));
                     }
-                    let arg = &input[arg_start..j];
+                    let Some(arg) = input.get(arg_start..j) else {
+                        return Err(ConnectorError::Query(
+                            "filter slice was not on a character boundary".into(),
+                        ));
+                    };
                     out.push_str(&f(arg)?);
                     i = j + 1;
                     continue;
                 }
             }
             // not a call — copy one char past i and continue search later
-            let ch = input[i..].chars().next().unwrap();
+            let Some(ch) = input.get(i..).and_then(|rest| rest.chars().next()) else {
+                break;
+            };
             out.push(ch);
             i += ch.len_utf8();
         } else {
-            out.push_str(&input[i..]);
+            let Some(rest) = input.get(i..) else {
+                break;
+            };
+            out.push_str(rest);
             break;
         }
     }
@@ -142,8 +161,7 @@ fn quote_unquoted_keys(input: &str) -> String {
     let mut in_str: Option<char> = None;
     let mut esc = false;
 
-    while i < chars.len() {
-        let c = chars[i];
+    while let Some(c) = chars.get(i).copied() {
         if let Some(q) = in_str {
             out.push(c);
             if esc {
@@ -165,22 +183,23 @@ fn quote_unquoted_keys(input: &str) -> String {
         if c == '_' || c == '$' || c.is_ascii_alphabetic() {
             let start = i;
             i += 1;
-            while i < chars.len()
-                && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$')
+            while chars
+                .get(i)
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '$')
             {
                 i += 1;
             }
-            let ident: String = chars[start..i].iter().collect();
+            let ident: String = chars.get(start..i).unwrap_or(&[]).iter().collect();
             let mut j = i;
-            while j < chars.len() && chars[j].is_whitespace() {
+            while chars.get(j).is_some_and(|ch| ch.is_whitespace()) {
                 j += 1;
             }
-            if j < chars.len() && chars[j] == ':' {
+            if chars.get(j).copied() == Some(':') {
                 // bare key → "key"
                 out.push('"');
                 out.push_str(&ident);
                 out.push('"');
-                for ch in &chars[i..j] {
+                for ch in chars.get(i..j).unwrap_or(&[]) {
                     out.push(*ch);
                 }
                 out.push(':');
@@ -202,8 +221,7 @@ fn strip_trailing_commas(input: &str) -> String {
     let mut i = 0;
     let mut in_str: Option<char> = None;
     let mut esc = false;
-    while i < chars.len() {
-        let c = chars[i];
+    while let Some(c) = chars.get(i).copied() {
         if let Some(q) = in_str {
             out.push(c);
             if esc {
@@ -224,10 +242,10 @@ fn strip_trailing_commas(input: &str) -> String {
         }
         if c == ',' {
             let mut j = i + 1;
-            while j < chars.len() && chars[j].is_whitespace() {
+            while chars.get(j).is_some_and(|ch| ch.is_whitespace()) {
                 j += 1;
             }
-            if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
+            if matches!(chars.get(j).copied(), Some('}' | ']')) {
                 i += 1;
                 continue;
             }

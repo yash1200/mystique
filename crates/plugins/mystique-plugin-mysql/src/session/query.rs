@@ -190,10 +190,11 @@ async fn run_batch(
 
 async fn ensure_still_read_only(conn: &mut mysql_async::Conn) -> ConnectorResult<()> {
     // Cast so a numeric or string column both come back as text.
-    let value: Option<String> = conn
-        .query_first("SELECT CASE WHEN @@transaction_read_only = 1 THEN 'on' ELSE 'off' END")
-        .await
-        .map_err(query_failed)?;
+    let value = crate::rows::query_first_opt::<String>(
+        conn,
+        "SELECT CASE WHEN @@transaction_read_only = 1 THEN 'on' ELSE 'off' END",
+    )
+    .await?;
     if value.as_deref() == Some("on") {
         return Ok(());
     }

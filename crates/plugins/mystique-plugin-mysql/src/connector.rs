@@ -117,10 +117,7 @@ impl DatabaseConnector for MysqlConnector {
         let start = Instant::now();
         let (mut conn, pool) = connect_once(config).await?;
 
-        let version: Option<String> = conn
-            .query_first("SELECT VERSION()")
-            .await
-            .map_err(|e| ConnectorError::Query(format_error(&e)))?;
+        let version = crate::rows::query_first_opt::<String>(&mut conn, "SELECT VERSION()").await?;
         let latency_ms = start.elapsed().as_millis() as u64;
 
         drop(conn);

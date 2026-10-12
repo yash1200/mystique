@@ -134,31 +134,38 @@ fn fenced_blocks(text: &str) -> Vec<Fence<'_>> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'`' {
+        if bytes.get(i) == Some(&b'`') {
             let mut ticks = 0;
-            while i + ticks < bytes.len() && bytes[i + ticks] == b'`' {
+            while bytes.get(i + ticks) == Some(&b'`') {
                 ticks += 1;
             }
             if ticks >= 3 {
                 let open = i;
                 i += ticks;
-                while i < bytes.len() && bytes[i] != b'\n' {
+                while bytes.get(i).is_some_and(|c| *c != b'\n') {
                     i += 1;
                 }
                 if i < bytes.len() {
                     i += 1;
                 }
                 let body_start = i;
-                let marker = &text[open..open + ticks];
-                if let Some(rel) = text[i..].find(marker) {
-                    let body_end = i + rel;
-                    let full_end = body_end + ticks;
-                    out.push(Fence {
-                        full: &text[open..full_end],
-                        body: text[body_start..body_end].trim(),
-                    });
-                    i = full_end;
-                    continue;
+                if let Some(marker) = text.get(open..open + ticks) {
+                    if let Some(hay) = text.get(i..) {
+                        if let Some(rel) = hay.find(marker) {
+                            let body_end = i + rel;
+                            let full_end = body_end + ticks;
+                            if let (Some(full), Some(body)) =
+                                (text.get(open..full_end), text.get(body_start..body_end))
+                            {
+                                out.push(Fence {
+                                    full,
+                                    body: body.trim(),
+                                });
+                                i = full_end;
+                                continue;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -173,10 +180,14 @@ fn xml_tag_bodies<'a>(text: &'a str, tag: &str) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut rest = text;
     while let Some(start) = rest.find(&open) {
-        let after = &rest[start + open.len()..];
+        let Some(after) = rest.get(start + open.len()..) else {
+            break;
+        };
         if let Some(end) = after.find(&close) {
-            out.push(after[..end].trim());
-            rest = &after[end + close.len()..];
+            if let Some(body) = after.get(..end) {
+                out.push(body.trim());
+            }
+            rest = after.get(end + close.len()..).unwrap_or("");
         } else {
             break;
         }
@@ -196,11 +207,13 @@ fn scan_json_slices(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'{' || bytes[i] == b'[' {
+        if matches!(bytes.get(i), Some(b'{' | b'[')) {
             if let Some(end) = matching_json_end(text, i) {
-                out.push(&text[i..=end]);
-                i = end + 1;
-                continue;
+                if let Some(slice) = text.get(i..=end) {
+                    out.push(slice);
+                    i = end + 1;
+                    continue;
+                }
             }
         }
         i += 1;
@@ -210,12 +223,13 @@ fn scan_json_slices(text: &str) -> Vec<&str> {
 
 fn matching_json_end(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
-    let open = bytes[start];
+    let open = *bytes.get(start)?;
     let close = if open == b'{' { b'}' } else { b']' };
     let mut depth = 0i32;
     let mut in_str = false;
     let mut esc = false;
-    for (i, &c) in bytes[start..].iter().enumerate() {
+    let tail = bytes.get(start..)?;
+    for (i, &c) in tail.iter().enumerate() {
         if in_str {
             if esc {
                 esc = false;

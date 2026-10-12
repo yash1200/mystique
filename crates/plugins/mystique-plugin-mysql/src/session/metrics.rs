@@ -45,14 +45,13 @@ pub(super) async fn fetch_server_metrics(
         _ => None,
     };
 
-    let size: Option<u64> = conn
-        .query_first(
-            "SELECT COALESCE(SUM(data_length + index_length), 0) \
+    let size: Option<u64> = crate::rows::query_first_opt(
+        &mut conn,
+        "SELECT COALESCE(SUM(data_length + index_length), 0) \
              FROM information_schema.tables \
              WHERE table_schema = DATABASE()",
-        )
-        .await
-        .map_err(query_failed)?;
+    )
+    .await?;
 
     let mut extras = Vec::new();
     if let Some(v) = vars.get("version") {
@@ -191,17 +190,16 @@ async fn list_sessions(conn: &mut mysql_async::Conn) -> ConnectorResult<Vec<Acti
         String,
         Option<String>,
         String,
-        i64,
+        Option<i64>,
         Option<String>,
         Option<String>,
-    )> = conn
-        .query(
-            "SELECT ID, USER, DB, COMMAND, TIME, STATE, INFO \
+    )> = crate::rows::collect_query(
+        conn,
+        "SELECT ID, USER, DB, COMMAND, TIME, STATE, INFO \
              FROM information_schema.PROCESSLIST \
              ORDER BY TIME DESC, ID",
-        )
-        .await
-        .map_err(query_failed)?;
+    )
+    .await?;
 
     Ok(rows
         .into_iter()
@@ -213,7 +211,7 @@ async fn list_sessions(conn: &mut mysql_async::Conn) -> ConnectorResult<Vec<Acti
                 user: Some(user).filter(|s| !s.is_empty()),
                 database: db.filter(|s| !s.is_empty()),
                 state: state.or(Some(command)).filter(|s| !s.is_empty()),
-                duration_ms: Some(time.saturating_mul(1000)),
+                duration_ms: time.map(|secs| secs.saturating_mul(1000)),
                 query: info.filter(|s| !s.trim().is_empty()),
                 can_terminate: true,
                 extras,
@@ -256,8 +254,8 @@ async fn list_digests(conn: &mut mysql_async::Conn, limit: u32) -> ConnectorResu
          ORDER BY AVG_TIMER_WAIT DESC \
          LIMIT {limit}"
     );
-    let rows: Vec<(Option<String>, Option<String>, u64, f64)> =
-        conn.query(sql).await.map_err(query_failed)?;
+    let rows: Vec<(Option<String>, Option<String>, u64, Option<f64>)> =
+        crate::rows::collect_query(conn, &sql).await?;
     Ok(rows
         .into_iter()
         .enumerate()
@@ -267,7 +265,7 @@ async fn list_digests(conn: &mut mysql_async::Conn, limit: u32) -> ConnectorResu
                 id: format!("hist:{}", digest.unwrap_or_else(|| i.to_string())),
                 query,
                 duration_ms: None,
-                mean_ms: Some(mean),
+                mean_ms: mean,
                 calls: Some(calls as i64),
                 database: None,
                 user: None,
@@ -282,10 +280,10 @@ async fn show_map(
     conn: &mut mysql_async::Conn,
     sql: &str,
 ) -> ConnectorResult<HashMap<String, String>> {
-    let rows: Vec<(String, String)> = conn.query(sql).await.map_err(query_failed)?;
+    let rows: Vec<(String, Option<String>)> = crate::rows::collect_query(conn, sql).await?;
     Ok(rows
         .into_iter()
-        .map(|(k, v)| (k.to_ascii_lowercase(), v))
+        .filter_map(|(k, v)| v.map(|value| (k.to_ascii_lowercase(), value)))
         .collect())
 }
 

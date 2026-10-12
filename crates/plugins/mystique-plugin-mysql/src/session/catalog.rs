@@ -1,22 +1,20 @@
 //! Databases, tables, columns, and foreign-key relationships.
 
-use mysql_async::prelude::*;
 use mystique_connector_api::{
     CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
     ColumnReference, ConnectorError, ConnectorResult,
 };
 
 use super::encode::{mysql_default_display, parse_mysql_enum_values};
-use super::query_failed;
 use super::MysqlSession;
 
 type RelationshipRow = (
     String,
     String,
-    String,
     Option<String>,
-    String,
-    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
     String,
 );
 
@@ -85,10 +83,8 @@ pub(super) async fn describe_columns(
 
     // column_type is already DDL-style (varchar(255), datetime, timestamp, …)
     // Names are bound. Concatenating them reopens SEC-04 (`\'` is a quote on MySQL).
-    let rows: Vec<(String, String, String, String, Option<String>, String)> = conn
-        .exec(DESCRIBE_COLUMNS_SQL, (db_name, table))
-        .await
-        .map_err(query_failed)?;
+    let rows: Vec<(String, String, String, String, Option<String>, String)> =
+        crate::rows::collect_exec(&mut conn, DESCRIBE_COLUMNS_SQL, (db_name, table)).await?;
 
     let mut out = Vec::with_capacity(rows.len());
     for (name, column_type, is_nullable, column_key, column_default, extra) in rows {
@@ -119,9 +115,14 @@ pub(super) async fn table_references(
         ConnectorError::InvalidConfig("MySQL table_references requires database/schema".into())
     })?;
     let mut conn = session.conn().await?;
-    let fks: Vec<(String, Option<String>, String, String)> = conn
-        .exec_map(
-            r#"
+    let fks: Vec<(
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = crate::rows::collect_exec(
+        &mut conn,
+        r#"
             SELECT
               COLUMN_NAME,
               REFERENCED_TABLE_SCHEMA,
@@ -133,21 +134,24 @@ pub(super) async fn table_references(
               AND REFERENCED_TABLE_NAME IS NOT NULL
             ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
             "#,
-            (db_name, table),
-            |(col, rschema, rtable, rcol): (String, Option<String>, String, String)| {
-                (col, rschema, rtable, rcol)
-            },
-        )
-        .await
-        .unwrap_or_default();
+        (db_name, table),
+    )
+    .await
+    .unwrap_or_default();
     use std::collections::HashMap;
     let mut by_col: HashMap<String, ColumnReference> = HashMap::new();
     for (col, rschema, rtable, rcol) in fks {
+        let Some(col) = col.filter(|name| !name.is_empty()) else {
+            continue;
+        };
+        let Some(rtable) = rtable.filter(|name| !name.is_empty()) else {
+            continue;
+        };
         by_col.entry(col).or_insert(ColumnReference {
             database: rschema.or_else(|| Some(db_name.to_string())),
             schema: None,
             table: rtable,
-            column: rcol,
+            column: rcol.unwrap_or_default(),
         });
     }
     Ok(by_col.into_iter().collect())
@@ -180,13 +184,9 @@ pub(super) async fn list_catalog_columns(
 
     let rows: Vec<(String, String, String, String, String, String)> =
         if let Some(db) = database.or(schema) {
-            conn.exec(LIST_COLUMNS_ONE_SCHEMA_SQL, (db,))
-                .await
-                .map_err(query_failed)?
+            crate::rows::collect_exec(&mut conn, LIST_COLUMNS_ONE_SCHEMA_SQL, (db,)).await?
         } else {
-            conn.query(LIST_COLUMNS_ALL_SCHEMAS_SQL)
-                .await
-                .map_err(query_failed)?
+            crate::rows::collect_query(&mut conn, LIST_COLUMNS_ALL_SCHEMAS_SQL).await?
         };
 
     Ok(rows
@@ -217,13 +217,13 @@ pub(super) async fn list_catalog(
     let mut by_db: std::collections::BTreeMap<String, Vec<CatalogObject>> =
         std::collections::BTreeMap::new();
     // Include empty databases (no tables yet) so the picker can switch to them.
-    if let Ok(schemas) = conn
-        .query::<String, _>(
-            "SELECT schema_name FROM information_schema.schemata \
+    if let Ok(schemas) = crate::rows::collect_query::<String>(
+        &mut conn,
+        "SELECT schema_name FROM information_schema.schemata \
              WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys') \
              ORDER BY schema_name",
-        )
-        .await
+    )
+    .await
     {
         for name in schemas {
             by_db.entry(name).or_default();
@@ -235,7 +235,7 @@ pub(super) async fn list_catalog(
              FROM information_schema.tables \
              WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
              ORDER BY table_schema, table_name";
-        conn.query(sql).await.map_err(query_failed)?
+        crate::rows::collect_query(&mut conn, sql).await?
     } else {
         Vec::new()
     };
@@ -302,30 +302,31 @@ pub(super) async fn list_relationships(
     session.ensure_open()?;
     let mut conn = session.conn().await?;
     if let Some(db) = database.map(str::trim).filter(|s| !s.is_empty()) {
-        let rows: Vec<(String, String, String, String, String)> = conn
-            .exec(LIST_RELATIONSHIPS_ONE_SCHEMA_SQL, (db,))
-            .await
-            .map_err(query_failed)?;
-        let schema = database.unwrap().trim().to_string();
+        let rows: Vec<(
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+        )> = crate::rows::collect_exec(&mut conn, LIST_RELATIONSHIPS_ONE_SCHEMA_SQL, (db,)).await?;
+        let schema = db.to_string();
         return Ok(rows
             .into_iter()
             .map(
                 |(from_table, from_column, to_table, to_column, name)| CatalogRelationship {
                     from_schema: Some(schema.clone()),
                     from_table,
-                    from_column,
+                    from_column: from_column.unwrap_or_default(),
                     to_schema: Some(schema.clone()),
-                    to_table,
-                    to_column,
+                    to_table: to_table.unwrap_or_default(),
+                    to_column: to_column.unwrap_or_default(),
                     name: Some(name),
                 },
             )
             .collect());
     }
-    let rows: Vec<RelationshipRow> = conn
-        .query(LIST_RELATIONSHIPS_ALL_SCHEMAS_SQL)
-        .await
-        .map_err(query_failed)?;
+    let rows: Vec<RelationshipRow> =
+        crate::rows::collect_query(&mut conn, LIST_RELATIONSHIPS_ALL_SCHEMAS_SQL).await?;
     Ok(rows
         .into_iter()
         .map(
@@ -333,10 +334,10 @@ pub(super) async fn list_relationships(
                 CatalogRelationship {
                     from_schema: Some(from_schema),
                     from_table,
-                    from_column,
+                    from_column: from_column.unwrap_or_default(),
                     to_schema,
-                    to_table,
-                    to_column,
+                    to_table: to_table.unwrap_or_default(),
+                    to_column: to_column.unwrap_or_default(),
                     name: Some(name),
                 }
             },

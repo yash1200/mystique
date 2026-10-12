@@ -9,8 +9,8 @@ use mystique_connector_api::{
 
 use super::catalog;
 use super::encode::{cell_json, preview_order_sql, preview_select_list};
-use super::query_failed;
 use super::PostgresSession;
+use super::{pg_col, query_failed};
 
 pub(super) async fn fetch_table_preview(
     session: &PostgresSession,
@@ -98,11 +98,11 @@ pub(super) async fn fetch_table_preview_stats(
     let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
     let count_fut = async {
         let client = session.client().await?;
-        let total: i64 = client
+        let count_row = client
             .query_one(&count_sql, &[])
             .await
-            .map_err(query_failed)?
-            .get(0);
+            .map_err(query_failed)?;
+        let total: i64 = pg_col(&count_row, 0)?;
         ConnectorResult::Ok(total.max(0) as u64)
     };
     let refs_fut = catalog::table_references(session, input.schema.as_deref(), &input.table);

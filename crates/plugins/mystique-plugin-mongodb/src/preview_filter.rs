@@ -151,7 +151,9 @@ fn eq_doc(col: &str, raw: &str, negate: bool) -> Document {
     }
     let vals = eq_values(raw);
     if vals.len() == 1 {
-        let v = vals.into_iter().next().unwrap();
+        let Some(v) = vals.into_iter().next() else {
+            return Document::new();
+        };
         return if negate {
             doc! { col: { "$ne": v } }
         } else {

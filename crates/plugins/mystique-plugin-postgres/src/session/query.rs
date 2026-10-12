@@ -105,7 +105,7 @@ async fn run_batch(
 
             let truncated = rows.len() > limit;
             let take = rows.len().min(limit);
-            let slice = &rows[..take];
+            let slice = rows.get(..take).unwrap_or(&[]);
 
             let columns: Vec<QueryColumn> = if let Some(first) = slice.first() {
                 first

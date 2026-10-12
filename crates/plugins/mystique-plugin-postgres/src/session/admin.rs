@@ -5,8 +5,8 @@ use mystique_connector_api::{
     TableAdminOp, TableAdminResult, TableObjectKind,
 };
 
-use super::query_failed;
 use super::PostgresSession;
+use super::{pg_col, pg_u32_col, query_failed};
 
 pub(super) async fn apply_table_admin(
     session: &PostgresSession,
@@ -122,17 +122,17 @@ async fn pg_create_statement(
             "Object `{schema}.{name}` was not found."
         )));
     };
-    let oid: u32 = row.get(0);
-    let relkind: String = row.get(1);
+    let oid = pg_u32_col(&row, 0)?;
+    let relkind: String = pg_col(&row, 1)?;
     let is_view = prefer_view || relkind == "v" || relkind == "m";
     let qname = qualify_table(SqlIdentStyle::Postgres, None, Some(schema), name);
 
     if is_view {
-        let def: String = client
+        let def_row = client
             .query_one("SELECT pg_get_viewdef($1::oid, true)", &[&oid])
             .await
-            .map_err(query_failed)?
-            .get(0);
+            .map_err(query_failed)?;
+        let def: String = pg_col(&def_row, 0)?;
         let kw = if relkind == "m" {
             "MATERIALIZED VIEW"
         } else {
@@ -155,16 +155,17 @@ async fn pg_create_statement(
         )
         .await
         .map_err(query_failed)?;
-    let mut lines: Vec<String> = cols
-        .iter()
-        .map(|c| {
-            let col: String = c.get(0);
-            let typ: String = c.get(1);
-            let not_null: bool = c.get(2);
-            let nn = if not_null { " NOT NULL" } else { "" };
-            format!("  {} {typ}{nn}", quote_ident(SqlIdentStyle::Postgres, &col))
-        })
-        .collect();
+    let mut lines = Vec::with_capacity(cols.len());
+    for c in &cols {
+        let col: String = pg_col(c, 0)?;
+        let typ: String = pg_col(c, 1)?;
+        let not_null: bool = pg_col(c, 2)?;
+        let nn = if not_null { " NOT NULL" } else { "" };
+        lines.push(format!(
+            "  {} {typ}{nn}",
+            quote_ident(SqlIdentStyle::Postgres, &col)
+        ));
+    }
     let pk = client
     .query_opt(
         "SELECT pg_get_constraintdef(oid) FROM pg_catalog.pg_constraint WHERE conrelid = $1 AND contype = 'p'",
@@ -173,7 +174,7 @@ async fn pg_create_statement(
     .await
     .map_err(query_failed)?;
     if let Some(row) = pk {
-        let def: String = row.get(0);
+        let def: String = pg_col(&row, 0)?;
         lines.push(format!("  {def}"));
     }
     if lines.is_empty() {

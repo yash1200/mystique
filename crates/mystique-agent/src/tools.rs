@@ -82,8 +82,38 @@ fn redact(value: JsonValue) -> JsonValue {
     if s.len() <= 32_768 {
         return value;
     }
+    let end = floor_char_boundary(&s, 32_000);
+    let preview = s.get(..end).unwrap_or("");
     json!({
         "_truncated": true,
-        "preview": &s[..32_000],
+        "preview": format!("{preview}…"),
     })
+}
+
+/// Largest index `<= i` that is a char boundary. A byte slice here panics.
+fn floor_char_boundary(s: &str, i: usize) -> usize {
+    let mut end = i.min(s.len());
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_truncates_on_a_char_boundary() {
+        let value = JsonValue::String("你".repeat(20_000));
+        let raw = value.to_string();
+        assert!(raw.len() > 32_768);
+        assert!(!raw.is_char_boundary(32_000));
+        let out = redact(value);
+        assert_eq!(out["_truncated"], JsonValue::Bool(true));
+        let preview = out["preview"].as_str().expect("preview");
+        let body = preview.strip_suffix('…').expect("truncated marker");
+        assert!(body.len() <= 32_000);
+        assert!(body.is_char_boundary(body.len()));
+    }
 }
