@@ -17,6 +17,11 @@ export interface OpenSessionRequest {
 	profileId?: string | null
 	ssh?: SshTunnelRequest | null
 	tlsKeyPassphrase?: string | null
+	/**
+	 * Test form sets this false so an unticked SSH box does not reuse the
+	 * saved tunnel. Omitted means the saved profile's SSH config is used.
+	 */
+	useSavedSsh?: boolean
 }
 
 export type SshTunnelRequest = {

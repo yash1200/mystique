@@ -42,7 +42,7 @@ pub fn rewrite_plugin_config_for_tunnel(
         .filter(|s| !s.is_empty())
     {
         let (tls_name, _) = host_port_from_uri(uri)?;
-        let rewritten = rewrite_uri_host_port(uri, "127.0.0.1", local_port)?;
+        let rewritten = force_mongo_direct(&rewrite_uri_host_port(uri, "127.0.0.1", local_port)?);
         if let Some(obj) = plugin_config.as_object_mut() {
             obj.insert("uri".into(), JsonValue::String(rewritten));
             remember_tls_name(obj, &tls_name);
@@ -64,6 +64,57 @@ pub fn rewrite_plugin_config_for_tunnel(
         remember_tls_name(obj, &tls_name);
     }
     Ok(plugin_config)
+}
+
+/// Host-form Mongo has no URI for [`force_mongo_direct`] to edit.
+/// The plugin honors `directConnection` when it dials from host and port.
+pub fn pin_forwarded_mongo(engine: &str, mut config: JsonValue) -> JsonValue {
+    if mystique_connector_api::runtime_id(engine) != Some("mongodb") {
+        return config;
+    }
+    let uri_is_direct = config
+        .get("uri")
+        .and_then(|v| v.as_str())
+        .is_some_and(|uri| uri.to_ascii_lowercase().contains("directconnection=true"));
+    if uri_is_direct {
+        return config;
+    }
+    if let Some(obj) = config.as_object_mut() {
+        obj.insert("directConnection".into(), JsonValue::Bool(true));
+    }
+    config
+}
+
+/// The driver must use the local forward, not the replica set's own hosts.
+fn force_mongo_direct(uri: &str) -> String {
+    if !uri.to_ascii_lowercase().starts_with("mongodb://") {
+        return uri.to_string();
+    }
+    let (before_hash, hash) = match uri.split_once('#') {
+        Some((body, hash)) => (body, Some(hash)),
+        None => (uri, None),
+    };
+    let (path, query) = match before_hash.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (before_hash, None),
+    };
+    let mut params: Vec<String> = query
+        .unwrap_or("")
+        .split('&')
+        .filter(|part| !part.is_empty())
+        .filter(|part| {
+            let key = part.split_once('=').map(|(key, _)| key).unwrap_or(part);
+            !key.eq_ignore_ascii_case("replicaset") && !key.eq_ignore_ascii_case("directconnection")
+        })
+        .map(str::to_string)
+        .collect();
+    params.push("directConnection=true".into());
+    let mut out = format!("{path}?{}", params.join("&"));
+    if let Some(hash) = hash {
+        out.push('#');
+        out.push_str(hash);
+    }
+    out
 }
 
 fn remember_tls_name(obj: &mut serde_json::Map<String, JsonValue>, host: &str) {
@@ -211,9 +262,56 @@ mod tests {
         .unwrap();
         assert_eq!(
             out["uri"],
-            "mongodb://u:p@127.0.0.1:6000/app?authSource=admin"
+            "mongodb://u:p@127.0.0.1:6000/app?authSource=admin&directConnection=true"
         );
         assert_eq!(out["tlsServerName"], "mongo.internal");
+    }
+
+    #[test]
+    fn mongo_replica_set_uses_the_forward_only() {
+        let out = rewrite_plugin_config_for_tunnel(
+            json!({
+                "uri": "mongodb://user:pw@mongo1.internal:27017,mongo2.internal:27017/app?replicaSet=rs0&authSource=admin#frag"
+            }),
+            6001,
+        )
+        .unwrap();
+        assert_eq!(
+            out["uri"],
+            "mongodb://user:pw@127.0.0.1:6001/app?authSource=admin&directConnection=true#frag"
+        );
+        assert_eq!(out["tlsServerName"], "mongo1.internal");
+    }
+
+    #[test]
+    fn postgres_uri_is_not_forced_direct() {
+        let out = rewrite_plugin_config_for_tunnel(
+            json!({"uri": "postgresql://u:p@db.internal:5432/app?sslmode=require"}),
+            6002,
+        )
+        .unwrap();
+        assert_eq!(
+            out["uri"],
+            "postgresql://u:p@127.0.0.1:6002/app?sslmode=require"
+        );
+        assert!(pin_forwarded_mongo("postgres", out)
+            .get("directConnection")
+            .is_none());
+    }
+
+    #[test]
+    fn mongo_host_fields_are_marked_direct() {
+        let out = rewrite_plugin_config_for_tunnel(
+            json!({"host": "mongo.internal", "port": 27017, "database": "app"}),
+            6004,
+        )
+        .unwrap();
+        let pinned = pin_forwarded_mongo("documentdb", out);
+        assert_eq!(pinned["host"], "127.0.0.1");
+        assert_eq!(pinned["port"], 6004);
+        assert_eq!(pinned["directConnection"], true);
+        assert_eq!(pinned["tlsServerName"], "mongo.internal");
+        assert_eq!(pinned["database"], "app");
     }
 
     #[test]

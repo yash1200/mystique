@@ -22,7 +22,9 @@ mod transfer;
 #[cfg(test)]
 mod tests;
 
-use super::ssh::{open_tunnel, rewrite_plugin_config_for_tunnel, ssh_target, SshTunnel};
+use super::ssh::{
+    open_tunnel, pin_forwarded_mongo, rewrite_plugin_config_for_tunnel, ssh_target, SshTunnel,
+};
 use super::ConnectorRegistry;
 use crate::domain::SshTunnelRequest;
 
@@ -69,6 +71,14 @@ pub struct OpenSessionRequest {
     /// Profile `read_only`. Filled from the profile at attach.
     #[serde(default)]
     pub profile_read_only: bool,
+    /// When false, an omitted `ssh` stays omitted. The test form sets this
+    /// from the SSH checkbox so an unticked box does not reuse the saved tunnel.
+    #[serde(default = "default_use_saved_ssh")]
+    pub use_saved_ssh: bool,
+}
+
+fn default_use_saved_ssh() -> bool {
+    true
 }
 
 struct LiveSession {
@@ -170,7 +180,7 @@ impl ConnectionManager {
             }
         };
 
-        let tunneled = match prepare_plugin_config(req).await {
+        let mut tunneled = match prepare_plugin_config(req).await {
             Ok(v) => v,
             Err(e) => {
                 return Ok(test_fail(&req.engine, start, e));
@@ -178,7 +188,7 @@ impl ConnectionManager {
         };
         let config = connection_config(connector.id(), tunneled.config, req);
 
-        match connector.test_connection(&config).await {
+        let outcome = match connector.test_connection(&config).await {
             Ok(mut result) => {
                 // Ensure latency is populated even if plugin left it at 0
                 if result.latency_ms == 0 {
@@ -187,7 +197,9 @@ impl ConnectionManager {
                 Ok(result)
             }
             Err(e) => Ok(test_fail(&req.engine, start, e)),
-        }
+        };
+        close_tunnel(tunneled.tunnel.take()).await;
+        outcome
     }
 
     pub async fn open_session(&self, req: OpenSessionRequest) -> ConnectorResult<SessionInfo> {
@@ -202,7 +214,13 @@ impl ConnectionManager {
         let tunneled = prepare_plugin_config(&req).await?;
         let config = connection_config(connector.id(), tunneled.config, &req);
 
-        let session = connector.connect(&config).await?;
+        let session = match connector.connect(&config).await {
+            Ok(session) => session,
+            Err(err) => {
+                close_tunnel(tunneled.tunnel).await;
+                return Err(err);
+            }
+        };
         let session: Arc<dyn ConnectorSession> = Arc::from(session);
         let session_id = req
             .session_id
@@ -254,7 +272,7 @@ impl ConnectionManager {
         };
         self.write_unlocks.lock().await.remove(&session_id);
         if let Some(prev) = prev {
-            let _ = prev.session.close().await;
+            let _ = shutdown_live(prev).await;
         }
         Ok(info)
     }
@@ -266,7 +284,7 @@ impl ConnectionManager {
         };
         if let Some(live) = live {
             self.write_unlocks.lock().await.remove(session_id);
-            live.session.close().await?;
+            shutdown_live(live).await?;
             Ok(())
         } else {
             Err(ConnectorError::InvalidConfig(format!(
@@ -389,6 +407,18 @@ struct PreparedConfig {
     tunnel: Option<SshTunnel>,
 }
 
+async fn shutdown_live(mut live: LiveSession) -> ConnectorResult<()> {
+    let closed = live.session.close().await;
+    close_tunnel(live._tunnel.take()).await;
+    closed
+}
+
+async fn close_tunnel(tunnel: Option<SshTunnel>) {
+    if let Some(tunnel) = tunnel {
+        tunnel.close().await;
+    }
+}
+
 async fn prepare_plugin_config(req: &OpenSessionRequest) -> ConnectorResult<PreparedConfig> {
     let Some(ssh) = req.ssh.as_ref() else {
         return Ok(PreparedConfig {
@@ -398,7 +428,14 @@ async fn prepare_plugin_config(req: &OpenSessionRequest) -> ConnectorResult<Prep
     };
     let (dest_host, dest_port) = ssh_target(&req.plugin_config)?;
     let tunnel = open_tunnel(ssh, &dest_host, dest_port).await?;
-    let config = rewrite_plugin_config_for_tunnel(req.plugin_config.clone(), tunnel.local_port)?;
+    let config =
+        match rewrite_plugin_config_for_tunnel(req.plugin_config.clone(), tunnel.local_port) {
+            Ok(config) => pin_forwarded_mongo(&req.engine, config),
+            Err(err) => {
+                tunnel.close().await;
+                return Err(err);
+            }
+        };
     Ok(PreparedConfig {
         config,
         tunnel: Some(tunnel),

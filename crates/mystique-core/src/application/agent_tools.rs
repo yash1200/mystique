@@ -222,6 +222,7 @@ impl AgentTools {
                 environment: Some(profile.environment.clone()),
                 connection_name: Some(profile.name.clone()),
                 profile_read_only: profile.read_only,
+                use_saved_ssh: true,
             },
         )?;
         self.connections.open_session(req).await?;

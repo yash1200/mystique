@@ -111,6 +111,7 @@ async fn test_unknown_engine_returns_structured_fail() {
             environment: None,
             connection_name: None,
             profile_read_only: false,
+            use_saved_ssh: true,
         })
         .await
         .unwrap();
@@ -139,6 +140,7 @@ async fn test_postgres_missing_db_structured_fail() {
             environment: None,
             connection_name: None,
             profile_read_only: false,
+            use_saved_ssh: true,
         })
         .await
         .unwrap();
@@ -177,6 +179,7 @@ async fn test_postgres_unreachable_structured_fail() {
             environment: None,
             connection_name: None,
             profile_read_only: false,
+            use_saved_ssh: true,
         })
         .await
         .unwrap();
@@ -220,6 +223,7 @@ async fn test_postgres_local_success_when_available() {
             environment: None,
             connection_name: None,
             profile_read_only: false,
+            use_saved_ssh: true,
         })
         .await
         .unwrap();
@@ -264,6 +268,7 @@ async fn close_then_open_another_session_does_not_hang() {
         environment: None,
         connection_name: None,
         profile_read_only: false,
+        use_saved_ssh: true,
     };
     mgr.open_session(open(&a, "sess-a")).await.expect("open a");
     tokio::time::timeout(
@@ -302,6 +307,7 @@ async fn production_write_requires_unlock() {
         environment: Some("production".into()),
         connection_name: Some("Prod DB".into()),
         profile_read_only: false,
+        use_saved_ssh: true,
     })
     .await
     .expect("open");
@@ -391,6 +397,7 @@ async fn local_write_skips_unlock() {
         environment: Some("local".into()),
         connection_name: Some("Local".into()),
         profile_read_only: false,
+        use_saved_ssh: true,
     })
     .await
     .expect("open");
@@ -430,6 +437,7 @@ async fn live_read_only_ignores_a_client_write_flag() {
         environment: Some("local".into()),
         connection_name: None,
         profile_read_only: false,
+        use_saved_ssh: true,
     })
     .await
     .expect("open seed");
@@ -453,6 +461,7 @@ async fn live_read_only_ignores_a_client_write_flag() {
         environment: Some("local".into()),
         connection_name: None,
         profile_read_only: true,
+        use_saved_ssh: true,
     })
     .await
     .expect("open read-only");
@@ -515,6 +524,7 @@ fn sqlite_open(
         environment: Some(environment.into()),
         connection_name: Some(session_id.into()),
         profile_read_only: read_only,
+        use_saved_ssh: true,
     }
 }
 

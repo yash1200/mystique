@@ -201,6 +201,7 @@
 				profileId:
 					editing && selectedId ? selectedId : undefined,
 				ssh: sshTunnelFromDraft(draft),
+				useSavedSsh: false,
 				tlsKeyPassphrase: tlsPass || null,
 				pool: {
 					maxSize: 2,

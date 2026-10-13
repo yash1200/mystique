@@ -1,15 +1,21 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mystique_connector_api::{ConnectorError, ConnectorResult, SshHostKeyPrompt};
 use russh::client::{self, Handler};
 use russh::keys::key::PrivateKeyWithHashAlg;
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::keys::{load_secret_key, PublicKeyOrCertificate};
-use russh::{client::AuthResult, ChannelMsg};
+use russh::{client::AuthResult, ChannelMsg, Disconnect};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Mutex};
+use tokio::task::JoinSet;
+
+/// A blackholed bastion must fail here, not at the OS TCP timeout (~75s).
+pub(crate) const SSH_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const SSH_KEEPALIVE: Duration = Duration::from_secs(30);
 
 use crate::domain::{SshAuth, SshTunnelRequest};
 
@@ -73,18 +79,83 @@ fn describe_public(key: &PublicKey) -> (String, String, String) {
     (fingerprint, key_type, public_key)
 }
 
+/// Shared after authentication.
+///
+/// `channel_open_direct_tcpip` and `disconnect` only send on the session
+/// channel. They do not read the reply receiver, so concurrent forwards do
+/// not take a mutex across the open.
+struct SharedSession(client::Handle<HostKeyHandler>);
+
+// SAFETY: see the struct comment. No method used after `authenticate`
+// touches the reply receiver.
+unsafe impl Sync for SharedSession {}
+
+struct ForwardSet {
+    tasks: Mutex<JoinSet<()>>,
+}
+
+impl ForwardSet {
+    fn new() -> Self {
+        Self {
+            tasks: Mutex::new(JoinSet::new()),
+        }
+    }
+
+    async fn spawn(&self, fut: impl std::future::Future<Output = ()> + Send + 'static) {
+        self.tasks.lock().await.spawn(fut);
+    }
+
+    async fn shutdown(&self) {
+        let mut tasks = self.tasks.lock().await;
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+    }
+}
+
 /// Local TCP forward kept alive for a session.
 pub struct SshTunnel {
     pub local_port: u16,
     shutdown: watch::Sender<bool>,
-    join: tokio::task::JoinHandle<()>,
-    _session: Arc<Mutex<client::Handle<HostKeyHandler>>>,
+    accept: tokio::task::JoinHandle<()>,
+    forwards: Arc<ForwardSet>,
+    session: Option<Arc<SharedSession>>,
+}
+
+impl SshTunnel {
+    /// Abort local forwards and send SSH disconnect.
+    pub async fn close(mut self) {
+        let _ = self.shutdown.send(true);
+        self.accept.abort();
+        self.forwards.shutdown().await;
+        if let Some(session) = self.session.take() {
+            let _ = session
+                .0
+                .disconnect(Disconnect::ByApplication, "Mystique session closed", "")
+                .await;
+        }
+    }
 }
 
 impl Drop for SshTunnel {
     fn drop(&mut self) {
         let _ = self.shutdown.send(true);
-        self.join.abort();
+        self.accept.abort();
+        if let Ok(mut tasks) = self.forwards.tasks.try_lock() {
+            tasks.abort_all();
+        }
+        // `close` already sent disconnect. This is a tunnel dropped without
+        // `close` (failed open, process teardown).
+        let Some(session) = self.session.take() else {
+            return;
+        };
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = session
+                    .0
+                    .disconnect(Disconnect::ByApplication, "Mystique session closed", "")
+                    .await;
+            });
+        }
     }
 }
 
@@ -107,11 +178,18 @@ pub async fn open_tunnel(
     };
     let config = Arc::new(client::Config {
         nodelay: true,
+        keepalive_interval: Some(SSH_KEEPALIVE),
+        keepalive_max: 3,
         ..Default::default()
     });
-    let mut session = match client::connect(config, (req.host.as_str(), req.port), handler).await {
-        Ok(s) => s,
-        Err(e) => return Err(host_key_or_connect(e, &presented).await),
+    let connect = client::connect(config, (req.host.as_str(), req.port), handler);
+    let connected = match wait_connect(connect).await {
+        Ok(inner) => inner,
+        Err(timeout) => return Err(timeout),
+    };
+    let mut session = match connected {
+        Ok(session) => session,
+        Err(err) => return Err(host_key_or_connect(err, &presented).await),
     };
 
     authenticate(&mut session, req).await?;
@@ -124,12 +202,14 @@ pub async fn open_tunnel(
         .map_err(|e| ConnectorError::Connect(e.to_string()))?
         .port();
 
-    let handle = Arc::new(Mutex::new(session));
+    let session = Arc::new(SharedSession(session));
+    let forwards = Arc::new(ForwardSet::new());
     let (shutdown, rx) = watch::channel(false);
     let dest_host = dest_host.to_string();
-    let join = tokio::spawn(accept_loop(
+    let accept = tokio::spawn(accept_loop(
         listener,
-        Arc::clone(&handle),
+        Arc::clone(&session),
+        Arc::clone(&forwards),
         dest_host,
         dest_port,
         rx,
@@ -138,9 +218,21 @@ pub async fn open_tunnel(
     Ok(SshTunnel {
         local_port,
         shutdown,
-        join,
-        _session: handle,
+        accept,
+        forwards,
+        session: Some(session),
     })
+}
+
+pub(crate) async fn wait_connect<T>(
+    connect: impl std::future::Future<Output = T>,
+) -> ConnectorResult<T> {
+    match tokio::time::timeout(SSH_CONNECT_TIMEOUT, connect).await {
+        Ok(value) => Ok(value),
+        Err(_) => Err(ConnectorError::Connect(
+            "SSH connection timed out after 10s.".into(),
+        )),
+    }
 }
 
 async fn host_key_or_connect(
@@ -304,7 +396,8 @@ async fn authenticate_agent(
 
 async fn accept_loop(
     listener: TcpListener,
-    handle: Arc<Mutex<client::Handle<HostKeyHandler>>>,
+    handle: Arc<SharedSession>,
+    forwards: Arc<ForwardSet>,
     dest_host: String,
     dest_port: u16,
     mut shutdown: watch::Receiver<bool>,
@@ -320,32 +413,34 @@ async fn accept_loop(
                 let Ok((stream, origin)) = accepted else { break };
                 let handle = Arc::clone(&handle);
                 let dest_host = dest_host.clone();
-                tokio::spawn(async move {
-                    let _ = forward_one(handle, stream, origin, dest_host, dest_port).await;
-                });
+                forwards
+                    .spawn(async move {
+                        let _ = forward_one(handle, stream, origin, dest_host, dest_port).await;
+                    })
+                    .await;
             }
         }
     }
 }
 
 async fn forward_one(
-    handle: Arc<Mutex<client::Handle<HostKeyHandler>>>,
+    handle: Arc<SharedSession>,
     mut stream: TcpStream,
     origin: SocketAddr,
     dest_host: String,
     dest_port: u16,
 ) -> ConnectorResult<()> {
-    let mut channel = {
-        let h = handle.lock().await;
-        h.channel_open_direct_tcpip(
+    // No lock across this await: each forward opens its own channel.
+    let mut channel = handle
+        .0
+        .channel_open_direct_tcpip(
             dest_host,
             u32::from(dest_port),
             origin.ip().to_string(),
             u32::from(origin.port()),
         )
         .await
-        .map_err(|e| ConnectorError::Connect(format!("SSH forward: {e}")))?
-    };
+        .map_err(|e| ConnectorError::Connect(format!("SSH forward: {e}")))?;
     let mut stream_closed = false;
     let mut buf = vec![0u8; 32 * 1024];
     loop {
@@ -380,4 +475,47 @@ async fn forward_one(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn blackholed_bastion_times_out_in_about_ten_seconds() {
+        let req = crate::domain::SshTunnelRequest {
+            host: "192.0.2.1".into(),
+            port: 22,
+            user: "tunnel".into(),
+            auth: crate::domain::SshAuth::Password,
+            password: Some("unused".into()),
+            private_key_path: None,
+            passphrase: None,
+            trusted_fingerprint: None,
+        };
+        let started = std::time::Instant::now();
+        let err = match open_tunnel(&req, "db.internal", 5432).await {
+            Err(err) => err,
+            Ok(_) => panic!("blackholed bastion connected"),
+        };
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= Duration::from_secs(9) && elapsed < Duration::from_secs(15),
+            "{elapsed:?} {err}"
+        );
+        assert!(err.to_string().contains("timed out after 10s"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn close_aborts_forward_tasks() {
+        let forwards = ForwardSet::new();
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        forwards
+            .spawn(async move {
+                let _ = rx.await;
+            })
+            .await;
+        forwards.shutdown().await;
+        assert!(tx.is_closed());
+    }
 }

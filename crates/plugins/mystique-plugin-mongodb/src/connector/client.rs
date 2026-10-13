@@ -31,6 +31,7 @@ pub(super) async fn build_client(
         }];
         opts
     };
+    apply_direct_connection(config, &mut options);
 
     // Pool sizing (driver-managed)
     options.max_pool_size = Some(config.pool.max_size);
@@ -98,6 +99,12 @@ pub(super) async fn build_client(
     let client =
         Client::with_options(options).map_err(|e| ConnectorError::Connect(e.to_string()))?;
     Ok((client, default_db))
+}
+
+fn apply_direct_connection(config: &ConnectionConfig, options: &mut ClientOptions) {
+    if config.bool_field("directConnection", false) {
+        options.direct_connection = Some(true);
+    }
 }
 
 fn mongo_verify_full_tunnel_error(config: &ConnectionConfig) -> Option<String> {
@@ -261,6 +268,26 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("SSH tunnel"), "{err}");
+    }
+
+    #[test]
+    fn direct_connection_flag_pins_host_form() {
+        let mut options = ClientOptions::default();
+        apply_direct_connection(
+            &ConnectionConfig::new(
+                "mongodb",
+                json!({"host": "127.0.0.1", "port": 27017, "directConnection": true}),
+            ),
+            &mut options,
+        );
+        assert_eq!(options.direct_connection, Some(true));
+
+        let mut plain = ClientOptions::default();
+        apply_direct_connection(
+            &ConnectionConfig::new("mongodb", json!({"host": "127.0.0.1"})),
+            &mut plain,
+        );
+        assert_eq!(plain.direct_connection, None);
     }
 
     #[tokio::test]

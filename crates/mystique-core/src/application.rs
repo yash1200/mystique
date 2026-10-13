@@ -219,7 +219,9 @@ pub(crate) fn bind_open_request(
     }
 
     if allow_stored {
-        if req.ssh.is_none() {
+        // The test form sets use_saved_ssh false and omits ssh when the box
+        // is unticked. Open and the agent leave the default, which fills it.
+        if req.ssh.is_none() && req.use_saved_ssh {
             if let Some(profile) = &profile {
                 let secret = profile_id.as_deref().and_then(|id| {
                     ProfileService { db, secrets }
@@ -415,7 +417,54 @@ mod attach_secrets_tests {
             environment: None,
             connection_name: None,
             profile_read_only: false,
+            use_saved_ssh: true,
         }
+    }
+
+    #[test]
+    fn unticked_ssh_does_not_reuse_the_saved_tunnel() {
+        let app = svc();
+        let saved = app
+            .profiles()
+            .save(SaveConnectionInput {
+                id: None,
+                name: "pg".into(),
+                engine: "postgres".into(),
+                color_id: "teal".into(),
+                environment: "local".into(),
+                read_only: true,
+                notes: None,
+                plugin_config: json!({"host": "127.0.0.1", "database": "postgres"}),
+                password: None,
+                secret_ref: None,
+                clear_secret: false,
+                copy_secret_from: None,
+                favorite: None,
+                ssh_config: crate::domain::SshConfig {
+                    enabled: true,
+                    host: "bastion.example".into(),
+                    port: 22,
+                    user: "ubuntu".into(),
+                    auth: crate::domain::SshAuth::Agent,
+                    private_key_path: String::new(),
+                },
+                ssh_password: None,
+                clear_ssh_secret: false,
+                tls_key_passphrase: None,
+            })
+            .unwrap();
+        let mut unticked = open_req(saved.id.clone(), saved.plugin_config.clone());
+        unticked.use_saved_ssh = false;
+        let filled = app.attach_session_secrets(unticked).unwrap();
+        assert!(filled.ssh.is_none());
+
+        let saved_ssh = app
+            .attach_session_secrets(open_req(saved.id, saved.plugin_config))
+            .unwrap();
+        assert_eq!(
+            saved_ssh.ssh.as_ref().map(|ssh| ssh.host.as_str()),
+            Some("bastion.example")
+        );
     }
 
     #[test]
