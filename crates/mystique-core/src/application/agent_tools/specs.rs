@@ -1,7 +1,10 @@
 use serde_json::json;
 
 use super::policy::AgentWritePolicy;
-use super::types::AgentToolSpec;
+use super::types::{
+    AgentToolSpec, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_CELL_OFFSET,
+    AGENT_MAX_ROWS,
+};
 
 pub fn tool_specs_for(policy: AgentWritePolicy) -> Vec<AgentToolSpec> {
     let mut specs = tool_specs();
@@ -70,38 +73,14 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
         AgentToolSpec {
             name: "execute_readonly_query",
             description:
-                "Run a read-only query (SELECT / find). Writes are rejected. Returns JSON rows or CSV for download. Opens the connection if needed. Qualify tables with schema (SELECT * FROM main.boards), not bare names.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" },
-                    "query": { "type": "string", "description": "SQL or Mongo find/aggregate / JSON filter" },
-                    "database": { "type": "string" },
-                    "collection": { "type": "string", "description": "Mongo collection when required" },
-                    "max_rows": { "type": "integer", "minimum": 1, "maximum": 2000 },
-                    "format": { "type": "string", "enum": ["json", "csv"], "description": "json (default) or csv" }
-                },
-                "required": ["connection_id", "query"],
-                "additionalProperties": false
-            }),
+                "Run a read-only query (SELECT / find). Writes are rejected. Returns JSON rows or CSV for the model. Opens the connection if needed. Qualify tables with schema (SELECT * FROM main.boards), not bare names. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset to read the next slice. The grid and file export are not capped.",
+            input_schema: query_input_schema("SQL or Mongo find/aggregate / JSON filter"),
         },
         AgentToolSpec {
             name: "execute_query",
             description:
-                "Run a query that may write. Honors the Mystique write policy: read-only blocks writes; safe_write allows INSERT/UPDATE only; high_risk_write allows DDL/DROP but production still needs an in-app unlock. Prefer execute_readonly_query for SELECT/find.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "connection_id": { "type": "string" },
-                    "query": { "type": "string", "description": "SQL or Mongo write / read" },
-                    "database": { "type": "string" },
-                    "collection": { "type": "string", "description": "Mongo collection when required" },
-                    "max_rows": { "type": "integer", "minimum": 1, "maximum": 2000 },
-                    "format": { "type": "string", "enum": ["json", "csv"], "description": "json (default) or csv" }
-                },
-                "required": ["connection_id", "query"],
-                "additionalProperties": false
-            }),
+                "Run a query that may write. Honors the Mystique write policy: read-only blocks writes; safe_write allows INSERT/UPDATE only; high_risk_write allows DDL/DROP but production still needs an in-app unlock. Prefer execute_readonly_query for SELECT/find. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset to read the next slice.",
+            input_schema: query_input_schema("SQL or Mongo write / read"),
         },
         AgentToolSpec {
             name: "list_saved_queries",
@@ -131,4 +110,36 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
             }),
         },
     ]
+}
+
+fn query_input_schema(query_description: &str) -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "connection_id": { "type": "string" },
+            "query": { "type": "string", "description": query_description },
+            "database": { "type": "string" },
+            "collection": { "type": "string", "description": "Mongo collection when required" },
+            "max_rows": { "type": "integer", "minimum": 1, "maximum": AGENT_MAX_ROWS },
+            "format": {
+                "type": "string",
+                "enum": ["json", "csv"],
+                "description": "json (default) or csv. Both are cell-windowed for the model."
+            },
+            "cell_char_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": AGENT_MAX_CELL_OFFSET,
+                "description": "Character offset for every cell (default 0). Pass next_offset from a truncated cell to read the next slice."
+            },
+            "cell_char_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": AGENT_MAX_CELL_CHARS,
+                "description": format!("Characters returned per cell (default {AGENT_DEFAULT_CELL_CHARS}, max {AGENT_MAX_CELL_CHARS}). A larger request is clamped.")
+            }
+        },
+        "required": ["connection_id", "query"],
+        "additionalProperties": false
+    })
 }

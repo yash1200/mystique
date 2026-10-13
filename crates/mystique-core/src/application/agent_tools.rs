@@ -32,7 +32,7 @@ pub use policy::{
 pub use specs::{tool_specs, tool_specs_for};
 pub use types::{
     AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload, AgentToolSpec,
-    AGENT_MAX_ROWS,
+    AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
 };
 
 /// Shared tool surface: list schema, run queries, save/list queries.
@@ -133,6 +133,7 @@ impl AgentTools {
                         collection.as_deref(),
                         max_rows,
                         &format,
+                        types::AgentCellWindow::from_args(args),
                     )
                     .await?;
                 Ok(serde_json::to_value(result)?)
@@ -155,6 +156,7 @@ impl AgentTools {
                         collection.as_deref(),
                         max_rows,
                         &format,
+                        types::AgentCellWindow::from_args(args),
                     )
                     .await?;
                 Ok(serde_json::to_value(result)?)

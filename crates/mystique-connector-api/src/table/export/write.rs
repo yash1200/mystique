@@ -26,6 +26,7 @@ fn csv_escape(value: &str) -> String {
     }
 }
 
+/// File export keeps the full cell. The agent/MCP window is a different path.
 fn cell_text(v: &JsonValue) -> String {
     match v {
         JsonValue::Null => String::new(),
@@ -152,4 +153,30 @@ pub(super) fn write_sql_insert(
         out,
         &format!("INSERT INTO {target} ({col_list}) VALUES\n  {values};\n\n"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::ColumnInfo;
+
+    fn doc_column() -> ColumnInfo {
+        ColumnInfo {
+            name: "doc".into(),
+            data_type: "json".into(),
+            nullable: true,
+            pk: false,
+            enum_values: None,
+            default_value: None,
+            references: None,
+        }
+    }
+
+    #[test]
+    fn file_export_keeps_a_long_json_cell() {
+        let cell = JsonValue::String("x".repeat(20_000));
+        assert_eq!(cell_text(&cell).chars().count(), 20_000);
+        let row = row_object(&[doc_column()], &[cell]);
+        assert_eq!(row["doc"].as_str().map(|s| s.chars().count()), Some(20_000));
+    }
 }

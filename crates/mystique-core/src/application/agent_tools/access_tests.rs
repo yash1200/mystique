@@ -49,6 +49,28 @@ fn agent_max_rows_is_below_driver_ceiling() {
 }
 
 #[test]
+fn query_tool_spec_documents_the_cell_window() {
+    let spec = tool_specs()
+        .into_iter()
+        .find(|tool| tool.name == "execute_readonly_query")
+        .expect("execute_readonly_query");
+    assert!(spec.description.contains("next_offset"));
+    assert!(spec.description.contains("200"));
+    assert!(spec.description.contains("4000"));
+    let limit = &spec.input_schema["properties"]["cell_char_limit"];
+    assert_eq!(limit["maximum"], json!(AGENT_MAX_CELL_CHARS));
+    assert_eq!(
+        spec.input_schema["properties"]["cell_char_offset"]["maximum"],
+        json!(1_000_000)
+    );
+    let write = tool_specs()
+        .into_iter()
+        .find(|tool| tool.name == "execute_query")
+        .expect("execute_query");
+    assert!(write.description.contains("next_offset"));
+}
+
+#[test]
 fn tool_specs_omit_execute_query_when_read_only() {
     assert!(tool_specs_for(AgentWritePolicy::ReadOnly)
         .iter()

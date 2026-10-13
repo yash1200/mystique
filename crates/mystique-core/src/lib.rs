@@ -22,7 +22,8 @@ pub mod storage;
 pub use application::{
     parse_allowlist, tool_specs, tool_specs_for, AgentColumnInfo, AgentConnectionInfo,
     AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, AgentWritePolicy, AppServices,
-    ToolCaller, AGENT_MAX_ROWS, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
+    ToolCaller, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
+    SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
 };
 pub use connectors::{ConnectionManager, ConnectorRegistry, OpenSessionRequest};
 pub use domain::*;

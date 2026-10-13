@@ -6,7 +6,7 @@ use crate::storage::sqlite::repo;
 
 use super::download::download_from_result;
 use super::policy::{is_safe_dml, ToolCaller};
-use super::types::{clamp_agent_max_rows, AgentQueryDownload};
+use super::types::{clamp_agent_max_rows, AgentCellWindow, AgentQueryDownload};
 use super::AgentTools;
 
 impl AgentTools {
@@ -18,6 +18,7 @@ impl AgentTools {
         collection: Option<&str>,
         max_rows: Option<u32>,
         format: &str,
+        window: AgentCellWindow,
     ) -> AppResult<AgentQueryDownload> {
         let sid = self.ensure_session(connection_id).await?;
         let text = query.trim();
@@ -45,7 +46,7 @@ impl AgentTools {
                     .map(|s| s.to_string()),
             })
             .await?;
-        Ok(download_from_result(result, format))
+        Ok(download_from_result(result, format, window))
     }
 
     /// Policy-gated write (and read) query. P3.1 write guard still applies.
@@ -57,6 +58,7 @@ impl AgentTools {
         collection: Option<&str>,
         max_rows: Option<u32>,
         format: &str,
+        window: AgentCellWindow,
     ) -> AppResult<AgentQueryDownload> {
         let text = query.trim();
         if text.is_empty() {
@@ -100,7 +102,7 @@ impl AgentTools {
                     .map(|s| s.to_string()),
             })
             .await?;
-        Ok(download_from_result(result, format))
+        Ok(download_from_result(result, format, window))
     }
 
     pub fn list_saved_queries(&self, connection_id: Option<&str>) -> AppResult<Vec<SavedQuery>> {
