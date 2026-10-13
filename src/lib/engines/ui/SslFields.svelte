@@ -10,7 +10,8 @@
 		Select,
 	} from '#core/ui'
 	import type { EngineFieldsProps } from '../types'
-	import { SSL_MODE_OPTIONS, sslModeFromConfig } from '../ssl'
+	import { runtimeFor } from '../products'
+	import { SSL_MODE_OPTIONS, sslModeFromConfig, sslModeRejection } from '../ssl'
 	import { pickDatabaseFilePath } from './pick-database-file'
 
 	let {
@@ -22,10 +23,34 @@
 	const mode = $derived(
 		sslModeFromConfig(draft.ssl, draft.sslMode ?? 'require'),
 	)
+	const runtime = $derived(runtimeFor(String(draft.engine)) ?? '')
+	const modeOptions = $derived(
+		SSL_MODE_OPTIONS.filter((option) => {
+			if (runtime === 'postgres') return true
+			if (option.value === 'prefer') return false
+			if (runtime === 'mongodb' && option.value === 'verify-ca') return false
+			return true
+		}),
+	)
+	const modeError = $derived(sslModeRejection(String(draft.engine), mode))
 	const verifyHint = $derived(
 		mode === 'verify-ca' || mode === 'verify-full'
-			? 'Add a CA file for private CAs (RDS bundle). System roots are used if empty.'
-			: 'Encrypts the connection. Pick Verify full to check the server certificate.',
+			? 'Needs a CA file. The connection trusts that CA only, not system roots.'
+			: 'Encrypts the connection. Pick Verify full to check the server certificate and its name.',
+	)
+	const clientCertPlaceholder = $derived(
+		runtime === 'mysql'
+			? 'Optional · PKCS#12 (.p12 or .pfx)'
+			: runtime === 'mongodb'
+				? 'Optional · one PEM with the certificate and the key'
+				: 'Optional · PEM certificate',
+	)
+	const clientKeyPlaceholder = $derived(
+		runtime === 'mysql'
+			? 'Leave empty when the PKCS#12 file includes the key'
+			: runtime === 'mongodb'
+				? 'PEM key, or leave empty if it is already in the certificate file'
+				: 'Optional · unencrypted PKCS#8 PEM',
 	)
 
 	const certFilters = [
@@ -56,7 +81,16 @@
 </script>
 
 <Card title="SSL / TLS">
-	<Checkbox bind:checked={draft.ssl} label="Require SSL" {disabled} />
+	<Checkbox
+		bind:checked={draft.ssl}
+		label="Require SSL"
+		{disabled}
+		onchange={() => {
+			if (draft.ssl && (!draft.sslMode || draft.sslMode === 'disable')) {
+				draft.sslMode = 'require'
+			}
+		}}
+	/>
 	{#if extrasOpen}
 		<p class="mt-2 text-caption text-fg-muted">{verifyHint}</p>
 		<div class="mt-3">
@@ -64,11 +98,14 @@
 				<Field label="SSL mode" full>
 					<Select
 						value={mode === 'disable' ? 'require' : mode}
-						options={SSL_MODE_OPTIONS}
+						options={modeOptions}
 						{disabled}
 						onchange={onMode}
 					/>
 				</Field>
+				{#if modeError}
+					<p class="text-caption text-danger" role="alert">{modeError}</p>
+				{/if}
 				<Field label="CA certificate" full>
 					<div class="flex gap-2">
 						<Input
@@ -92,7 +129,7 @@
 						<Input
 							bind:value={draft.clientCertPath}
 							autocomplete="off"
-							placeholder="Optional · PEM or PKCS#12"
+							placeholder={clientCertPlaceholder}
 							class="flex-1 font-mono"
 							{disabled}
 						/>
@@ -111,7 +148,7 @@
 						<Input
 							bind:value={draft.clientKeyPath}
 							autocomplete="off"
-							placeholder="Optional · PEM key or .p12"
+							placeholder={clientKeyPlaceholder}
 							class="flex-1 font-mono"
 							{disabled}
 						/>

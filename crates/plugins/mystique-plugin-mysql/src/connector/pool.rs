@@ -43,10 +43,13 @@ pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {
     TlsSettings::from_config(config).enabled()
 }
 
-fn ssl_opts(settings: &TlsSettings) -> ConnectorResult<SslOpts> {
+fn ssl_opts(settings: &TlsSettings, hostname_override: Option<&str>) -> ConnectorResult<SslOpts> {
     let mut opts = SslOpts::default()
         .with_danger_accept_invalid_certs(!settings.mode.verify_certs())
         .with_danger_skip_domain_validation(!settings.mode.verify_hostname());
+    if let Some(name) = hostname_override.filter(|s| !s.is_empty()) {
+        opts = opts.with_danger_tls_hostname_override(Some(name.to_string()));
+    }
     if let Some(ca) = &settings.ca_cert_path {
         opts = opts
             .with_root_certs(vec![ca.clone().into()])
@@ -111,8 +114,10 @@ pub(super) fn build_opts(config: &ConnectionConfig) -> ConnectorResult<mysql_asy
         .stmt_cache_size(0);
 
     let tls = TlsSettings::from_config(config);
+    tls.check(&config.engine)?;
     if tls.enabled() {
-        builder = builder.ssl_opts(Some(ssl_opts(&tls)?));
+        let tls_name = config.str_field("tlsServerName");
+        builder = builder.ssl_opts(Some(ssl_opts(&tls, tls_name.as_deref())?));
     }
 
     Ok(builder.into())
@@ -134,6 +139,44 @@ pub(super) async fn connect_once(
 mod tests {
     use super::format_error;
     use mysql_async::{Error, ServerError};
+
+    #[test]
+    fn prefer_is_rejected() {
+        let err = super::build_opts(&mystique_connector_api::ConnectionConfig {
+            engine: "mysql".into(),
+            plugin_config: serde_json::json!({
+                "host": "127.0.0.1",
+                "database": "app",
+                "sslMode": "prefer"
+            }),
+            password: None,
+            pool: mystique_connector_api::PoolConfig::default(),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("cannot try TLS"), "{err}");
+    }
+
+    #[test]
+    fn verify_full_through_ssh_overrides_the_tls_name() {
+        let opts = super::build_opts(&mystique_connector_api::ConnectionConfig {
+            engine: "mariadb".into(),
+            plugin_config: serde_json::json!({
+                "host": "127.0.0.1",
+                "port": 6000,
+                "database": "app",
+                "sslMode": "require",
+                "tlsServerName": "db.internal"
+            }),
+            password: None,
+            pool: mystique_connector_api::PoolConfig::default(),
+        })
+        .expect("opts");
+        assert_eq!(opts.ip_or_hostname(), "127.0.0.1");
+        assert_eq!(
+            opts.ssl_opts().and_then(|ssl| ssl.tls_hostname_override()),
+            Some("db.internal")
+        );
+    }
 
     #[test]
     fn server_error_uses_mysql_message() {

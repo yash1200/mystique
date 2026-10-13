@@ -1,4 +1,5 @@
 use std::error::Error as StdError;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use deadpool_postgres::{Config as PoolCfg, ManagerConfig, RecyclingMethod, Runtime, SslMode};
@@ -132,10 +133,8 @@ fn is_noise(s: &str) -> bool {
 }
 
 pub(crate) fn build_pool_config(config: &ConnectionConfig) -> ConnectorResult<PoolCfg> {
-    let host = config
-        .str_field("host")
-        .unwrap_or_else(|| "127.0.0.1".into());
-    let port = config.u16_field("port", 5432);
+    let dial = dial_target(config);
+    TlsSettings::from_config(config).check(&config.engine)?;
     let dbname = config.require_str("database")?;
     let user = config
         .str_field("username")
@@ -143,8 +142,9 @@ pub(crate) fn build_pool_config(config: &ConnectionConfig) -> ConnectorResult<Po
         .unwrap_or_else(|| "postgres".into());
 
     let mut cfg = PoolCfg::new();
-    cfg.host = Some(host);
-    cfg.port = Some(port);
+    cfg.host = Some(dial.tls_name.clone());
+    cfg.hostaddr = dial.addr;
+    cfg.port = Some(dial.port);
     cfg.dbname = Some(dbname);
     cfg.user = Some(user);
     if let Some(pw) = config.password.clone() {
@@ -175,10 +175,8 @@ pub(crate) fn build_pool_config(config: &ConnectionConfig) -> ConnectorResult<Po
 pub(super) fn build_pg_config(
     config: &ConnectionConfig,
 ) -> ConnectorResult<tokio_postgres::Config> {
-    let host = config
-        .str_field("host")
-        .unwrap_or_else(|| "127.0.0.1".into());
-    let port = config.u16_field("port", 5432);
+    let dial = dial_target(config);
+    TlsSettings::from_config(config).check(&config.engine)?;
     let dbname = config.require_str("database")?;
     let user = config
         .str_field("username")
@@ -186,8 +184,11 @@ pub(super) fn build_pg_config(
         .unwrap_or_else(|| "postgres".into());
 
     let mut pg = tokio_postgres::Config::new();
-    pg.host(&host);
-    pg.port(port);
+    pg.host(&dial.tls_name);
+    if let Some(addr) = dial.addr {
+        pg.hostaddr(addr);
+    }
+    pg.port(dial.port);
     pg.dbname(&dbname);
     pg.user(&user);
     if let Some(pw) = config.password.as_deref() {
@@ -249,6 +250,34 @@ pub(super) async fn create_pool(
     }
 }
 
+struct DialTarget {
+    /// Name checked by verify-full. The real server, not the tunnel.
+    tls_name: String,
+    /// Set when the TCP dial address is not the TLS name (SSH local forward).
+    addr: Option<IpAddr>,
+    port: u16,
+}
+
+fn dial_target(config: &ConnectionConfig) -> DialTarget {
+    let host = config
+        .str_field("host")
+        .unwrap_or_else(|| "127.0.0.1".into());
+    let port = config.u16_field("port", 5432);
+    let tls_name = config.str_field("tlsServerName").filter(|s| !s.is_empty());
+    match tls_name {
+        Some(name) => DialTarget {
+            tls_name: name,
+            addr: host.parse().ok(),
+            port,
+        },
+        None => DialTarget {
+            tls_name: host,
+            addr: None,
+            port,
+        },
+    }
+}
+
 fn tokio_ssl_mode(settings: &TlsSettings) -> tokio_postgres::config::SslMode {
     match settings.mode {
         MystSslMode::Disable => tokio_postgres::config::SslMode::Disable,
@@ -304,6 +333,33 @@ mod tests {
         };
         let err = build_pool_config(&config).unwrap_err();
         assert!(err.to_string().contains("database"), "{err}");
+    }
+
+    #[test]
+    fn verify_full_through_ssh_checks_the_real_hostname() {
+        let config = ConnectionConfig {
+            engine: "postgres".into(),
+            plugin_config: json!({
+                "host": "127.0.0.1",
+                "port": 5555,
+                "tlsServerName": "db.internal",
+                "database": "app",
+                "sslMode": "verify-full",
+                "caCertPath": "/tmp/mystique-ca.pem"
+            }),
+            password: None,
+            pool: PoolConfig::default(),
+        };
+        let pg = build_pg_config(&config).expect("pg config");
+        assert_eq!(
+            pg.get_hosts(),
+            &[tokio_postgres::config::Host::Tcp("db.internal".into())]
+        );
+        assert_eq!(
+            pg.get_hostaddrs(),
+            &[std::net::IpAddr::from([127, 0, 0, 1])]
+        );
+        assert_eq!(pg.get_ports(), &[5555]);
     }
 
     #[test]

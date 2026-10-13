@@ -68,11 +68,20 @@ pub(super) async fn build_client(
     options.app_name = Some("Mystique".into());
 
     let tls = TlsSettings::from_config(config);
+    tls.check(&config.engine)?;
+    if tls.mode == mystique_connector_api::SslMode::VerifyFull {
+        if let Some(message) = mongo_verify_full_tunnel_error(config) {
+            return Err(ConnectorError::InvalidConfig(message));
+        }
+    }
     if tls.enabled() {
         let mut tls_opts = TlsOptions::default();
         tls_opts.allow_invalid_certificates = Some(!tls.mode.verify_certs());
         tls_opts.ca_file_path = tls.ca_cert_path.clone();
-        tls_opts.cert_key_file_path = tls.cert_key_file().map(|p| p.to_path_buf());
+        tls_opts.cert_key_file_path = mongo_identity_path(&tls)?;
+        if let Some(passphrase) = tls.client_key_passphrase.clone() {
+            tls_opts.tls_certificate_key_file_password = Some(passphrase.into_bytes());
+        }
         options.tls = Some(Tls::Enabled(tls_opts));
     }
 
@@ -89,4 +98,182 @@ pub(super) async fn build_client(
     let client =
         Client::with_options(options).map_err(|e| ConnectorError::Connect(e.to_string()))?;
     Ok((client, default_db))
+}
+
+fn mongo_verify_full_tunnel_error(config: &ConnectionConfig) -> Option<String> {
+    let name = config.str_field("tlsServerName")?;
+    let dial = mongo_dial_host(config).unwrap_or_default();
+    if is_loopback(&dial) && !dial.eq_ignore_ascii_case(&name) {
+        Some(
+            "MongoDB verify-full through an SSH tunnel cannot check the real server name. The driver dials 127.0.0.1 and has no separate TLS name. Use require, or connect without SSH."
+                .into(),
+        )
+    } else {
+        None
+    }
+}
+
+fn mongo_dial_host(config: &ConnectionConfig) -> Option<String> {
+    if let Some(uri) = config.str_field("uri") {
+        let rest = uri
+            .split_once("://")
+            .map(|(_, rest)| rest)
+            .unwrap_or(uri.as_str());
+        let hostpart = rest.rsplit_once('@').map(|(_, host)| host).unwrap_or(rest);
+        let authority = hostpart
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or(hostpart)
+            .trim();
+        let host = authority
+            .rsplit_once(':')
+            .map(|(host, _)| host)
+            .unwrap_or(authority);
+        if !host.is_empty() {
+            return Some(host.to_string());
+        }
+    }
+    config.str_field("host")
+}
+
+fn is_loopback(host: &str) -> bool {
+    matches!(
+        host.trim()
+            .trim_matches(['[', ']'])
+            .to_ascii_lowercase()
+            .as_str(),
+        "127.0.0.1" | "localhost" | "::1"
+    )
+}
+
+/// Mongo wants one PEM that contains the certificate and the private key.
+fn mongo_identity_path(tls: &TlsSettings) -> ConnectorResult<Option<std::path::PathBuf>> {
+    match (tls.client_cert_path.as_ref(), tls.client_key_path.as_ref()) {
+        (None, None) => Ok(None),
+        (Some(path), None) | (None, Some(path)) => {
+            require_combined_pem(path)?;
+            Ok(Some(path.clone()))
+        }
+        (Some(cert), Some(key)) if cert == key => {
+            require_combined_pem(cert)?;
+            Ok(Some(cert.clone()))
+        }
+        (Some(cert), Some(key)) => {
+            require_combined_pem_parts(cert, key)?;
+            Ok(Some(write_combined_pem(cert, key)?))
+        }
+    }
+}
+
+fn require_combined_pem(path: &std::path::Path) -> ConnectorResult<()> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        ConnectorError::InvalidConfig(format!("could not read {}: {e}", path.display()))
+    })?;
+    if text.contains("CERTIFICATE") && text.contains("PRIVATE KEY") {
+        Ok(())
+    } else {
+        Err(ConnectorError::InvalidConfig(
+            "MongoDB client identity must be one PEM file that contains the certificate and the private key.".into(),
+        ))
+    }
+}
+
+fn require_combined_pem_parts(
+    cert: &std::path::Path,
+    key: &std::path::Path,
+) -> ConnectorResult<()> {
+    let cert_text = std::fs::read_to_string(cert).map_err(|e| {
+        ConnectorError::InvalidConfig(format!("could not read {}: {e}", cert.display()))
+    })?;
+    let key_text = std::fs::read_to_string(key).map_err(|e| {
+        ConnectorError::InvalidConfig(format!("could not read {}: {e}", key.display()))
+    })?;
+    if !cert_text.contains("CERTIFICATE") || !key_text.contains("PRIVATE KEY") {
+        return Err(ConnectorError::InvalidConfig(
+            "MongoDB client identity must be PEM. PKCS#12 is not accepted.".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn write_combined_pem(
+    cert: &std::path::Path,
+    key: &std::path::Path,
+) -> ConnectorResult<std::path::PathBuf> {
+    let cert_text = std::fs::read_to_string(cert).map_err(|e| {
+        ConnectorError::InvalidConfig(format!("could not read {}: {e}", cert.display()))
+    })?;
+    let key_text = std::fs::read_to_string(key).map_err(|e| {
+        ConnectorError::InvalidConfig(format!("could not read {}: {e}", key.display()))
+    })?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "mystique-mongo-identity-{}-{nanos}.pem",
+        std::process::id()
+    ));
+    std::fs::write(&path, format!("{cert_text}\n{key_text}")).map_err(|e| {
+        ConnectorError::InvalidConfig(format!("could not write MongoDB client identity: {e}"))
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mystique_connector_api::ConnectionConfig;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn verify_ca_is_rejected() {
+        let err = build_client(&ConnectionConfig::new(
+            "documentdb",
+            json!({
+                "uri": "mongodb://127.0.0.1:27017/app",
+                "sslMode": "verify-ca",
+                "caCertPath": "/tmp/ca.pem"
+            }),
+        ))
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("verify-ca"), "{err}");
+        assert!(err.to_string().contains("DocumentDB"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn verify_full_through_ssh_is_rejected() {
+        let err = build_client(&ConnectionConfig::new(
+            "mongodb",
+            json!({
+                "uri": "mongodb://127.0.0.1:27017/app",
+                "sslMode": "verify-full",
+                "caCertPath": "/tmp/ca.pem",
+                "tlsServerName": "mongo.internal"
+            }),
+        ))
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("SSH tunnel"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn prefer_is_rejected() {
+        let err = build_client(&ConnectionConfig::new(
+            "mongodb",
+            json!({
+                "uri": "mongodb://127.0.0.1:27017/app",
+                "sslMode": "prefer"
+            }),
+        ))
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("cannot try TLS"), "{err}");
+    }
 }

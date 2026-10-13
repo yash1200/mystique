@@ -41,18 +41,40 @@ pub fn rewrite_plugin_config_for_tunnel(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
+        let (tls_name, _) = host_port_from_uri(uri)?;
         let rewritten = rewrite_uri_host_port(uri, "127.0.0.1", local_port)?;
         if let Some(obj) = plugin_config.as_object_mut() {
             obj.insert("uri".into(), JsonValue::String(rewritten));
+            remember_tls_name(obj, &tls_name);
         }
         return Ok(plugin_config);
     }
     let obj = plugin_config
         .as_object_mut()
         .ok_or_else(|| ConnectorError::InvalidConfig("plugin_config must be an object".into()))?;
+    let tls_name = obj
+        .get("host")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     obj.insert("host".into(), JsonValue::String("127.0.0.1".into()));
     obj.insert("port".into(), JsonValue::from(local_port));
+    if !tls_name.is_empty() {
+        remember_tls_name(obj, &tls_name);
+    }
     Ok(plugin_config)
+}
+
+fn remember_tls_name(obj: &mut serde_json::Map<String, JsonValue>, host: &str) {
+    let existing = obj
+        .get("tlsServerName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if existing.is_empty() {
+        obj.insert("tlsServerName".into(), JsonValue::String(host.to_string()));
+    }
 }
 
 fn json_port(v: Option<&JsonValue>) -> Option<u16> {
@@ -176,6 +198,7 @@ mod tests {
         .unwrap();
         assert_eq!(out["host"], "127.0.0.1");
         assert_eq!(out["port"], 5555);
+        assert_eq!(out["tlsServerName"], "db.internal");
         assert_eq!(out["database"], "app");
     }
 
@@ -190,6 +213,7 @@ mod tests {
             out["uri"],
             "mongodb://u:p@127.0.0.1:6000/app?authSource=admin"
         );
+        assert_eq!(out["tlsServerName"], "mongo.internal");
     }
 
     #[test]
