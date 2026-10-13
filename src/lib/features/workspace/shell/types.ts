@@ -44,8 +44,8 @@ export function resolveTablePreview(
 		next.filters.length > 0 || !!next.codeFilter || !!next.sort
 	if (seeded) return next
 	if (!existing) return emptyTablePreview()
-	// Remounted grid starts at page 0; keep filters/sort, not a stale offset.
-	return { ...existing, offset: 0 }
+	// The grid keeps its page across tab switches, so keep that offset too.
+	return { ...existing }
 }
 
 export type WorkspaceTab = {

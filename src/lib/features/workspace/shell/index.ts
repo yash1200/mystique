@@ -1,5 +1,6 @@
 /** Workspace chrome: panes, session rail, tabs, and the session stores. */
 export * from './api'
+export * from './edit-buffer'
 export * from './live-session'
 export * from './lookup'
 export * from './reset'

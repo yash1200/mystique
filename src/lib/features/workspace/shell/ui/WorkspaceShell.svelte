@@ -35,13 +35,14 @@
 		refreshHistory,
 		refreshSavedQueries,
 	} from '#features/workspace/query'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
 		probeSessionHealth,
 		reopenEngineSession,
 		sessionDatabase,
 		startSessionHealthWatch,
 	} from '../live-session'
+	import { dropEditBuffer } from '../edit-buffer'
 	import { workspaceSession } from '../session.svelte'
 	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import { workspaceStudio } from '../studio.svelte'
@@ -65,9 +66,13 @@
 	})
 
 	$effect(() => {
-		void activeSession?.profile.id
-		void activeSession?.engineSessionId
-		void ensureCatalogForActiveSession()
+		const connectionId = activeSession?.profile.id
+		const engineSessionId = activeSession?.engineSessionId
+		if (!connectionId) return
+		void engineSessionId
+		untrack(() => {
+			void ensureCatalogForActiveSession()
+		})
 	})
 
 	$effect(() => {
@@ -176,6 +181,9 @@
 				}
 				if (table && session) {
 					try {
+						// Closing discards the edits. Drop them first so the
+						// reload is allowed to replace the page.
+						dropEditBuffer(tab.id)
 						await tablePreview.open(table)
 					} catch (e) {
 						console.warn('[mystique] discard table reload:', e)

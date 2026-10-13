@@ -17,6 +17,8 @@ import {
 	replaceWorkspaceTabs,
 	workspaceTabToSaveInput,
 } from './api'
+import { dropEditBuffer } from './edit-buffer'
+import { createPersistScheduler } from './persist-schedule'
 import type { SelectedRow, TableTabPreview, WorkspaceTab } from './types'
 
 export type { ConnectedSession } from '#core/contracts'
@@ -47,7 +49,9 @@ class WorkspaceSessionStore {
 	private queryRunCache = new Map<string, QueryRunCache>()
 
 	/** Debounced persist handles per connection. */
-	private persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
+	private persistScheduler = createPersistScheduler((connectionId) =>
+		this.persistNow(connectionId),
+	)
 	private restoring = new Set<string>()
 
 	get activeSession(): ConnectedSession | null {
@@ -183,15 +187,7 @@ class WorkspaceSessionStore {
 	/** Persist open tabs for one connection (debounced). */
 	schedulePersist(connectionId: string) {
 		if (!isTauri() || this.restoring.has(connectionId)) return
-		const prev = this.persistTimers.get(connectionId)
-		if (prev) clearTimeout(prev)
-		this.persistTimers.set(
-			connectionId,
-			setTimeout(() => {
-				this.persistTimers.delete(connectionId)
-				void this.persistNow(connectionId)
-			}, 350),
-		)
+		this.persistScheduler.schedule(connectionId)
 	}
 
 	async persistNow(connectionId: string) {
@@ -353,7 +349,9 @@ class WorkspaceSessionStore {
 	}
 
 	disconnect(id: string) {
-		// Persist final tab state before dropping memory.
+		// A pending timer would otherwise fire after the tab list is cleared
+		// and persist an empty set.
+		this.persistScheduler.cancel(id)
 		void this.persistNow(id)
 
 		this.sessions = this.sessions.filter((s) => s.profile.id !== id)
@@ -507,6 +505,7 @@ class WorkspaceSessionStore {
 			.findIndex((t) => t.id === tabId)
 		const wasActive = this.activeTabId === tabId
 		this.openTabs = this.openTabs.filter((t) => t.id !== tabId)
+		if (tab.kind === 'table') dropEditBuffer(tabId)
 
 		if (tab.kind === 'query') {
 			const drafts = { ...this.queryDrafts }

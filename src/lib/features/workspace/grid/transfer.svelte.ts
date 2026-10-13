@@ -8,6 +8,7 @@ import {
 } from '#core/ipc'
 import {
 	currentDatabaseName,
+	dropEditBuffer,
 	requireActiveConnection,
 	runWithWriteGuard,
 	tableTabId,
@@ -117,6 +118,9 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 		workspaceStudio.importPath = ''
 		const tabId = tableTabId(active.id, table.id)
 		if (workspaceSession.openTabs.some((t) => t.id === tabId)) {
+			// Import already changed the server page. Drop local edits so the
+			// reload is allowed to replace them.
+			dropEditBuffer(tabId)
 			const { tablePreview } = await import('./tab-preview.svelte')
 			void tablePreview.open(table)
 		}

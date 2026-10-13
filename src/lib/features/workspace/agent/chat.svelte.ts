@@ -6,6 +6,7 @@ import {
 	listAgentMessages,
 	listAgentModels,
 } from './api'
+import { chatAfterConnectionChange } from './connection-chat'
 import type { AgentChat, AgentMessage, AgentModelInfo } from './types'
 
 class AgentChatStore {
@@ -28,7 +29,8 @@ class AgentChatStore {
 	loadChats = async (connectionId: string, force = false) => {
 		if (!force && this.#chatsFor === connectionId) return this.chats
 		const rows = await listAgentChats(connectionId)
-		this.connectionId = connectionId
+		// A slower response for the previous connection must not replace this one.
+		if (this.connectionId !== connectionId) return rows
 		this.#chatsFor = connectionId
 		this.chats = rows
 		return rows
@@ -128,8 +130,17 @@ class AgentChatStore {
 	}
 
 	resetForConnection = (connectionId: string) => {
-		if (this.connectionId === connectionId) return
-		this.connectionId = connectionId
+		const next = chatAfterConnectionChange(
+			{
+				connectionId: this.connectionId,
+				chatId: this.chatId,
+				chats: this.chats,
+				messages: this.messages,
+			},
+			connectionId,
+		)
+		if (next.connectionId === this.connectionId) return
+		this.connectionId = next.connectionId
 		this.#chatsFor = null
 		this.#messagesFor = null
 		this.chats = []

@@ -18,6 +18,7 @@ import {
 	engineBindsSessionToDatabase,
 	findCatalogTable,
 	patchCatalogTable,
+	reopenTableAction,
 	requireActiveConnection,
 	resolveTablePreview,
 	tableTabId,
@@ -37,12 +38,17 @@ class TablePreview {
 		sort: TablePreviewSort | null = null,
 		codeFilter: string | null = null,
 		replacePreview = false,
+		force = false,
 	) {
 		const active = requireActiveConnection()
 		if (!active) return
 		const { id, session } = active
 		workspaceStudio.sideMode = 'explorer'
 		const tabId = tableTabId(id, table.id)
+		if (!force && reopenTableAction(tabId) === 'focus') {
+			workspaceSession.openTable(id, table.id, table.name)
+			return
+		}
 		const existing = workspaceSession.openTabs.find((t) => t.id === tabId)
 		const preview = resolveTablePreview(existing?.preview, {
 			offset,
@@ -148,6 +154,7 @@ class TablePreview {
 			opts?.filters ?? [],
 			sort,
 			opts?.codeFilter ?? null,
+			true,
 			true,
 		)
 	}

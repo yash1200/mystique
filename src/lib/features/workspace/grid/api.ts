@@ -5,7 +5,9 @@
 import type { ApplyTableEditsResult, TableMeta } from '#core/contracts'
 import { applyEngineTableEdits } from '#core/ipc'
 import { runWithWriteGuard } from '#features/workspace/shell'
+import { identityCell } from './identity-cell'
 export type PersistResult = ApplyTableEditsResult
+export { identityCell } from './identity-cell'
 
 function invokeError(err: unknown): string {
 	if (err instanceof Error) return err.message
@@ -24,39 +26,10 @@ function cellEmpty(v: unknown): boolean {
 	return v === null || v === undefined || v === ''
 }
 
-function unwrapCell(v: unknown): unknown {
-	if (v == null) return null
-	if (typeof v === 'string') {
-		const t = v.trim()
-		if (
-			(t.startsWith('{') && t.endsWith('}')) ||
-			(t.startsWith('"') && t.endsWith('"'))
-		) {
-			try {
-				const parsed = JSON.parse(t) as unknown
-				if (parsed && typeof parsed === 'object') {
-					const o = parsed as Record<string, unknown>
-					if (typeof o.$oid === 'string') return o.$oid
-					if (typeof o.$uuid === 'string') return o.$uuid
-				}
-				return parsed
-			} catch {
-				/* keep string */
-			}
-		}
-	}
-	if (v && typeof v === 'object') {
-		const o = v as Record<string, unknown>
-		if (typeof o.$oid === 'string') return o.$oid
-		if (typeof o.$uuid === 'string') return o.$uuid
-	}
-	return v
-}
-
 function asJsonMap(row: Record<string, unknown>): Record<string, unknown> {
 	const out: Record<string, unknown> = {}
 	for (const [k, v] of Object.entries(row)) {
-		out[k] = v === undefined ? null : unwrapCell(v)
+		out[k] = v === undefined ? null : identityCell(v)
 	}
 	return out
 }

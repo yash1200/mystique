@@ -362,6 +362,7 @@
 					     Tab id keeps filter $state from leaking across tables. -->
 					{#key activeTab.id}
 						<DataGrid
+							tabId={activeTab.id}
 							table={gridTable}
 							selectedRowIndex={rowSelectionIndex}
 							{rowSyncTick}

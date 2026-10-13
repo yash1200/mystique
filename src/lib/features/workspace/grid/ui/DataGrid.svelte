@@ -8,8 +8,14 @@
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
 	import { showToast } from '#features/toast'
+	import {
+		adoptServerRows,
+		getEditBuffer,
+		rememberEditBuffer,
+		tabEditsAreDirty,
+	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
-	import { onMount, tick } from 'svelte'
+	import { onMount, tick, untrack } from 'svelte'
 	import { persistTableEdits } from '../api'
 	import { valueToEditorText } from '../cell-view'
 	import {
@@ -80,6 +86,8 @@
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
 		/** Open this table's structure in a new tab. */
 		onopenstructure?: () => void
+		/** Tab id for the edit buffer. Remounts rehydrate this instead of the catalog. */
+		tabId?: string | null
 	}
 
 	let {
@@ -102,6 +110,7 @@
 		codeFilterPlaceholder = '{ "email": "user@example.com" }',
 		onopenreference,
 		onopenstructure,
+		tabId = null,
 	}: Props = $props()
 
 	let seed = $state<Record<string, unknown>[]>([])
@@ -145,6 +154,8 @@
 	const PAGE_SIZE = 100
 	let page = $state(0)
 	let refreshing = $state(false)
+	/** Second ⌘R confirms discarding a dirty buffer. */
+	let refreshArmed = $state(false)
 	let saving = $state(false)
 	let loadedTableId = $state<string | null>(null)
 	let appliedSyncTick = $state(0)
@@ -184,6 +195,11 @@
 
 	$effect(() => {
 		ondirtychange?.(dirtyCount > 0)
+	})
+
+	// A second refresh confirms a discard. Clearing the edits requires a new confirm.
+	$effect(() => {
+		if (dirtyCount === 0) refreshArmed = false
 	})
 
 	function makeRule(): FilterRule {
@@ -264,8 +280,12 @@
 	const serverTotal = $derived.by(() => {
 		const n = Math.max(table.rowCount, rows.length)
 		// COUNT is deferred. A full page means there may be another.
+		// A short page is the last one, so count the pages already passed.
 		if (table.totalKnown === false && rows.length >= PAGE_SIZE) {
 			return Math.max(n, (page + 1) * PAGE_SIZE + 1)
+		}
+		if (table.totalKnown === false) {
+			return page * PAGE_SIZE + rows.length
 		}
 		return n
 	})
@@ -389,6 +409,20 @@
 		dirtyKeys = next
 	}
 
+	function restoreBuffer(buf: ReturnType<typeof getEditBuffer>) {
+		if (!buf) return
+		rows = buf.rows.map((r) => ({ ...r }))
+		originals = buf.baseline.map((r) => ({ ...r }))
+		seed = buf.baseline.map((r) => ({ ...r }))
+		dirtyKeys = new Set(buf.dirtyKeys)
+		newRowIndices = new Set(buf.newRowIndices)
+		deletedIndices = new Set(buf.deletedIndices)
+		page = buf.page
+		loadedTableId = table.id
+		editing = null
+		draft = ''
+	}
+
 	function loadFromTable(resetBaseline: boolean) {
 		const cloned = table.rows.map((r) => ({ ...r }))
 		rows = cloned.map((r) => ({ ...r }))
@@ -401,6 +435,7 @@
 			dirtyKeys = new Set()
 			newRowIndices = new Set()
 			deletedIndices = new Set()
+			if (tabId) adoptServerRows(tabId, cloned, page)
 		} else {
 			recomputeDirty(cloned, originals)
 		}
@@ -475,7 +510,6 @@
 		shiftIndicesAfterPrepend()
 		const copy = { ...row }
 		rows = [copy, ...rows]
-		table.rows.unshift({ ...copy })
 		originals = [{ ...copy }, ...originals]
 		seed = [{ ...copy }, ...seed]
 		newRowIndices = new Set([0, ...newRowIndices])
@@ -879,7 +913,6 @@
 		rows = rows.filter((_, i) => i !== index)
 		originals = originals.filter((_, i) => i !== index)
 		seed = seed.filter((_, i) => i !== index)
-		table.rows.splice(index, 1)
 
 		const remapSet = (set: Set<number>) => {
 			const next = new Set<number>()
@@ -1334,11 +1367,37 @@
 	$effect(() => {
 		const id = table.id
 		if (loadedTableId === id) return
+		const key = tabId
+		if (key) {
+			const existing = getEditBuffer(key)
+			if (existing) {
+				restoreBuffer(existing)
+				applySeedState()
+				appliedSyncTick = rowSyncTick
+				appliedPreviewTick = tablePreviewTick
+				return
+			}
+		}
 		loadFromTable(true)
 		page = 0
 		applySeedState()
 		appliedSyncTick = -1
 		appliedPreviewTick = tablePreviewTick
+	})
+
+	$effect(() => {
+		const key = tabId
+		const ready = loadedTableId
+		if (!key || ready !== table.id) return
+		const snap = {
+			baseline: originals.map((r) => ({ ...r })),
+			rows: rows.map((r) => ({ ...r })),
+			dirtyKeys: [...dirtyKeys],
+			newRowIndices: [...newRowIndices],
+			deletedIndices: [...deletedIndices],
+			page,
+		}
+		untrack(() => rememberEditBuffer(key, snap))
 	})
 
 	// FK jump (or explorer re-open) can reseed the same table without remounting.
@@ -1373,6 +1432,10 @@
 		if (loadedTableId !== tableId) return
 		if (tick === appliedPreviewTick) return
 		if (editing) return
+		if (tabId && tabEditsAreDirty(tabId)) {
+			appliedPreviewTick = tick
+			return
+		}
 		appliedPreviewTick = tick
 		loadFromTable(true)
 		appliedSyncTick = rowSyncTick
@@ -1552,11 +1615,6 @@
 				? selectDraftToValue(rawText, def, prev)
 				: parseDraft(rawText, prev)
 		rows = rows.map((r, i) => (i === row ? { ...r, [col]: next } : r))
-		if (table.rows[row]) {
-			table.rows[row] = { ...table.rows[row], [col]: next }
-		} else {
-			table.rows[row] = { ...(rows[row] ?? {}), [col]: next }
-		}
 		const key = cellKey(row, col)
 		const original = originals[row]?.[col]
 		const nextDirty = new Set(dirtyKeys)
@@ -1963,26 +2021,32 @@
 	async function refresh() {
 		if (refreshing) return
 		if (editing) cancelEdit()
+		if (dirtyCount > 0 && !refreshArmed) {
+			refreshArmed = true
+			showToast(
+				'warning',
+				'Unsaved edits. Refresh again to discard them.',
+			)
+			return
+		}
+		refreshArmed = false
+		const keepPage = page
 		refreshing = true
 		try {
 			if (onreload) {
-				await onreload(reloadOpts(page * PAGE_SIZE))
+				await onreload(reloadOpts(keepPage * PAGE_SIZE))
 				loadFromTable(true)
 				markServerPreviewApplied()
 			} else {
 				const cloned = seed.map((r) => ({ ...r }))
 				rows = cloned.map((r) => ({ ...r }))
 				originals = cloned.map((r) => ({ ...r }))
-				table.rows.splice(
-					0,
-					table.rows.length,
-					...cloned.map((r) => ({ ...r })),
-				)
 				dirtyKeys = new Set()
 				newRowIndices = new Set()
 				deletedIndices = new Set()
+				if (tabId) adoptServerRows(tabId, cloned, keepPage)
 			}
-			page = 0
+			page = keepPage
 			onbaselinechange?.()
 		} catch (err) {
 			reportGridError(err)

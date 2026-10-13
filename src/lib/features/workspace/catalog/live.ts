@@ -21,6 +21,18 @@ import {
 	preferDatabase,
 } from './api'
 import { catalogColumnsCache } from './columns.svelte'
+import { clearCatalogFailure, recordCatalogFailure } from './failure'
+
+function reportCatalogError(connectionId: string, err: unknown) {
+	const message = err instanceof Error ? err.message : String(err)
+	const first = recordCatalogFailure(connectionId, message)
+	if (first) {
+		workspaceStudio.setCatalogError(message)
+		return
+	}
+	// Same failure again: keep the banner, do not toast in a loop.
+	workspaceStudio.catalogError = message
+}
 
 export async function ensureLiveCatalog(
 	connectionId: string,
@@ -58,6 +70,7 @@ export async function ensureLiveCatalog(
 			...workspaceStudio.liveCatalogKey,
 			[connectionId]: sessionId,
 		}
+		clearCatalogFailure(connectionId)
 	} catch (e) {
 		const session = workspaceSession.sessions.find(
 			(s) => s.profile.id === connectionId,
@@ -77,17 +90,14 @@ export async function ensureLiveCatalog(
 					...workspaceStudio.liveCatalogKey,
 					[connectionId]: sessionId,
 				}
+				clearCatalogFailure(connectionId)
 				workspaceStudio.setCatalogError(null)
 				return
 			} catch (retryErr) {
-				workspaceStudio.setCatalogError(
-					retryErr instanceof Error ? retryErr.message : String(retryErr),
-				)
+				reportCatalogError(connectionId, retryErr)
 			}
 		} else {
-			workspaceStudio.setCatalogError(
-				e instanceof Error ? e.message : String(e),
-			)
+			reportCatalogError(connectionId, e)
 		}
 		if (!workspaceStudio.catalogs[connectionId]) {
 			workspaceStudio.catalogs = {
@@ -149,9 +159,7 @@ export async function ensureCatalogForActiveSession() {
 		try {
 			sid = await reopenEngineSession(session.profile, preferred)
 		} catch (e) {
-			workspaceStudio.setCatalogError(
-				e instanceof Error ? e.message : String(e),
-			)
+			reportCatalogError(id, e)
 			return
 		}
 	}

@@ -61,6 +61,7 @@
 	let listEl = $state<HTMLDivElement | null>(null)
 	let dragging = $state(false)
 	let loaf = $state(false)
+	let seenConnection = $state<string | null>(null)
 	const mac = isMacPlatform()
 	const sendChord = $derived(
 		`${labelForKey('mod', mac)}+${labelForKey('enter', mac)}`,
@@ -218,7 +219,9 @@
 
 	async function loadChats(force = false) {
 		if (!desktop) return
-		await agentChat.loadChats(connectionId, force)
+		const forConnection = connectionId
+		await agentChat.loadChats(forConnection, force)
+		if (connectionId !== forConnection) return
 		if (
 			agentChat.chatId &&
 			!agentChat.chats.some((c) => String(c.id) === String(agentChat.chatId))
@@ -493,6 +496,23 @@
 	}
 
 	$effect(() => {
+		const id = connectionId
+		if (seenConnection === null) {
+			seenConnection = id
+			return
+		}
+		if (seenConnection === id) return
+		seenConnection = id
+		untrack(() => {
+			agentChat.resetForConnection(id)
+			if (!desktop) return
+			void openConnectionChats().catch((e: unknown) => {
+				error = e instanceof Error ? e.message : String(e)
+			})
+		})
+	})
+
+	$effect(() => {
 		void readyProviders
 		if (desktop) untrack(() => void loadModels())
 	})
@@ -513,6 +533,25 @@
 		})
 	})
 
+	async function openConnectionChats() {
+		const forConnection = connectionId
+		await loadChats()
+		if (connectionId !== forConnection) return
+		if (agentChat.chatId) {
+			const current = agentChat.chats.find(
+				(c) => String(c.id) === String(agentChat.chatId),
+			)
+			if (current) snapProvider(current)
+			await hydrateMessages(agentChat.chatId)
+			return
+		}
+		const first = agentChat.chats[0]
+		if (!first) return
+		agentChat.chatId = String(first.id)
+		snapProvider(first)
+		await hydrateMessages(agentChat.chatId)
+	}
+
 	onMount(() => {
 		const hour = new Date().getHours()
 		if (hour >= 20 || hour < 6) loaf = true
@@ -521,18 +560,7 @@
 			try {
 				agentChat.resetForConnection(connectionId)
 				await loadSettings()
-				await loadChats()
-				if (agentChat.chatId) {
-					const current = agentChat.chats.find(
-						(c) => String(c.id) === String(agentChat.chatId),
-					)
-					if (current) snapProvider(current)
-					await hydrateMessages(agentChat.chatId)
-				} else if (agentChat.chats[0]) {
-					agentChat.chatId = String(agentChat.chats[0].id)
-					snapProvider(agentChat.chats[0])
-					await hydrateMessages(agentChat.chatId)
-				}
+				await openConnectionChats()
 				void loadModels()
 			} catch (e) {
 				error = e instanceof Error ? e.message : String(e)
