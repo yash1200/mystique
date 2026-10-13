@@ -1,6 +1,43 @@
 /** mongodb:// URI parsing and assembly (legacy host-field profiles). */
 import type { PluginConfig } from '#core/contracts'
 
+/** Userinfo pulled off a Mongo URI. The password is not left in `uri`. */
+export function splitMongoUserinfo(uri: string): {
+	uri: string
+	username: string
+	password: string
+} {
+	const trimmed = uri.trim()
+	const scheme = trimmed.startsWith('mongodb+srv://')
+		? 'mongodb+srv://'
+		: trimmed.startsWith('mongodb://')
+			? 'mongodb://'
+			: null
+	if (!scheme) return { uri: trimmed, username: '', password: '' }
+	const rest = trimmed.slice(scheme.length)
+	const at = rest.lastIndexOf('@')
+	if (at <= 0) return { uri: trimmed, username: '', password: '' }
+	const userinfo = rest.slice(0, at)
+	const hostpart = rest.slice(at + 1)
+	if (!hostpart) return { uri: trimmed, username: '', password: '' }
+	const colon = userinfo.indexOf(':')
+	const userEnc = colon >= 0 ? userinfo.slice(0, colon) : userinfo
+	const passEnc = colon >= 0 ? userinfo.slice(colon + 1) : ''
+	return {
+		uri: `${scheme}${hostpart}`,
+		username: decodeURIComponentSafe(userEnc),
+		password: decodeURIComponentSafe(passEnc),
+	}
+}
+
+function decodeURIComponentSafe(value: string): string {
+	try {
+		return decodeURIComponent(value)
+	} catch {
+		return value
+	}
+}
+
 /** Extract `/dbname` from a mongodb:// or mongodb+srv:// URI (before `?` / `#`). */
 export function databaseFromMongoUri(uri: string): string | null {
 	const trimmed = uri.trim()

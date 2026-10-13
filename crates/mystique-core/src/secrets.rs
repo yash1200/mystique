@@ -1,7 +1,22 @@
 //! OS keychain for connection passwords, with an in-process cache.
 //!
-//! SQLite stores only an opaque pointer (`conn.<id>`). The renderer never
-//! sees a saved secret. Cache so macOS does not prompt on every read.
+//! SQLite stores only an opaque pointer. The renderer never sees a saved
+//! secret. Cache so macOS does not prompt on every read.
+//!
+//! Accounts (service `dev.mystique.db`):
+//! - `conn.<install-uuid>.<id>` password
+//! - `conn.<install-uuid>.<id>.ssh` bastion secret
+//! - `conn.<install-uuid>.<id>.tls` TLS client-key passphrase
+//! - `conn.<install-uuid>.<id>.user` Mongo/DocumentDB URI username
+//!
+//! Older rows keep the pointer they already stored (`conn.<id>`,
+//! `connection.<id>.password`). A null pointer is not a secret.
+//!
+//! One item per secret, not an AES-GCM envelope in SQLite. The stale-id bug
+//! is a null `secret_ref` still reading `conn.<id>`. Gating the read on the
+//! pointer, and putting the install UUID in new account names, closes it.
+//! Envelopes would rewrite every secret (SSH, TLS, Mongo) and are a larger
+//! change than this bug. AI keys stay on their own AES-GCM path.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -14,7 +29,7 @@ use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "dev.mystique.db";
 
-pub trait SecretBackend: Send + Sync {
+pub(crate) trait SecretBackend: Send + Sync {
     fn get(&self, account: &str) -> AppResult<Option<String>>;
     fn set(&self, account: &str, secret: &str) -> AppResult<()>;
     fn delete(&self, account: &str) -> AppResult<()>;
@@ -120,6 +135,10 @@ impl SecretStore {
         Self::with_backend(Arc::new(MemoryBackend::new()))
     }
 
+    pub(crate) fn from_backend(backend: Arc<dyn SecretBackend>) -> Self {
+        Self::with_backend(backend)
+    }
+
     fn with_backend(backend: Arc<dyn SecretBackend>) -> Self {
         Self {
             backend,
@@ -135,7 +154,7 @@ impl SecretStore {
         self.get_account(&secret_account(connection_id))
     }
 
-    /// Look up an exact keychain account (legacy `connection.{id}.password` pointers).
+    /// Look up an exact keychain account. This is the read path for a stored pointer.
     pub fn get_named(&self, account: &str) -> AppResult<Option<String>> {
         let account = account.trim();
         if account.is_empty() {
@@ -150,6 +169,22 @@ impl SecretStore {
 
     pub fn delete(&self, connection_id: &str) -> AppResult<()> {
         self.delete_account(&secret_account(connection_id))
+    }
+
+    pub fn set_named(&self, account: &str, secret: &str) -> AppResult<()> {
+        let account = account.trim();
+        if account.is_empty() {
+            return Err(AppError::Invalid("secret account is required".into()));
+        }
+        self.set_account(account, secret)
+    }
+
+    pub fn delete_named(&self, account: &str) -> AppResult<()> {
+        let account = account.trim();
+        if account.is_empty() {
+            return Ok(());
+        }
+        self.delete_account(account)
     }
 
     /// Copy a stored secret to a new connection id. Returns whether a secret existed.

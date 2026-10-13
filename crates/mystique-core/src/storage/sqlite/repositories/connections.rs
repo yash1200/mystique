@@ -233,14 +233,18 @@ pub fn get_secret_ref(conn: &Connection, id: &str) -> AppResult<Option<String>> 
         )
         .optional()?
         .ok_or_else(|| AppError::NotFound(format!("connection '{id}'")))?;
-    Ok(stored.and_then(|s| {
+    Ok(nonempty_ref(stored))
+}
+
+fn nonempty_ref(stored: Option<String>) -> Option<String> {
+    stored.and_then(|s| {
         let t = s.trim().to_string();
         if t.is_empty() {
             None
         } else {
             Some(t)
         }
-    }))
+    })
 }
 
 pub fn set_ssh_secret_ref(conn: &Connection, id: &str, secret_ref: Option<&str>) -> AppResult<()> {
@@ -248,6 +252,32 @@ pub fn set_ssh_secret_ref(conn: &Connection, id: &str, secret_ref: Option<&str>)
     let n = conn.execute(
         "UPDATE connections SET ssh_secret_ref = ?1, updated_at = ?2 WHERE id = ?3",
         params![secret_ref, now_iso(), id_n],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("connection '{id}'")));
+    }
+    Ok(())
+}
+
+pub fn get_ssh_secret_ref(conn: &Connection, id: &str) -> AppResult<Option<String>> {
+    let id_n = parse_id(id)?;
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT ssh_secret_ref FROM connections WHERE id = ?1",
+            params![id_n],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("connection '{id}'")))?;
+    Ok(nonempty_ref(stored))
+}
+
+pub fn set_plugin_config(conn: &Connection, id: &str, config: &JsonValue) -> AppResult<()> {
+    let id_n = parse_id(id)?;
+    let text = serde_json::to_string(config)?;
+    let n = conn.execute(
+        "UPDATE connections SET plugin_config = ?1, updated_at = ?2 WHERE id = ?3",
+        params![text, now_iso(), id_n],
     )?;
     if n == 0 {
         return Err(AppError::NotFound(format!("connection '{id}'")));

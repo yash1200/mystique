@@ -7,6 +7,8 @@ mod agent_chat;
 mod ai_secret;
 mod connection;
 mod history;
+pub(crate) mod host_identity;
+pub(crate) mod mongo_uri;
 mod query_library;
 mod settings;
 mod ssh;

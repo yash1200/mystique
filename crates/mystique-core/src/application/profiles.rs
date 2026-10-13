@@ -1,12 +1,18 @@
+use serde_json::Value as JsonValue;
+use uuid::Uuid;
+
 use crate::domain::{
     is_keychain_pointer, is_legacy_keychain_pointer, is_placeholder_secret_ref,
-    legacy_secret_account, secret_account, ssh_secret_account, ConnectionProfile,
+    scoped_secret_account, scoped_ssh_secret_account, scoped_tls_secret_account, secret_account,
+    ssh_secret_account, tls_secret_account, user_secret_account, ConnectionProfile,
     SaveConnectionInput,
 };
 use crate::error::{AppError, AppResult};
 use crate::secrets::{is_legacy_plaintext_secret, SecretStore};
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
+
+const INSTALL_ID_KEY: &str = "install_id";
 
 pub struct ProfileService<'a> {
     pub(crate) db: &'a AppDatabase,
@@ -39,23 +45,134 @@ fn strip_plugin_password(mut input: SaveConnectionInput) -> SaveConnectionInput 
     input
 }
 
+fn config_password(config: &JsonValue) -> Option<String> {
+    config
+        .get("password")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Pull Mongo userinfo out of `plugin_config.uri` before it is written.
+///
+/// A form that already stripped the URI leaves `username` / `password`
+/// fields beside it. Discrete host-field profiles (no userinfo) keep
+/// `username` in the config.
+fn take_mongo_credentials(input: &mut SaveConnectionInput) -> (Option<String>, Option<String>) {
+    let runtime = mystique_connector_api::runtime_id(&input.engine).unwrap_or("");
+    if runtime != "mongodb" {
+        return (None, None);
+    }
+    let Some(uri) = config_text(&input.plugin_config, "uri") else {
+        return (None, None);
+    };
+    let field_user = config_text(&input.plugin_config, "username")
+        .or_else(|| config_text(&input.plugin_config, "user"));
+    let field_password = config_password(&input.plugin_config);
+    let (username, password) =
+        if let Some(creds) = crate::domain::mongo_uri::strip_mongo_userinfo(&uri) {
+            if let Some(obj) = input.plugin_config.as_object_mut() {
+                obj.insert("uri".into(), JsonValue::String(creds.uri));
+            }
+            let username = if creds.username.is_empty() {
+                field_user
+            } else {
+                Some(creds.username)
+            };
+            let password = if field_password.is_some() {
+                field_password
+            } else if creds.password.is_empty() {
+                None
+            } else {
+                Some(creds.password)
+            };
+            (username, password)
+        } else if field_password.is_some() {
+            (field_user, field_password)
+        } else {
+            return (None, None);
+        };
+    if let Some(obj) = input.plugin_config.as_object_mut() {
+        obj.remove("username");
+        obj.remove("user");
+        obj.remove("password");
+    }
+    (username, password)
+}
+
+fn config_text(config: &JsonValue, key: &str) -> Option<String> {
+    config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn redact_profile(mut profile: ConnectionProfile) -> ConnectionProfile {
+    redact_mongo_config(&mut profile.plugin_config);
+    profile.password = None;
+    profile
+}
+
+fn redact_mongo_config(config: &mut JsonValue) {
+    let Some(uri) = config
+        .get("uri")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+    else {
+        if let Some(obj) = config.as_object_mut() {
+            obj.remove("password");
+        }
+        return;
+    };
+    let Some(creds) = crate::domain::mongo_uri::strip_mongo_userinfo(&uri) else {
+        if let Some(obj) = config.as_object_mut() {
+            obj.remove("password");
+        }
+        return;
+    };
+    if let Some(obj) = config.as_object_mut() {
+        obj.insert("uri".into(), JsonValue::String(creds.uri));
+        obj.remove("password");
+        if !creds.username.is_empty() {
+            obj.remove("username");
+            obj.remove("user");
+        }
+    }
+}
+
+fn pointer_is_account(pointer: &str) -> bool {
+    is_keychain_pointer(pointer) || is_legacy_keychain_pointer(pointer)
+}
+
 impl ProfileService<'_> {
     pub fn list(&self) -> AppResult<Vec<ConnectionProfile>> {
-        self.db.with_conn(repo::connections::list_all)
+        let rows = self.db.with_conn(repo::connections::list_all)?;
+        Ok(rows.into_iter().map(redact_profile).collect())
     }
 
     pub fn get(&self, id: &str) -> AppResult<ConnectionProfile> {
-        self.db.with_conn(|c| repo::connections::get_by_id(c, id))
+        self.db
+            .with_conn(|c| repo::connections::get_by_id(c, id))
+            .map(redact_profile)
     }
 
-    pub fn save(&self, input: SaveConnectionInput) -> AppResult<ConnectionProfile> {
+    /// Keychain write succeeds, then the SQLite pointer is committed.
+    /// A failed keychain write rolls the new row back.
+    pub fn save(&self, mut input: SaveConnectionInput) -> AppResult<ConnectionProfile> {
         let copy_from = input
             .copy_secret_from
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
-        let incoming = incoming_password(&input);
+        let (mongo_user, mongo_password) = take_mongo_credentials(&mut input);
+        let mut incoming = incoming_password(&input);
+        if incoming.is_none() {
+            incoming = mongo_password;
+        }
         let incoming_ssh = input
             .ssh_password
             .as_deref()
@@ -64,66 +181,98 @@ impl ProfileService<'_> {
             .map(|s| s.to_string());
         let clear = input.clear_secret;
         let clear_ssh = input.clear_ssh_secret;
-        let copy_ssh = copy_from.clone();
         let incoming_tls = input
             .tls_key_passphrase
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+        input.clear_secret = false;
+        input.clear_ssh_secret = false;
+        let creating = input
+            .id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none();
+        let ssh_active = input.ssh_config.is_active();
         let input = strip_plugin_password(input);
+        let install = self.install_id()?;
 
-        let mut saved = self.db.with_conn(|c| repo::connections::save(c, input))?;
+        // Updates write the keychain before the row changes. A failed write
+        // leaves the previous pointer and the previous row alone.
+        if !creating {
+            let id = input.id.clone().unwrap_or_default();
+            self.persist_secrets(
+                &install,
+                &id,
+                ssh_active,
+                clear,
+                clear_ssh,
+                incoming.as_deref(),
+                incoming_ssh.as_deref(),
+                incoming_tls.as_deref(),
+                copy_from.as_deref(),
+                mongo_user.as_deref(),
+            )?;
+        }
 
-        if clear {
-            self.secrets.delete(&saved.id)?;
-            saved.password_set = false;
-        } else if let Some(pw) = incoming {
-            self.secrets.set(&saved.id, &pw)?;
-            let pointer = secret_account(&saved.id);
-            self.db
-                .with_conn(|c| repo::connections::set_secret_ref(c, &saved.id, Some(&pointer)))?;
-            saved.password_set = true;
-        } else if let Some(from) = copy_from.as_deref() {
-            if self.secrets.copy(from, &saved.id)? {
-                let pointer = secret_account(&saved.id);
-                self.db.with_conn(|c| {
-                    repo::connections::set_secret_ref(c, &saved.id, Some(&pointer))
-                })?;
-                saved.password_set = true;
+        let saved = self.db.with_conn(|c| repo::connections::save(c, input))?;
+        if creating {
+            if let Err(err) = self.persist_secrets(
+                &install,
+                &saved.id,
+                ssh_active,
+                clear,
+                clear_ssh,
+                incoming.as_deref(),
+                incoming_ssh.as_deref(),
+                incoming_tls.as_deref(),
+                copy_from.as_deref(),
+                mongo_user.as_deref(),
+            ) {
+                let _ = self
+                    .db
+                    .with_conn(|c| repo::connections::delete(c, &saved.id));
+                let _ = self
+                    .secrets
+                    .delete_named(&scoped_secret_account(&install, &saved.id));
+                let _ = self
+                    .secrets
+                    .delete_named(&user_secret_account(&scoped_secret_account(
+                        &install, &saved.id,
+                    )));
+                let _ = self
+                    .secrets
+                    .delete_named(&scoped_ssh_secret_account(&install, &saved.id));
+                let _ = self
+                    .secrets
+                    .delete_named(&scoped_tls_secret_account(&install, &saved.id));
+                return Err(err);
             }
         }
+        let saved = self
+            .db
+            .with_conn(|c| repo::connections::get_by_id(c, &saved.id))?;
+        Ok(redact_profile(saved))
+    }
 
-        if clear_ssh || !saved.ssh.is_active() {
-            let _ = self.secrets.delete_ssh(&saved.id);
-            self.db
-                .with_conn(|c| repo::connections::set_ssh_secret_ref(c, &saved.id, None))?;
-            saved.ssh_password_set = false;
-        } else if let Some(pw) = incoming_ssh {
-            self.secrets.set_ssh(&saved.id, &pw)?;
-            let pointer = ssh_secret_account(&saved.id);
-            self.db.with_conn(|c| {
-                repo::connections::set_ssh_secret_ref(c, &saved.id, Some(&pointer))
-            })?;
-            saved.ssh_password_set = true;
-        } else if let Some(from) = copy_ssh {
-            if self.secrets.copy_ssh(&from, &saved.id)? {
-                let pointer = ssh_secret_account(&saved.id);
-                self.db.with_conn(|c| {
-                    repo::connections::set_ssh_secret_ref(c, &saved.id, Some(&pointer))
-                })?;
-                saved.ssh_password_set = true;
-            }
-        }
-
-        if let Some(pw) = incoming_tls {
-            self.secrets.set_tls(&saved.id, &pw)?;
-        } else if let Some(from) = copy_from.as_deref() {
-            let _ = self.secrets.copy_tls(from, &saved.id);
-        }
-
-        saved.password = None;
-        Ok(saved)
+    fn persist_secrets(
+        &self,
+        install: &str,
+        id: &str,
+        ssh_active: bool,
+        clear: bool,
+        clear_ssh: bool,
+        incoming: Option<&str>,
+        incoming_ssh: Option<&str>,
+        incoming_tls: Option<&str>,
+        copy_from: Option<&str>,
+        mongo_user: Option<&str>,
+    ) -> AppResult<()> {
+        self.store_password(install, id, clear, incoming, copy_from, mongo_user)?;
+        self.store_ssh(install, id, ssh_active, clear_ssh, incoming_ssh, copy_from)?;
+        self.store_tls(install, id, incoming_tls, copy_from)
     }
 
     pub fn delete(&self, id: &str) -> AppResult<()> {
@@ -131,63 +280,89 @@ impl ProfileService<'_> {
         if id.is_empty() {
             return Err(AppError::Invalid("connection id is required".into()));
         }
-        let _ = self.secrets.delete(id);
-        let _ = self.secrets.delete_ssh(id);
-        let _ = self.secrets.delete_tls(id);
+        let install = self.install_id()?;
+        let password_ptr = self
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, id))
+            .ok()
+            .flatten();
+        let ssh_ptr = self
+            .db
+            .with_conn(|c| repo::connections::get_ssh_secret_ref(c, id))
+            .ok()
+            .flatten();
+        self.delete_account(password_ptr.as_deref())?;
+        self.delete_account(ssh_ptr.as_deref())?;
+        for account in [
+            scoped_secret_account(&install, id),
+            scoped_ssh_secret_account(&install, id),
+            scoped_tls_secret_account(&install, id),
+            user_secret_account(&scoped_secret_account(&install, id)),
+            secret_account(id),
+            ssh_secret_account(id),
+            tls_secret_account(id),
+            user_secret_account(&secret_account(id)),
+        ] {
+            self.secrets.delete_named(&account)?;
+        }
         self.db.with_conn(|c| repo::connections::delete(c, id))
     }
 
     pub fn resolve_tls_secret(&self, id: &str) -> AppResult<Option<String>> {
-        let id = id.trim();
-        if id.is_empty() {
-            return Err(AppError::Invalid("connection id is required".into()));
+        let id = require_id(id)?;
+        let install = self.install_id()?;
+        let scoped = scoped_tls_secret_account(&install, id);
+        if let Some(secret) = self.secrets.get_named(&scoped)? {
+            return Ok(Some(secret));
         }
-        self.secrets.get_tls(id)
+        // `conn.<id>.tls` belongs to this row only when the row still points
+        // at the legacy id account. A fresh database has a null pointer.
+        let password_ptr = self
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, id))?;
+        let ssh_ptr = self
+            .db
+            .with_conn(|c| repo::connections::get_ssh_secret_ref(c, id))?;
+        let owns_legacy = password_ptr.as_deref() == Some(secret_account(id).as_str())
+            || ssh_ptr.as_deref() == Some(ssh_secret_account(id).as_str());
+        if !owns_legacy {
+            return Ok(None);
+        }
+        let Some(secret) = self.secrets.get_named(&tls_secret_account(id))? else {
+            return Ok(None);
+        };
+        self.secrets.set_named(&scoped, &secret)?;
+        Ok(Some(secret))
     }
 
     pub fn resolve_ssh_secret(&self, id: &str) -> AppResult<Option<String>> {
-        let id = id.trim();
-        if id.is_empty() {
-            return Err(AppError::Invalid("connection id is required".into()));
+        let id = require_id(id)?;
+        let Some(pointer) = self
+            .db
+            .with_conn(|c| repo::connections::get_ssh_secret_ref(c, id))?
+        else {
+            return Ok(None);
+        };
+        if !pointer_is_account(&pointer) {
+            return Ok(None);
         }
-        self.secrets.get_ssh(id)
+        self.secrets.get_named(&pointer)
     }
 
     pub fn touch_connected(&self, id: &str) -> AppResult<ConnectionProfile> {
         self.db
             .with_conn(|c| repo::connections::touch_last_connected(c, id))
+            .map(redact_profile)
     }
 
-    /// Keychain first, then legacy account names, then leftover plaintext in SQLite.
+    /// Read the keychain only when `secret_ref` is a pointer. A null pointer
+    /// does not look up `conn.<id>`.
     pub fn resolve_password(&self, id: &str) -> AppResult<Option<String>> {
-        let id = id.trim();
-        if id.is_empty() {
-            return Err(AppError::Invalid("connection id is required".into()));
-        }
-        if let Some(pw) = self.secrets.get(id)? {
-            return Ok(Some(pw));
-        }
-        if let Some(pw) = self.secrets.get_named(&legacy_secret_account(id))? {
-            self.promote_secret(id, &pw)?;
-            return Ok(Some(pw));
-        }
-        self.migrate_row(id)
-    }
-
-    /// Move plaintext / legacy pointers into `conn.<id>`. Safe to call at boot.
-    pub fn migrate_plaintext_secrets(&self) -> AppResult<()> {
-        let rows = self.db.with_conn(repo::connections::list_secret_refs)?;
-        for (id, _) in rows {
-            let _ = self.migrate_row(&id);
-        }
-        Ok(())
-    }
-
-    fn migrate_row(&self, id: &str) -> AppResult<Option<String>> {
-        let stored = self
+        let id = require_id(id)?;
+        let Some(raw) = self
             .db
-            .with_conn(|c| repo::connections::get_secret_ref(c, id))?;
-        let Some(raw) = stored else {
+            .with_conn(|c| repo::connections::get_secret_ref(c, id))?
+        else {
             return Ok(None);
         };
         if is_placeholder_secret_ref(&raw) {
@@ -196,19 +371,47 @@ impl ProfileService<'_> {
             return Ok(None);
         }
         if is_legacy_keychain_pointer(&raw) {
-            if let Some(pw) = self.secrets.get_named(&raw)? {
-                self.promote_secret(id, &pw)?;
-                return Ok(Some(pw));
-            }
-            return Ok(None);
+            let Some(pw) = self.secrets.get_named(&raw)? else {
+                return Ok(None);
+            };
+            self.promote_secret(id, &pw)?;
+            return Ok(Some(pw));
         }
         if is_keychain_pointer(&raw) {
-            return Ok(None);
+            return self.secrets.get_named(&raw);
         }
         if is_legacy_plaintext_secret(&raw) {
             return self.migrate_plaintext(id, &raw);
         }
         Ok(None)
+    }
+
+    /// Move plaintext leftovers into the keychain. Does not invent a pointer.
+    pub fn migrate_plaintext_secrets(&self) -> AppResult<()> {
+        let rows = self.db.with_conn(repo::connections::list_secret_refs)?;
+        for (id, _) in rows {
+            let _ = self.migrate_row(&id);
+        }
+        self.migrate_mongo_uris()
+    }
+
+    fn install_id(&self) -> AppResult<String> {
+        if let Some(row) = self
+            .db
+            .with_conn(|c| repo::settings::get(c, INSTALL_ID_KEY))?
+        {
+            if Uuid::parse_str(row.value.trim()).is_ok() {
+                return Ok(row.value);
+            }
+        }
+        let id = Uuid::new_v4().to_string();
+        self.db
+            .with_conn(|c| repo::settings::set(c, INSTALL_ID_KEY, &id))?;
+        Ok(id)
+    }
+
+    fn migrate_row(&self, id: &str) -> AppResult<Option<String>> {
+        self.resolve_password(id)
     }
 
     fn migrate_plaintext(&self, id: &str, plaintext: &str) -> AppResult<Option<String>> {
@@ -217,12 +420,242 @@ impl ProfileService<'_> {
     }
 
     fn promote_secret(&self, id: &str, pw: &str) -> AppResult<()> {
-        self.secrets.set(id, pw)?;
-        let pointer = secret_account(id);
+        let install = self.install_id()?;
+        let pointer = scoped_secret_account(&install, id);
+        self.secrets.set_named(&pointer, pw)?;
         self.db
             .with_conn(|c| repo::connections::set_secret_ref(c, id, Some(&pointer)))?;
         Ok(())
     }
+
+    fn migrate_mongo_uris(&self) -> AppResult<()> {
+        let profiles = self.db.with_conn(repo::connections::list_all)?;
+        let install = self.install_id()?;
+        for profile in profiles {
+            if mystique_connector_api::runtime_id(&profile.engine) != Some("mongodb") {
+                continue;
+            }
+            let Some(uri) = config_text(&profile.plugin_config, "uri") else {
+                continue;
+            };
+            let Some(creds) = crate::domain::mongo_uri::strip_mongo_userinfo(&uri) else {
+                continue;
+            };
+            if creds.password.is_empty() && creds.username.is_empty() {
+                continue;
+            }
+            let existing = self
+                .db
+                .with_conn(|c| repo::connections::get_secret_ref(c, &profile.id))?;
+            let account = if existing.as_deref().is_some_and(pointer_is_account) {
+                existing.clone().unwrap_or_default()
+            } else if creds.password.is_empty() {
+                String::new()
+            } else {
+                scoped_secret_account(&install, &profile.id)
+            };
+            if !creds.password.is_empty() && !account.is_empty() {
+                self.secrets.set_named(&account, &creds.password)?;
+                if existing.as_deref() != Some(account.as_str()) {
+                    self.db.with_conn(|c| {
+                        repo::connections::set_secret_ref(c, &profile.id, Some(&account))
+                    })?;
+                }
+            }
+            let mut cfg = profile.plugin_config.clone();
+            if let Some(obj) = cfg.as_object_mut() {
+                obj.insert("uri".into(), JsonValue::String(creds.uri));
+                obj.remove("password");
+                if !creds.username.is_empty() && !account.is_empty() {
+                    self.secrets
+                        .set_named(&user_secret_account(&account), &creds.username)?;
+                    obj.remove("username");
+                    obj.remove("user");
+                }
+            }
+            self.db
+                .with_conn(|c| repo::connections::set_plugin_config(c, &profile.id, &cfg))?;
+        }
+        Ok(())
+    }
+
+    fn store_password(
+        &self,
+        install: &str,
+        id: &str,
+        clear: bool,
+        incoming: Option<&str>,
+        copy_from: Option<&str>,
+        mongo_user: Option<&str>,
+    ) -> AppResult<()> {
+        let existing = self
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, id))?;
+        if clear {
+            self.delete_account(existing.as_deref())?;
+            self.secrets
+                .delete_named(&scoped_secret_account(install, id))?;
+            self.secrets
+                .delete_named(&user_secret_account(&scoped_secret_account(install, id)))?;
+            self.secrets.delete_named(&secret_account(id))?;
+            self.secrets
+                .delete_named(&user_secret_account(&secret_account(id)))?;
+            self.db
+                .with_conn(|c| repo::connections::set_secret_ref(c, id, None))?;
+            return Ok(());
+        }
+        let account = scoped_secret_account(install, id);
+        if let Some(pw) = incoming {
+            self.secrets.set_named(&account, pw)?;
+            self.db
+                .with_conn(|c| repo::connections::set_secret_ref(c, id, Some(&account)))?;
+            if let Some(old) = existing.as_deref() {
+                if old != account {
+                    let _ = self.secrets.delete_named(old);
+                    let _ = self.secrets.delete_named(&user_secret_account(old));
+                }
+            }
+            if let Some(user) = mongo_user.filter(|s| !s.is_empty()) {
+                self.secrets
+                    .set_named(&user_secret_account(&account), user)?;
+            }
+            return Ok(());
+        }
+        if let Some(from) = copy_from {
+            if let Some(ptr) = self
+                .db
+                .with_conn(|c| repo::connections::get_secret_ref(c, from))?
+            {
+                if pointer_is_account(&ptr) {
+                    if let Some(secret) = self.secrets.get_named(&ptr)? {
+                        self.secrets.set_named(&account, &secret)?;
+                        self.db.with_conn(|c| {
+                            repo::connections::set_secret_ref(c, id, Some(&account))
+                        })?;
+                        if let Some(user) = self.secrets.get_named(&user_secret_account(&ptr))? {
+                            self.secrets
+                                .set_named(&user_secret_account(&account), &user)?;
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+        if let Some(user) = mongo_user.filter(|s| !s.is_empty()) {
+            if let Some(ptr) = existing.filter(|p| pointer_is_account(p)) {
+                self.secrets.set_named(&user_secret_account(&ptr), user)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn store_ssh(
+        &self,
+        install: &str,
+        id: &str,
+        ssh_active: bool,
+        clear: bool,
+        incoming: Option<&str>,
+        copy_from: Option<&str>,
+    ) -> AppResult<()> {
+        let existing = self
+            .db
+            .with_conn(|c| repo::connections::get_ssh_secret_ref(c, id))?;
+        if clear || !ssh_active {
+            self.delete_account(existing.as_deref())?;
+            self.secrets
+                .delete_named(&scoped_ssh_secret_account(install, id))?;
+            self.secrets.delete_named(&ssh_secret_account(id))?;
+            self.db
+                .with_conn(|c| repo::connections::set_ssh_secret_ref(c, id, None))?;
+            return Ok(());
+        }
+        let account = scoped_ssh_secret_account(install, id);
+        if let Some(pw) = incoming {
+            self.secrets.set_named(&account, pw)?;
+            self.db
+                .with_conn(|c| repo::connections::set_ssh_secret_ref(c, id, Some(&account)))?;
+            if let Some(old) = existing.as_deref() {
+                if old != account {
+                    let _ = self.secrets.delete_named(old);
+                }
+            }
+            return Ok(());
+        }
+        if let Some(from) = copy_from {
+            if let Some(ptr) = self
+                .db
+                .with_conn(|c| repo::connections::get_ssh_secret_ref(c, from))?
+            {
+                if pointer_is_account(&ptr) {
+                    if let Some(secret) = self.secrets.get_named(&ptr)? {
+                        self.secrets.set_named(&account, &secret)?;
+                        self.db.with_conn(|c| {
+                            repo::connections::set_ssh_secret_ref(c, id, Some(&account))
+                        })?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn store_tls(
+        &self,
+        install: &str,
+        id: &str,
+        incoming: Option<&str>,
+        copy_from: Option<&str>,
+    ) -> AppResult<()> {
+        let account = scoped_tls_secret_account(install, id);
+        if let Some(pw) = incoming {
+            self.secrets.set_named(&account, pw)?;
+            return Ok(());
+        }
+        let Some(from) = copy_from else {
+            return Ok(());
+        };
+        if let Some(secret) = self
+            .secrets
+            .get_named(&scoped_tls_secret_account(install, from))?
+        {
+            self.secrets.set_named(&account, &secret)?;
+            return Ok(());
+        }
+        let legacy_owner = self
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, from))?
+            .as_deref()
+            == Some(secret_account(from).as_str())
+            || self
+                .db
+                .with_conn(|c| repo::connections::get_ssh_secret_ref(c, from))?
+                .as_deref()
+                == Some(ssh_secret_account(from).as_str());
+        if legacy_owner {
+            if let Some(secret) = self.secrets.get_named(&tls_secret_account(from))? {
+                self.secrets.set_named(&account, &secret)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_account(&self, pointer: Option<&str>) -> AppResult<()> {
+        let Some(pointer) = pointer.filter(|p| pointer_is_account(p)) else {
+            return Ok(());
+        };
+        self.secrets.delete_named(pointer)?;
+        self.secrets.delete_named(&user_secret_account(pointer))?;
+        Ok(())
+    }
+}
+
+fn require_id(id: &str) -> AppResult<&str> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(AppError::Invalid("connection id is required".into()));
+    }
+    Ok(id)
 }
 
 #[cfg(test)]
@@ -280,7 +713,11 @@ mod tests {
             .db
             .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
             .unwrap();
-        assert_eq!(raw.as_deref(), Some(secret_account(&saved.id).as_str()));
+        let install = install_of(&app);
+        assert_eq!(
+            raw.as_deref(),
+            Some(scoped_secret_account(&install, &saved.id).as_str())
+        );
     }
 
     #[test]
@@ -343,7 +780,11 @@ mod tests {
             .db
             .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
             .unwrap();
-        assert_eq!(raw.as_deref(), Some(secret_account(&saved.id).as_str()));
+        let install = install_of(&app);
+        assert_eq!(
+            raw.as_deref(),
+            Some(scoped_secret_account(&install, &saved.id).as_str())
+        );
         assert_eq!(
             app.profiles()
                 .resolve_password(&saved.id)
@@ -400,5 +841,207 @@ mod tests {
                 .as_deref(),
             Some("bastion-pw")
         );
+    }
+
+    fn install_of(app: &AppServices) -> String {
+        app.db
+            .with_conn(|c| repo::settings::get(c, "install_id"))
+            .unwrap()
+            .expect("install id")
+            .value
+    }
+
+    #[test]
+    fn null_secret_ref_does_not_read_a_planted_keychain_item() {
+        let app = svc();
+        let saved = app.profiles().save(input("pg", None)).unwrap();
+        let install = install_of(&app);
+        app.secrets.set(&saved.id, "legacy-secret").unwrap();
+        app.secrets
+            .set_named(&scoped_secret_account(&install, &saved.id), "scoped-secret")
+            .unwrap();
+        assert!(app
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
+            .unwrap()
+            .is_none());
+        assert!(app
+            .profiles()
+            .resolve_password(&saved.id)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn mongo_uri_password_is_not_stored_in_sqlite() {
+        let app = svc();
+        let mut inp = input("mongo", None);
+        inp.engine = "mongodb".into();
+        inp.plugin_config = json!({
+            "uri": "mongodb://admin:s%40cret@127.0.0.1:27017/app?authSource=admin"
+        });
+        let saved = app.profiles().save(inp).unwrap();
+        assert!(saved.password_set);
+        let uri = saved.plugin_config["uri"].as_str().unwrap();
+        assert_eq!(uri, "mongodb://127.0.0.1:27017/app?authSource=admin");
+        assert!(saved.plugin_config.get("username").is_none());
+        let column: String = app
+            .db
+            .with_conn(|c| {
+                let id: i64 = saved.id.parse().unwrap();
+                c.query_row(
+                    "SELECT plugin_config FROM connections WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(AppError::from)
+            })
+            .unwrap();
+        assert!(!column.contains("s%40cret"));
+        assert!(!column.contains("s@cret"));
+        let listed = serde_json::to_string(&app.profiles().get(&saved.id).unwrap()).unwrap();
+        assert!(!listed.contains("s@cret"));
+        assert!(!listed.contains("s%40cret"));
+        assert_eq!(
+            app.profiles()
+                .resolve_password(&saved.id)
+                .unwrap()
+                .as_deref(),
+            Some("s@cret")
+        );
+        let pointer = app
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            app.secrets
+                .get_named(&user_secret_account(&pointer))
+                .unwrap()
+                .as_deref(),
+            Some("admin")
+        );
+    }
+
+    #[test]
+    fn documentdb_uri_uses_the_same_strip_path() {
+        let app = svc();
+        let mut inp = input("docdb", None);
+        inp.engine = "documentdb".into();
+        inp.plugin_config = json!({"uri": "mongodb://user:secret@docdb.internal:27017/app"});
+        let saved = app.profiles().save(inp).unwrap();
+        assert_eq!(
+            saved.plugin_config["uri"].as_str(),
+            Some("mongodb://docdb.internal:27017/app")
+        );
+        assert_eq!(
+            app.profiles()
+                .resolve_password(&saved.id)
+                .unwrap()
+                .as_deref(),
+            Some("secret")
+        );
+        let column: String = app
+            .db
+            .with_conn(|c| {
+                let id: i64 = saved.id.parse().unwrap();
+                c.query_row(
+                    "SELECT plugin_config FROM connections WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(AppError::from)
+            })
+            .unwrap();
+        assert!(!column.contains("secret"));
+    }
+
+    #[test]
+    fn failed_keychain_write_does_not_keep_a_profile_row() {
+        let backend = Arc::new(Flaky {
+            map: Mutex::new(HashMap::new()),
+            fail: AtomicBool::new(true),
+        });
+        let app = AppServices::with_secrets(
+            AppDatabase::open_in_memory().unwrap(),
+            ConnectionManager::bootstrap(),
+            SecretStore::from_backend(backend.clone()),
+        );
+        assert!(app.profiles().save(input("pg", Some("pw"))).is_err());
+        assert!(app.profiles().list().unwrap().is_empty());
+
+        backend.fail.store(false, Ordering::SeqCst);
+        let saved = app.profiles().save(input("pg", Some("pw"))).unwrap();
+        assert_eq!(app.profiles().list().unwrap().len(), 1);
+
+        backend.fail.store(true, Ordering::SeqCst);
+        let mut upd = input("renamed", Some("other"));
+        upd.id = Some(saved.id.clone());
+        assert!(app.profiles().save(upd).is_err());
+        let got = app.profiles().get(&saved.id).unwrap();
+        assert_eq!(got.name, "pg");
+        assert_eq!(
+            app.profiles()
+                .resolve_password(&saved.id)
+                .unwrap()
+                .as_deref(),
+            Some("pw")
+        );
+    }
+
+    #[test]
+    fn clear_of_a_missing_keychain_item_nulls_the_pointer() {
+        let app = svc();
+        let saved = app.profiles().save(input("pg", Some("x"))).unwrap();
+        let pointer = app
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
+            .unwrap()
+            .unwrap();
+        app.secrets.delete_named(&pointer).unwrap();
+        let mut upd = input("pg", None);
+        upd.id = Some(saved.id.clone());
+        upd.clear_secret = true;
+        let cleared = app.profiles().save(upd).unwrap();
+        assert!(!cleared.password_set);
+        assert!(app
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
+            .unwrap()
+            .is_none());
+    }
+
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    struct Flaky {
+        map: Mutex<HashMap<String, String>>,
+        fail: AtomicBool,
+    }
+
+    impl crate::secrets::SecretBackend for Flaky {
+        fn get(&self, account: &str) -> AppResult<Option<String>> {
+            let map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            Ok(map.get(account).cloned())
+        }
+
+        fn set(&self, account: &str, secret: &str) -> AppResult<()> {
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(AppError::SecretStore("keychain write failed".into()));
+            }
+            let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            map.insert(account.to_string(), secret.to_string());
+            Ok(())
+        }
+
+        fn delete(&self, account: &str) -> AppResult<()> {
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(AppError::SecretStore("keychain delete failed".into()));
+            }
+            let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            map.remove(account);
+            Ok(())
+        }
     }
 }

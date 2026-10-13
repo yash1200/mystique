@@ -202,40 +202,28 @@ impl AgentTools {
             return Ok(id.to_string());
         }
         let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;
-        let profiles = super::ProfileService {
-            db: &self.db,
-            secrets: &self.secrets,
-        };
-        let password = profiles.resolve_password(id)?;
-        let ssh_secret = profiles.resolve_ssh_secret(id).ok().flatten();
-        let mut ssh = crate::domain::SshTunnelRequest::from_config(&profile.ssh, ssh_secret);
-        if let Some(ssh) = ssh.as_mut() {
-            if let Ok(Some(known)) = self
-                .db
-                .with_conn(|c| repo::ssh_hosts::lookup(c, &ssh.host, ssh.port))
-            {
-                ssh.trusted_fingerprint = Some(known.fingerprint);
-            }
-        }
-        let tls_key_passphrase = profiles.resolve_tls_secret(id).ok().flatten();
-        let req = OpenSessionRequest {
-            engine: profile.engine.clone(),
-            plugin_config: profile.plugin_config.clone(),
-            password,
-            profile_id: Some(profile.id.clone()),
-            pool: Some(PoolConfig {
-                max_size: 5,
-                min_idle: 0,
-                acquire_timeout_ms: 10_000,
-                idle_timeout_secs: 0,
-            }),
-            session_id: Some(profile.id.clone()),
-            ssh,
-            tls_key_passphrase,
-            environment: Some(profile.environment.clone()),
-            connection_name: Some(profile.name.clone()),
-            profile_read_only: profile.read_only,
-        };
+        let req = super::bind_open_request(
+            &self.db,
+            &self.secrets,
+            OpenSessionRequest {
+                engine: profile.engine.clone(),
+                plugin_config: profile.plugin_config.clone(),
+                password: None,
+                profile_id: Some(profile.id.clone()),
+                pool: Some(PoolConfig {
+                    max_size: 5,
+                    min_idle: 0,
+                    acquire_timeout_ms: 10_000,
+                    idle_timeout_secs: 0,
+                }),
+                session_id: Some(profile.id.clone()),
+                ssh: None,
+                tls_key_passphrase: None,
+                environment: Some(profile.environment.clone()),
+                connection_name: Some(profile.name.clone()),
+                profile_read_only: profile.read_only,
+            },
+        )?;
         self.connections.open_session(req).await?;
         let _ = self
             .db

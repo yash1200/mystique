@@ -4,7 +4,11 @@ import { emptySslDraft, sslPluginFields } from '../ssl'
 import type { EngineAdapter } from '../types'
 import { mongoCompletionSource } from './complete'
 import { formatMql } from './format'
-import { buildMongoUriFromFields, databaseFromMongoUri } from './uri'
+import {
+	buildMongoUriFromFields,
+	databaseFromMongoUri,
+	splitMongoUserinfo,
+} from './uri'
 
 export const mongodb: EngineAdapter = {
 	id: 'mongodb',
@@ -41,8 +45,12 @@ export const mongodb: EngineAdapter = {
 			// Prefer URI when present; otherwise keep discrete fields for legacy profiles.
 			const ssl = sslPluginFields(draft)
 			if (uri) {
-				const cfg: PluginConfig = { uri, ...ssl }
+				// Rust stores userinfo in the keychain. The saved URI has no password.
+				const creds = splitMongoUserinfo(uri)
+				const cfg: PluginConfig = { uri: creds.uri, ...ssl }
 				if (database) cfg.database = database
+				if (creds.username) cfg.username = creds.username
+				if (creds.password) cfg.password = creds.password
 				return cfg
 			}
 			const cfg: PluginConfig = { ...ssl }

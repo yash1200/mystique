@@ -59,6 +59,43 @@ fn tool_specs_omit_execute_query_when_read_only() {
 }
 
 #[tokio::test]
+async fn agent_connection_list_has_no_mongo_password() {
+    let app = app();
+    let mut input = SaveConnectionInput {
+        id: None,
+        name: "mongo".into(),
+        engine: "mongodb".into(),
+        color_id: "teal".into(),
+        environment: "local".into(),
+        read_only: true,
+        notes: None,
+        plugin_config: json!({
+            "uri": "mongodb://admin:s%40cret@127.0.0.1:27017/app?authSource=admin"
+        }),
+        password: None,
+        secret_ref: None,
+        clear_secret: false,
+        copy_secret_from: None,
+        favorite: None,
+        ssh_config: crate::domain::SshConfig::default(),
+        ssh_password: None,
+        clear_ssh_secret: false,
+        tls_key_passphrase: None,
+    };
+    input.engine = "documentdb".into();
+    app.profiles().save(input).unwrap();
+    let listed = app
+        .agent_tools()
+        .list_connections(ToolCaller::Agent)
+        .await
+        .unwrap();
+    let json = serde_json::to_string(&listed).unwrap();
+    assert!(!json.contains("s@cret"), "{json}");
+    assert!(!json.contains("s%40cret"), "{json}");
+    assert!(!json.contains("admin:"), "{json}");
+}
+
+#[tokio::test]
 async fn mcp_list_connections_empty_allowlist_is_none() {
     let app = app();
     let saved = save_pg(&app, "prod");

@@ -4,7 +4,8 @@ use serde_json::Value as JsonValue;
 /// Saved connection profile (any engine).
 ///
 /// List/get never include a password. Secrets live in the OS keychain;
-/// SQLite `secret_ref` is an opaque pointer (`conn.<id>`).
+/// SQLite `secret_ref` is an opaque keychain account name.
+/// New secrets use `conn.<install-uuid>.<id>`. Older rows keep `conn.<id>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionProfile {
@@ -82,13 +83,34 @@ pub fn is_placeholder_secret_ref(value: &str) -> bool {
     v.starts_with("mystique-db/connection") || v.starts_with("mystique/conn/")
 }
 
-/// Opaque SQLite pointer / keychain account for a connection password.
+/// Legacy keychain account `conn.<id>`. Reads use the stored pointer, not this.
 pub fn secret_account(connection_id: &str) -> String {
     format!("conn.{connection_id}")
 }
 
 pub fn tls_secret_account(connection_id: &str) -> String {
     format!("conn.{connection_id}.tls")
+}
+
+/// Password account scoped to one install of the app database.
+///
+/// `install_id` is the UUID in `app_settings.install_id`. A new database
+/// gets a new id, so a recycled integer cannot open the previous install's item.
+pub fn scoped_secret_account(install_id: &str, connection_id: &str) -> String {
+    format!("conn.{}.{}", install_id.trim(), connection_id.trim())
+}
+
+pub fn scoped_ssh_secret_account(install_id: &str, connection_id: &str) -> String {
+    format!("{}.ssh", scoped_secret_account(install_id, connection_id))
+}
+
+pub fn scoped_tls_secret_account(install_id: &str, connection_id: &str) -> String {
+    format!("{}.tls", scoped_secret_account(install_id, connection_id))
+}
+
+/// Mongo/DocumentDB URI username. Sibling of the password account.
+pub fn user_secret_account(password_account: &str) -> String {
+    format!("{}.user", password_account.trim())
 }
 
 pub fn is_keychain_pointer(secret_ref: &str) -> bool {

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
+use mongodb::options::{ClientOptions, ServerAddress, Tls, TlsOptions};
 use mongodb::Client;
 use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult, TlsSettings};
 
@@ -40,23 +40,28 @@ pub(super) async fn build_client(
         options.max_idle_time = Some(Duration::from_secs(config.pool.idle_timeout_secs));
     }
 
-    // Auth from fields if not already embedded in URI
-    let user = config.str_field("username");
+    // Fields fill a URI that no longer carries userinfo. Keep authSource the
+    // URI already parsed (or an explicit field) instead of replacing it.
+    let user = config
+        .str_field("username")
+        .or_else(|| config.str_field("user"));
     let password = config
         .password
         .clone()
         .or_else(|| config.str_field("password"));
     if let (Some(username), Some(password)) = (user, password) {
-        let mut cred = Credential::default();
+        let mut cred = options.credential.clone().unwrap_or_default();
         cred.username = Some(username);
         cred.password = Some(password);
-        // Prefer explicit authSource; default to admin (root-style users), not the app DB name.
-        cred.source = Some(
-            config
-                .str_field("authSource")
-                .or_else(|| config.str_field("auth_source"))
-                .unwrap_or_else(|| "admin".into()),
-        );
+        if cred.source.as_deref().unwrap_or("").is_empty() {
+            cred.source = Some(
+                config
+                    .str_field("authSource")
+                    .or_else(|| config.str_field("auth_source"))
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "admin".into()),
+            );
+        }
         options.credential = Some(cred);
     }
 
