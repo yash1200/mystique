@@ -44,6 +44,11 @@ pub struct ExecuteQueryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct QueryColumn {
     pub name: String,
+    /// Engine type label (`int8`, `numeric`, `text`).
+    ///
+    /// Integers outside ±(2^53−1) and every numeric/decimal cell are JSON
+    /// strings. This tag is how the grid tells that string from ordinary text
+    /// and can right-align it.
     #[serde(default)]
     pub data_type: Option<String>,
 }
@@ -55,7 +60,7 @@ pub struct QueryResult {
     pub engine: String,
     pub mode: QueryMode,
     pub columns: Vec<QueryColumn>,
-    /// Row-major cells as JSON values (null / string / number / bool / object).
+    /// Row-major cells. Large integers and numerics are strings; see [`QueryColumn::data_type`].
     pub rows: Vec<Vec<JsonValue>>,
     pub row_count: u64,
     pub truncated: bool,

@@ -1,7 +1,7 @@
 //! BSON / JSON encoding and Mongo write-command helpers.
 
 use mongodb::bson::Bson;
-use mystique_connector_api::{ConnectorResult, ValidatedQuery};
+use mystique_connector_api::{json_f64, json_i64, ConnectorResult, ValidatedQuery};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
@@ -9,7 +9,7 @@ use super::MongoSession;
 
 pub(super) fn bson_to_json(b: Bson) -> JsonValue {
     match b {
-        Bson::Double(f) => json!(f),
+        Bson::Double(f) => json_f64(f),
         Bson::String(s) => JsonValue::String(s),
         Bson::Array(arr) => JsonValue::Array(arr.into_iter().map(bson_to_json).collect()),
         Bson::Document(d) => {
@@ -22,7 +22,7 @@ pub(super) fn bson_to_json(b: Bson) -> JsonValue {
         Bson::Boolean(b) => JsonValue::Bool(b),
         Bson::Null => JsonValue::Null,
         Bson::Int32(i) => json!(i),
-        Bson::Int64(i) => json!(i),
+        Bson::Int64(i) => json_i64(i),
         Bson::ObjectId(oid) => JsonValue::String(oid.to_hex()),
         Bson::DateTime(dt) => JsonValue::String(dt.to_string()),
         other => JsonValue::String(other.to_string()),

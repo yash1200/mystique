@@ -142,6 +142,37 @@ export function valuesEqual(a: unknown, b: unknown): boolean {
 	return String(a) === String(b)
 }
 
+/** Column type tag for a JSON string that is really an int8 or numeric. */
+export function numericColumn(dataType: string | null | undefined): boolean {
+	const t = (dataType ?? '').trim().toLowerCase()
+	if (!t || t.includes('interval')) return false
+	const base = t.split('(')[0]?.replace(/\[\]$/, '') ?? ''
+	return (
+		base.includes('int') ||
+		base.includes('serial') ||
+		base.includes('numeric') ||
+		base.includes('decimal') ||
+		base.includes('float') ||
+		base.includes('double') ||
+		base.includes('real') ||
+		base.includes('money') ||
+		base === 'number' ||
+		base === 'oid' ||
+		base === 'year'
+	)
+}
+
+/**
+ * Digit text that must stay a string. `Number` would round it, and a grid
+ * `WHERE` would then hit a neighbor row.
+ */
+export function exactNumberText(text: string): string | number | null {
+	const t = text.trim()
+	if (!/^[+-]?\d+(\.\d+)?$/.test(t)) return null
+	if (t.includes('.') || !Number.isSafeInteger(Number(t))) return t
+	return Number(t)
+}
+
 export function parseDraft(raw: string, previous: unknown): unknown {
 	const t = raw.trim()
 	if (t === '' || t.toUpperCase() === 'NULL') return null
@@ -150,19 +181,10 @@ export function parseDraft(raw: string, previous: unknown): unknown {
 		if (lower === 'true' || lower === '1' || lower === 'yes') return true
 		if (lower === 'false' || lower === '0' || lower === 'no') return false
 	}
-	if (typeof previous === 'number') {
-		const n = Number(t)
-		if (!Number.isNaN(n)) return n
-	}
-	if (
-		previous !== null &&
-		previous !== undefined &&
-		typeof previous !== 'boolean' &&
-		typeof previous !== 'object' &&
-		/^-?\d+(\.\d+)?$/.test(t)
-	) {
-		const n = Number(t)
-		if (!Number.isNaN(n)) return n
+	const exact = exactNumberText(t)
+	if (exact !== null && typeof previous !== 'boolean') {
+		if (typeof exact === 'string') return exact
+		if (typeof previous === 'number' || typeof previous === 'string') return exact
 	}
 	return raw
 }

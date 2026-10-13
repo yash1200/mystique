@@ -412,22 +412,7 @@ async fn list_statement_stats(
 }
 
 fn f64_cell(row: &Row, idx: usize) -> Option<f64> {
-    if let Ok(v) = row.try_get::<_, Option<f64>>(idx) {
-        if v.is_some() {
-            return v;
-        }
-    }
-    if let Ok(v) = row.try_get::<_, Option<i64>>(idx) {
-        return v.map(|n| n as f64);
-    }
-    if let Ok(v) = row.try_get::<_, Option<i32>>(idx) {
-        return v.map(|n| n as f64);
-    }
-    // `extract()` / NUMERIC columns arrive as text when not cast.
-    if let Ok(v) = row.try_get::<_, Option<String>>(idx) {
-        return v.and_then(|s| s.parse().ok());
-    }
-    None
+    super::encode::metric_f64(row, idx)
 }
 
 fn opt_string(row: &Row, idx: usize) -> Option<String> {

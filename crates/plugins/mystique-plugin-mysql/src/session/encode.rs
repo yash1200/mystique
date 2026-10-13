@@ -2,7 +2,8 @@
 
 use mysql_async::consts::ColumnType;
 use mysql_async::Value;
-use serde_json::{json, Value as JsonValue};
+use mystique_connector_api::{json_f64, json_i64, json_u64};
+use serde_json::Value as JsonValue;
 
 /// SQL-ish type name for query result headers (not Debug enum tags).
 pub(super) fn mysql_type_label(t: ColumnType) -> &'static str {
@@ -50,10 +51,10 @@ pub(super) fn value_json(v: Value) -> JsonValue {
                 b.iter().map(|x| format!("{x:02x}")).collect::<String>()
             )),
         },
-        Value::Int(i) => json!(i),
-        Value::UInt(u) => json!(u),
-        Value::Float(f) => json!(f),
-        Value::Double(d) => json!(d),
+        Value::Int(i) => json_i64(i),
+        Value::UInt(u) => json_u64(u),
+        Value::Float(f) => json_f64(f64::from(f)),
+        Value::Double(d) => json_f64(d),
         // DATE / DATETIME / TIMESTAMP all arrive as Value::Date
         Value::Date(year, month, day, hour, minute, second, micros) => {
             // MySQL zero-date / invalid components
@@ -149,6 +150,19 @@ pub(super) fn parse_mysql_enum_values(column_type: &str) -> Option<Vec<String>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bigint_outside_the_safe_range_is_a_string() {
+        assert_eq!(
+            value_json(Value::Int(9_007_199_254_740_993)),
+            JsonValue::String("9007199254740993".into())
+        );
+        assert_eq!(value_json(Value::Int(42)), serde_json::json!(42));
+        assert_eq!(
+            value_json(Value::Bytes(b"12345678901234567890.25".to_vec())),
+            JsonValue::String("12345678901234567890.25".into())
+        );
+    }
 
     #[test]
     fn enum_values_keep_utf8() {

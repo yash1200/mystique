@@ -7,7 +7,7 @@
 	import { Icon } from '#core/ui'
 	import { cn } from '#core/util'
 	import { selectOptionsForColumn, usesSelectEditor } from '../column-editor'
-	import { cellText } from '../filters'
+	import { cellText, numericColumn } from '../filters'
 	export type CellRef = { row: number; col: string }
 
 	interface Props {
@@ -268,7 +268,12 @@
 								)}
 								aria-hidden={isEditing}
 							>
-								<span class="min-w-0 flex-1 truncate">{cellText(raw)}</span>
+								<span
+									class={cn(
+										'min-w-0 flex-1 truncate',
+										numericColumn(col.type) && 'text-right',
+									)}
+								>{cellText(raw)}</span>
 								{#if dirty}
 									<span
 										class="size-1.5 shrink-0 rounded-full bg-warning"

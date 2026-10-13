@@ -16,6 +16,7 @@
 		buildJson,
 		buildMarkdown,
 		buildTsv,
+		numericColumn,
 		valueToEditorText,
 	} from '#features/workspace/grid'
 	import { appPrefs } from '#lib/app'
@@ -883,7 +884,7 @@
 								data-focus={isFocused ? '' : undefined}
 								role="gridcell"
 								aria-selected={isFocused || isCellSelected(absolute, ci)}
-								class="qrg-cell qrg-data border-b border-line/60 px-2.5 font-mono text-label"
+								class="qrg-cell qrg-data border-b border-line/60 px-2.5 font-mono text-label {numericColumn(_col.dataType) ? 'text-right' : ''}"
 								title={text}
 							>
 								{text}
