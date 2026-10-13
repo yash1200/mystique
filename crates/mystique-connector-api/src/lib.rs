@@ -41,7 +41,10 @@ pub use metrics::*;
 pub use object_structure::*;
 pub use policy::*;
 pub use pool::*;
-pub use products::{product, runtime_id, EngineProduct, ENGINE_PRODUCTS};
+pub use products::{
+    forces_terminate_off, hidden_schemas, product, retry_writes_override, runtime_id,
+    stamp_connect_overlay, EngineProduct, ENGINE_PRODUCTS,
+};
 pub use query::*;
 pub use table::*;
 pub use tls::{SslMode, TlsSettings};

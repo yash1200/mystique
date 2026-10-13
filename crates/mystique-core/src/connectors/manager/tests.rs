@@ -655,6 +655,21 @@ async fn import_into_read_only_session_ignores_client_flag() {
     let _ = std::fs::remove_file(&csv_path);
 }
 
+#[test]
+fn cockroach_overlay_hides_terminate_and_postgres_keeps_it() {
+    let probe = GuardProbe {
+        ran: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    let cockroach =
+        super::overlay_session_caps(&probe, mystique_connector_api::product("cockroachdb"));
+    assert_eq!(cockroach.engine, "cockroachdb");
+    assert!(!cockroach.supports_terminate_session);
+    assert!(cockroach.supports_server_metrics);
+    let postgres = super::overlay_session_caps(&probe, mystique_connector_api::product("postgres"));
+    assert!(postgres.supports_terminate_session);
+    assert!(postgres.supports_server_metrics);
+}
+
 struct GuardProbe {
     ran: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }

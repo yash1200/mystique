@@ -11,6 +11,40 @@ use tokio_postgres::Row;
 use super::query_failed;
 use super::PostgresSession;
 
+/// Activity stats that exist on both Postgres and Cockroach.
+/// Size and uptime stay in their own statements: Cockroach rejects
+/// `pg_postmaster_start_time`, and a missing `pg_database_size` used to
+/// fail this whole snapshot.
+const ACTIVITY_SQL: &str = r#"
+SELECT
+  (SELECT count(*)::bigint FROM pg_stat_activity) AS connections,
+  (
+    SELECT setting::double precision
+    FROM pg_settings
+    WHERE name = 'max_connections'
+  ) AS max_connections,
+  (
+    SELECT CASE
+      WHEN coalesce(sum(blks_hit + blks_read), 0) = 0 THEN NULL
+      ELSE sum(blks_hit)::double precision
+           / sum(blks_hit + blks_read)::double precision
+    END
+    FROM pg_stat_database
+    WHERE datname = current_database()
+  ) AS cache_hit,
+  (
+    SELECT count(*)::bigint
+    FROM pg_stat_activity
+    WHERE state = 'active' AND pid <> pg_backend_pid()
+  ) AS active_queries
+"#;
+
+const SIZE_SQL: &str = "SELECT pg_database_size(current_database())";
+
+const UPTIME_SQL: &str = r#"
+SELECT (extract(epoch FROM now() - pg_postmaster_start_time()) * 1000)::double precision
+"#;
+
 pub(super) async fn fetch_server_metrics(
     session: &PostgresSession,
     input: &FetchServerMetricsInput,
@@ -26,45 +60,16 @@ pub(super) async fn fetch_server_metrics(
         .unwrap_or(0);
 
     let overview_row = client
-        .query_one(
-            r#"
-            SELECT
-              (SELECT count(*)::bigint FROM pg_stat_activity) AS connections,
-              (
-                SELECT setting::double precision
-                FROM pg_settings
-                WHERE name = 'max_connections'
-              ) AS max_connections,
-              (
-                SELECT CASE
-                  WHEN coalesce(sum(blks_hit + blks_read), 0) = 0 THEN NULL
-                  ELSE sum(blks_hit)::double precision
-                       / sum(blks_hit + blks_read)::double precision
-                END
-                FROM pg_stat_database
-                WHERE datname = current_database()
-              ) AS cache_hit,
-              (SELECT pg_database_size(current_database())) AS db_size,
-              (
-                SELECT (extract(epoch FROM now() - pg_postmaster_start_time()) * 1000)::double precision
-              ) AS uptime_ms,
-              (
-                SELECT count(*)::bigint
-                FROM pg_stat_activity
-                WHERE state = 'active' AND pid <> pg_backend_pid()
-              ) AS active_queries
-            "#,
-            &[],
-        )
+        .query_one(ACTIVITY_SQL, &[])
         .await
         .map_err(query_failed)?;
 
     let connections = f64_cell(&overview_row, 0);
     let max_conn = f64_cell(&overview_row, 1);
     let cache = f64_cell(&overview_row, 2);
-    let db_size = f64_cell(&overview_row, 3);
-    let uptime_ms = f64_cell(&overview_row, 4);
-    let active = f64_cell(&overview_row, 5);
+    let active = f64_cell(&overview_row, 3);
+    let db_size = optional_metric(&client, SIZE_SQL).await;
+    let uptime_ms = optional_metric(&client, UPTIME_SQL).await;
 
     let mut extras = Vec::new();
     if let Ok(ver) = client.query_one("SHOW server_version", &[]).await {
@@ -163,13 +168,25 @@ pub(super) async fn fetch_server_metrics(
 
     let mut notes = Vec::new();
     let sessions = if input.include_sessions {
-        list_sessions(&client, own_pid).await?
+        match list_sessions(&client, own_pid).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                notes.push(format!("Sessions unavailable: {err}"));
+                Vec::new()
+            }
+        }
     } else {
         Vec::new()
     };
 
     let slow_queries = if input.include_slow_queries {
-        let mut live = list_live_slow(&client, own_pid, input.min_duration_ms).await?;
+        let mut live = match list_live_slow(&client, own_pid, input.min_duration_ms).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                notes.push(format!("Live queries unavailable: {err}"));
+                Vec::new()
+            }
+        };
         match list_statement_stats(&client, input.slow_query_limit).await {
             Ok(hist) => {
                 if hist.is_empty() {
@@ -413,6 +430,24 @@ async fn list_statement_stats(
 
 fn f64_cell(row: &Row, idx: usize) -> Option<f64> {
     super::encode::metric_f64(row, idx)
+}
+
+async fn optional_metric(client: &deadpool_postgres::Object, sql: &str) -> Option<f64> {
+    let row = client.query_one(sql, &[]).await.ok()?;
+    f64_cell(&row, 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn size_and_uptime_are_separate_from_activity() {
+        assert!(!ACTIVITY_SQL.contains("pg_database_size"));
+        assert!(!ACTIVITY_SQL.contains("pg_postmaster_start_time"));
+        assert!(SIZE_SQL.contains("pg_database_size"));
+        assert!(UPTIME_SQL.contains("pg_postmaster_start_time"));
+    }
 }
 
 fn opt_string(row: &Row, idx: usize) -> Option<String> {

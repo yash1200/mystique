@@ -5,6 +5,7 @@ use mystique_connector_api::{
     DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
 };
 
+use super::depth::{reject_beyond_depth, DepthFeature};
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -58,6 +59,8 @@ impl ConnectionManager {
         &self,
         req: TableAdminRequest,
     ) -> ConnectorResult<TableAdminResult> {
+        let meta = self.session_meta(&req.session_id).await?;
+        reject_beyond_depth(&meta.caps, DepthFeature::TableAdmin(req.op))?;
         let risk = match req.op {
             TableAdminOp::CreateStatement => WriteRisk::Read,
             TableAdminOp::Drop | TableAdminOp::Truncate => WriteRisk::Destructive,
@@ -109,8 +112,7 @@ impl ConnectionManager {
                 "Name may only contain letters, numbers, and underscore.".into(),
             ));
         }
-        let session = self.session(&req.session_id).await?;
         let input = req.into_input();
-        session.apply_table_admin(&input).await
+        meta.session.apply_table_admin(&input).await
     }
 }

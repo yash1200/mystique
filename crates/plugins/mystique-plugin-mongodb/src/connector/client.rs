@@ -32,6 +32,7 @@ pub(super) async fn build_client(
         opts
     };
     apply_direct_connection(config, &mut options);
+    apply_retry_writes(config, &mut options);
 
     // Pool sizing (driver-managed)
     options.max_pool_size = Some(config.pool.max_size);
@@ -104,6 +105,19 @@ pub(super) async fn build_client(
 fn apply_direct_connection(config: &ConnectionConfig, options: &mut ClientOptions) {
     if config.bool_field("directConnection", false) {
         options.direct_connection = Some(true);
+    }
+}
+
+/// DocumentDB connect stamps `retryWrites: false`. MongoDB omits the key and
+/// keeps the driver default.
+fn apply_retry_writes(config: &ConnectionConfig, options: &mut ClientOptions) {
+    if config
+        .plugin_config
+        .get("retryWrites")
+        .and_then(|v| v.as_bool())
+        == Some(false)
+    {
+        options.retry_writes = Some(false);
     }
 }
 
@@ -268,6 +282,31 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("SSH tunnel"), "{err}");
+    }
+
+    #[test]
+    fn documentdb_forces_retry_writes_off() {
+        let mut options = ClientOptions::default();
+        options.retry_writes = Some(true);
+        apply_retry_writes(
+            &ConnectionConfig::new(
+                "mongodb",
+                json!({"uri": "mongodb://127.0.0.1/app?retryWrites=true", "retryWrites": false}),
+            ),
+            &mut options,
+        );
+        assert_eq!(options.retry_writes, Some(false));
+    }
+
+    #[test]
+    fn mongodb_leaves_driver_retry_writes() {
+        let mut options = ClientOptions::default();
+        options.retry_writes = Some(true);
+        apply_retry_writes(
+            &ConnectionConfig::new("mongodb", json!({"uri": "mongodb://127.0.0.1/app"})),
+            &mut options,
+        );
+        assert_eq!(options.retry_writes, Some(true));
     }
 
     #[test]

@@ -148,6 +148,49 @@ pub fn runtime_id(id: &str) -> Option<&'static str> {
     product(id).map(|p| p.runtime)
 }
 
+/// DocumentDB rejects the Mongo driver's default `retryWrites=true`.
+/// `Some(false)` forces the driver flag off. `None` leaves the driver default.
+pub fn retry_writes_override(product_id: &str) -> Option<bool> {
+    match product(product_id).map(|p| p.id) {
+        Some("documentdb") => Some(false),
+        _ => None,
+    }
+}
+
+/// Stamp a connect-time overlay onto a copy of `plugin_config`.
+/// Saved profiles are not rewritten; the user does not edit the URI.
+pub fn stamp_connect_overlay(product_id: &str, plugin_config: &mut serde_json::Value) {
+    let Some(flag) = retry_writes_override(product_id) else {
+        return;
+    };
+    let Some(obj) = plugin_config.as_object_mut() else {
+        return;
+    };
+    obj.insert("retryWrites".into(), serde_json::Value::Bool(flag));
+}
+
+/// Cockroach has no `pg_terminate_backend`. Hide terminate until CANCEL QUERY exists.
+pub fn forces_terminate_off(product_id: &str) -> bool {
+    product(product_id).is_some_and(|p| p.id == "cockroachdb")
+}
+
+/// Schemas, or MySQL/TiDB databases, that are not user data.
+/// Compared case-insensitively so TiDB's `INFORMATION_SCHEMA` matches.
+pub fn hidden_schemas(product_id: &str) -> &'static [&'static str] {
+    match product(product_id).map(|p| p.id) {
+        Some("cockroachdb") => &["crdb_internal", "pg_extension"],
+        Some("tidb") => &[
+            "information_schema",
+            "performance_schema",
+            "metrics_schema",
+            "inspection_schema",
+            "mysql",
+            "sys",
+        ],
+        _ => &[],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +266,46 @@ mod tests {
         assert!(ENGINE_PRODUCTS
             .iter()
             .all(|p| p.support_depth == crate::SupportDepth::Operate));
+    }
+
+    #[test]
+    fn documentdb_disables_retry_writes_and_mongodb_does_not() {
+        assert_eq!(retry_writes_override("documentdb"), Some(false));
+        assert_eq!(retry_writes_override("mongodb"), None);
+        assert_eq!(retry_writes_override("mongo"), None);
+        let mut config =
+            serde_json::json!({"uri": "mongodb://docdb.internal:27017/app?retryWrites=true"});
+        stamp_connect_overlay("documentdb", &mut config);
+        assert_eq!(config["retryWrites"], false);
+        let mut mongo = serde_json::json!({"uri": "mongodb://127.0.0.1/app"});
+        stamp_connect_overlay("mongodb", &mut mongo);
+        assert!(mongo.get("retryWrites").is_none());
+    }
+
+    #[test]
+    fn cockroach_hides_terminate_and_internal_schemas() {
+        assert!(forces_terminate_off("cockroachdb"));
+        assert!(!forces_terminate_off("postgres"));
+        assert_eq!(
+            hidden_schemas("cockroachdb"),
+            ["crdb_internal", "pg_extension"]
+        );
+        assert!(hidden_schemas("postgres").is_empty());
+    }
+
+    #[test]
+    fn tidb_hides_system_schemas() {
+        assert_eq!(
+            hidden_schemas("tidb"),
+            [
+                "information_schema",
+                "performance_schema",
+                "metrics_schema",
+                "inspection_schema",
+                "mysql",
+                "sys",
+            ]
+        );
+        assert!(hidden_schemas("mysql").is_empty());
     }
 }

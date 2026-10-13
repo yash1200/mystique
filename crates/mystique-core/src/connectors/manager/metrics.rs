@@ -3,6 +3,7 @@ use mystique_connector_api::{
     TerminateSessionRequest, TerminateSessionResult, WriteRisk,
 };
 
+use super::depth::{reject_beyond_depth, DepthFeature};
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -15,14 +16,17 @@ impl ConnectionManager {
                 "sessionId is required.".into(),
             ));
         }
-        let session = self.session(&req.session_id).await?;
-        session.fetch_server_metrics(&req.into_input()).await
+        let meta = self.session_meta(&req.session_id).await?;
+        reject_beyond_depth(&meta.caps, DepthFeature::Metrics)?;
+        meta.session.fetch_server_metrics(&req.into_input()).await
     }
 
     pub async fn terminate_backend_session(
         &self,
         req: TerminateSessionRequest,
     ) -> ConnectorResult<TerminateSessionResult> {
+        let meta = self.session_meta(&req.session_id).await?;
+        reject_beyond_depth(&meta.caps, DepthFeature::Terminate)?;
         self.enforce_write_guard(
             &req.session_id,
             WriteRisk::Write,
@@ -42,7 +46,8 @@ impl ConnectionManager {
                 "backendSessionId is required.".into(),
             ));
         }
-        let session = self.session(&req.session_id).await?;
-        session.terminate_backend_session(&req.into_input()).await
+        meta.session
+            .terminate_backend_session(&req.into_input())
+            .await
     }
 }

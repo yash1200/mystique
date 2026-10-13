@@ -1,9 +1,15 @@
 //! Databases, collections, and inferred field catalogs.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use mongodb::bson::{doc, Bson, Document};
+use mongodb::Client;
 use mystique_connector_api::{
     CatalogColumnRow, CatalogDatabase, CatalogObject, ColumnInfo, ConnectorResult,
 };
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use super::encode::bson_type_label;
 use super::query_failed;
@@ -126,35 +132,46 @@ pub(super) async fn list_catalog(
         names.insert(0, pref.to_string());
     }
 
-    let mut out = Vec::new();
+    let mut pending = Vec::new();
+    let mut listed: Vec<(String, bool, Vec<String>)> = Vec::new();
     for db_name in names {
         let is_system = SYSTEM.contains(&db_name.as_str());
-        let mut objects = Vec::new();
+        let mut colls = Vec::new();
         if include_objects && !is_system {
-            if let Ok(mut colls) = session
+            if let Ok(mut names) = session
                 .client
                 .database(&db_name)
                 .list_collection_names()
                 .await
             {
-                colls.sort();
-                for name in colls {
-                    let count = session
-                        .client
-                        .database(&db_name)
-                        .collection::<Document>(&name)
-                        .estimated_document_count()
-                        .await
-                        .unwrap_or(0);
-                    objects.push(CatalogObject {
-                        name,
-                        schema: None,
-                        database: Some(db_name.clone()),
-                        kind: "collection".into(),
-                        row_count: count,
-                    });
+                names.sort();
+                for name in names {
+                    pending.push((db_name.clone(), name.clone()));
+                    colls.push(name);
                 }
             }
+        }
+        listed.push((db_name, is_system, colls));
+    }
+    // Counts overlap, at most 8 at a time. They are not deferred: the tree
+    // shows a row count on first open.
+    let counts = count_collections(&session.client, pending).await;
+
+    let mut out = Vec::new();
+    for (db_name, is_system, colls) in listed {
+        let mut objects = Vec::new();
+        for name in colls {
+            let count = counts
+                .get(&(db_name.clone(), name.clone()))
+                .copied()
+                .unwrap_or(0);
+            objects.push(CatalogObject {
+                name,
+                schema: None,
+                database: Some(db_name.clone()),
+                kind: "collection".into(),
+                row_count: count,
+            });
         }
         let meta = if is_system {
             Some("system".into())
@@ -171,4 +188,91 @@ pub(super) async fn list_catalog(
         });
     }
     Ok(out)
+}
+
+/// How many `estimated_document_count` calls run at once.
+const COUNT_CONCURRENCY: usize = 8;
+
+async fn count_collections(
+    client: &Client,
+    jobs: Vec<(String, String)>,
+) -> HashMap<(String, String), u64> {
+    let counted = map_bounded(jobs, COUNT_CONCURRENCY, |(db, name)| {
+        let client = client.clone();
+        async move {
+            let count = client
+                .database(&db)
+                .collection::<Document>(&name)
+                .estimated_document_count()
+                .await
+                .unwrap_or(0);
+            ((db, name), count)
+        }
+    })
+    .await;
+    counted.into_iter().collect()
+}
+
+/// Run `f` with at most `limit` futures polled at once.
+async fn map_bounded<T, R, F, Fut>(items: Vec<T>, limit: usize, f: F) -> Vec<R>
+where
+    T: Send + 'static,
+    R: Send + 'static,
+    F: Fn(T) -> Fut + Send + Sync,
+    Fut: std::future::Future<Output = R> + Send + 'static,
+{
+    let limit = limit.max(1);
+    let sem = Arc::new(Semaphore::new(limit));
+    let mut set = JoinSet::new();
+    for item in items {
+        let sem = Arc::clone(&sem);
+        let fut = f(item);
+        set.spawn(async move {
+            let Ok(permit) = sem.acquire_owned().await else {
+                return None;
+            };
+            let value = fut.await;
+            drop(permit);
+            Some(value)
+        });
+    }
+    let mut out = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        if let Ok(Some(value)) = joined {
+            out.push(value);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod concurrency_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::map_bounded;
+
+    #[tokio::test]
+    async fn collection_counts_overlap_and_stay_bounded() {
+        let current = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let items: Vec<u32> = (0..20).collect();
+        let current_job = Arc::clone(&current);
+        let peak_job = Arc::clone(&peak);
+        map_bounded(items, 8, move |_| {
+            let current_job = Arc::clone(&current_job);
+            let peak_job = Arc::clone(&peak_job);
+            async move {
+                let now = current_job.fetch_add(1, Ordering::SeqCst) + 1;
+                peak_job.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                current_job.fetch_sub(1, Ordering::SeqCst);
+            }
+        })
+        .await;
+        let high = peak.load(Ordering::SeqCst);
+        assert!(high > 1, "counts ran one at a time ({high})");
+        assert!(high <= 8, "more than 8 counts at once ({high})");
+    }
 }

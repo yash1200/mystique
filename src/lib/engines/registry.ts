@@ -77,6 +77,10 @@ function overlayAdapter(
 			...runtime.defaultCapabilities,
 			engine: product.id,
 			supportDepth: product.supportDepth,
+			supportsTerminateSession:
+				product.id === 'cockroachdb'
+					? false
+					: runtime.defaultCapabilities.supportsTerminateSession,
 		}),
 		connection: {
 			...runtime.connection,

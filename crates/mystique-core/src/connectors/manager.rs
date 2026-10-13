@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use mystique_connector_api::{
-    ConnectionConfig, ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities,
-    EngineDescriptor, EngineProduct, FormattedConnectionUrl, ParsedConnectionUrl, PoolConfig,
-    PoolStatus, SessionInfo, TestResult,
+    forces_terminate_off, stamp_connect_overlay, ConnectionConfig, ConnectorError, ConnectorResult,
+    ConnectorSession, EngineCapabilities, EngineDescriptor, EngineProduct, FormattedConnectionUrl,
+    ParsedConnectionUrl, PoolConfig, PoolStatus, SessionInfo, TestResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -13,6 +13,7 @@ use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 mod catalog;
+mod depth;
 mod guard;
 mod metrics;
 mod query;
@@ -36,6 +37,9 @@ fn overlay_session_caps(
     if let Some(p) = product {
         caps.engine = p.id.to_string();
         caps.apply_support_depth(p.support_depth);
+        if forces_terminate_off(p.id) {
+            caps.supports_terminate_session = false;
+        }
     }
     caps
 }
@@ -186,7 +190,7 @@ impl ConnectionManager {
                 return Ok(test_fail(&req.engine, start, e));
             }
         };
-        let config = connection_config(connector.id(), tunneled.config, req);
+        let config = connection_config(&req.engine, connector.id(), tunneled.config, req);
 
         let outcome = match connector.test_connection(&config).await {
             Ok(mut result) => {
@@ -212,7 +216,7 @@ impl ConnectionManager {
             .unwrap_or_else(|| req.engine.trim().to_string());
 
         let tunneled = prepare_plugin_config(&req).await?;
-        let config = connection_config(connector.id(), tunneled.config, &req);
+        let config = connection_config(&req.engine, connector.id(), tunneled.config, &req);
 
         let session = match connector.connect(&config).await {
             Ok(session) => session,
@@ -360,6 +364,22 @@ impl ConnectionManager {
         Ok(session)
     }
 
+    /// Session plus the product overlay. The map lock is dropped before return.
+    pub(super) async fn session_meta(&self, session_id: &str) -> ConnectorResult<SessionMeta> {
+        let guard = self.sessions.read().await;
+        let live = guard.get(session_id).ok_or_else(|| {
+            ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
+        })?;
+        Ok(SessionMeta {
+            session: std::sync::Arc::clone(&live.session),
+            product_id: live.product_id.clone(),
+            caps: overlay_session_caps(
+                live.session.as_ref(),
+                ConnectorRegistry::product(&live.product_id),
+            ),
+        })
+    }
+
     /// The session plus the profile read-only bit stored at open.
     ///
     /// Callers must use this bit, not a client-sent `profile_read_only: false`,
@@ -376,7 +396,14 @@ impl ConnectionManager {
     }
 }
 
+pub(super) struct SessionMeta {
+    pub session: std::sync::Arc<dyn ConnectorSession>,
+    pub product_id: String,
+    pub caps: EngineCapabilities,
+}
+
 fn connection_config(
+    product_id: &str,
     engine: &str,
     mut plugin_config: JsonValue,
     req: &OpenSessionRequest,
@@ -394,6 +421,7 @@ fn connection_config(
             );
         }
     }
+    stamp_connect_overlay(product_id, &mut plugin_config);
     ConnectionConfig {
         engine: engine.to_string(),
         plugin_config,
