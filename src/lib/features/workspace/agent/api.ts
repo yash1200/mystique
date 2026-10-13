@@ -31,7 +31,7 @@ function normalizeMessage(raw: AgentMessage): AgentMessage {
 
 function requireDesktop() {
 	if (!isTauri()) {
-		throw new Error('Agent requires the desktop app (`yarn tauri dev`).')
+		throw new Error('Agent requires the Mystique desktop app.')
 	}
 }
 

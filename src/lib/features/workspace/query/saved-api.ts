@@ -11,7 +11,7 @@ import type {
 
 function requireTauri() {
 	if (!isTauri()) {
-		throw new Error('Saved queries require Tauri (`npm run tauri dev`).')
+		throw new Error('Saved queries require the Mystique desktop app.')
 	}
 }
 

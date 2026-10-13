@@ -110,7 +110,7 @@
 			return
 		}
 		if (!isTauri()) {
-			error = 'URL import needs the desktop app. Run with `npm run tauri dev`.'
+			error = 'URL import needs the Mystique desktop app.'
 			return
 		}
 		importing = true

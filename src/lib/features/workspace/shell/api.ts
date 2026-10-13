@@ -47,7 +47,7 @@ export type ReplaceWorkspaceTabsInput = {
 
 function requireTauri() {
 	if (!isTauri()) {
-		throw new Error('Workspace tabs require Tauri (`npm run tauri dev`).')
+		throw new Error('Workspace tabs require the Mystique desktop app.')
 	}
 }
 

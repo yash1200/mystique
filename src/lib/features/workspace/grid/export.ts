@@ -1,5 +1,5 @@
 /**
- * Serialize result rows as CSV / TSV / JSON / Markdown / Excel / PDF.
+ * Serialize result rows as CSV / TSV / JSON / Markdown / Excel.
  * File dialogs and byte writing live in `#core/util/files.js`.
  */
 import type { TableFileFormat } from '#core/contracts'
@@ -9,8 +9,6 @@ import {
 	shortStamp,
 	type SaveResult,
 } from '#core/util/files.js'
-import { jsPDF } from 'jspdf'
-
 export type { SaveResult, TableFileFormat }
 
 export type TableExportColumn = { name: string }
@@ -415,95 +413,5 @@ export async function exportRowsAsExcel(
 		`${safeFileBase(fileBase)}.xls`,
 		[{ name: 'Excel', extensions: ['xls'] }],
 		'application/vnd.ms-excel',
-	)
-}
-
-/**
- * Simple multi-page landscape PDF table (text). Best for moderate column counts.
- */
-export async function exportRowsAsPdf(
-	columns: TableExportColumn[],
-	rows: unknown[][],
-	opts?: { title?: string; fileBase?: string },
-): Promise<SaveResult> {
-	const title = opts?.title ?? 'Query results'
-	const fileBase = opts?.fileBase ?? 'query-results'
-	const doc = new jsPDF({
-		orientation: 'landscape',
-		unit: 'pt',
-		format: 'a4',
-	})
-
-	const pageW = doc.internal.pageSize.getWidth()
-	const pageH = doc.internal.pageSize.getHeight()
-	const margin = 28
-	const usableW = pageW - margin * 2
-	const colCount = Math.max(1, columns.length)
-	const colW = usableW / colCount
-	const rowH = 14
-	const fontSize = colCount > 10 ? 7 : colCount > 6 ? 8 : 9
-	const maxCellChars = Math.max(6, Math.floor(colW / (fontSize * 0.48)))
-
-	function trunc(s: string): string {
-		if (s.length <= maxCellChars) return s
-		return `${s.slice(0, Math.max(1, maxCellChars - 1))}…`
-	}
-
-	let y = margin
-	doc.setFont('helvetica', 'bold')
-	doc.setFontSize(11)
-	doc.text(title, margin, y)
-	y += 16
-	doc.setFont('helvetica', 'normal')
-	doc.setFontSize(8)
-	doc.setTextColor(100)
-	doc.text(
-		`${rows.length} row(s) · ${columns.length} column(s) · exported ${new Date().toISOString()}`,
-		margin,
-		y,
-	)
-	doc.setTextColor(0)
-	y += 14
-
-	function drawHeader() {
-		doc.setFont('helvetica', 'bold')
-		doc.setFontSize(fontSize)
-		doc.setFillColor(240, 242, 245)
-		doc.rect(margin, y - rowH + 4, usableW, rowH, 'F')
-		columns.forEach((c, i) => {
-			const x = margin + i * colW + 2
-			doc.text(trunc(c.name), x, y, { maxWidth: colW - 4 })
-		})
-		y += rowH
-		doc.setFont('helvetica', 'normal')
-	}
-
-	drawHeader()
-
-	for (let ri = 0; ri < rows.length; ri++) {
-		if (y + rowH > pageH - margin) {
-			doc.addPage()
-			y = margin
-			drawHeader()
-		}
-		if (ri % 2 === 1) {
-			doc.setFillColor(248, 249, 251)
-			doc.rect(margin, y - rowH + 4, usableW, rowH, 'F')
-		}
-		const row = rows[ri] ?? []
-		columns.forEach((_, i) => {
-			const x = margin + i * colW + 2
-			doc.text(trunc(cellToString(row[i])), x, y, { maxWidth: colW - 4 })
-		})
-		y += rowH
-	}
-
-	const ab = doc.output('arraybuffer') as ArrayBuffer
-	const bytes = new Uint8Array(ab)
-	return saveBytesWithPrompt(
-		bytes,
-		`${safeFileBase(fileBase)}.pdf`,
-		[{ name: 'PDF', extensions: ['pdf'] }],
-		'application/pdf',
 	)
 }

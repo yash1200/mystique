@@ -181,7 +181,7 @@
 
 		if (!isTauri()) {
 			const msg =
-				'Backend not available. Run with `npm run tauri dev` to test a real database connection.'
+				'Backend not available. Open the Mystique desktop app to test a real database connection.'
 			testResult = { ok: false, message: msg }
 			showToast('warning', msg)
 			return
@@ -338,7 +338,7 @@
 		if (!isTauri()) {
 			showToast(
 				'warning',
-				'Copy connection URL needs the desktop app (`npm run tauri dev`).',
+				'Copy connection URL needs the Mystique desktop app.',
 			)
 			return
 		}
@@ -475,7 +475,7 @@
 			statusOverride = rest
 			showToast(
 				'info',
-				'Opening workspace with sample data (FE preview — run `npm run tauri dev` for live DB).',
+				'Opening workspace with sample data. Use the desktop app for a live database.',
 			)
 			await openWorkspace(profile)
 			return

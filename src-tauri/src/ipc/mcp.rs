@@ -49,20 +49,21 @@ pub async fn install_mcp_harness(
 }
 
 #[tauri::command]
-pub fn get_mcp_access(state: State<'_, AppState>) -> Result<McpAccess, String> {
-    super::guard_sync(|| state.mcp.access().map_err(|e| e.to_string()))
+pub async fn get_mcp_access(state: State<'_, AppState>) -> Result<McpAccess, String> {
+    let mcp = state.mcp.clone();
+    super::guard_blocking(move || mcp.access().map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]
-pub fn set_mcp_access(
+pub async fn set_mcp_access(
     state: State<'_, AppState>,
     policy: String,
     allowlist: Vec<String>,
 ) -> Result<McpAccess, String> {
-    super::guard_sync(|| {
-        state
-            .mcp
-            .set_access(&policy, allowlist)
+    let mcp = state.mcp.clone();
+    super::guard_blocking(move || {
+        mcp.set_access(&policy, allowlist)
             .map_err(|e| e.to_string())
     })
+    .await
 }

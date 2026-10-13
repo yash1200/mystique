@@ -45,7 +45,7 @@ import type {
 import { isTauri } from './tauri'
 function requireTauri() {
 	if (!isTauri()) {
-		throw new Error('Engine pool API requires Tauri (`npm run tauri dev`).')
+		throw new Error('Engine pool API requires the Mystique desktop app.')
 	}
 }
 

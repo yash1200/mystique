@@ -60,7 +60,7 @@ export async function openModelDiagram(
 
 	if (!isTauri()) {
 		workspaceStudio.modelError =
-			'Live ER diagram requires Tauri. Run `npm run tauri dev` and Connect.'
+			'Live ER diagram requires the Mystique desktop app. Connect and try again.'
 		return
 	}
 

@@ -143,7 +143,7 @@
 		if (!isTauri()) {
 			showToast(
 				'warning',
-				'Copy connection URL needs the desktop app (`npm run tauri dev`).',
+				'Copy connection URL needs the Mystique desktop app.',
 			)
 			return
 		}

@@ -283,7 +283,7 @@
 			runState = {
 				status: 'error',
 				message:
-					'Live query execute requires Tauri. Run `npm run tauri dev` and Connect again.',
+					'Live query execute requires the Mystique desktop app. Connect and try again.',
 				mode,
 				elapsedMs: Math.round(performance.now() - start),
 			}

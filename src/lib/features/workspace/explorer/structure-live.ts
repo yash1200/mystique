@@ -23,7 +23,7 @@ export async function openObjectStructure(table: TableMeta, force = false) {
 	}
 	if (!isTauri()) {
 		workspaceStudio.structureError =
-			'Object structure requires Tauri. Run `npm run tauri dev` and Connect.'
+			'Object structure requires the Mystique desktop app. Connect and try again.'
 		return
 	}
 	workspaceStudio.structureLoading = true

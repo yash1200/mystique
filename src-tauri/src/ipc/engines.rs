@@ -1,8 +1,10 @@
 //! Engine catalog + pooled session IPC (API-shaped).
 
+use std::sync::Arc;
+
 use mystique_core::{
-    EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl, PoolStatus,
-    SessionInfo, SshHostKeyPrompt, TestResult,
+    AppServices, EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl,
+    PoolStatus, SessionInfo, SshHostKeyPrompt, TestResult,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -63,27 +65,31 @@ pub async fn format_engine_connection_url(
     .await
 }
 
-fn with_resolved_password(
-    state: &State<'_, AppState>,
+/// OS keychain plus the known-hosts row. Finished before the dial `.await`.
+async fn with_resolved_password(
+    services: Arc<AppServices>,
     request: OpenSessionRequest,
 ) -> Result<OpenSessionRequest, String> {
-    state
-        .services
-        .attach_session_secrets(request)
-        .map_err(|e| e.to_string())
+    super::blocking(move || {
+        services
+            .attach_session_secrets(request)
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn trust_ssh_host_key(
+pub async fn trust_ssh_host_key(
     state: State<'_, AppState>,
     prompt: SshHostKeyPrompt,
 ) -> Result<(), String> {
-    super::guard_sync(|| {
-        state
-            .services
+    let services = Arc::clone(&state.services);
+    super::guard_blocking(move || {
+        services
             .trust_ssh_host_key(prompt)
             .map_err(|e| e.to_string())
     })
+    .await
 }
 
 #[tauri::command]
@@ -92,9 +98,9 @@ pub async fn test_engine_connection(
     request: OpenSessionRequest,
 ) -> Result<TestResult, String> {
     super::guard(async move {
-        let request = with_resolved_password(&state, request)?;
-        state
-            .services
+        let services = Arc::clone(&state.services);
+        let request = with_resolved_password(Arc::clone(&services), request).await?;
+        services
             .connections()
             .test_connection(&request)
             .await
@@ -109,9 +115,9 @@ pub async fn open_engine_session(
     request: OpenSessionRequest,
 ) -> Result<SessionInfo, String> {
     super::guard(async move {
-        let request = with_resolved_password(&state, request)?;
-        state
-            .services
+        let services = Arc::clone(&state.services);
+        let request = with_resolved_password(Arc::clone(&services), request).await?;
+        services
             .connections()
             .open_session(request)
             .await

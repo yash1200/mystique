@@ -6,7 +6,7 @@ export type { McpAccess, McpHarness, McpStatus, McpWritePolicy }
 function requireTauri() {
 	if (!isTauri()) {
 		throw new Error(
-			'MCP settings require the desktop app (`npm run tauri dev`).',
+			'MCP settings require the Mystique desktop app.',
 		)
 	}
 }

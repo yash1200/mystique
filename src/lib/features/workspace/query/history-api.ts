@@ -42,7 +42,7 @@ export function historyItemToEntry(
 
 function requireTauri() {
 	if (!isTauri()) {
-		throw new Error('Query history requires Tauri (`npm run tauri dev`).')
+		throw new Error('Query history requires the Mystique desktop app.')
 	}
 }
 
