@@ -2,15 +2,62 @@
 
 use super::SqlDialect;
 
+/// One statement inside the original batch.
+///
+/// `start` and `end` are byte offsets of [`Self::text`] in `sql`
+/// (`sql[start..end] == text`). Leading and trailing whitespace is not
+/// part of the range. Cursor lookup uses the gaps between ranges so a
+/// caret in that whitespace still belongs to a statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatementSpan {
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
 /// Split `sql` into statements. Original text is preserved (comments inside
 /// a statement stay). Empty / comment-only chunks are dropped.
 pub fn split_statements(sql: &str, dialect: SqlDialect) -> Vec<String> {
+    split_statement_spans(sql, dialect)
+        .into_iter()
+        .map(|span| span.text)
+        .collect()
+}
+
+/// Same split as [`split_statements`], with byte ranges into `sql`.
+pub fn split_statement_spans(sql: &str, dialect: SqlDialect) -> Vec<StatementSpan> {
     split_via_scan(sql, dialect)
 }
 
-fn split_via_scan(sql: &str, dialect: SqlDialect) -> Vec<String> {
+/// Statement whose region contains `cursor`.
+///
+/// The region runs from the previous statement's end (or 0) up to the next
+/// statement's start. A caret inside `SELECT 2` of `SELECT 1; SELECT 2;`
+/// selects the second span.
+pub fn statement_at(spans: &[StatementSpan], cursor: usize) -> Option<&StatementSpan> {
+    if spans.is_empty() {
+        return None;
+    }
+    for (i, span) in spans.iter().enumerate() {
+        let region_start = if i == 0 {
+            0
+        } else {
+            spans.get(i - 1).map(|prev| prev.end).unwrap_or(0)
+        };
+        let region_end = spans
+            .get(i + 1)
+            .map(|next| next.start)
+            .unwrap_or(usize::MAX);
+        if cursor >= region_start && cursor < region_end {
+            return Some(span);
+        }
+    }
+    spans.last()
+}
+
+fn split_via_scan(sql: &str, dialect: SqlDialect) -> Vec<StatementSpan> {
     let bytes = sql.as_bytes();
-    let mut out = Vec::new();
+    let mut out: Vec<StatementSpan> = Vec::new();
     let mut start = 0usize;
     let mut i = 0usize;
     let mut in_single = false;
@@ -106,12 +153,22 @@ fn split_via_scan(sql: &str, dialect: SqlDialect) -> Vec<String> {
     out
 }
 
-fn push_stmt(out: &mut Vec<String>, sql: &str, start: usize, end: usize) {
-    let stmt = sql[start..end].trim();
-    if stmt.is_empty() || is_comment_only(stmt) {
+fn push_stmt(out: &mut Vec<StatementSpan>, sql: &str, start: usize, end: usize) {
+    let raw = &sql[start..end];
+    let trimmed_start = raw.trim_start();
+    let lead = raw.len() - trimmed_start.len();
+    let trimmed = trimmed_start.trim_end();
+    let trail = trimmed_start.len() - trimmed.len();
+    if trimmed.is_empty() || is_comment_only(trimmed) {
         return;
     }
-    out.push(stmt.to_string());
+    let span_start = start + lead;
+    let span_end = end - trail;
+    out.push(StatementSpan {
+        start: span_start,
+        end: span_end,
+        text: trimmed.to_string(),
+    });
 }
 
 fn is_comment_only(sql: &str) -> bool {
@@ -168,5 +225,42 @@ mod tests {
             SqlDialect::Generic,
         );
         assert_eq!(parts, vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn dollar_quote_range_keeps_the_inner_semicolon() {
+        let sql = "SELECT $$ a; b $$; SELECT 2";
+        let spans = split_statement_spans(sql, SqlDialect::Postgres);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(&sql[spans[0].start..spans[0].end], spans[0].text.as_str());
+        assert!(spans[0].text.contains("a; b"), "{spans:?}");
+        assert!(!spans[0].text.contains("SELECT 2"));
+        assert_eq!(spans[1].text, "SELECT 2");
+        assert_eq!(&sql[spans[1].start..spans[1].end], "SELECT 2");
+    }
+
+    #[test]
+    fn cursor_in_the_second_statement_selects_only_that_text() {
+        let sql = "SELECT 1; SELECT 2;";
+        let spans = split_statement_spans(sql, SqlDialect::Postgres);
+        let cursor = sql.find("SELECT 2").expect("second") + 3;
+        let hit = statement_at(&spans, cursor).expect("span");
+        assert_eq!(hit.text, "SELECT 2");
+    }
+
+    #[test]
+    fn block_comment_and_mysql_hash_do_not_split() {
+        let block = split_statement_spans("SELECT 1 /* ; */ ; SELECT 2", SqlDialect::Postgres);
+        assert_eq!(
+            block.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            vec!["SELECT 1 /* ; */", "SELECT 2"]
+        );
+        let hashed = split_statement_spans("SELECT 1; # ;\nSELECT 2", SqlDialect::Mysql);
+        assert_eq!(hashed.len(), 2, "{hashed:?}");
+        assert_eq!(hashed[0].text, "SELECT 1");
+        assert!(
+            hashed[1].text.contains("SELECT 2") && hashed[1].text.starts_with('#'),
+            "hash comment stays with the statement and does not split: {hashed:?}"
+        );
     }
 }

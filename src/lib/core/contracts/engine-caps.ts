@@ -68,6 +68,8 @@ export interface EngineCapabilities {
 	supportsPagination: boolean
 	supportsWrite: boolean
 	supportsCancelQuery: boolean
+	/** Query gutter. One implementation for every engine that can run a statement. */
+	supportsQuery: boolean
 	supportsPooling: boolean
 	bindsSessionToDatabase: boolean
 	/** Default database is the path segment of the connection URI (Mongo). */

@@ -12,6 +12,9 @@ export type RunState =
 	  }
 
 export type QueryRunCache = {
-	runState: Exclude<RunState, { status: 'running' }>
+	/** Includes `running`, so leaving the tab does not drop an in-flight query. */
+	runState: RunState
 	resultPage: number
+	/** Last text sent, so refresh repeats that statement rather than the whole script. */
+	submittedText?: string
 }

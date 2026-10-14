@@ -116,6 +116,10 @@ pub enum SupportDepth {
     Connect,
 }
 
+fn default_supports_query() -> bool {
+    true
+}
+
 /// Capability flags returned to the UI / API consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +138,9 @@ pub struct EngineCapabilities {
     pub supports_pagination: bool,
     pub supports_write: bool,
     pub supports_cancel_query: bool,
+    /// Query editor gutter. Every runtime can run a statement.
+    #[serde(default = "default_supports_query")]
+    pub supports_query: bool,
     pub supports_pooling: bool,
     /// Postgres / MySQL: switching database needs a new pool session.
     pub binds_session_to_database: bool,

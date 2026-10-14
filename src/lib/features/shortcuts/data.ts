@@ -91,7 +91,16 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		id: 'query',
 		title: 'Query editor',
 		items: [
-			{ id: 'run', label: 'Run query', keys: ['mod', 'enter'] },
+			{
+				id: 'run',
+				label: 'Run statement at cursor',
+				keys: ['mod', 'enter'],
+			},
+			{
+				id: 'run-all',
+				label: 'Run all statements',
+				keys: ['mod', 'shift', 'enter'],
+			},
 			{ id: 'find', label: 'Find in query', keys: ['mod', 'F'] },
 			{ id: 'find-next', label: 'Find next', keys: ['mod', 'G'] },
 			{ id: 'format', label: 'Format query', keys: ['mod', 'shift', 'F'] },

@@ -43,10 +43,11 @@ class WorkspaceSessionStore {
 	/** Baseline body used to compute dirty (saved body or last restore). */
 	queryBaselines = $state<Record<string, string>>({})
 	/**
-	 * Last finished query run per tab. Plain Map on purpose: not $state.
-	 * Result sets are large; a reactive store + $effect copy loop froze the app.
+	 * Query run per tab, including an in-flight one. The Map stays plain so
+	 * result rows are not proxied. `queryRunVersion` is the only reactive bit.
 	 */
 	private queryRunCache = new Map<string, QueryRunCache>()
+	private queryRunVersion = $state(0)
 
 	/** Debounced persist handles per connection. */
 	private persistScheduler = createPersistScheduler((connectionId) =>
@@ -365,7 +366,9 @@ class WorkspaceSessionStore {
 			delete drafts[tid]
 			delete baselines[tid]
 			this.queryRunCache.delete(tid)
+			void cancelTabRun(tid)
 		}
+		this.queryRunVersion += 1
 		this.queryDrafts = drafts
 		this.queryBaselines = baselines
 
@@ -514,6 +517,7 @@ class WorkspaceSessionStore {
 			delete drafts[tabId]
 			delete baselines[tabId]
 			this.queryRunCache.delete(tabId)
+			this.queryRunVersion += 1
 			this.queryDrafts = drafts
 			this.queryBaselines = baselines
 		}
@@ -632,11 +636,17 @@ class WorkspaceSessionStore {
 	}
 
 	getQueryRunCache(tabId: string): QueryRunCache | undefined {
+		void this.queryRunVersion
 		return this.queryRunCache.get(tabId)
+	}
+
+	hasOpenTab(tabId: string): boolean {
+		return this.openTabs.some((tab) => tab.id === tabId)
 	}
 
 	setQueryRunCache(tabId: string, cache: QueryRunCache) {
 		this.queryRunCache.set(tabId, cache)
+		this.queryRunVersion += 1
 	}
 
 	setQueryDraft(tabId: string, text: string) {

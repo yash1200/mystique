@@ -29,7 +29,8 @@
 		workspaceSession,
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
-	import { onDestroy, onMount, untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
+	import { splitDialectFor, textToRun } from '../statement-span'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
 	import { appendQueryHistory } from '../history-api'
@@ -78,10 +79,11 @@
 		capabilities = null,
 	}: Props = $props()
 
-	const cached = untrack(() => workspaceSession.getQueryRunCache(tabId))
-	// Raw: result grids can be tens of thousands of rows. Deep $state
-	// proxies on that payload freeze the UI after Run.
-	let runState = $state.raw<RunState>(cached?.runState ?? { status: 'idle' })
+	// The store holds the run, including `running`, so unmounting this canvas
+	// does not drop it or start a second one. Rows stay unproxied in the Map.
+	const cachedRun = $derived(workspaceSession.getQueryRunCache(tabId))
+	const runState = $derived<RunState>(cachedRun?.runState ?? { status: 'idle' })
+	const resultPage = $derived(cachedRun?.resultPage ?? 0)
 	let collection = $state('')
 	const catalogColKey = $derived(
 		engineSessionId
@@ -91,8 +93,8 @@
 	const catalogColumns = $derived(
 		catalogColKey ? (catalogColumnsCache.byKey[catalogColKey] ?? []) : [],
 	)
-	let resultPage = $state(cached?.resultPage ?? 0)
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
+	let editorSnap = $state({ doc: '', head: 0, anchor: 0 })
 	let exporting = $state<ResultExportAction | null>(null)
 
 	// One-time seed from prop; $effect below re-syncs when parent draft changes.
@@ -163,11 +165,21 @@
 			runState.result.rows.length > 0,
 	)
 
-	function persistRunCache(state: RunState = runState, page = resultPage) {
-		if (state.status === 'running') return
+	function tabStillOpen(): boolean {
+		return workspaceSession.hasOpenTab(tabId)
+	}
+
+	function persistRunCache(
+		state: RunState = runState,
+		page = resultPage,
+		submittedText?: string,
+	) {
+		if (!tabStillOpen()) return
+		const prev = workspaceSession.getQueryRunCache(tabId)
 		workspaceSession.setQueryRunCache(tabId, {
 			runState: state,
 			resultPage: page,
+			submittedText: submittedText ?? prev?.submittedText,
 		})
 	}
 
@@ -178,13 +190,14 @@
 	}
 
 	function goResultPrev() {
-		resultPage = Math.max(0, resultSafePage - 1)
-		persistRunCache(runState, resultPage)
+		persistRunCache(runState, Math.max(0, resultSafePage - 1))
 	}
 
 	function goResultNext() {
-		resultPage = Math.min(resultTotalPages - 1, resultSafePage + 1)
-		persistRunCache(runState, resultPage)
+		persistRunCache(
+			runState,
+			Math.min(resultTotalPages - 1, resultSafePage + 1),
+		)
 	}
 
 	async function exportResults(action: ResultExportAction) {
@@ -277,23 +290,22 @@
 		}
 	}
 
-	async function runQuery() {
+	async function runQuery(body?: string) {
 		if (runState.status === 'running') return
 		const mode = effectiveMode
 		const start = performance.now()
-		resultPage = 0
-		runState = { status: 'running' }
-		const sqlText = currentQueryText()
+		const sqlText = (body ?? currentQueryText()).trim()
+		if (!sqlText) return
+		persistRunCache({ status: 'running' }, 0, sqlText)
 
 		if (!isTauri()) {
-			runState = {
+			persistRunCache({
 				status: 'error',
 				message:
 					'Live query execute requires the Mystique desktop app. Connect and try again.',
 				mode,
 				elapsedMs: Math.round(performance.now() - start),
-			}
-			persistRunCache()
+			})
 			return
 		}
 
@@ -303,14 +315,13 @@
 		}
 		if (!sid) {
 			const elapsedMs = Math.round(performance.now() - start)
-			runState = {
+			persistRunCache({
 				status: 'error',
 				message:
 					'No live engine session. Go Home → Connect so a pooled session is opened.',
 				mode,
 				elapsedMs,
-			}
-			persistRunCache()
+			})
 			await recordHistory({
 				success: false,
 				durationMs: elapsedMs,
@@ -356,14 +367,14 @@
 				)
 			}
 			const elapsedMs = Math.round(performance.now() - start)
-			runState = {
+			if (!tabStillOpen()) return
+			persistRunCache({
 				status: 'ok',
 				message: (result.message ?? '').trim(),
 				mode,
 				elapsedMs,
 				result,
-			}
-			persistRunCache()
+			})
 			await recordHistory({
 				success: true,
 				durationMs: result.durationMs ?? elapsedMs,
@@ -371,18 +382,18 @@
 				body: sqlText,
 			})
 		} catch (e) {
+			if (!tabStillOpen()) return
 			const msg = e instanceof Error ? e.message : String(e)
 			const isPolicy = /policy:/i.test(msg) || /blocked/i.test(msg)
 			const elapsedMs = Math.round(performance.now() - start)
-			runState = {
+			persistRunCache({
 				status: isPolicy ? 'blocked' : 'error',
 				message: isPolicy
 					? msg.replace(/^policy:\s*/i, '')
 					: userFacingQueryError(msg),
 				mode,
 				elapsedMs,
-			}
-			persistRunCache()
+			})
 			await recordHistory({
 				success: false,
 				durationMs: elapsedMs,
@@ -398,10 +409,6 @@
 		if (runState.status !== 'running') return
 		void cancelTabRun(tabId)
 	}
-
-	onDestroy(() => {
-		void cancelTabRun(tabId)
-	})
 
 	function askAiAboutError(errorMessage: string) {
 		const error = errorMessage.trim()
@@ -430,18 +437,27 @@
 				cancelRun()
 				return
 			}
-			if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
+			if (!(e.metaKey || e.ctrlKey) || e.altKey) return
 			if (e.key !== 'Enter' && e.code !== 'NumpadEnter') return
 			const t = e.target
 			if (t instanceof HTMLElement) {
 				if (t.closest('[role="dialog"]')) return
-				// Agent composer (and any other textarea) owns this chord.
+				// The editor keymap owns this chord so it can see the caret.
+				if (t.closest('.cm-editor')) return
 				if (t.closest('textarea')) return
 			}
 			e.preventDefault()
 			e.stopImmediatePropagation()
-			if (!currentQueryText().trim()) return
-			void runQuery()
+			const doc = editorSnap.doc || currentQueryText()
+			const text = textToRun(
+				doc,
+				splitDialectFor(engine),
+				editorSnap.head,
+				editorSnap.anchor,
+				e.shiftKey,
+			)
+			if (!text) return
+			void runQuery(text)
 		}
 		window.addEventListener('keydown', onKey, true)
 		return () => window.removeEventListener('keydown', onKey, true)
@@ -472,12 +488,14 @@
 				bind:collection
 				canRun={!!localText.trim()}
 				canCancel={capabilities?.supportsCancelQuery === true}
+				showStatementGutter={capabilities?.supportsQuery !== false}
 				running={runState.status === 'running'}
 				oncancel={cancelRun}
 				{dirty}
 				{saving}
 				onchange={emitText}
-				onrun={() => void runQuery()}
+				onactivity={(snap) => (editorSnap = snap)}
+				onrun={(request) => void runQuery(request.text)}
 				{onsave}
 			/>
 		</div>
@@ -512,7 +530,10 @@
 				onexport={(f) => void exportResults(f)}
 				onprev={goResultPrev}
 				onnext={goResultNext}
-				onrefresh={() => void runQuery()}
+				onrefresh={() =>
+					void runQuery(
+						workspaceSession.getQueryRunCache(tabId)?.submittedText,
+					)}
 				onaskai={askAiAboutError}
 			/>
 		</div>

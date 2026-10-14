@@ -12,12 +12,24 @@
 	import { indentWithTab } from '@codemirror/commands'
 	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'
 	import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
-	import { Compartment, Prec, type Extension } from '@codemirror/state'
+	import {
+		Compartment,
+		Prec,
+		RangeSetBuilder,
+		type Extension,
+	} from '@codemirror/state'
 	import {
 		placeholder as cmPlaceholder,
 		EditorView,
+		GutterMarker,
+		gutter,
 		keymap,
 	} from '@codemirror/view'
+	import {
+		splitDialectFor,
+		splitStatementSpans,
+		textToRun,
+	} from '../statement-span'
 	import { basicSetup } from 'codemirror'
 	import { onMount } from 'svelte'
 	import { mystiqueSearch } from '../cm-search-panel'
@@ -41,6 +53,8 @@
 		/** Engine advertises cancel. The button stays disabled while running otherwise. */
 		canCancel?: boolean
 		oncancel?: () => void
+		/** One gutter for every engine with `supportsQuery`. */
+		showStatementGutter?: boolean
 		/** True when draft differs from last saved baseline. */
 		dirty?: boolean
 		/** True while a save is in flight. */
@@ -49,7 +63,9 @@
 		catalogColumns?: CatalogColumnRow[]
 		/** Fired when document text changes. */
 		onchange?: (text: string) => void
-		onrun: () => void
+		/** Caret and document, so a shortcut from outside the editor can run too. */
+		onactivity?: (snap: { doc: string; head: number; anchor: number }) => void
+		onrun: (request: { text: string }) => void
 		/** Save query for this connection (name prompt handled by parent). */
 		onsave?: () => void
 	}
@@ -66,10 +82,12 @@
 		running,
 		canCancel = false,
 		oncancel,
+		showStatementGutter = true,
 		dirty = false,
 		saving = false,
 		catalogColumns = [],
 		onchange,
+		onactivity,
 		onrun,
 		onsave,
 	}: Props = $props()
@@ -79,6 +97,7 @@
 	let langCompartment = new Compartment()
 	let placeholderCompartment = new Compartment()
 	let themeCompartment = new Compartment()
+	let runGutterCompartment = new Compartment()
 
 	function themeIsDark(): boolean {
 		return appPrefs.resolvedTheme === 'dark'
@@ -88,19 +107,87 @@
 
 	// Stable bag so CM keymaps/listeners always call latest props.
 	const callbacks = {
-		onrun: () => {},
+		onrun: (_request: { text: string }) => {},
 		onformat: () => {},
 		onsave: undefined as Props['onsave'],
 		onchange: undefined as Props['onchange'],
+		onactivity: undefined as Props['onactivity'],
 		engine: 'sql',
+		running: false,
 	}
 	$effect(() => {
 		callbacks.onrun = onrun
 		callbacks.onchange = onchange
+		callbacks.onactivity = onactivity
 		callbacks.engine = engine
+		callbacks.running = running
 		callbacks.onformat = formatEditor
 		callbacks.onsave = onsave
 	})
+
+	class StatementRunMarker extends GutterMarker {
+		text: string
+		constructor(text: string) {
+			super()
+			this.text = text
+		}
+		toDOM() {
+			const btn = document.createElement('button')
+			btn.type = 'button'
+			btn.className = 'cm-stmt-run'
+			btn.title = 'Run statement'
+			btn.setAttribute('aria-label', 'Run statement')
+			btn.textContent = '▶'
+			btn.addEventListener('mousedown', (event) => {
+				event.preventDefault()
+				event.stopPropagation()
+			})
+			btn.addEventListener('click', (event) => {
+				event.preventDefault()
+				event.stopPropagation()
+				if (callbacks.running) return
+				callbacks.onrun({ text: this.text })
+			})
+			return btn
+		}
+	}
+
+	function statementGutter(): Extension {
+		return gutter({
+			class: 'cm-stmt-gutter',
+			markers(view) {
+				const doc = view.state.doc.toString()
+				const spans = splitStatementSpans(doc, splitDialectFor(callbacks.engine))
+				const builder = new RangeSetBuilder<GutterMarker>()
+				let lastLine = -1
+				for (const span of spans) {
+					const line = view.state.doc.lineAt(
+						Math.min(span.start, doc.length),
+					)
+					if (line.number === lastLine) continue
+					lastLine = line.number
+					builder.add(line.from, line.from, new StatementRunMarker(span.text))
+				}
+				return builder.finish()
+			},
+		})
+	}
+
+	function emitRun(all: boolean) {
+		const doc = view?.state.doc.toString() ?? localText ?? ''
+		const head = view?.state.selection.main.head ?? doc.length
+		const anchor = view?.state.selection.main.anchor ?? head
+		const text = textToRun(doc, splitDialectFor(engine), head, anchor, all)
+		if (!text || callbacks.running) return
+		callbacks.onrun({ text })
+	}
+
+	function publishActivity() {
+		const doc = view?.state.doc.toString() ?? localText ?? ''
+		const head = view?.state.selection.main.head ?? doc.length
+		const anchor = view?.state.selection.main.anchor ?? head
+		callbacks.onactivity?.({ doc, head, anchor })
+	}
 
 	const isMac =
 		typeof navigator !== 'undefined' &&
@@ -173,6 +260,7 @@
 	function buildExtensions(lang: string, ph: string): Extension[] {
 		return [
 			basicSetup,
+			runGutterCompartment.of(showStatementGutter ? [statementGutter()] : []),
 			mystiqueSearch(),
 			themeCompartment.of(createMystiqueEditorTheme(themeIsDark())),
 			mystiqueHighlight,
@@ -187,14 +275,28 @@
 					{
 						key: 'Mod-Enter',
 						run: () => {
-							callbacks.onrun()
+							emitRun(false)
 							return true
 						},
 					},
 					{
 						key: 'Ctrl-Enter',
 						run: () => {
-							callbacks.onrun()
+							emitRun(false)
+							return true
+						},
+					},
+					{
+						key: 'Mod-Shift-Enter',
+						run: () => {
+							emitRun(true)
+							return true
+						},
+					},
+					{
+						key: 'Ctrl-Shift-Enter',
+						run: () => {
+							emitRun(true)
 							return true
 						},
 					},
@@ -227,10 +329,12 @@
 				]),
 			),
 			EditorView.updateListener.of((update) => {
-				if (!update.docChanged || applyingExternal) return
-				const next = update.state.doc.toString()
-				localText = next
-				callbacks.onchange?.(next)
+				if (update.docChanged && !applyingExternal) {
+					const next = update.state.doc.toString()
+					localText = next
+					callbacks.onchange?.(next)
+				}
+				if (update.docChanged || update.selectionSet) publishActivity()
 			}),
 		]
 	}
@@ -243,11 +347,21 @@
 			extensions: buildExtensions(language, placeholder),
 			parent: hostEl,
 		})
+		publishActivity()
 
 		return () => {
 			view?.destroy()
 			view = null
 		}
+	})
+
+	$effect(() => {
+		const show = showStatementGutter
+		const v = view
+		if (!v) return
+		v.dispatch({
+			effects: runGutterCompartment.reconfigure(show ? [statementGutter()] : []),
+		})
 	})
 
 	$effect(() => {
@@ -375,9 +489,11 @@
 				disabled={running ? !canCancel : !canRun}
 				onclick={() => {
 					if (running) oncancel?.()
-					else onrun()
+					else emitRun(false)
 				}}
-				title={running && canCancel ? 'Cancel (Esc)' : `Run (${runShortcut})`}
+				title={running && canCancel
+					? 'Cancel (Esc)'
+					: `Run statement (${runShortcut})`}
 			>
 				{running ? (canCancel ? 'Cancel' : 'Running…') : 'Run'}
 			</Button>
@@ -387,6 +503,25 @@
 
 <style>
 	/* CodeMirror fills the host; basicSetup adds gutters we style via theme. */
+	.query-cm-host :global(.cm-stmt-gutter) {
+		width: 1.1rem;
+	}
+	.query-cm-host :global(.cm-stmt-run) {
+		display: grid;
+		width: 100%;
+		height: 1.1rem;
+		place-items: center;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		color: var(--text-muted);
+		font-size: 0.55rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.query-cm-host :global(.cm-stmt-run:hover) {
+		color: var(--accent);
+	}
 	.query-cm-host :global(.cm-editor) {
 		position: relative;
 		height: 100%;
