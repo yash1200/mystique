@@ -486,9 +486,9 @@ async fn live_read_only_ignores_a_client_write_flag() {
         })
         .await
         .expect_err("client write flag must not override the session");
+    let msg = err.to_string().to_ascii_lowercase();
     assert!(
-        err.to_string().to_ascii_lowercase().contains("read-only")
-            || err.to_string().to_ascii_lowercase().contains("readonly"),
+        msg.contains("read-only") || msg.contains("readonly") || msg.contains("nothing ran"),
         "{err}"
     );
 
@@ -876,4 +876,238 @@ fn write_req(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQue
         database: None,
         execution_id: None,
     }
+}
+
+fn batch_req(
+    session_id: &str,
+    text: &str,
+    mode: mystique_connector_api::QueryMode,
+) -> mystique_connector_api::ExecuteQueryRequest {
+    mystique_connector_api::ExecuteQueryRequest {
+        session_id: session_id.into(),
+        text: text.into(),
+        mode,
+        max_rows: Some(50),
+        timeout_ms: Some(5_000),
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+        execution_id: None,
+    }
+}
+
+async fn open_local(mgr: &ConnectionManager, path: &std::path::Path, session_id: &str) {
+    mgr.open_session(sqlite_open(path, session_id, "local", false))
+        .await
+        .expect("open");
+}
+
+#[tokio::test]
+async fn read_mode_batch_names_the_write_and_runs_nothing() {
+    let path = temp_db("batch-read");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-read").await;
+    mgr.execute_query(write_req(
+        "batch-read",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+
+    let err = mgr
+        .execute_batch(
+            batch_req(
+                "batch-read",
+                "SELECT 1; DELETE FROM t",
+                mystique_connector_api::QueryMode::Read,
+            ),
+            None,
+        )
+        .await
+        .expect_err("read mode stops before execute");
+    let msg = err.to_string();
+    assert!(msg.contains("Statement 2"), "{msg}");
+    assert!(msg.to_ascii_lowercase().contains("nothing ran"), "{msg}");
+    assert_eq!(count_rows(&mgr, "batch-read").await, 1);
+
+    let _ = mgr.close_session("batch-read").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn write_mode_batch_keeps_the_select_and_the_delete_count() {
+    let path = temp_db("batch-write");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-write").await;
+    mgr.execute_query(write_req(
+        "batch-write",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+
+    let batch = mgr
+        .execute_batch(
+            batch_req(
+                "batch-write",
+                "SELECT 1; DELETE FROM t",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect("batch");
+    assert!(batch.stopped_at.is_none());
+    assert_eq!(batch.results.len(), 2);
+    let select = batch.results[0].result.as_ref().expect("select");
+    assert_eq!(select.rows[0][0], json!(1));
+    assert_eq!(batch.results[1].affected_rows, Some(1));
+    assert_eq!(count_rows(&mgr, "batch-write").await, 0);
+
+    let _ = mgr.close_session("batch-write").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn comment_and_returning_and_two_selects_keep_their_rows() {
+    let path = temp_db("batch-rows");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-rows").await;
+    mgr.execute_query(write_req("batch-rows", "CREATE TABLE t (id INTEGER)"))
+        .await
+        .expect("create");
+
+    let commented = mgr
+        .execute_batch(
+            batch_req(
+                "batch-rows",
+                "-- note\nSELECT 7",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect("comment");
+    assert_eq!(commented.results.len(), 1);
+    assert_eq!(
+        commented.results[0].result.as_ref().expect("row").rows[0][0],
+        json!(7)
+    );
+
+    let returning = mgr
+        .execute_batch(
+            batch_req(
+                "batch-rows",
+                "INSERT INTO t (id) VALUES (7) RETURNING id",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect("returning");
+    let returned = returning.results[0]
+        .result
+        .as_ref()
+        .expect("returning rows");
+    assert_eq!(returned.rows[0][0], json!(7));
+    assert_eq!(returning.results[0].affected_rows, Some(1));
+
+    let both = mgr
+        .execute_batch(
+            batch_req(
+                "batch-rows",
+                "SELECT 1; SELECT 2",
+                mystique_connector_api::QueryMode::Read,
+            ),
+            None,
+        )
+        .await
+        .expect("two selects");
+    assert_eq!(both.results.len(), 2);
+    assert_eq!(
+        both.results[0].result.as_ref().expect("1").rows[0][0],
+        json!(1)
+    );
+    assert_eq!(
+        both.results[1].result.as_ref().expect("2").rows[0][0],
+        json!(2)
+    );
+
+    let _ = mgr.close_session("batch-rows").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn begin_is_refused_and_a_later_write_does_not_run() {
+    let path = temp_db("batch-begin");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-begin").await;
+    let err = mgr
+        .execute_batch(
+            batch_req(
+                "batch-begin",
+                "BEGIN; CREATE TABLE should_not_exist (id INTEGER)",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect_err("begin");
+    let msg = err.to_string();
+    assert!(msg.contains("Statement 1"), "{msg}");
+    assert!(msg.to_ascii_lowercase().contains("nothing ran"), "{msg}");
+
+    let missing = mgr
+        .execute_query(batch_req(
+            "batch-begin",
+            "SELECT COUNT(*) FROM should_not_exist",
+            mystique_connector_api::QueryMode::Read,
+        ))
+        .await
+        .expect_err("table was not created");
+    assert!(
+        missing
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("no such table"),
+        "{missing}"
+    );
+
+    let _ = mgr.close_session("batch-begin").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn a_later_statement_error_keeps_the_earlier_result() {
+    let path = temp_db("batch-partial");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-partial").await;
+    let batch = mgr
+        .execute_batch(
+            batch_req(
+                "batch-partial",
+                "SELECT 1; SELECT * FROM missing_table",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect("partial ok");
+    assert_eq!(batch.stopped_at, Some(1));
+    assert_eq!(batch.results.len(), 2);
+    assert!(batch.results[0].error.is_none());
+    assert_eq!(
+        batch.results[0].result.as_ref().expect("select").rows[0][0],
+        json!(1)
+    );
+    assert!(batch.results[1].error.is_some());
+
+    let _ = mgr.close_session("batch-partial").await;
+    let _ = std::fs::remove_file(&path);
 }

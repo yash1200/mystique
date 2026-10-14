@@ -179,7 +179,17 @@ fn is_comment_only(sql: &str) -> bool {
     if t.starts_with("--") && !t.contains('\n') {
         return true;
     }
-    t.starts_with("/*") && t.ends_with("*/") && !t[2..t.len() - 2].contains("*/")
+    // A block comment is not a statement, except MySQL's versioned form.
+    // `/*! … */`, `/*M! … */`, and `/*T! … */` are executed by the server.
+    // Dropping them would hide a write from the planner.
+    if t.starts_with("/*") && t.ends_with("*/") && !t[2..t.len() - 2].contains("*/") {
+        let body = t[2..].trim_start();
+        let versioned = body.starts_with('!')
+            || (body.len() >= 2
+                && (body[..2].eq_ignore_ascii_case("m!") || body[..2].eq_ignore_ascii_case("t!")));
+        return !versioned;
+    }
+    false
 }
 
 fn dollar_tag_end(bytes: &[u8], i: usize) -> Option<usize> {
@@ -256,6 +266,10 @@ mod tests {
             vec!["SELECT 1 /* ; */", "SELECT 2"]
         );
         let hashed = split_statement_spans("SELECT 1; # ;\nSELECT 2", SqlDialect::Mysql);
+        let versioned = split_statement_spans("/*!50000 SELECT 1 */", SqlDialect::Mysql);
+        assert_eq!(versioned.len(), 1, "{versioned:?}");
+        assert!(versioned[0].text.contains("SELECT 1"));
+
         assert_eq!(hashed.len(), 2, "{hashed:?}");
         assert_eq!(hashed[0].text, "SELECT 1");
         assert!(

@@ -5,10 +5,11 @@ use std::time::Instant;
 
 use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
-    split_sql_statements_for, sql_explain_executes, ConnectorError, ConnectorResult, QueryColumn,
-    QueryMode, QueryResult, SqlDialect, ValidatedQuery, HARD_MAX_ROWS,
+    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes, BatchPhase,
+    ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
+    QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
-use tokio_postgres::Client;
+use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
 use super::query_failed;
@@ -70,10 +71,228 @@ pub(super) async fn execute_query(
     Ok(out)
 }
 
-async fn end_read_only_txn(
+pub(super) async fn execute_batch(
+    session: &PostgresSession,
+    batch: &ValidatedBatch,
+) -> ConnectorResult<QueryBatchResult> {
+    session.ensure_open()?;
+    let client = session.client().await?;
+    let _guard = session.arm_cancel(&client, &batch.control);
+    let timeout = batch.timeout_ms.max(1);
+    let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
+
+    if lock_writes {
+        client
+            .batch_execute("BEGIN READ ONLY")
+            .await
+            .map_err(query_failed)?;
+        if let Err(err) = client
+            .batch_execute(&format!("SET LOCAL statement_timeout = {timeout}"))
+            .await
+        {
+            return end_read_only_txn(client, Err(query_failed(err))).await;
+        }
+        let result = run_planned_batch(&client, batch, true).await;
+        end_read_only_txn(client, result).await
+    } else {
+        let _ = client
+            .batch_execute(&format!("SET statement_timeout = {timeout}"))
+            .await;
+        let result = run_planned_batch(&client, batch, false).await;
+        let _ = client.batch_execute("RESET statement_timeout").await;
+        result
+    }
+}
+
+async fn run_planned_batch(
+    client: &Client,
+    batch: &ValidatedBatch,
+    locked: bool,
+) -> ConnectorResult<QueryBatchResult> {
+    let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
+    let mut results = Vec::with_capacity(batch.statements.len());
+    let mut in_txn = locked;
+    for stmt in &batch.statements {
+        if batch.control.is_cancelled() {
+            return Err(ConnectorError::Query("Query cancelled.".into()));
+        }
+        emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
+        let outcome = run_planned(client, batch, stmt, &mut in_txn).await?;
+        let failed = outcome.error.is_some();
+        let index = outcome.index;
+        results.push(outcome);
+        emit_progress(&batch.progress, index, total, BatchPhase::Finished);
+        if failed {
+            if let Some(progress) = &batch.progress {
+                progress.flush();
+            }
+            return Ok(QueryBatchResult {
+                results,
+                stopped_at: Some(index),
+            });
+        }
+        if locked {
+            if let Err(err) = ensure_still_read_only(client).await {
+                if let Some(last) = results.last_mut() {
+                    last.error = Some(err.to_string());
+                }
+                if let Some(progress) = &batch.progress {
+                    progress.flush();
+                }
+                return Ok(QueryBatchResult {
+                    results,
+                    stopped_at: Some(index),
+                });
+            }
+        }
+    }
+    if let Some(progress) = &batch.progress {
+        progress.flush();
+    }
+    Ok(QueryBatchResult {
+        results,
+        stopped_at: None,
+    })
+}
+
+async fn run_planned(
+    client: &Client,
+    batch: &ValidatedBatch,
+    stmt: &PlannedStatement,
+    in_txn: &mut bool,
+) -> ConnectorResult<StatementResult> {
+    let started = Instant::now();
+    let limit = row_limit(batch.max_rows);
+    if stmt.returns_rows {
+        let mut opened = false;
+        if stmt.cursor && !*in_txn {
+            if let Err(err) = client.batch_execute("BEGIN").await {
+                return postgres_statement_error(stmt, query_failed(err), &batch.control);
+            }
+            opened = true;
+            *in_txn = true;
+        }
+        let fetched = if stmt.cursor {
+            fetch_cursor(client, &stmt.sql, limit).await
+        } else {
+            fetch_utility(client, &stmt.sql, limit).await
+        };
+        if opened {
+            let end = if fetched.is_ok() {
+                "COMMIT"
+            } else {
+                "ROLLBACK"
+            };
+            if let Err(err) = client.batch_execute(end).await {
+                *in_txn = false;
+                return postgres_statement_error(
+                    stmt,
+                    match fetched {
+                        Ok(_) => query_failed(err),
+                        Err(fetch_err) => fetch_err,
+                    },
+                    &batch.control,
+                );
+            }
+            *in_txn = false;
+        }
+        let fetched = match fetched {
+            Ok(fetched) => fetched,
+            Err(err) => return postgres_statement_error(stmt, err, &batch.control),
+        };
+        let affected = if stmt.returns_count {
+            Some(fetched.rows.len() as u64)
+        } else {
+            None
+        };
+        let message = if fetched.truncated {
+            Some(format!("Result truncated to {limit} rows."))
+        } else {
+            None
+        };
+        let row_count = fetched.rows.len() as u64;
+        let result = QueryResult {
+            engine: "postgres".into(),
+            mode: batch.mode,
+            columns: fetched.columns,
+            row_count,
+            rows: fetched.rows,
+            truncated: fetched.truncated,
+            duration_ms: started.elapsed().as_millis() as u64,
+            message,
+        };
+        // Notices are logged by the tokio-postgres connection task and are not
+        // exposed on a pooled client.
+        return Ok(StatementResult::success(
+            stmt,
+            0,
+            result,
+            affected,
+            Vec::new(),
+        ));
+    }
+
+    if stmt.returns_count {
+        let messages = match client.simple_query(&stmt.sql).await {
+            Ok(messages) => messages,
+            Err(err) => return postgres_statement_error(stmt, query_failed(err), &batch.control),
+        };
+        let affected = messages
+            .into_iter()
+            .rev()
+            .find_map(|message| match message {
+                SimpleQueryMessage::CommandComplete(count) => Some(count),
+                _ => None,
+            });
+        return Ok(executed_statement(stmt, batch.mode, affected, started));
+    }
+
+    if let Err(err) = client.batch_execute(&stmt.sql).await {
+        return postgres_statement_error(stmt, query_failed(err), &batch.control);
+    }
+    Ok(executed_statement(stmt, batch.mode, None, started))
+}
+
+fn executed_statement(
+    stmt: &PlannedStatement,
+    mode: QueryMode,
+    affected: Option<u64>,
+    started: Instant,
+) -> StatementResult {
+    let message = if let Some(rows) = affected {
+        Some(affected_message(rows))
+    } else {
+        Some("Statement executed.".to_string())
+    };
+    let result = QueryResult {
+        engine: "postgres".into(),
+        mode,
+        columns: Vec::new(),
+        rows: Vec::new(),
+        row_count: 0,
+        truncated: false,
+        duration_ms: started.elapsed().as_millis() as u64,
+        message,
+    };
+    StatementResult::success(stmt, 0, result, affected, Vec::new())
+}
+
+fn postgres_statement_error(
+    stmt: &PlannedStatement,
+    err: ConnectorError,
+    control: &mystique_connector_api::QueryControl,
+) -> ConnectorResult<StatementResult> {
+    if control.is_cancelled() {
+        Err(err)
+    } else {
+        Ok(StatementResult::failed(stmt, 0, err.to_string()))
+    }
+}
+
+async fn end_read_only_txn<T>(
     client: deadpool_postgres::Object,
-    result: ConnectorResult<QueryResult>,
-) -> ConnectorResult<QueryResult> {
+    result: ConnectorResult<T>,
+) -> ConnectorResult<T> {
     match client.batch_execute("ROLLBACK").await {
         Ok(()) => result,
         Err(err) => {

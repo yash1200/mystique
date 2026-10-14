@@ -33,15 +33,16 @@ pub use storage::AppDatabase;
 
 // Re-export API types for IPC adapters
 pub use mystique_connector_api::{
-    ApplyTableEditsRequest, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
+    ApplyTableEditsRequest, ApplyTableEditsResult, BatchEvent, CatalogColumnRow, CatalogDatabase,
     CatalogObject, CatalogRelationship, ColumnInfo, ColumnReference, ConnectionConfig,
     DescribeTableRequest, EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, ExportFormat,
     ExportObjectRequest, ExportObjectResult, FetchServerMetricsRequest, FetchTablePreviewRequest,
     FetchTablePreviewStatsRequest, FormattedConnectionUrl, ImportObjectRequest, ImportObjectResult,
     ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, ObjectStructure,
     ObjectStructureRequest, ParsedConnectionUrl, PoolConfig, PoolStatus, PreviewImportRequest,
-    PreviewImportResult, QueryColumn, QueryMode, QueryResult, ServerMetricsSnapshot, SessionInfo,
-    SshHostKeyPrompt, StructureSection, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableEditColumn, TablePreviewColumnRef, TablePreviewResult, TablePreviewStats, TableRowInsert,
-    TableRowUpdate, TerminateSessionRequest, TerminateSessionResult, TestResult,
+    PreviewImportResult, ProgressPump, QueryBatchResult, QueryColumn, QueryMode, QueryResult,
+    ServerMetricsSnapshot, SessionInfo, SshHostKeyPrompt, StructureSection, TableAdminOp,
+    TableAdminRequest, TableAdminResult, TableEditColumn, TablePreviewColumnRef,
+    TablePreviewResult, TablePreviewStats, TableRowInsert, TableRowUpdate, TerminateSessionRequest,
+    TerminateSessionResult, TestResult,
 };

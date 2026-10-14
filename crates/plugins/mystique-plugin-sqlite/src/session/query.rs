@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use mystique_connector_api::{
-    split_sql_statements_for, sql_explain_executes, ConnectorError, ConnectorResult, QueryColumn,
-    QueryMode, QueryResult, SqlDialect, ValidatedQuery,
+    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes, BatchPhase,
+    ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryControl,
+    QueryMode, QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery,
 };
 use rusqlite::Connection;
 
@@ -365,6 +366,224 @@ mod tests {
         assert!(msg.contains("cancel") || msg.contains("interrupt"), "{msg}");
         let _ = session.close().await;
         let _ = fs::remove_file(&path);
+    }
+}
+
+pub(super) async fn execute_batch(
+    session: &SqliteSession,
+    batch: &ValidatedBatch,
+) -> ConnectorResult<QueryBatchResult> {
+    session.ensure_open()?;
+    let pool = session.pool();
+    let path = session.path();
+    let control = Arc::clone(&batch.control);
+    let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
+    let statements = batch.statements.clone();
+    let mode = batch.mode;
+    let max_rows = batch.max_rows.max(1) as usize;
+    let progress = batch.progress.clone();
+
+    session
+        .blocking(move || {
+            let pooled;
+            let dedicated;
+            let conn: &Connection = if lock_writes {
+                dedicated = Connection::open(&path).map_err(|err| map_err(&control, err))?;
+                dedicated
+                    .execute_batch("PRAGMA query_only = ON")
+                    .map_err(|err| map_err(&control, err))?;
+                &dedicated
+            } else {
+                pooled = pool
+                    .get()
+                    .map_err(|err| ConnectorError::Pool(err.to_string()))?;
+                &pooled
+            };
+            interrupt::arm(conn, &control);
+            let _settle = interrupt::Settle {
+                conn,
+                control: &control,
+            };
+            let total = u32::try_from(statements.len()).unwrap_or(u32::MAX);
+            let mut results = Vec::with_capacity(statements.len());
+            for stmt in &statements {
+                if control.is_cancelled() {
+                    return Err(ConnectorError::Query("Query cancelled.".into()));
+                }
+                emit_progress(&progress, stmt.index, total, BatchPhase::Started);
+                let outcome = run_sqlite_statement(conn, &control, stmt, mode, max_rows)?;
+                let failed = outcome.error.is_some();
+                let index = outcome.index;
+                results.push(outcome);
+                emit_progress(&progress, index, total, BatchPhase::Finished);
+                if failed {
+                    if let Some(progress) = &progress {
+                        progress.flush();
+                    }
+                    return Ok(QueryBatchResult {
+                        results,
+                        stopped_at: Some(index),
+                    });
+                }
+                if lock_writes {
+                    if let Err(err) = ensure_still_read_only(conn) {
+                        if let Some(last) = results.last_mut() {
+                            last.error = Some(err.to_string());
+                        }
+                        if let Some(progress) = &progress {
+                            progress.flush();
+                        }
+                        return Ok(QueryBatchResult {
+                            results,
+                            stopped_at: Some(index),
+                        });
+                    }
+                }
+            }
+            if let Some(progress) = &progress {
+                progress.flush();
+            }
+            Ok(QueryBatchResult {
+                results,
+                stopped_at: None,
+            })
+        })
+        .await
+}
+
+fn run_sqlite_statement(
+    conn: &Connection,
+    control: &Arc<QueryControl>,
+    stmt: &PlannedStatement,
+    mode: QueryMode,
+    max_rows: usize,
+) -> ConnectorResult<StatementResult> {
+    let started = Instant::now();
+    if stmt.returns_rows {
+        let mut prepared = match conn.prepare(&stmt.sql) {
+            Ok(prepared) => prepared,
+            Err(err) => return sqlite_statement_error(control, stmt, err),
+        };
+        let col_count = prepared.column_count();
+        let columns: Vec<QueryColumn> = prepared
+            .columns()
+            .into_iter()
+            .map(|column| QueryColumn {
+                name: column.name().to_string(),
+                data_type: column
+                    .decl_type()
+                    .map(|decl| decl.to_string())
+                    .filter(|decl| !decl.is_empty()),
+            })
+            .collect();
+        let mut rows_iter = match prepared.query([]) {
+            Ok(rows) => rows,
+            Err(err) => return sqlite_statement_error(control, stmt, err),
+        };
+        let mut out_rows = Vec::new();
+        let mut truncated = false;
+        let mut saw_row = false;
+        let mut last_row = Instant::now();
+        loop {
+            let next = match rows_iter.next() {
+                Ok(next) => next,
+                Err(err) => return sqlite_statement_error(control, stmt, err),
+            };
+            let Some(row) = next else {
+                break;
+            };
+            if let Err(err) = stalled(control, saw_row, last_row) {
+                return Err(err);
+            }
+            if out_rows.len() >= max_rows {
+                truncated = true;
+                break;
+            }
+            let mut cells = Vec::with_capacity(col_count);
+            for column in 0..col_count {
+                let value = match row.get_ref(column) {
+                    Ok(value) => value,
+                    Err(err) => return sqlite_statement_error(control, stmt, err),
+                };
+                cells.push(value_ref_json(value));
+            }
+            out_rows.push(cells);
+            saw_row = true;
+            last_row = Instant::now();
+        }
+        let affected = if stmt.returns_count {
+            Some(out_rows.len() as u64)
+        } else {
+            None
+        };
+        let message = if truncated {
+            Some(format!("Result truncated to {max_rows} rows."))
+        } else {
+            None
+        };
+        let result = QueryResult {
+            engine: "sqlite".into(),
+            mode,
+            columns,
+            row_count: out_rows.len() as u64,
+            rows: out_rows,
+            truncated,
+            duration_ms: started.elapsed().as_millis() as u64,
+            message,
+        };
+        return Ok(StatementResult::success(
+            stmt,
+            0,
+            result,
+            affected,
+            Vec::new(),
+        ));
+    }
+
+    match conn.execute(&stmt.sql, []) {
+        Ok(changed) => {
+            let affected = if stmt.returns_count {
+                Some(u64::try_from(changed).unwrap_or(u64::MAX))
+            } else {
+                None
+            };
+            let message = if let Some(rows) = affected {
+                Some(affected_message(rows))
+            } else {
+                Some("Statement executed.".to_string())
+            };
+            let result = QueryResult {
+                engine: "sqlite".into(),
+                mode,
+                columns: Vec::new(),
+                rows: Vec::new(),
+                row_count: 0,
+                truncated: false,
+                duration_ms: started.elapsed().as_millis() as u64,
+                message,
+            };
+            Ok(StatementResult::success(
+                stmt,
+                0,
+                result,
+                affected,
+                Vec::new(),
+            ))
+        }
+        Err(err) => sqlite_statement_error(control, stmt, err),
+    }
+}
+
+fn sqlite_statement_error(
+    control: &Arc<QueryControl>,
+    stmt: &PlannedStatement,
+    err: rusqlite::Error,
+) -> ConnectorResult<StatementResult> {
+    let mapped = map_err(control, err);
+    if control.is_cancelled() {
+        Err(mapped)
+    } else {
+        Ok(StatementResult::failed(stmt, 0, mapped.to_string()))
     }
 }
 

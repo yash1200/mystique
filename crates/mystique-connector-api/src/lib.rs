@@ -12,6 +12,7 @@
 //! [`DatabaseConnector::connect`]. Core only tracks sessions via
 //! [`PoolStatus`] / session ids.
 
+mod batch;
 mod cancel;
 mod capabilities;
 mod catalog;
@@ -31,6 +32,7 @@ mod tls;
 mod types;
 mod write_guard;
 
+pub use batch::*;
 pub use cancel::*;
 pub use capabilities::*;
 pub use catalog::*;

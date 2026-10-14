@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
+use crate::batch::{BatchEvent, BatchPhase, QueryBatchResult, StatementResult, ValidatedBatch};
 use crate::capabilities::EngineCapabilities;
 use crate::catalog::{
     CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo, FetchTablePreviewInput,
@@ -107,6 +110,84 @@ pub trait ConnectorSession: Send + Sync {
             "execute_query not implemented for engine `{}`",
             self.engine_id()
         )))
+    }
+
+    /// Run every statement in `batch` on one connection.
+    ///
+    /// The default walks [`ConnectorSession::execute_query`] once per statement
+    /// and keeps earlier results when a later statement fails. SQL plugins
+    /// override this. `execute_query` must not call `execute_batch` — this
+    /// default would recurse.
+    async fn execute_batch(&self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
+        let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
+        let mut results = Vec::with_capacity(batch.statements.len());
+        for stmt in &batch.statements {
+            if let Some(progress) = &batch.progress {
+                progress.emit(
+                    BatchEvent {
+                        index: stmt.index,
+                        total,
+                        phase: BatchPhase::Started,
+                    },
+                    false,
+                );
+            }
+            if batch.control.is_cancelled() {
+                return Err(crate::ConnectorError::Query("Query cancelled.".into()));
+            }
+            let one = ValidatedQuery {
+                text: stmt.sql.clone(),
+                mode: batch.mode,
+                max_rows: batch.max_rows,
+                timeout_ms: batch.timeout_ms,
+                collection: batch.collection.clone(),
+                database: batch.database.clone(),
+                control: Arc::clone(&batch.control),
+            };
+            match self.execute_query(&one).await {
+                Ok(result) => {
+                    results.push(StatementResult::success(stmt, 0, result, None, Vec::new()));
+                }
+                Err(err) => {
+                    if batch.control.is_cancelled() {
+                        return Err(err);
+                    }
+                    results.push(StatementResult::failed(stmt, 0, err.to_string()));
+                    if let Some(progress) = &batch.progress {
+                        progress.emit(
+                            BatchEvent {
+                                index: stmt.index,
+                                total,
+                                phase: BatchPhase::Finished,
+                            },
+                            true,
+                        );
+                        progress.flush();
+                    }
+                    return Ok(QueryBatchResult {
+                        results,
+                        stopped_at: Some(stmt.index),
+                    });
+                }
+            }
+            if let Some(progress) = &batch.progress {
+                progress.emit(
+                    BatchEvent {
+                        index: stmt.index,
+                        total,
+                        phase: BatchPhase::Finished,
+                    },
+                    true,
+                );
+            }
+        }
+        if let Some(progress) = &batch.progress {
+            progress.flush();
+        }
+        Ok(QueryBatchResult {
+            results,
+            stopped_at: None,
+        })
     }
 
     /// Column metadata for one table/collection with developer-facing types.

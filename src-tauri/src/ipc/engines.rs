@@ -237,6 +237,26 @@ pub async fn execute_engine_query(
 }
 
 #[tauri::command]
+pub async fn execute_engine_batch(
+    state: State<'_, AppState>,
+    request: mystique_core::ExecuteQueryRequest,
+    on_progress: tauri::ipc::Channel<mystique_core::BatchEvent>,
+) -> Result<mystique_core::QueryBatchResult, String> {
+    super::guard(async move {
+        let progress = mystique_core::ProgressPump::new(move |event| {
+            let _ = on_progress.send(event);
+        });
+        state
+            .services
+            .connections()
+            .execute_batch(request, Some(progress))
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn describe_engine_table(
     state: State<'_, AppState>,
     request: mystique_core::DescribeTableRequest,

@@ -10,9 +10,9 @@ use mystique_connector_api::{
     EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
     FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
     ImportObjectResult, InterruptGuard, ObjectStructure, PoolStatus, PreviewImportInput,
-    PreviewImportResult, QueryControl, QueryResult, ServerMetricsSnapshot, TableAdminInput,
-    TableAdminResult, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
-    TerminateSessionResult, ValidatedQuery,
+    PreviewImportResult, QueryBatchResult, QueryControl, QueryResult, ServerMetricsSnapshot,
+    TableAdminInput, TableAdminResult, TablePreviewResult, TablePreviewStats,
+    TerminateSessionInput, TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
 
 mod admin;
@@ -126,6 +126,10 @@ impl ConnectorSession for PostgresSession {
 
     async fn execute_query(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         query::execute_query(self, query).await
+    }
+
+    async fn execute_batch(&self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
+        query::execute_batch(self, batch).await
     }
 
     async fn describe_table(

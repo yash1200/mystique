@@ -5,9 +5,10 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    idle_result, poll_until_idle, split_sql_statements_for, sql_explain_executes, ConnectorError,
-    ConnectorResult, InterruptGuard, QueryColumn, QueryMode, QueryResult, SqlDialect,
-    ValidatedQuery,
+    affected_message, emit_progress, idle_result, poll_until_idle, split_sql_statements_for,
+    sql_explain_executes, BatchPhase, ConnectorError, ConnectorResult, InterruptGuard,
+    PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect,
+    StatementResult, ValidatedBatch, ValidatedQuery,
 };
 use serde_json::Value as JsonValue;
 
@@ -81,12 +82,12 @@ fn drop_mysql_conn(query: &ValidatedQuery, result: &ConnectorResult<QueryResult>
     result.as_ref().map(|row| row.truncated).unwrap_or(false) || query.control.is_cancelled()
 }
 
-async fn release_conn(
+async fn release_conn<T>(
     mut conn: mysql_async::Conn,
-    result: ConnectorResult<QueryResult>,
+    result: ConnectorResult<T>,
     read_only: bool,
     drop_conn: bool,
-) -> ConnectorResult<QueryResult> {
+) -> ConnectorResult<T> {
     if drop_conn {
         let _ = conn.disconnect().await;
         return result;
@@ -98,10 +99,10 @@ async fn release_conn(
     result
 }
 
-async fn end_read_only_txn(
+async fn end_read_only_txn<T>(
     mut conn: mysql_async::Conn,
-    result: ConnectorResult<QueryResult>,
-) -> ConnectorResult<QueryResult> {
+    result: ConnectorResult<T>,
+) -> ConnectorResult<T> {
     let rolled_back = conn.query_drop("ROLLBACK").await;
     clear_timeouts(&mut conn).await;
     match rolled_back {
@@ -258,4 +259,259 @@ async fn ensure_still_read_only(conn: &mut mysql_async::Conn) -> ConnectorResult
     Err(ConnectorError::Query(
         "The read-only transaction ended before every statement ran. Later statements were not executed.".into(),
     ))
+}
+
+pub(super) async fn execute_batch(
+    session: &MysqlSession,
+    batch: &ValidatedBatch,
+) -> ConnectorResult<QueryBatchResult> {
+    session.ensure_open()?;
+    let mut conn = session.conn().await?;
+    arm_kill(&session.pool(), conn.id(), &batch.control);
+    let _guard = InterruptGuard::new(&batch.control);
+    let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
+    apply_timeouts(&mut conn, batch.timeout_ms).await;
+
+    let ran = if lock_writes {
+        if let Err(err) = conn.query_drop("START TRANSACTION READ ONLY").await {
+            clear_timeouts(&mut conn).await;
+            return Err(cancelled_batch(batch, err));
+        }
+        let result = run_planned_batch(&mut conn, batch, true).await;
+        let drop_conn = drop_mysql_batch(batch, &result);
+        batch.control.clear_interrupt();
+        release_conn(conn, result, true, drop_conn).await?
+    } else {
+        let result = run_planned_batch(&mut conn, batch, false).await;
+        let drop_conn = drop_mysql_batch(batch, &result);
+        batch.control.clear_interrupt();
+        release_conn(conn, result, false, drop_conn).await?
+    };
+    Ok(ran)
+}
+
+fn drop_mysql_batch(batch: &ValidatedBatch, result: &ConnectorResult<QueryBatchResult>) -> bool {
+    batch.control.is_cancelled()
+        || result.as_ref().is_ok_and(|ran| {
+            ran.results
+                .iter()
+                .any(|stmt| stmt.result.as_ref().is_some_and(|row| row.truncated))
+        })
+}
+
+fn cancelled_batch(batch: &ValidatedBatch, err: mysql_async::Error) -> ConnectorError {
+    if batch.control.is_cancelled() {
+        ConnectorError::Query("Query cancelled.".into())
+    } else {
+        query_failed(err)
+    }
+}
+
+async fn run_planned_batch(
+    conn: &mut mysql_async::Conn,
+    batch: &ValidatedBatch,
+    locked: bool,
+) -> ConnectorResult<QueryBatchResult> {
+    let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
+    let mut results = Vec::with_capacity(batch.statements.len());
+    for stmt in &batch.statements {
+        if batch.control.is_cancelled() {
+            return Err(ConnectorError::Query("Query cancelled.".into()));
+        }
+        emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
+        let (sets, truncated) = match drain_sets(conn, batch, stmt).await {
+            Ok(drained) => drained,
+            Err(err) => {
+                if batch.control.is_cancelled() {
+                    return Err(err);
+                }
+                results.push(StatementResult::failed(stmt, 0, err.to_string()));
+                emit_progress(&batch.progress, stmt.index, total, BatchPhase::Finished);
+                if let Some(progress) = &batch.progress {
+                    progress.flush();
+                }
+                return Ok(QueryBatchResult {
+                    results,
+                    stopped_at: Some(stmt.index),
+                });
+            }
+        };
+        let index = stmt.index;
+        results.extend(sets);
+        emit_progress(&batch.progress, index, total, BatchPhase::Finished);
+        // A capped result still has unread packets. Stop here and let the
+        // caller disconnect. Truncation is not a statement error.
+        if truncated {
+            break;
+        }
+        if locked {
+            if let Err(err) = ensure_still_read_only(conn).await {
+                if let Some(last) = results.last_mut() {
+                    last.error = Some(err.to_string());
+                }
+                if let Some(progress) = &batch.progress {
+                    progress.flush();
+                }
+                return Ok(QueryBatchResult {
+                    results,
+                    stopped_at: Some(index),
+                });
+            }
+        }
+    }
+    if let Some(progress) = &batch.progress {
+        progress.flush();
+    }
+    Ok(QueryBatchResult {
+        results,
+        stopped_at: None,
+    })
+}
+
+async fn drain_sets(
+    conn: &mut mysql_async::Conn,
+    batch: &ValidatedBatch,
+    stmt: &PlannedStatement,
+) -> ConnectorResult<(Vec<StatementResult>, bool)> {
+    let mut qr = conn
+        .query_iter(stmt.sql.as_str())
+        .await
+        .map_err(|err| cancelled_batch(batch, err))?;
+    let max_rows = batch.max_rows.max(1) as usize;
+    let mut sets = Vec::new();
+    let mut set_index: u32 = 0;
+    let mut max_warnings: u16 = 0;
+    loop {
+        let started = Instant::now();
+        let columns: Vec<QueryColumn> = qr
+            .columns_ref()
+            .iter()
+            .map(|column| QueryColumn {
+                name: column.name_str().into_owned(),
+                data_type: Some(mysql_type_label(column.column_type()).to_string()),
+            })
+            .collect();
+        let affected_at_start = qr.affected_rows();
+        max_warnings = max_warnings.max(qr.warnings());
+        let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
+        let mut truncated = false;
+        let mut saw_row = false;
+        loop {
+            if batch.control.is_cancelled() {
+                return Err(ConnectorError::Query("Query cancelled.".into()));
+            }
+            let step = if saw_row {
+                idle_result(poll_until_idle(&batch.control, inactivity(), qr.next()).await)?
+            } else {
+                qr.next().await
+            };
+            let Some(row) = step.map_err(|err| cancelled_batch(batch, err))? else {
+                break;
+            };
+            saw_row = true;
+            if columns.is_empty() {
+                continue;
+            }
+            if out_rows.len() >= max_rows {
+                truncated = true;
+                break;
+            }
+            let mut cells = Vec::with_capacity(columns.len());
+            for column in 0..columns.len() {
+                let value = row.as_ref(column).cloned().unwrap_or(Value::NULL);
+                cells.push(value_json(value));
+            }
+            out_rows.push(cells);
+        }
+        max_warnings = max_warnings.max(qr.warnings());
+        let has_grid = !columns.is_empty();
+        let affected = if stmt.returns_count {
+            if has_grid {
+                Some(out_rows.len() as u64)
+            } else {
+                Some(affected_at_start)
+            }
+        } else {
+            None
+        };
+        let message = if truncated {
+            Some(format!("Result truncated to {max_rows} rows."))
+        } else if !has_grid {
+            if let Some(rows) = affected {
+                Some(affected_message(rows))
+            } else {
+                Some("Statement executed.".to_string())
+            }
+        } else {
+            None
+        };
+        let row_count = out_rows.len() as u64;
+        let result = QueryResult {
+            engine: "mysql".into(),
+            mode: batch.mode,
+            columns,
+            row_count,
+            rows: out_rows,
+            truncated,
+            duration_ms: started.elapsed().as_millis() as u64,
+            message,
+        };
+        sets.push(StatementResult::success(
+            stmt,
+            set_index,
+            result,
+            affected,
+            Vec::new(),
+        ));
+        if truncated {
+            return Ok((sets, true));
+        }
+        if qr.is_empty() {
+            break;
+        }
+        set_index = set_index.saturating_add(1);
+        if set_index >= 32 {
+            return Ok((sets, true));
+        }
+    }
+    if max_warnings > 0 {
+        let notes = show_warnings(conn).await;
+        if let Some(last) = sets.last_mut() {
+            last.notices = if notes.is_empty() {
+                vec![if max_warnings == 1 {
+                    "1 warning.".to_string()
+                } else {
+                    format!("{max_warnings} warnings.")
+                }]
+            } else {
+                notes
+            };
+        }
+    }
+    Ok((sets, false))
+}
+
+async fn show_warnings(conn: &mut mysql_async::Conn) -> Vec<String> {
+    let mut qr = match conn.query_iter("SHOW WARNINGS").await {
+        Ok(qr) => qr,
+        Err(_) => return Vec::new(),
+    };
+    let width = qr.columns_ref().len();
+    let mut notes = Vec::new();
+    loop {
+        match qr.next().await {
+            Ok(Some(row)) => {
+                if width >= 3 {
+                    if let Some(Value::Bytes(bytes)) = row.as_ref(2).cloned() {
+                        let text = String::from_utf8_lossy(&bytes).trim().to_string();
+                        if !text.is_empty() {
+                            notes.push(text);
+                        }
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    notes
 }

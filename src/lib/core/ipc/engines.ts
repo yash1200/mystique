@@ -2,14 +2,16 @@
  * Engine / connection-pool API (Tauri IPC).
  * Mirrors mystique-core ConnectionManager surface.
  */
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
 	ApplyTableEditsRequest,
 	ApplyTableEditsResult,
 	CatalogColumnRow,
 	CatalogDatabase,
 	CatalogRelationship,
+	BatchEvent,
 	ExecuteQueryRequest,
+	QueryBatchResult,
 	ExportObjectRequest,
 	ExportObjectResult,
 	FetchServerMetricsRequest,
@@ -135,6 +137,17 @@ export async function executeEngineQuery(
 ): Promise<QueryResult> {
 	requireTauri()
 	return invoke('execute_engine_query', { request })
+}
+
+/** Run every statement. `onProgress` fires at statement boundaries, not per row. */
+export async function executeEngineBatch(
+	request: ExecuteQueryRequest,
+	onProgress?: (event: BatchEvent) => void,
+): Promise<QueryBatchResult> {
+	requireTauri()
+	const channel = new Channel<BatchEvent>()
+	if (onProgress) channel.onmessage = onProgress
+	return invoke('execute_engine_batch', { request, onProgress: channel })
 }
 
 export async function cancelEngineQuery(executionId: string): Promise<void> {

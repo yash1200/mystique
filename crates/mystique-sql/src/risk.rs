@@ -133,33 +133,169 @@ fn parse(sql: &str, dialect: SqlDialect) -> Option<Vec<Statement>> {
 }
 
 fn classify_one(sql: &str, dialect: SqlDialect) -> StatementRisk {
+    route_text(sql, dialect).risk
+}
+
+/// How one statement should be executed. Built from the same parse as [`classify_one`].
+#[derive(Debug, Clone)]
+pub(crate) struct TextRoute {
+    pub risk: StatementRisk,
+    pub returns_rows: bool,
+    pub returns_count: bool,
+    /// Postgres `DECLARE CURSOR` is only safe for a plain read query.
+    pub cursor: bool,
+    /// MySQL `CALL` can emit more than one result set.
+    pub multi_set: bool,
+    pub txn_boundary: bool,
+    pub explain_executes: bool,
+    pub destructive_names: Vec<String>,
+}
+
+impl TextRoute {
+    fn opaque(risk: StatementRisk) -> Self {
+        Self {
+            risk,
+            returns_rows: false,
+            returns_count: false,
+            cursor: false,
+            multi_set: false,
+            txn_boundary: false,
+            explain_executes: false,
+            destructive_names: Vec::new(),
+        }
+    }
+
+    fn read_grid(cursor: bool) -> Self {
+        Self {
+            returns_rows: true,
+            cursor,
+            ..Self::opaque(StatementRisk::Read)
+        }
+    }
+}
+
+/// One parse. Callers that need both the risk and the execution route use this
+/// instead of classifying and parsing again.
+pub(crate) fn route_text(sql: &str, dialect: SqlDialect) -> TextRoute {
     // MySQL executes the body of `/*! */`, `/*M! */`, and `/*T! */`. The parser
     // drops the comment, so the AST looks like a read.
     if has_versioned_comment(sql) {
-        return StatementRisk::Write;
+        let mut route = TextRoute::opaque(StatementRisk::Write);
+        // The hidden body may be a SELECT. Read mode still rejects the risk.
+        // The row path can show that body; a cursor would quote the comment.
+        route.returns_rows = true;
+        return route;
     }
     // `DO $$ … $$` often fails to parse. It can hide a DROP. Fail closed.
     if looks_like_do_block(sql) {
-        return StatementRisk::Destructive;
+        return TextRoute::opaque(StatementRisk::Destructive);
     }
     let Some(parsed) = parse(sql, dialect) else {
         // Postgres `TABLE t` is `SELECT * FROM t`. sqlparser 0.58 does not parse it.
-        if looks_like_table_read(sql) || looks_like_pragma_read(sql) {
-            return StatementRisk::Read;
+        if looks_like_table_read(sql) {
+            return TextRoute::read_grid(true);
         }
-        return StatementRisk::Write;
+        if looks_like_pragma_read(sql) {
+            return TextRoute::read_grid(false);
+        }
+        return TextRoute::opaque(StatementRisk::Write);
     };
-    let mut worst = StatementRisk::Read;
-    for stmt in &parsed {
-        let mut risk = classify_ast(stmt);
-        if matches!(stmt, Statement::Set(_)) && set_text_is_privileged(sql) {
-            risk = risk.max(StatementRisk::Write);
-        }
-        if risk > worst {
-            worst = risk;
+    let mut iter = parsed.iter();
+    let Some(first) = iter.next() else {
+        return TextRoute::opaque(StatementRisk::Read);
+    };
+    let mut acc = route_ast(first, sql);
+    for stmt in iter {
+        acc.merge(route_ast(stmt, sql));
+    }
+    acc
+}
+
+impl TextRoute {
+    fn merge(&mut self, next: TextRoute) {
+        self.risk = self.risk.max(next.risk);
+        self.returns_rows |= next.returns_rows;
+        self.returns_count |= next.returns_count;
+        self.cursor = self.cursor && next.cursor;
+        self.multi_set |= next.multi_set;
+        self.txn_boundary |= next.txn_boundary;
+        self.explain_executes |= next.explain_executes;
+        self.destructive_names.extend(next.destructive_names);
+        if self.risk != StatementRisk::Read {
+            self.cursor = false;
         }
     }
-    worst
+}
+
+fn route_ast(stmt: &Statement, raw_sql: &str) -> TextRoute {
+    let mut risk = classify_ast(stmt);
+    if matches!(stmt, Statement::Set(_)) && set_text_is_privileged(raw_sql) {
+        risk = risk.max(StatementRisk::Write);
+    }
+    let mut route = TextRoute::opaque(risk);
+    route.destructive_names = ast_destructive_names(stmt);
+    route.explain_executes = ast_explain_executes(stmt);
+    match stmt {
+        Statement::Query(_) => {
+            route.returns_rows = true;
+            route.cursor = risk == StatementRisk::Read;
+        }
+        Statement::Explain { .. }
+        | Statement::ExplainTable { .. }
+        | Statement::ShowVariable { .. }
+        | Statement::ShowStatus { .. }
+        | Statement::ShowVariables { .. }
+        | Statement::ShowCreate { .. }
+        | Statement::ShowColumns { .. }
+        | Statement::ShowTables { .. }
+        | Statement::ShowFunctions { .. }
+        | Statement::ShowDatabases { .. }
+        | Statement::ShowSchemas { .. }
+        | Statement::ShowViews { .. }
+        | Statement::ShowCollation { .. }
+        | Statement::ShowObjects(_) => {
+            route.returns_rows = true;
+        }
+        Statement::Insert(insert) => {
+            route.returns_count = true;
+            route.returns_rows = insert.returning.is_some();
+        }
+        Statement::Update { returning, .. } => {
+            route.returns_count = true;
+            route.returns_rows = returning.is_some();
+        }
+        Statement::Delete(delete) => {
+            route.returns_count = true;
+            route.returns_rows = delete.returning.is_some();
+        }
+        Statement::Merge { .. } => {
+            route.returns_count = true;
+        }
+        Statement::Call(_) => {
+            route.returns_rows = true;
+            route.multi_set = true;
+        }
+        Statement::StartTransaction { statements, .. } => {
+            // A procedural `BEGIN … END` block carries a body. A transaction
+            // opener does not. Pinned sessions are a later ticket.
+            route.txn_boundary = statements.is_empty();
+        }
+        Statement::Commit { end, .. } => {
+            // `END` of a block sets `end`. `COMMIT` does not.
+            route.txn_boundary = !end;
+        }
+        Statement::Rollback { savepoint, .. } => {
+            route.txn_boundary = savepoint.is_none();
+        }
+        Statement::Pragma { is_eq, .. } => {
+            route.returns_rows = !is_eq;
+        }
+        _ => {}
+    }
+    if route.risk != StatementRisk::Read {
+        route.cursor = false;
+    }
+    route
 }
 
 fn has_versioned_comment(sql: &str) -> bool {

@@ -6,7 +6,7 @@
 	import type { EngineCapabilities, QueryMode } from '#core/contracts'
 	import {
 		cancelTabRun,
-		executeEngineQuery,
+		executeEngineBatch,
 		finishTabRun,
 		isTauri,
 		startTabRun,
@@ -30,6 +30,7 @@
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
+	import { initialActiveIndex } from '../batch-view'
 	import { splitDialectFor, textToRun } from '../statement-span'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
@@ -139,6 +140,10 @@
 		lastEmitted = prop
 	})
 
+	const batchResults = $derived(
+		runState.status === 'ok' && runState.batch ? runState.batch.results : [],
+	)
+	const activeIndex = $derived(cachedRun?.activeIndex ?? 0)
 	const resultRows = $derived(
 		runState.status === 'ok' && runState.result ? runState.result.rows : [],
 	)
@@ -173,6 +178,7 @@
 		state: RunState = runState,
 		page = resultPage,
 		submittedText?: string,
+		activeIndex = cachedRun?.activeIndex ?? 0,
 	) {
 		if (!tabStillOpen()) return
 		const prev = workspaceSession.getQueryRunCache(tabId)
@@ -180,7 +186,24 @@
 			runState: state,
 			resultPage: page,
 			submittedText: submittedText ?? prev?.submittedText,
+			activeIndex,
 		})
+	}
+
+	function selectStatement(index: number) {
+		if (runState.status !== 'ok' || !runState.batch) return
+		const stmt = runState.batch.results[index]
+		if (!stmt) return
+		persistRunCache(
+			{
+				...runState,
+				message: stmt.error ? '' : (stmt.result?.message ?? '').trim(),
+				result: stmt.result ?? null,
+			},
+			0,
+			undefined,
+			index,
+		)
 	}
 
 	function emitText(value: string) {
@@ -296,7 +319,7 @@
 		const start = performance.now()
 		const sqlText = (body ?? currentQueryText()).trim()
 		if (!sqlText) return
-		persistRunCache({ status: 'running' }, 0, sqlText)
+		persistRunCache({ status: 'running' }, 0, sqlText, 0)
 
 		if (!isTauri()) {
 			persistRunCache({
@@ -345,40 +368,70 @@
 					language === 'mql' && database?.trim() ? database.trim() : null,
 				executionId,
 			}
-			let result
+			const onProgress = (event: { index: number; total: number }) => {
+				if (!tabStillOpen()) return
+				const current = workspaceSession.getQueryRunCache(tabId)
+				if (!current || current.runState.status !== 'running') return
+				persistRunCache(
+					{
+						status: 'running',
+						progress: { index: event.index, total: event.total },
+					},
+					current.resultPage,
+					current.submittedText,
+					current.activeIndex ?? 0,
+				)
+			}
+			let batch
 			try {
-				result = await runWithWriteGuard(sid, (confirmObjectName) =>
-					executeEngineQuery({
-						...request,
-						confirmObjectName: confirmObjectName ?? null,
-					}),
+				batch = await runWithWriteGuard(sid, (confirmObjectName) =>
+					executeEngineBatch(
+						{
+							...request,
+							confirmObjectName: confirmObjectName ?? null,
+						},
+						onProgress,
+					),
 				)
 			} catch (e) {
 				// Read mode rolls back. A write may already have landed.
 				if (mode === 'write' || !onreconnect || !isSessionMissingError(e)) throw e
 				const next = await onreconnect()
 				if (!next) throw e
-				result = await runWithWriteGuard(next, (confirmObjectName) =>
-					executeEngineQuery({
-						...request,
-						sessionId: next,
-						confirmObjectName: confirmObjectName ?? null,
-					}),
+				batch = await runWithWriteGuard(next, (confirmObjectName) =>
+					executeEngineBatch(
+						{
+							...request,
+							sessionId: next,
+							confirmObjectName: confirmObjectName ?? null,
+						},
+						onProgress,
+					),
 				)
 			}
 			const elapsedMs = Math.round(performance.now() - start)
 			if (!tabStillOpen()) return
-			persistRunCache({
-				status: 'ok',
-				message: (result.message ?? '').trim(),
-				mode,
-				elapsedMs,
-				result,
-			})
+			const index = initialActiveIndex(batch.results, batch.stoppedAt)
+			const active = batch.results[index]
+			persistRunCache(
+				{
+					status: 'ok',
+					message: active?.error ? '' : (active?.result?.message ?? '').trim(),
+					mode,
+					elapsedMs,
+					result: active?.result ?? null,
+					batch,
+				},
+				0,
+				sqlText,
+				index,
+			)
+			const failed = batch.stoppedAt != null
 			await recordHistory({
-				success: true,
-				durationMs: result.durationMs ?? elapsedMs,
-				rowCount: result.rowCount,
+				success: !failed,
+				durationMs: active?.result?.durationMs ?? elapsedMs,
+				rowCount: active?.result?.rowCount,
+				errorMessage: failed ? (active?.error ?? 'Statement failed.') : null,
 				body: sqlText,
 			})
 		} catch (e) {
@@ -526,6 +579,10 @@
 				{resultTotalPages}
 				{canExport}
 				{exporting}
+				statements={batchResults}
+				{activeIndex}
+				submittedText={cachedRun?.submittedText ?? ''}
+				onselectstatement={selectStatement}
 				refreshing={runState.status === 'running'}
 				onexport={(f) => void exportResults(f)}
 				onprev={goResultPrev}

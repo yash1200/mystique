@@ -137,6 +137,38 @@ export interface QueryResult {
 	message?: string | null
 }
 
+export type StatementKind = 'read' | 'session' | 'write' | 'destructive'
+
+export interface SqlRange {
+	start: number
+	end: number
+}
+
+/** One statement in a batch. `index` is 0-based. Extra sets share `index`. */
+export interface StatementResult {
+	index: number
+	setIndex?: number
+	sqlRange: SqlRange
+	kind: StatementKind
+	result?: QueryResult | null
+	affectedRows?: number | null
+	error?: string | null
+	notices?: string[]
+}
+
+export interface QueryBatchResult {
+	results: StatementResult[]
+	stoppedAt?: number | null
+}
+
+export type BatchPhase = 'started' | 'finished'
+
+export interface BatchEvent {
+	index: number
+	total: number
+	phase: BatchPhase
+}
+
 /** Plugin-owned column metadata (developer-facing types, enums, pk). */
 export interface ColumnReference {
 	database?: string | null
