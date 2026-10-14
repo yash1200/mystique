@@ -2,6 +2,7 @@
 	import { resolveCapabilities } from '#engines'
 	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 	import {
+		cancelActiveExport,
 		closeImport,
 		confirmExport,
 		confirmImportFile,
@@ -74,7 +75,10 @@
 	error={workspaceStudio.exportError}
 	onconfirm={(spec) => void confirmExport(spec)}
 	oncancel={() => {
-		if (workspaceStudio.exportBusy) return
+		if (workspaceStudio.exportBusy) {
+			cancelActiveExport()
+			return
+		}
 		workspaceStudio.exportTable = null
 		workspaceStudio.exportError = null
 	}}

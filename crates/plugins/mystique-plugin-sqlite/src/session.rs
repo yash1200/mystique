@@ -21,6 +21,7 @@ mod catalog;
 mod edits;
 mod encode;
 mod error;
+mod interrupt;
 mod metrics;
 mod preview;
 mod query;

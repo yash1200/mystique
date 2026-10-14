@@ -1,10 +1,12 @@
 //! Mongo find / meta commands / JSON write ops.
 
-use std::time::Instant;
+use std::future::IntoFuture;
+use std::time::{Duration, Instant};
 
 use mongodb::bson::{Bson, Document};
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, QueryColumn, QueryMode, QueryResult, ValidatedQuery,
+    ConnectorError, ConnectorResult, QueryColumn, QueryControl, QueryMode, QueryResult,
+    ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -16,6 +18,25 @@ use super::query_failed;
 use super::MongoSession;
 use crate::shell_filter::json_to_document;
 use crate::shell_query::parse_read_query;
+
+/// `find` is sent with `maxTimeMS` equal to this duration (the clamped timeout).
+pub(super) fn find_max_time(timeout_ms: u64) -> Duration {
+    Duration::from_millis(timeout_ms.max(1))
+}
+
+/// Dropping `fut` is what aborts a Mongo command. Unlike SQL drivers, there is
+/// no `RESET` to run after the server interrupt.
+async fn drive<T, F>(control: &QueryControl, action: F) -> ConnectorResult<T>
+where
+    F: IntoFuture<Output = Result<T, mongodb::error::Error>>,
+{
+    let fut = action.into_future();
+    tokio::select! {
+        biased;
+        _ = control.token.cancelled() => Err(ConnectorError::Query("Query cancelled.".into())),
+        result = fut => result.map_err(query_failed),
+    }
+}
 
 pub(super) async fn execute_query(
     session: &MongoSession,
@@ -38,11 +59,11 @@ pub(super) async fn execute_query(
         text_key.as_str(),
         "listdatabases" | "showdatabases" | "showdbs"
     ) {
-        return list_databases(session, query.mode, start).await;
+        return list_databases(session, query, start).await;
     }
     if matches!(text_key.as_str(), "listcollections" | "showcollections") {
         let db_name = resolve_db_name(session, query)?;
-        return list_collections(session, &db_name, query.mode, query.max_rows, start).await;
+        return list_collections(session, &db_name, query, start).await;
     }
 
     let db_name = resolve_db_name(session, query)?;
@@ -83,10 +104,33 @@ pub(super) async fn execute_query(
     if let Some(skip) = parsed.skip {
         find = find.skip(skip);
     }
-    let mut cursor = find.limit(limit).await.map_err(query_failed)?;
+    let max_time = find_max_time(query.timeout_ms);
+    let find = find.limit(limit).max_time(max_time);
+    let mut cursor = drive(&query.control, find).await?;
 
     let mut docs = Vec::new();
-    while cursor.advance().await.map_err(query_failed)? {
+    let mut saw_doc = false;
+    loop {
+        let advanced = tokio::select! {
+            biased;
+            _ = query.control.token.cancelled() => {
+                drop(cursor);
+                return Err(ConnectorError::Query("Query cancelled.".into()));
+            }
+            _ = tokio::time::sleep(Duration::from_millis(mystique_connector_api::INACTIVITY_TIMEOUT_MS)), if saw_doc => {
+                query.control.cancel();
+                drop(cursor);
+                return Err(ConnectorError::Timeout(format!(
+                    "No rows arrived for {} ms.",
+                    mystique_connector_api::INACTIVITY_TIMEOUT_MS
+                )));
+            }
+            advanced = cursor.advance() => advanced.map_err(query_failed)?,
+        };
+        if !advanced {
+            break;
+        }
+        saw_doc = true;
         let d = cursor.deserialize_current().map_err(query_failed)?;
         docs.push(d);
         if docs.len() >= query.max_rows as usize {
@@ -176,10 +220,7 @@ pub(super) async fn execute_write(
                 .ok_or_else(|| ConnectorError::Query("updateOne requires `update`".into()))?;
             let filter = json_to_document(&filter_v)?;
             let update = json_to_document(&update_v)?;
-            let result = coll
-                .update_one(filter, update)
-                .await
-                .map_err(query_failed)?;
+            let result = drive(&query.control, coll.update_one(filter, update)).await?;
             format!(
                 "updateOne on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
@@ -190,7 +231,7 @@ pub(super) async fn execute_write(
                 .doc
                 .ok_or_else(|| ConnectorError::Query("insertOne requires `doc`".into()))?;
             let doc = json_to_document(&doc_v)?;
-            let result = coll.insert_one(doc).await.map_err(query_failed)?;
+            let result = drive(&query.control, coll.insert_one(doc)).await?;
             format!(
                 "insertOne on {db_name}.{coll_name} id={:?}",
                 result.inserted_id
@@ -201,7 +242,7 @@ pub(super) async fn execute_write(
                 .filter
                 .ok_or_else(|| ConnectorError::Query("deleteOne requires `filter`".into()))?;
             let filter = json_to_document(&filter_v)?;
-            let result = coll.delete_one(filter).await.map_err(query_failed)?;
+            let result = drive(&query.control, coll.delete_one(filter)).await?;
             format!(
                 "deleteOne on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
@@ -212,7 +253,7 @@ pub(super) async fn execute_write(
                 .filter
                 .ok_or_else(|| ConnectorError::Query("deleteMany requires `filter`".into()))?;
             let filter = json_to_document(&filter_v)?;
-            let result = coll.delete_many(filter).await.map_err(query_failed)?;
+            let result = drive(&query.control, coll.delete_many(filter)).await?;
             format!(
                 "deleteMany on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
@@ -239,14 +280,11 @@ pub(super) async fn execute_write(
 
 pub(super) async fn list_databases(
     session: &MongoSession,
-    mode: QueryMode,
+    query: &ValidatedQuery,
     start: Instant,
 ) -> ConnectorResult<QueryResult> {
-    let names = session
-        .client
-        .list_database_names()
-        .await
-        .map_err(query_failed)?;
+    let mode = query.mode;
+    let names = drive(&query.control, session.client.list_database_names()).await?;
 
     let columns = vec![QueryColumn {
         name: "name".into(),
@@ -273,16 +311,16 @@ pub(super) async fn list_databases(
 pub(super) async fn list_collections(
     session: &MongoSession,
     db_name: &str,
-    mode: QueryMode,
-    max_rows: u32,
+    query: &ValidatedQuery,
     start: Instant,
 ) -> ConnectorResult<QueryResult> {
-    let mut names = session
-        .client
-        .database(db_name)
-        .list_collection_names()
-        .await
-        .map_err(query_failed)?;
+    let mode = query.mode;
+    let max_rows = query.max_rows;
+    let mut names = drive(
+        &query.control,
+        session.client.database(db_name).list_collection_names(),
+    )
+    .await?;
     names.sort();
     let truncated = names.len() as u32 > max_rows;
     if truncated {
@@ -292,13 +330,19 @@ pub(super) async fn list_collections(
     // Estimated counts (best-effort; empty on error)
     let mut rows = Vec::with_capacity(names.len());
     for name in &names {
-        let count = session
-            .client
-            .database(db_name)
-            .collection::<Document>(name)
-            .estimated_document_count()
-            .await
-            .ok();
+        if query.control.is_cancelled() {
+            return Err(ConnectorError::Query("Query cancelled.".into()));
+        }
+        let count = drive(
+            &query.control,
+            session
+                .client
+                .database(db_name)
+                .collection::<Document>(name)
+                .estimated_document_count(),
+        )
+        .await
+        .ok();
         rows.push(vec![
             JsonValue::String(name.clone()),
             count.map(|c| json!(c)).unwrap_or(JsonValue::Null),
@@ -324,4 +368,63 @@ pub(super) async fn list_collections(
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(format!("listCollections on {db_name}")),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use mystique_connector_api::{clamp_timeout_ms, QueryControl, MAX_TIMEOUT_MS};
+
+    use super::find_max_time;
+
+    struct Cursor {
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl Drop for Cursor {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_find_drops_the_cursor() {
+        // Command: `find` with `maxTimeMS` equal to the clamped timeout.
+        // The cursor is dropped when the cancellation token fires, which aborts
+        // the command. No live MongoDB is required for this check.
+        assert_eq!(
+            find_max_time(clamp_timeout_ms(Some(120_000))),
+            Duration::from_millis(MAX_TIMEOUT_MS)
+        );
+        assert_eq!(
+            find_max_time(clamp_timeout_ms(Some(9_000_000))),
+            Duration::from_millis(MAX_TIMEOUT_MS)
+        );
+
+        let control = QueryControl::new();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&dropped);
+        let watched = Arc::clone(&control);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            watched.cancel();
+        });
+        let cursor = Cursor {
+            dropped: Arc::clone(&flag),
+        };
+        let result = super::drive(&control, async move {
+            let _cursor = cursor;
+            std::future::pending::<()>().await;
+            Ok::<(), mongodb::error::Error>(())
+        })
+        .await;
+        assert!(result.is_err(), "cancel should stop find");
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "cursor must drop when find is cancelled"
+        );
+    }
 }

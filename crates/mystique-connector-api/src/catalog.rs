@@ -1,7 +1,11 @@
 //! Catalog / column-metadata DTOs. Plugins own engine-specific typing
 //! (e.g. `timestamptz` vs information_schema prose). The FE only displays.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+
+use crate::cancel::QueryControl;
 
 /// Foreign-key (or equivalent) target for a column — plugin-owned navigation.
 /// The FE shows a jump control; it does not invent relationships.
@@ -119,6 +123,9 @@ pub struct FetchTablePreviewRequest {
     /// `asc` | `desc`. Ignored when `sort_column` is empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_dir: Option<String>,
+    /// Same id the query canvas uses, so closing the tab cancels the page load.
+    #[serde(default)]
+    pub execution_id: Option<String>,
 }
 
 /// Plugin input (session already resolved).
@@ -133,6 +140,8 @@ pub struct FetchTablePreviewInput {
     pub code_filter: Option<String>,
     pub sort_column: Option<String>,
     pub sort_dir: Option<String>,
+    /// Replaced by the manager with the registered control before the plugin runs.
+    pub control: Arc<QueryControl>,
 }
 
 impl FetchTablePreviewRequest {
@@ -150,6 +159,7 @@ impl FetchTablePreviewRequest {
                 .filter(|s| !s.is_empty()),
             sort_column: self.sort_column,
             sort_dir: self.sort_dir,
+            control: QueryControl::new(),
         }
     }
 }
@@ -204,6 +214,7 @@ impl FetchTablePreviewStatsRequest {
                 .filter(|s| !s.is_empty()),
             sort_column: None,
             sort_dir: None,
+            control: QueryControl::new(),
         }
     }
 }

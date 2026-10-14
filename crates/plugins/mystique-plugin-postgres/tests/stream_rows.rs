@@ -8,7 +8,7 @@
 //! the series length.
 
 use mystique_connector_api::{
-    ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
+    ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
 };
 use mystique_plugin_postgres::PostgresConnector;
 use serde_json::json;
@@ -21,6 +21,7 @@ fn query(text: &str, max_rows: u32) -> ValidatedQuery {
         timeout_ms: 3_000,
         collection: None,
         database: None,
+        control: QueryControl::new(),
     }
 }
 

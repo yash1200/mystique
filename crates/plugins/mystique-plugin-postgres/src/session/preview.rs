@@ -51,6 +51,7 @@ pub(super) async fn fetch_table_preview(
     );
 
     let client = session.client().await?;
+    let _guard = session.arm_cancel(&client, &input.control);
     let rows = client
         .query(sql.as_str(), &[])
         .await

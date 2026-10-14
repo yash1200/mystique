@@ -205,6 +205,22 @@ pub async fn unlock_engine_writes(
 }
 
 #[tauri::command]
+pub async fn cancel_engine_query(
+    state: State<'_, AppState>,
+    execution_id: String,
+) -> Result<(), String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .cancel_query(&execution_id)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn execute_engine_query(
     state: State<'_, AppState>,
     request: mystique_core::ExecuteQueryRequest,

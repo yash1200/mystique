@@ -323,6 +323,7 @@ async fn production_write_requires_unlock() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect_err("blocked");
@@ -341,6 +342,7 @@ async fn production_write_requires_unlock() {
         confirm_object_name: None,
         collection: None,
         database: None,
+        execution_id: None,
     })
     .await
     .expect("write after unlock");
@@ -356,6 +358,7 @@ async fn production_write_requires_unlock() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect_err("drop needs name");
@@ -372,6 +375,7 @@ async fn production_write_requires_unlock() {
         confirm_object_name: Some("t".into()),
         collection: None,
         database: None,
+        execution_id: None,
     })
     .await
     .expect("drop after type confirm");
@@ -411,6 +415,7 @@ async fn local_write_skips_unlock() {
         confirm_object_name: None,
         collection: None,
         database: None,
+        execution_id: None,
     })
     .await
     .expect("local write");
@@ -477,6 +482,7 @@ async fn live_read_only_ignores_a_client_write_flag() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect_err("client write flag must not override the session");
@@ -497,6 +503,7 @@ async fn live_read_only_ignores_a_client_write_flag() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect("count");
@@ -571,6 +578,7 @@ async fn count_rows(mgr: &ConnectionManager, session_id: &str) -> i64 {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect("count");
@@ -754,6 +762,7 @@ async fn mongo_delete_many_on_production_prompts() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect_err("deleteMany prompts");
@@ -777,6 +786,7 @@ async fn mongo_delete_many_on_production_prompts() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect_err("shell deleteMany prompts");
@@ -799,6 +809,7 @@ async fn mongo_filter_delete_text_is_a_read() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect("filter value is not a write");
@@ -819,6 +830,7 @@ async fn mongo_filter_delete_text_is_a_read() {
         confirm_object_name: None,
         collection: None,
         database: None,
+        execution_id: None,
     })
     .await
     .expect("shell find stays a read");
@@ -840,6 +852,7 @@ async fn mongo_write_on_read_only_session_ignores_client_flag() {
             confirm_object_name: None,
             collection: None,
             database: None,
+            execution_id: None,
         })
         .await
         .expect_err("live read-only blocks the write");
@@ -861,5 +874,6 @@ fn write_req(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQue
         confirm_object_name: None,
         collection: None,
         database: None,
+        execution_id: None,
     }
 }

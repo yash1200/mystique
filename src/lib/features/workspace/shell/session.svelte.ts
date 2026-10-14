@@ -8,7 +8,7 @@ import type {
 	EngineCapabilities,
 	SessionLiveStatus,
 } from '#core/contracts'
-import { isTauri } from '#core/ipc'
+import { cancelTabRun, isTauri } from '#core/ipc'
 import { normalizeCapabilities } from '#engines'
 import type { QueryRunCache } from '#features/workspace/query'
 import {
@@ -497,6 +497,7 @@ class WorkspaceSessionStore {
 	}
 
 	closeTab(tabId: string) {
+		void cancelTabRun(tabId)
 		const tab = this.openTabs.find((t) => t.id === tabId)
 		if (!tab) return
 		const connectionId = tab.connectionId

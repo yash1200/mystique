@@ -9,9 +9,10 @@ use mystique_connector_api::{
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
     FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
-    ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult,
-    QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
-    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
+    ImportObjectResult, InterruptGuard, ObjectStructure, PoolStatus, PreviewImportInput,
+    PreviewImportResult, QueryControl, QueryResult, ServerMetricsSnapshot, TableAdminInput,
+    TableAdminResult, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
+    TerminateSessionResult, ValidatedQuery,
 };
 
 mod admin;
@@ -24,21 +25,46 @@ mod query;
 mod structure;
 mod transfer;
 
-pub(super) use crate::connector::pool::{pg_col, pg_i32_col, pg_u32_col, query_failed};
+pub(super) use crate::connector::pool::{
+    pg_col, pg_i32_col, pg_u32_col, query_failed, PgCancelTls,
+};
 
 pub struct PostgresSession {
     pool: Pool,
     max_size: u32,
     closed: AtomicBool,
+    /// Cloned into `CancelToken::cancel_query` so SSL cancels use the same TLS.
+    cancel_tls: PgCancelTls,
 }
 
 impl PostgresSession {
-    pub fn new(pool: Pool, max_size: u32) -> Self {
+    pub fn new(pool: Pool, max_size: u32, cancel_tls: PgCancelTls) -> Self {
         Self {
             pool,
             max_size,
             closed: AtomicBool::new(false),
+            cancel_tls,
         }
+    }
+
+    /// `FnOnce` is sync. The cancel connection is spawned so the query task can
+    /// keep polling and still `RESET` / `ROLLBACK`.
+    pub(super) fn arm_cancel<'a>(
+        &self,
+        client: &deadpool_postgres::Object,
+        control: &'a QueryControl,
+    ) -> InterruptGuard<'a> {
+        let token = client.cancel_token();
+        let tls = self.cancel_tls.clone();
+        control.set_interrupt(move || {
+            let Ok(handle) = tokio::runtime::Handle::try_current() else {
+                return;
+            };
+            handle.spawn(async move {
+                tls.cancel_query(token).await;
+            });
+        });
+        InterruptGuard::new(control)
     }
 
     pub(super) fn ensure_open(&self) -> ConnectorResult<()> {

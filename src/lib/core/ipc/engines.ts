@@ -136,6 +136,11 @@ export async function executeEngineQuery(
 	requireTauri()
 	return invoke('execute_engine_query', { request })
 }
+
+export async function cancelEngineQuery(executionId: string): Promise<void> {
+	requireTauri()
+	return invoke('cancel_engine_query', { executionId })
+}
 export async function listEngineCatalogColumns(
 	request: ListCatalogColumnsRequest,
 ): Promise<CatalogColumnRow[]> {

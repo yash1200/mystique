@@ -139,7 +139,7 @@ impl DatabaseConnector for PostgresConnector {
         &self,
         config: &ConnectionConfig,
     ) -> ConnectorResult<Box<dyn ConnectorSession>> {
-        let pool = create_pool(config).await?;
+        let (pool, cancel_tls) = create_pool(config).await?;
 
         {
             let client = pool
@@ -152,6 +152,10 @@ impl DatabaseConnector for PostgresConnector {
                 .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
         }
 
-        Ok(Box::new(PostgresSession::new(pool, config.pool.max_size)))
+        Ok(Box::new(PostgresSession::new(
+            pool,
+            config.pool.max_size,
+            cancel_tls,
+        )))
     }
 }

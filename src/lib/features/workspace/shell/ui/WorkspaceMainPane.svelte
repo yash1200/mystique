@@ -25,7 +25,9 @@
 		QueryCanvas,
 		querySave,
 	} from '#features/workspace/query'
+	import { cancelTabRun } from '#core/ipc'
 	import { appPrefs } from '#lib/app'
+	import { onMount } from 'svelte'
 	import { reconnectActiveSession } from '../live-session'
 	import {
 		catalogsFor,
@@ -195,6 +197,29 @@
 		void activeTabId
 		void gridTable?.id
 		tablePreview.hydrateActive()
+	})
+
+	onMount(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== 'Escape' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
+				return
+			const target = e.target
+			if (target instanceof HTMLElement) {
+				if (
+					target.closest(
+						'[role="dialog"], input, textarea, [contenteditable="true"]',
+					)
+				) {
+					return
+				}
+			}
+			const loading = workspaceStudio.loadingTabId
+			if (!loading) return
+			e.preventDefault()
+			void cancelTabRun(loading)
+		}
+		window.addEventListener('keydown', onKey, true)
+		return () => window.removeEventListener('keydown', onKey, true)
 	})
 
 	$effect(() => {

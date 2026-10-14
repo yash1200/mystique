@@ -65,8 +65,7 @@ export function relationalCapabilities(
 		modelViewKind: 'ER',
 		supportsPagination: true,
 		supportsWrite: false,
-		// Phase 5 adds cancel. Until then the flag stays off so the UI cannot grow a dead button.
-		supportsCancelQuery: false,
+		supportsCancelQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: true,
 		preferDatabaseFromUri: false,

@@ -117,6 +117,8 @@ export interface ExecuteQueryRequest {
 	collection?: string | null
 	/** MongoDB database override (explorer multi-DB) */
 	database?: string | null
+	/** Client id so Cancel / Esc / tab close can stop this run. */
+	executionId?: string | null
 }
 
 export interface QueryColumn {
@@ -242,6 +244,8 @@ export interface FetchTablePreviewRequest {
 	/** Plugin-owned `ORDER BY` / Mongo `sort`. Omitted = default PK / `_id` / `rowid`. */
 	sortColumn?: string | null
 	sortDir?: TablePreviewSortDir | null
+	/** Same id as an in-flight export on this tab. */
+	executionId?: string | null
 }
 
 export interface TablePreviewResult {
@@ -354,6 +358,8 @@ export interface ExportObjectRequest {
 	kind?: string | null
 	format: ExportFormat
 	path: string
+	/** Same id as the table preview, so closing the tab stops the file write. */
+	executionId?: string | null
 }
 
 export interface ExportObjectResult {

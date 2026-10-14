@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
     ConnectorResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest, TableAdminOp,
     TableAdminRequest, TableAdminResult, TablePreviewResult, TablePreviewStats, WriteRisk,
-    DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
+    DEFAULT_MAX_ROWS, HARD_MAX_ROWS, MAX_TIMEOUT_MS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -43,8 +45,19 @@ impl ConnectionManager {
         req: FetchTablePreviewRequest,
     ) -> ConnectorResult<TablePreviewResult> {
         let session = self.session(&req.session_id).await?;
-        let input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
-        session.fetch_table_preview(&input).await
+        let execution_id = req.execution_id.clone();
+        let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
+        let (id, control) = self.begin_run(execution_id).await;
+        input.control = Arc::clone(&control);
+        let result = self
+            .drive_registered(
+                &control,
+                MAX_TIMEOUT_MS,
+                session.fetch_table_preview(&input),
+            )
+            .await;
+        self.finish_run(&id).await;
+        result
     }
 
     pub async fn fetch_table_preview_stats(

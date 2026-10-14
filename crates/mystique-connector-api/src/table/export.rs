@@ -6,7 +6,9 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::sync::Arc;
 
+use crate::cancel::QueryControl;
 use crate::catalog::{ColumnInfo, FetchTablePreviewInput};
 use crate::connector::ConnectorSession;
 use crate::error::{ConnectorError, ConnectorResult};
@@ -56,6 +58,9 @@ pub struct ExportObjectRequest {
     pub kind: Option<String>,
     pub format: ExportFormat,
     pub path: String,
+    /// Same id as a table-tab preview, so closing the tab stops the export.
+    #[serde(default)]
+    pub execution_id: Option<String>,
 }
 
 /// Validated payload handed to the plugin.
@@ -67,6 +72,7 @@ pub struct ExportObjectInput {
     pub kind: Option<String>,
     pub format: ExportFormat,
     pub path: String,
+    pub control: Arc<QueryControl>,
 }
 
 impl ExportObjectRequest {
@@ -78,6 +84,7 @@ impl ExportObjectRequest {
             kind: self.kind,
             format: self.format,
             path: self.path,
+            control: QueryControl::new(),
         }
     }
 }
@@ -127,6 +134,9 @@ pub async fn export_object_with_preview(
     }
 
     loop {
+        if input.control.is_cancelled() {
+            return Err(ConnectorError::Query("Query cancelled.".into()));
+        }
         let page = session
             .fetch_table_preview(&FetchTablePreviewInput {
                 table: input.name.clone(),
@@ -138,6 +148,7 @@ pub async fn export_object_with_preview(
                 code_filter: None,
                 sort_column: None,
                 sort_dir: None,
+                control: Arc::clone(&input.control),
             })
             .await?;
 

@@ -5,7 +5,7 @@ import type {
 	TablePreviewFilter,
 	TablePreviewSort,
 } from '#core/contracts'
-import { isTauri } from '#core/ipc'
+import { finishTabRun, isTauri, startTabRun } from '#core/ipc'
 import {
 	applyPreviewStats,
 	loadTablePreview,
@@ -68,6 +68,7 @@ class TablePreview {
 
 		workspaceStudio.loadingTabId = tabId
 		workspaceStudio.setCatalogError(null)
+		const executionId = startTabRun(tabId)
 		try {
 			const engine = String(session.profile.engine)
 			const loaded = await withLiveSession(id, (sid) =>
@@ -80,6 +81,7 @@ class TablePreview {
 					preview.filters,
 					preview.sort,
 					preview.codeFilter,
+					executionId,
 				),
 			)
 			if (!stillThis()) return
@@ -120,6 +122,7 @@ class TablePreview {
 				)
 			}
 		} finally {
+			finishTabRun(tabId, executionId)
 			if (stillThis() && workspaceStudio.loadingTabId === tabId) {
 				workspaceStudio.loadingTabId = null
 			}

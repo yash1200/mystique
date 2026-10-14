@@ -4,7 +4,13 @@
 	 * Composes toolbar / editor / results; native paste via bind:value.
 	 */
 	import type { EngineCapabilities, QueryMode } from '#core/contracts'
-	import { executeEngineQuery, isTauri } from '#core/ipc'
+	import {
+		cancelTabRun,
+		executeEngineQuery,
+		finishTabRun,
+		isTauri,
+		startTabRun,
+	} from '#core/ipc'
 	import { Resizable } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
 	import { showToast } from '#features/toast'
@@ -23,7 +29,7 @@
 		workspaceSession,
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
-	import { onMount, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
 	import { appendQueryHistory } from '../history-api'
@@ -314,6 +320,7 @@
 			return
 		}
 
+		const executionId = startTabRun(tabId)
 		try {
 			const request = {
 				sessionId: sid,
@@ -325,6 +332,7 @@
 				collection: language === 'mql' ? collection.trim() || null : null,
 				database:
 					language === 'mql' && database?.trim() ? database.trim() : null,
+				executionId,
 			}
 			let result
 			try {
@@ -381,8 +389,19 @@
 				errorMessage: msg,
 				body: sqlText,
 			})
+		} finally {
+			finishTabRun(tabId, executionId)
 		}
 	}
+
+	function cancelRun() {
+		if (runState.status !== 'running') return
+		void cancelTabRun(tabId)
+	}
+
+	onDestroy(() => {
+		void cancelTabRun(tabId)
+	})
 
 	function askAiAboutError(errorMessage: string) {
 		const error = errorMessage.trim()
@@ -400,6 +419,17 @@
 
 	onMount(() => {
 		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape' && runState.status === 'running') {
+				const t = e.target
+				if (t instanceof HTMLElement) {
+					if (t.closest('[role="dialog"]')) return
+					if (t.closest('.cm-mystique-search')) return
+				}
+				e.preventDefault()
+				e.stopPropagation()
+				cancelRun()
+				return
+			}
 			if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
 			if (e.key !== 'Enter' && e.code !== 'NumpadEnter') return
 			const t = e.target
@@ -441,7 +471,9 @@
 				{catalogColumns}
 				bind:collection
 				canRun={!!localText.trim()}
+				canCancel={capabilities?.supportsCancelQuery === true}
 				running={runState.status === 'running'}
+				oncancel={cancelRun}
 				{dirty}
 				{saving}
 				onchange={emitText}

@@ -1,5 +1,5 @@
 use mystique_connector_api::{
-    ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
+    ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
 };
 use mystique_plugin_postgres::PostgresConnector;
 use serde_json::json;
@@ -134,6 +134,7 @@ async fn bad_sql_surfaces_postgres_message() {
             timeout_ms: 5_000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         })
         .await
         .expect_err("invalid SQL should fail");

@@ -18,7 +18,9 @@ impl ConnectionManager {
         }
         let meta = self.session_meta(&req.session_id).await?;
         reject_beyond_depth(&meta.caps, DepthFeature::Metrics)?;
-        meta.session.fetch_server_metrics(&req.into_input()).await
+        let input = req.into_input();
+        self.with_metadata(meta.session.fetch_server_metrics(&input))
+            .await
     }
 
     pub async fn terminate_backend_session(

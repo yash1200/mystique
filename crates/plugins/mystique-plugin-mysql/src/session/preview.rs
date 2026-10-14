@@ -11,6 +11,9 @@ use mystique_connector_api::{
 };
 use serde_json::Value as JsonValue;
 
+use mystique_connector_api::{InterruptGuard, MAX_TIMEOUT_MS};
+
+use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};
 use super::catalog;
 use super::encode::value_json;
 use super::query_failed;
@@ -79,21 +82,65 @@ pub(super) async fn fetch_table_preview(
     );
 
     let mut conn = session.conn().await?;
-    let result_set = conn.query_iter(sql.as_str()).await.map_err(query_failed)?;
-
-    let col_count = result_set.columns_ref().len();
+    arm_kill(&session.pool(), conn.id(), &input.control);
+    let _guard = InterruptGuard::new(&input.control);
+    apply_timeouts(&mut conn, MAX_TIMEOUT_MS).await;
     let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
-    let mut result_set = result_set;
-    while let Some(row) = result_set.next().await.map_err(query_failed)? {
-        if out_rows.len() >= input.max_rows as usize {
-            break;
+    let mut unread = false;
+    let mut failure = None;
+    match conn.query_iter(sql.as_str()).await {
+        Err(err) => {
+            failure = Some(if input.control.is_cancelled() {
+                mystique_connector_api::ConnectorError::Query("Query cancelled.".into())
+            } else {
+                query_failed(err)
+            });
         }
-        let mut cells = Vec::with_capacity(col_count);
-        for j in 0..col_count {
-            let v: Value = row.as_ref(j).cloned().unwrap_or(Value::NULL);
-            cells.push(value_json(v));
+        Ok(mut result_set) => {
+            let col_count = result_set.columns_ref().len();
+            loop {
+                if input.control.is_cancelled() {
+                    unread = true;
+                    failure = Some(mystique_connector_api::ConnectorError::Query(
+                        "Query cancelled.".into(),
+                    ));
+                    break;
+                }
+                match result_set.next().await {
+                    Ok(None) => break,
+                    Err(err) => {
+                        unread = true;
+                        failure = Some(if input.control.is_cancelled() {
+                            mystique_connector_api::ConnectorError::Query("Query cancelled.".into())
+                        } else {
+                            query_failed(err)
+                        });
+                        break;
+                    }
+                    Ok(Some(row)) => {
+                        if out_rows.len() >= input.max_rows as usize {
+                            unread = true;
+                            break;
+                        }
+                        let mut cells = Vec::with_capacity(col_count);
+                        for j in 0..col_count {
+                            let v: Value = row.as_ref(j).cloned().unwrap_or(Value::NULL);
+                            cells.push(value_json(v));
+                        }
+                        out_rows.push(cells);
+                    }
+                }
+            }
         }
-        out_rows.push(cells);
+    }
+    input.control.clear_interrupt();
+    if unread || input.control.is_cancelled() {
+        let _ = conn.disconnect().await;
+    } else {
+        clear_timeouts(&mut conn).await;
+    }
+    if let Some(err) = failure {
+        return Err(err);
     }
 
     let row_count = out_rows.len() as u64;

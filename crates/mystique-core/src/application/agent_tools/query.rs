@@ -44,6 +44,7 @@ impl AgentTools {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
+                execution_id: None,
             })
             .await?;
         Ok(download_from_result(result, format, window))
@@ -100,6 +101,7 @@ impl AgentTools {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
+                execution_id: None,
             })
             .await?;
         Ok(download_from_result(result, format, window))

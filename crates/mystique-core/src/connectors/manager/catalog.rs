@@ -14,9 +14,12 @@ impl ConnectionManager {
         req: DescribeTableRequest,
     ) -> ConnectorResult<Vec<ColumnInfo>> {
         let session = self.session(&req.session_id).await?;
-        session
-            .describe_table(req.database.as_deref(), req.schema.as_deref(), &req.table)
-            .await
+        self.with_metadata(session.describe_table(
+            req.database.as_deref(),
+            req.schema.as_deref(),
+            &req.table,
+        ))
+        .await
     }
 
     /// Bulk column listing for ER / catalog (plugin-normalized types).
@@ -25,18 +28,21 @@ impl ConnectionManager {
         req: ListCatalogColumnsRequest,
     ) -> ConnectorResult<Vec<CatalogColumnRow>> {
         let session = self.session(&req.session_id).await?;
-        session
-            .list_catalog_columns(req.database.as_deref(), req.schema.as_deref())
-            .await
+        self.with_metadata(
+            session.list_catalog_columns(req.database.as_deref(), req.schema.as_deref()),
+        )
+        .await
     }
     pub async fn list_catalog(
         &self,
         req: ListCatalogRequest,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
         let meta = self.session_meta(&req.session_id).await?;
-        let mut databases = meta
-            .session
-            .list_catalog(req.preferred_database.as_deref(), req.include_objects)
+        let mut databases = self
+            .with_metadata(
+                meta.session
+                    .list_catalog(req.preferred_database.as_deref(), req.include_objects),
+            )
             .await?;
         hide_system_schemas(&meta.product_id, &mut databases);
         Ok(databases)
@@ -48,8 +54,7 @@ impl ConnectionManager {
     ) -> ConnectorResult<Vec<CatalogRelationship>> {
         let meta = self.session_meta(&req.session_id).await?;
         reject_beyond_depth(&meta.caps, DepthFeature::Er)?;
-        meta.session
-            .list_relationships(req.database.as_deref())
+        self.with_metadata(meta.session.list_relationships(req.database.as_deref()))
             .await
     }
 
@@ -64,14 +69,13 @@ impl ConnectionManager {
             ));
         }
         let session = self.session(&req.session_id).await?;
-        session
-            .describe_object_structure(
-                req.database.as_deref(),
-                req.schema.as_deref(),
-                &req.table,
-                req.kind.as_deref(),
-            )
-            .await
+        self.with_metadata(session.describe_object_structure(
+            req.database.as_deref(),
+            req.schema.as_deref(),
+            &req.table,
+            req.kind.as_deref(),
+        ))
+        .await
     }
 }
 

@@ -165,9 +165,12 @@ pub(crate) fn build_pool_config(config: &ConnectionConfig) -> ConnectorResult<Po
     let mut pool = deadpool_postgres::PoolConfig::new(config.pool.max_size.max(1) as usize);
     pool.timeouts.wait = Some(Duration::from_millis(timeout_ms));
     pool.timeouts.create = Some(Duration::from_millis(timeout_ms));
-    if config.pool.idle_timeout_secs > 0 {
-        pool.timeouts.recycle = Some(Duration::from_secs(config.pool.idle_timeout_secs));
-    }
+    // deadpool's `Timeouts` is wait / create / recycle. There is no idle field.
+    // `recycle` is how long a checkout may spend recycling, not how long a
+    // connection may sit idle, so `idle_timeout_secs` must not be copied onto it.
+    // TCP keepalives are what notice a dead server.
+    cfg.keepalives = Some(true);
+    cfg.keepalives_idle = Some(Duration::from_secs(30));
     cfg.pool = Some(pool);
     Ok(cfg)
 }
@@ -200,6 +203,8 @@ pub(super) fn build_pg_config(
     let timeout_ms = config.pool.acquire_timeout_ms.max(1_000);
     pg.connect_timeout(Duration::from_millis(timeout_ms.min(30_000)));
     pg.application_name("Mystique");
+    pg.keepalives(true);
+    pg.keepalives_idle(Duration::from_secs(30));
 
     pg.ssl_mode(tokio_ssl_mode(&TlsSettings::from_config(config)));
 
@@ -234,19 +239,38 @@ pub(super) async fn connect_once(
     }
 }
 
+/// TLS connector kept for `CancelToken::cancel_query`. Plain sockets use `NoTls`.
+#[derive(Clone)]
+pub(crate) enum PgCancelTls {
+    Plain(NoTls),
+    Native(postgres_native_tls::MakeTlsConnector),
+}
+
+impl PgCancelTls {
+    pub(crate) async fn cancel_query(&self, token: tokio_postgres::CancelToken) {
+        let result = match self {
+            Self::Plain(tls) => token.cancel_query(tls.clone()).await,
+            Self::Native(tls) => token.cancel_query(tls.clone()).await,
+        };
+        let _ = result;
+    }
+}
+
 pub(super) async fn create_pool(
     config: &ConnectionConfig,
-) -> ConnectorResult<deadpool_postgres::Pool> {
+) -> ConnectorResult<(deadpool_postgres::Pool, PgCancelTls)> {
     let pool_cfg = build_pool_config(config)?;
     if let Some(tls_connector) = TlsSettings::from_config(config).native_connector()? {
         let tls = postgres_native_tls::MakeTlsConnector::new(tls_connector);
-        pool_cfg
-            .create_pool(Some(Runtime::Tokio1), tls)
-            .map_err(|e| ConnectorError::Pool(format_error(&e)))
+        let pool = pool_cfg
+            .create_pool(Some(Runtime::Tokio1), tls.clone())
+            .map_err(|e| ConnectorError::Pool(format_error(&e)))?;
+        Ok((pool, PgCancelTls::Native(tls)))
     } else {
-        pool_cfg
+        let pool = pool_cfg
             .create_pool(Some(Runtime::Tokio1), NoTls)
-            .map_err(|e| ConnectorError::Pool(format_error(&e)))
+            .map_err(|e| ConnectorError::Pool(format_error(&e)))?;
+        Ok((pool, PgCancelTls::Plain(NoTls)))
     }
 }
 
@@ -321,6 +345,13 @@ mod tests {
         assert_eq!(cfg.user.as_deref(), Some("appuser"));
         assert_eq!(cfg.password.as_deref(), Some("override-secret"));
         assert!(cfg.connect_timeout.is_some());
+        assert!(cfg
+            .pool
+            .as_ref()
+            .and_then(|pool| pool.timeouts.recycle)
+            .is_none());
+        assert_eq!(cfg.keepalives, Some(true));
+        assert_eq!(cfg.keepalives_idle, Some(Duration::from_secs(30)));
     }
 
     #[test]
@@ -360,6 +391,8 @@ mod tests {
             &[std::net::IpAddr::from([127, 0, 0, 1])]
         );
         assert_eq!(pg.get_ports(), &[5555]);
+        assert!(pg.get_keepalives());
+        assert_eq!(pg.get_keepalives_idle(), Duration::from_secs(30));
     }
 
     #[test]

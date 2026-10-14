@@ -1,5 +1,6 @@
 //! Policy-validated SQL execution for a pooled SQLite session.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use mystique_connector_api::{
@@ -9,6 +10,7 @@ use mystique_connector_api::{
 use rusqlite::Connection;
 
 use super::encode::value_ref_json;
+use super::interrupt::{self, map_err, stalled};
 use super::query_failed;
 use super::SqliteSession;
 
@@ -36,22 +38,28 @@ pub(super) async fn execute_query(
     // connection is dropped at the end of this call, which is the only way
     // the pragma is cleared.
     let path = session.path();
+    let control = Arc::clone(&query.control);
 
     let result = session
         .blocking(move || -> ConnectorResult<QueryResult> {
             let pooled;
             let dedicated;
             let conn: &Connection = if lock_writes {
-                dedicated = Connection::open(&path).map_err(query_failed)?;
+                dedicated = Connection::open(&path).map_err(|err| map_err(&control, err))?;
                 dedicated
                     .execute_batch("PRAGMA query_only = ON")
-                    .map_err(query_failed)?;
+                    .map_err(|err| map_err(&control, err))?;
                 &dedicated
             } else {
                 pooled = pool
                     .get()
                     .map_err(|e| ConnectorError::Pool(e.to_string()))?;
                 &pooled
+            };
+            interrupt::arm(conn, &control);
+            let _settle = interrupt::Settle {
+                conn,
+                control: &control,
             };
 
             let batch_n = stmts.len();
@@ -66,7 +74,7 @@ pub(super) async fn execute_query(
                     || lower.starts_with("values");
 
                 let result = if is_select_like {
-                    let mut stmt = conn.prepare(sql).map_err(query_failed)?;
+                    let mut stmt = conn.prepare(sql).map_err(|err| map_err(&control, err))?;
 
                     let col_count = stmt.column_count();
                     // Declared affinity/type when available (CREATE TABLE).
@@ -82,21 +90,26 @@ pub(super) async fn execute_query(
                         })
                         .collect();
 
-                    let mut rows_iter = stmt.query([]).map_err(query_failed)?;
+                    let mut rows_iter = stmt.query([]).map_err(|err| map_err(&control, err))?;
 
                     let mut out_rows = Vec::new();
                     let mut truncated = false;
-                    while let Some(row) = rows_iter.next().map_err(query_failed)? {
+                    let mut saw_row = false;
+                    let mut last_row = Instant::now();
+                    while let Some(row) = rows_iter.next().map_err(|err| map_err(&control, err))? {
+                        stalled(&control, saw_row, last_row)?;
                         if out_rows.len() >= max_rows {
                             truncated = true;
                             break;
                         }
                         let mut cells = Vec::with_capacity(col_count);
                         for j in 0..col_count {
-                            let v = row.get_ref(j).map_err(query_failed)?;
+                            let v = row.get_ref(j).map_err(|err| map_err(&control, err))?;
                             cells.push(value_ref_json(v));
                         }
                         out_rows.push(cells);
+                        saw_row = true;
+                        last_row = Instant::now();
                     }
 
                     let mut message = if truncated {
@@ -123,7 +136,8 @@ pub(super) async fn execute_query(
                         message,
                     }
                 } else {
-                    conn.execute(sql, []).map_err(query_failed)?;
+                    conn.execute(sql, [])
+                        .map_err(|err| map_err(&control, err))?;
 
                     let mut message = Some(
                         "Statement executed. Tabular rows only for SELECT-like queries.".into(),
@@ -167,7 +181,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use mystique_connector_api::{
-        ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
+        ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
     };
     use serde_json::json;
 
@@ -181,6 +195,7 @@ mod tests {
             timeout_ms: 5_000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         }
     }
 
@@ -302,6 +317,52 @@ mod tests {
             .expect("count");
         assert_eq!(count.rows[0][0], json!(1));
 
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn recursive_cte_stops_when_the_control_is_cancelled() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = SqliteConnector
+            .connect(&ConnectionConfig {
+                engine: "sqlite".into(),
+                plugin_config: json!({ "path": path.to_string_lossy() }),
+                password: None,
+                pool: PoolConfig::default(),
+            })
+            .await
+            .expect("connect");
+        let control = QueryControl::new();
+        let watched = std::sync::Arc::clone(&control);
+        let query = ValidatedQuery {
+            text: "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c LIMIT 50000000) SELECT sum(x) FROM c".into(),
+            mode: QueryMode::Read,
+            max_rows: 10,
+            timeout_ms: 30_000,
+            collection: None,
+            database: None,
+            control,
+        };
+        let canceller = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            watched.cancel();
+        });
+        let started = std::time::Instant::now();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            session.execute_query(&query),
+        )
+        .await;
+        let _ = canceller.await;
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "interrupt did not stop the recursive CTE"
+        );
+        let err = result.expect("query future").expect_err("cancelled");
+        let msg = err.to_string().to_ascii_lowercase();
+        assert!(msg.contains("cancel") || msg.contains("interrupt"), "{msg}");
         let _ = session.close().await;
         let _ = fs::remove_file(&path);
     }

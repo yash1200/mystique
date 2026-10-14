@@ -1,5 +1,5 @@
 use mystique_connector_api::{
-    ConnectionConfig, DatabaseConnector, PoolConfig, QueryMode, ValidatedQuery,
+    ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
 };
 use mystique_plugin_mysql::MysqlConnector;
 use serde_json::json;
@@ -40,6 +40,7 @@ async fn list_tables_and_preview_users() {
             timeout_ms: 10_000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         })
         .await
         .expect("list tables");
@@ -64,6 +65,7 @@ async fn list_tables_and_preview_users() {
             timeout_ms: 10_000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         })
         .await
         .expect("preview");
@@ -87,6 +89,7 @@ async fn information_schema_columns_and_fks() {
             timeout_ms: 10_000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         })
         .await
         .expect("columns");
@@ -100,6 +103,7 @@ async fn information_schema_columns_and_fks() {
             timeout_ms: 10_000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         })
         .await
         .expect("fks");

@@ -8,8 +8,11 @@ use mystique_connector_api::{
 };
 use serde_json::Value as JsonValue;
 
+use std::sync::Arc;
+
 use super::catalog;
 use super::encode::value_ref_json;
+use super::interrupt::{self, map_err};
 use super::query_failed;
 use super::SqliteSession;
 
@@ -66,22 +69,31 @@ pub(super) async fn fetch_table_preview(
     );
     let pool = session.pool();
     let max_rows = input.max_rows as usize;
+    let control = Arc::clone(&input.control);
     let result = session
         .blocking(move || -> ConnectorResult<Vec<Vec<JsonValue>>> {
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-            let mut stmt = conn.prepare(&sql).map_err(query_failed)?;
+            interrupt::arm(&conn, &control);
+            let _settle = interrupt::Settle {
+                conn: &conn,
+                control: &control,
+            };
+            let mut stmt = conn.prepare(&sql).map_err(|err| map_err(&control, err))?;
             let col_count = stmt.column_count();
-            let mut rows_iter = stmt.query([]).map_err(query_failed)?;
+            let mut rows_iter = stmt.query([]).map_err(|err| map_err(&control, err))?;
             let mut out_rows = Vec::new();
-            while let Some(row) = rows_iter.next().map_err(query_failed)? {
+            while let Some(row) = rows_iter.next().map_err(|err| map_err(&control, err))? {
+                if control.is_cancelled() {
+                    return Err(ConnectorError::Query("Query cancelled.".into()));
+                }
                 if out_rows.len() >= max_rows {
                     break;
                 }
                 let mut cells = Vec::with_capacity(col_count);
                 for j in 0..col_count {
-                    let v = row.get_ref(j).map_err(query_failed)?;
+                    let v = row.get_ref(j).map_err(|err| map_err(&control, err))?;
                     cells.push(value_ref_json(v));
                 }
                 out_rows.push(cells);

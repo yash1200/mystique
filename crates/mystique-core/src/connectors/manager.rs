@@ -9,7 +9,7 @@ use mystique_connector_api::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use uuid::Uuid;
 
 mod catalog;
@@ -17,6 +17,7 @@ mod depth;
 mod guard;
 mod metrics;
 mod query;
+mod run;
 mod table;
 mod transfer;
 
@@ -104,6 +105,10 @@ pub struct ConnectionManager {
     sessions: RwLock<HashMap<String, LiveSession>>,
     /// Session ids unlocked for writes this process (P3.1). Not persisted.
     write_unlocks: Mutex<HashSet<String>>,
+    /// `execution_id` → control. Not the profile id.
+    running: Mutex<HashMap<String, std::sync::Arc<mystique_connector_api::QueryControl>>>,
+    /// Caps explorer/metadata fan-out. Never closed. Queries do not take a permit.
+    metadata: Semaphore,
 }
 
 impl ConnectionManager {
@@ -112,6 +117,8 @@ impl ConnectionManager {
             registry,
             sessions: RwLock::new(HashMap::new()),
             write_unlocks: Mutex::new(HashSet::new()),
+            running: Mutex::new(HashMap::new()),
+            metadata: run::metadata_limiter(),
         }
     }
 

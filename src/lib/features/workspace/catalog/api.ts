@@ -178,6 +178,7 @@ export async function loadTablePreview(
 	filters: TablePreviewFilter[] = [],
 	sort: TablePreviewSort | null = null,
 	codeFilter: string | null = null,
+	executionId: string | null = null,
 ): Promise<TableMeta> {
 	const preview = await fetchEngineTablePreview({
 		sessionId,
@@ -190,6 +191,7 @@ export async function loadTablePreview(
 		codeFilter,
 		sortColumn: sort?.column ?? null,
 		sortDir: sort?.dir ?? null,
+		executionId,
 	})
 	return previewToTableMeta(table, preview)
 }

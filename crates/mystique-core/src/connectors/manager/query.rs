@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use mystique_connector_api::{
-    sql_destructive_object_name_for, ConnectorError, ConnectorResult, ExecuteQueryRequest,
-    QueryMode, QueryResult, SqlDialect, ValidatedQuery, WriteRisk, DEFAULT_MAX_ROWS,
-    DEFAULT_TIMEOUT_MS, HARD_MAX_ROWS,
+    clamp_timeout_ms, sql_destructive_object_name_for, ConnectorError, ConnectorResult,
+    ExecuteQueryRequest, QueryMode, QueryResult, SqlDialect, ValidatedQuery, WriteRisk,
+    DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
 };
 
 use super::ConnectionManager;
@@ -42,8 +44,9 @@ impl ConnectionManager {
             .max_rows
             .unwrap_or(DEFAULT_MAX_ROWS)
             .clamp(1, HARD_MAX_ROWS);
-        let timeout_ms = req.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS).max(1_000);
+        let timeout_ms = clamp_timeout_ms(req.timeout_ms);
 
+        let (id, control) = self.begin_run(req.execution_id).await;
         let validated = ValidatedQuery {
             text: req.text,
             mode,
@@ -51,8 +54,12 @@ impl ConnectionManager {
             timeout_ms,
             collection: req.collection,
             database: req.database,
+            control: Arc::clone(&control),
         };
-
-        session.execute_query(&validated).await
+        let result = self
+            .drive_registered(&control, timeout_ms, session.execute_query(&validated))
+            .await;
+        self.finish_run(&id).await;
+        result
     }
 }

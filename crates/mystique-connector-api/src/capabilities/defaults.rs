@@ -19,7 +19,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::Er,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: false,
+            supports_cancel_query: true,
             supports_pooling: true,
             binds_session_to_database: true,
             prefer_database_from_uri: false,
@@ -51,7 +51,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::Er,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: false,
+            supports_cancel_query: true,
             supports_pooling: true,
             binds_session_to_database: false,
             prefer_database_from_uri: false,
@@ -83,7 +83,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::CollectionMap,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: false,
+            supports_cancel_query: true,
             supports_pooling: true,
             binds_session_to_database: false,
             prefer_database_from_uri: true,
@@ -115,7 +115,7 @@ impl EngineCapabilities {
             model_view_kind: ModelViewKind::Er,
             supports_pagination: true,
             supports_write: false,
-            supports_cancel_query: false,
+            supports_cancel_query: true,
             supports_pooling: true,
             binds_session_to_database: true,
             prefer_database_from_uri: false,
@@ -140,7 +140,7 @@ mod create_caps_tests {
     use super::*;
 
     #[test]
-    fn cancel_is_off_until_a_real_cancel_api() {
+    fn cancel_is_on_for_the_four_runtimes() {
         for caps in [
             EngineCapabilities::postgres_defaults(),
             EngineCapabilities::mysql_defaults(),
@@ -148,8 +148,8 @@ mod create_caps_tests {
             EngineCapabilities::mongodb_defaults(),
         ] {
             assert!(
-                !caps.supports_cancel_query,
-                "{} still advertises cancel",
+                caps.supports_cancel_query,
+                "{} does not advertise cancel",
                 caps.engine
             );
         }

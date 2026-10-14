@@ -1,10 +1,13 @@
 /** Import / export a table. Owned by the grid. */
 import type { ImportEncoding, ImportFormat, TableMeta } from '#core/contracts'
 import {
+	cancelTabRun,
 	exportEngineObject,
+	finishTabRun,
 	importEngineObject,
 	isTauri,
 	previewEngineImport,
+	startTabRun,
 } from '#core/ipc'
 import {
 	currentDatabaseName,
@@ -131,6 +134,13 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 	}
 }
 
+let exportRunTab: string | null = null
+
+export function cancelActiveExport() {
+	if (!exportRunTab) return
+	void cancelTabRun(exportRunTab)
+}
+
 export async function confirmExport(spec: ExportDataSpec) {
 	const table = workspaceStudio.exportTable
 	const active = requireActiveConnection()
@@ -141,6 +151,9 @@ export async function confirmExport(spec: ExportDataSpec) {
 	}
 	workspaceStudio.exportBusy = true
 	workspaceStudio.exportError = null
+	const tabId = tableTabId(active.id, table.id)
+	exportRunTab = tabId
+	const executionId = startTabRun(tabId)
 	try {
 		const { join } = await import('@tauri-apps/api/path')
 		const path = await join(spec.folder, spec.fileName)
@@ -153,12 +166,15 @@ export async function confirmExport(spec: ExportDataSpec) {
 				kind: table.kind,
 				format: spec.format,
 				path,
+				executionId,
 			}),
 		)
 		workspaceStudio.exportTable = null
 	} catch (e) {
 		workspaceStudio.exportError = e instanceof Error ? e.message : String(e)
 	} finally {
+		finishTabRun(tabId, executionId)
+		if (exportRunTab === tabId) exportRunTab = null
 		workspaceStudio.exportBusy = false
 	}
 }

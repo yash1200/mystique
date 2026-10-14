@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, ExportObjectRequest, ExportObjectResult, ImportObjectRequest,
     ImportObjectResult, PreviewImportRequest, PreviewImportResult, WriteRisk,
@@ -29,7 +31,15 @@ impl ConnectionManager {
                 "this engine does not export {format} files"
             )));
         }
-        session.export_object(&req.into_input()).await
+        let execution_id = req.execution_id.clone();
+        let mut input = req.into_input();
+        let (id, control) = self.begin_run(execution_id).await;
+        input.control = Arc::clone(&control);
+        let result = self
+            .drive_until_cancel(&control, session.export_object(&input))
+            .await;
+        self.finish_run(&id).await;
+        result
     }
 
     pub async fn preview_import(

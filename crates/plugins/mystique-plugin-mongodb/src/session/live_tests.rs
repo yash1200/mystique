@@ -2,7 +2,7 @@
 
 use mongodb::bson::doc;
 use mongodb::Client;
-use mystique_connector_api::{ConnectorSession, QueryMode, ValidatedQuery};
+use mystique_connector_api::{ConnectorSession, QueryControl, QueryMode, ValidatedQuery};
 
 use super::MongoSession;
 
@@ -35,6 +35,7 @@ async fn list_databases_and_find_users_on_mystique() {
             timeout_ms: 5000,
             collection: None,
             database: None,
+            control: QueryControl::new(),
         })
         .await
         .expect("listDatabases");
@@ -53,6 +54,7 @@ async fn list_databases_and_find_users_on_mystique() {
             timeout_ms: 5000,
             collection: None,
             database: Some("mystique".into()),
+            control: QueryControl::new(),
         })
         .await
         .expect("listCollections");
@@ -70,6 +72,7 @@ async fn list_databases_and_find_users_on_mystique() {
             timeout_ms: 5000,
             collection: Some("users".into()),
             database: Some("mystique".into()),
+            control: QueryControl::new(),
         })
         .await
         .expect("find users");

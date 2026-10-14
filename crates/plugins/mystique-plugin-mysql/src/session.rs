@@ -16,6 +16,7 @@ use mystique_connector_api::{
 };
 
 mod admin;
+mod cancel;
 mod catalog;
 mod edits;
 mod encode;

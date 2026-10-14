@@ -38,6 +38,9 @@
 		collection?: string
 		canRun: boolean
 		running: boolean
+		/** Engine advertises cancel. The button stays disabled while running otherwise. */
+		canCancel?: boolean
+		oncancel?: () => void
 		/** True when draft differs from last saved baseline. */
 		dirty?: boolean
 		/** True while a save is in flight. */
@@ -61,6 +64,8 @@
 		collection = $bindable(''),
 		canRun,
 		running,
+		canCancel = false,
+		oncancel,
 		dirty = false,
 		saving = false,
 		catalogColumns = [],
@@ -367,11 +372,14 @@
 			<Button
 				variant="primary"
 				size="sm"
-				disabled={running || !canRun}
-				onclick={onrun}
-				title={`Run (${runShortcut})`}
+				disabled={running ? !canCancel : !canRun}
+				onclick={() => {
+					if (running) oncancel?.()
+					else onrun()
+				}}
+				title={running && canCancel ? 'Cancel (Esc)' : `Run (${runShortcut})`}
 			>
-				{running ? 'Running…' : 'Run'}
+				{running ? (canCancel ? 'Cancel' : 'Running…') : 'Run'}
 			</Button>
 		</div>
 	</div>

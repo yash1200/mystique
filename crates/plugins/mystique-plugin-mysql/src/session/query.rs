@@ -5,11 +5,13 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    split_sql_statements_for, sql_explain_executes, ConnectorError, ConnectorResult, QueryColumn,
-    QueryMode, QueryResult, SqlDialect, ValidatedQuery,
+    idle_result, poll_until_idle, split_sql_statements_for, sql_explain_executes, ConnectorError,
+    ConnectorResult, InterruptGuard, QueryColumn, QueryMode, QueryResult, SqlDialect,
+    ValidatedQuery,
 };
 use serde_json::Value as JsonValue;
 
+use super::cancel::{apply_timeouts, arm_kill, clear_timeouts, inactivity};
 use super::encode::{mysql_type_label, value_json};
 use super::query_failed;
 use super::MysqlSession;
@@ -23,13 +25,14 @@ pub(super) async fn execute_query(
     // Multi-statement batches: run each in order; return only the last result.
     let start = Instant::now();
     let mut conn = session.conn().await?;
+    arm_kill(&session.pool(), conn.id(), &query.control);
+    let _guard = InterruptGuard::new(&query.control);
 
     let stmts = split_sql_statements_for(&query.text, SqlDialect::Mysql);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
 
-    let timeout = query.timeout_ms.max(1);
     // Same lock as Postgres: Read mode and EXPLAIN ANALYZE cannot write even
     // when the classifier misses. A rejected START TRANSACTION fails the query
     // closed — we do not fall through to an unconstrained connection.
@@ -38,21 +41,22 @@ pub(super) async fn execute_query(
             .iter()
             .any(|sql| sql_explain_executes(sql, SqlDialect::Mysql));
 
-    let _ = conn
-        .query_drop(format!("SET SESSION max_execution_time = {timeout}"))
-        .await;
+    apply_timeouts(&mut conn, query.timeout_ms).await;
 
     let ran = if lock_writes {
         if let Err(err) = conn.query_drop("START TRANSACTION READ ONLY").await {
-            let _ = conn.query_drop("SET SESSION max_execution_time = 0").await;
-            return Err(query_failed(err));
+            clear_timeouts(&mut conn).await;
+            return Err(cancelled_or(query, err));
         }
         let result = run_batch(&mut conn, query, &stmts, true).await;
-        end_read_only_txn(conn, result).await?
+        let drop_conn = drop_mysql_conn(query, &result);
+        query.control.clear_interrupt();
+        release_conn(conn, result, true, drop_conn).await?
     } else {
         let result = run_batch(&mut conn, query, &stmts, false).await;
-        let _ = conn.query_drop("SET SESSION max_execution_time = 0").await;
-        result?
+        let drop_conn = drop_mysql_conn(query, &result);
+        query.control.clear_interrupt();
+        release_conn(conn, result, false, drop_conn).await?
     };
 
     let mut out = ran;
@@ -60,12 +64,46 @@ pub(super) async fn execute_query(
     Ok(out)
 }
 
+fn cancelled_or(query: &ValidatedQuery, err: mysql_async::Error) -> ConnectorError {
+    if query.control.is_cancelled() {
+        ConnectorError::Query("Query cancelled.".into())
+    } else {
+        query_failed(err)
+    }
+}
+
+/// A capped result still has unread packets. Returning the connection would
+/// make the driver drain them. Disconnect instead, on both the plain path and
+/// the read-only transaction path.
+fn drop_mysql_conn(query: &ValidatedQuery, result: &ConnectorResult<QueryResult>) -> bool {
+    // Unread packets (row cap or a cancel that aborted mid-stream) must not go
+    // back to the pool. A normal SQL error is consumed and the connection is reusable.
+    result.as_ref().map(|row| row.truncated).unwrap_or(false) || query.control.is_cancelled()
+}
+
+async fn release_conn(
+    mut conn: mysql_async::Conn,
+    result: ConnectorResult<QueryResult>,
+    read_only: bool,
+    drop_conn: bool,
+) -> ConnectorResult<QueryResult> {
+    if drop_conn {
+        let _ = conn.disconnect().await;
+        return result;
+    }
+    if read_only {
+        return end_read_only_txn(conn, result).await;
+    }
+    clear_timeouts(&mut conn).await;
+    result
+}
+
 async fn end_read_only_txn(
     mut conn: mysql_async::Conn,
     result: ConnectorResult<QueryResult>,
 ) -> ConnectorResult<QueryResult> {
     let rolled_back = conn.query_drop("ROLLBACK").await;
-    let _ = conn.query_drop("SET SESSION max_execution_time = 0").await;
+    clear_timeouts(&mut conn).await;
     match rolled_back {
         Ok(()) => result,
         Err(err) => {
@@ -111,7 +149,25 @@ async fn run_batch(
             let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
             let mut truncated = false;
             let mut result_set = result_set;
-            while let Some(row) = result_set.next().await.map_err(query_failed)? {
+            let mut saw_row = false;
+            loop {
+                if query.control.is_cancelled() {
+                    return Err(ConnectorError::Query("Query cancelled.".into()));
+                }
+                // The first row uses the overall deadline (`SLEEP` included).
+                // Later gaps use the inactivity budget and must not drop `next`
+                // before `KILL QUERY` unblocks the driver.
+                let step = if saw_row {
+                    idle_result(
+                        poll_until_idle(&query.control, inactivity(), result_set.next()).await,
+                    )?
+                } else {
+                    result_set.next().await
+                };
+                let Some(row) = step.map_err(|err| cancelled_or(query, err))? else {
+                    break;
+                };
+                saw_row = true;
                 if out_rows.len() >= max_rows {
                     truncated = true;
                     break;
@@ -122,9 +178,6 @@ async fn run_batch(
                     cells.push(value_json(v));
                 }
                 out_rows.push(cells);
-            }
-            while result_set.next().await.map_err(query_failed)?.is_some() {
-                truncated = true;
             }
 
             let mut message = if truncated {
@@ -179,7 +232,11 @@ async fn run_batch(
             }
         };
 
+        let stop = result.truncated;
         last = Some(result);
+        if stop {
+            break;
+        }
         if locked {
             ensure_still_read_only(conn).await?;
         }

@@ -26,6 +26,7 @@ pub(super) async fn execute_query(
     // Multi-statement batches: run each in order; return only the last result.
     let start = Instant::now();
     let client = session.client().await?;
+    let _guard = session.arm_cancel(&client, &query.control);
 
     let stmts = split_sql_statements_for(&query.text, SqlDialect::Postgres);
     if stmts.is_empty() {
