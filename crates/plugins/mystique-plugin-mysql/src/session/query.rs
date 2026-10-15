@@ -14,8 +14,8 @@ use serde_json::Value as JsonValue;
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts, inactivity};
 use super::encode::{mysql_type_label, value_json};
-use super::query_failed;
 use super::MysqlSession;
+use super::{query_failed, query_failed_at};
 
 pub(super) async fn execute_query(
     session: &MysqlSession,
@@ -307,6 +307,14 @@ fn cancelled_batch(batch: &ValidatedBatch, err: mysql_async::Error) -> Connector
     }
 }
 
+fn located_batch(batch: &ValidatedBatch, sql: &str, err: mysql_async::Error) -> ConnectorError {
+    if batch.control.is_cancelled() {
+        ConnectorError::Query("Query cancelled.".into())
+    } else {
+        query_failed_at(sql, err)
+    }
+}
+
 async fn run_planned_batch(
     conn: &mut mysql_async::Conn,
     batch: &ValidatedBatch,
@@ -325,7 +333,7 @@ async fn run_planned_batch(
                 if batch.control.is_cancelled() {
                     return Err(err);
                 }
-                results.push(StatementResult::failed(stmt, 0, err.to_string()));
+                results.push(StatementResult::failed(stmt, 0, &err));
                 emit_progress(&batch.progress, stmt.index, total, BatchPhase::Finished);
                 if let Some(progress) = &batch.progress {
                     progress.flush();
@@ -376,7 +384,7 @@ async fn drain_sets(
     let mut qr = conn
         .query_iter(stmt.sql.as_str())
         .await
-        .map_err(|err| cancelled_batch(batch, err))?;
+        .map_err(|err| located_batch(batch, &stmt.sql, err))?;
     let max_rows = batch.max_rows.max(1) as usize;
     let mut sets = Vec::new();
     let mut set_index: u32 = 0;
@@ -405,7 +413,7 @@ async fn drain_sets(
             } else {
                 qr.next().await
             };
-            let Some(row) = step.map_err(|err| cancelled_batch(batch, err))? else {
+            let Some(row) = step.map_err(|err| located_batch(batch, &stmt.sql, err))? else {
                 break;
             };
             saw_row = true;

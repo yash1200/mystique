@@ -1,6 +1,6 @@
 //! User-facing SQLite query errors (skip rusqlite's wrapper noise).
 
-use mystique_connector_api::{prettify_sql_error, ConnectorError};
+use mystique_connector_api::{prettify_sql_error, ConnectorError, SourcePosition};
 
 pub(crate) fn format_query_error(err: &rusqlite::Error) -> String {
     match err {
@@ -17,6 +17,24 @@ pub(crate) fn format_query_error(err: &rusqlite::Error) -> String {
 }
 
 pub(crate) fn query_failed(err: rusqlite::Error) -> ConnectorError {
+    if let rusqlite::Error::SqlInputError {
+        ref msg, offset, ..
+    } = err
+    {
+        let message = prettify_sql_error(msg);
+        if offset >= 0 {
+            return ConnectorError::query_at(
+                message,
+                SourcePosition {
+                    offset: u32::try_from(offset).unwrap_or(0),
+                    line: 1,
+                    column: 1,
+                },
+                None,
+            );
+        }
+        return ConnectorError::Query(message);
+    }
     ConnectorError::Query(format_query_error(&err))
 }
 
@@ -37,6 +55,22 @@ mod tests {
             "unexpected sqlite syntax error: {msg}"
         );
         assert!(!msg.to_ascii_lowercase().contains("query failed"));
+    }
+
+    #[test]
+    fn syntax_error_records_the_byte_offset() {
+        let conn = rusqlite::Connection::open_in_memory().expect("memory db");
+        let sql = "SELECT * FORM t";
+        let err = conn.prepare(sql).expect_err("invalid SQL should fail");
+        let mapped = super::query_failed(err);
+        let mystique_connector_api::ConnectorError::QueryAt { position, .. } = &mapped else {
+            panic!("expected a positioned error, got {mapped}");
+        };
+        let at = usize::try_from(position.offset).unwrap_or(sql.len());
+        assert!(
+            sql.get(at..).unwrap_or("").starts_with("FORM"),
+            "offset {at} in {sql:?} ({mapped})"
+        );
     }
 
     #[test]

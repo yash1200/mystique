@@ -31,7 +31,14 @@
 	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { initialActiveIndex } from '../batch-view'
-	import { splitDialectFor, textToRun } from '../statement-span'
+	import {
+		editorEpoch,
+		noteEditorEdit,
+		placeDiagnostic,
+		readQueryFault,
+		type QueryDiagnostic,
+	} from '../query-diagnostic'
+	import { splitDialectFor, submissionStart, textToRun } from '../statement-span'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
 	import { appendQueryHistory } from '../history-api'
@@ -97,6 +104,7 @@
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let editorSnap = $state({ doc: '', head: 0, anchor: 0 })
 	let exporting = $state<ResultExportAction | null>(null)
+	let locateNonce = $state(0)
 
 	// One-time seed from prop; $effect below re-syncs when parent draft changes.
 	let localText = $state(untrack(() => text ?? ''))
@@ -136,8 +144,12 @@
 				return
 			}
 		}
+		noteEditorEdit(tabId)
 		localText = prop
 		lastEmitted = prop
+		if (workspaceSession.getQueryRunCache(tabId)?.diagnostic) {
+			persistRunCache(runState, resultPage, undefined, undefined, null)
+		}
 	})
 
 	const batchResults = $derived(
@@ -179,6 +191,8 @@
 		page = resultPage,
 		submittedText?: string,
 		activeIndex = cachedRun?.activeIndex ?? 0,
+		diagnostic?: QueryDiagnostic | null,
+		submittedStart?: number,
 	) {
 		if (!tabStillOpen()) return
 		const prev = workspaceSession.getQueryRunCache(tabId)
@@ -187,7 +201,20 @@
 			resultPage: page,
 			submittedText: submittedText ?? prev?.submittedText,
 			activeIndex,
+			submittedStart: submittedStart ?? prev?.submittedStart,
+			diagnostic: diagnostic === undefined ? prev?.diagnostic : diagnostic,
 		})
+	}
+
+	function faultDiagnostic(
+		message: string,
+		position: { offset: number; line: number; column: number } | null | undefined,
+		start: number,
+		startedEpoch: number,
+	): QueryDiagnostic | null {
+		if (!position || editorEpoch(tabId) !== startedEpoch) return null
+		const doc = editorSnap.doc || currentQueryText()
+		return placeDiagnostic(doc, start, position, message)
 	}
 
 	function selectStatement(index: number) {
@@ -210,6 +237,10 @@
 		localText = value
 		lastEmitted = value
 		ontextchange?.(value)
+		noteEditorEdit(tabId)
+		if (workspaceSession.getQueryRunCache(tabId)?.diagnostic) {
+			persistRunCache(runState, resultPage, undefined, undefined, null)
+		}
 	}
 
 	function goResultPrev() {
@@ -313,13 +344,14 @@
 		}
 	}
 
-	async function runQuery(body?: string) {
+	async function runQuery(body?: string, origin = 0) {
 		if (runState.status === 'running') return
 		const mode = effectiveMode
 		const start = performance.now()
 		const sqlText = (body ?? currentQueryText()).trim()
 		if (!sqlText) return
-		persistRunCache({ status: 'running' }, 0, sqlText, 0)
+		const startedEpoch = editorEpoch(tabId)
+		persistRunCache({ status: 'running' }, 0, sqlText, 0, null, origin)
 
 		if (!isTauri()) {
 			persistRunCache({
@@ -413,6 +445,15 @@
 			if (!tabStillOpen()) return
 			const index = initialActiveIndex(batch.results, batch.stoppedAt)
 			const active = batch.results[index]
+			const diagnostic =
+				active?.error
+					? faultDiagnostic(
+							active.error,
+							active.errorPosition,
+							origin,
+							startedEpoch,
+						)
+					: null
 			persistRunCache(
 				{
 					status: 'ok',
@@ -425,6 +466,8 @@
 				0,
 				sqlText,
 				index,
+				diagnostic,
+				origin,
 			)
 			const failed = batch.stoppedAt != null
 			await recordHistory({
@@ -436,17 +479,26 @@
 			})
 		} catch (e) {
 			if (!tabStillOpen()) return
-			const msg = e instanceof Error ? e.message : String(e)
+			const fault = readQueryFault(e)
+			const msg = fault.message
 			const isPolicy = /policy:/i.test(msg) || /blocked/i.test(msg)
 			const elapsedMs = Math.round(performance.now() - start)
-			persistRunCache({
-				status: isPolicy ? 'blocked' : 'error',
-				message: isPolicy
-					? msg.replace(/^policy:\s*/i, '')
-					: userFacingQueryError(msg),
-				mode,
-				elapsedMs,
-			})
+			const shown = isPolicy
+				? msg.replace(/^policy:\s*/i, '')
+				: userFacingQueryError(msg)
+			persistRunCache(
+				{
+					status: isPolicy ? 'blocked' : 'error',
+					message: shown,
+					mode,
+					elapsedMs,
+				},
+				0,
+				sqlText,
+				fault.statementIndex ?? 0,
+				faultDiagnostic(shown, fault.position, origin, startedEpoch),
+				origin,
+			)
 			await recordHistory({
 				success: false,
 				durationMs: elapsedMs,
@@ -465,12 +517,21 @@
 
 	function askAiAboutError(errorMessage: string) {
 		const error = errorMessage.trim()
+		const diag = workspaceSession.getQueryRunCache(tabId)?.diagnostic
+		const where = diag
+			? `The failing token is at line ${diag.line}, column ${diag.column}.\n\n`
+			: ''
 		workspaceSession.queueAgentPrompt(
 			error
-				? `The query in the editor failed with this error. Debug it and fix it.\n\n${error}`
+				? `The query in the editor failed with this error. Debug it and fix it.\n\n${where}${error}`
 				: 'The query in the editor failed. Debug it and fix it.',
 		)
 		appPrefs.setAgentChatOpen(true)
+	}
+
+	function locateError() {
+		if (!workspaceSession.getQueryRunCache(tabId)?.diagnostic) return
+		locateNonce += 1
 	}
 
 	function clampSplit(pct: number): number {
@@ -502,15 +563,25 @@
 			e.preventDefault()
 			e.stopImmediatePropagation()
 			const doc = editorSnap.doc || currentQueryText()
+			const dialect = splitDialectFor(engine)
 			const text = textToRun(
 				doc,
-				splitDialectFor(engine),
+				dialect,
 				editorSnap.head,
 				editorSnap.anchor,
 				e.shiftKey,
 			)
 			if (!text) return
-			void runQuery(text)
+			void runQuery(
+				text,
+				submissionStart(
+					doc,
+					dialect,
+					editorSnap.head,
+					editorSnap.anchor,
+					e.shiftKey,
+				),
+			)
 		}
 		window.addEventListener('keydown', onKey, true)
 		return () => window.removeEventListener('keydown', onKey, true)
@@ -548,7 +619,9 @@
 				{saving}
 				onchange={emitText}
 				onactivity={(snap) => (editorSnap = snap)}
-				onrun={(request) => void runQuery(request.text)}
+				diagnostic={cachedRun?.diagnostic ?? null}
+				{locateNonce}
+				onrun={(request) => void runQuery(request.text, request.start)}
 				{onsave}
 			/>
 		</div>
@@ -587,10 +660,12 @@
 				onexport={(f) => void exportResults(f)}
 				onprev={goResultPrev}
 				onnext={goResultNext}
-				onrefresh={() =>
-					void runQuery(
-						workspaceSession.getQueryRunCache(tabId)?.submittedText,
-					)}
+				canLocate={!!cachedRun?.diagnostic}
+				onlocate={locateError}
+				onrefresh={() => {
+					const cached = workspaceSession.getQueryRunCache(tabId)
+					void runQuery(cached?.submittedText, cached?.submittedStart ?? 0)
+				}}
 				onaskai={askAiAboutError}
 			/>
 		</div>

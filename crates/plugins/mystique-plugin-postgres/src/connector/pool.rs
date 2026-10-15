@@ -35,6 +35,118 @@ pub(crate) fn query_failed(err: tokio_postgres::Error) -> ConnectorError {
     ConnectorError::Query(format_error(&err))
 }
 
+/// Same text as [`query_failed`], plus a byte offset when Postgres names a
+/// character in `sql`. Internal positions (a server-rewritten query) are omitted.
+pub(crate) fn query_failed_at(sql: &str, err: tokio_postgres::Error) -> ConnectorError {
+    let Some(db) = find_db_error(&err) else {
+        return ConnectorError::Query(format_error(&err));
+    };
+    let message = format_db_error(db);
+    let Some(tokio_postgres::error::ErrorPosition::Original(pos)) = db.position() else {
+        return ConnectorError::Query(message);
+    };
+    if *pos == 0 {
+        return ConnectorError::Query(message);
+    }
+    let offset = char_to_byte(sql, pos.saturating_sub(1));
+    ConnectorError::query_at(
+        message,
+        mystique_connector_api::SourcePosition {
+            offset,
+            line: 1,
+            column: 1,
+        },
+        None,
+    )
+}
+
+fn char_to_byte(sql: &str, char_index: u32) -> u32 {
+    let mut seen = 0u32;
+    for (index, _) in sql.char_indices() {
+        if seen == char_index {
+            return u32::try_from(index).unwrap_or(u32::MAX);
+        }
+        seen += 1;
+    }
+    u32::try_from(sql.len()).unwrap_or(u32::MAX)
+}
+
+/// `DECLARE … FOR <body>` reports positions in the wrapped text.
+pub(crate) fn shift_query_position(err: ConnectorError, prefix_bytes: u32) -> ConnectorError {
+    let ConnectorError::QueryAt {
+        message,
+        position,
+        statement_index,
+    } = err
+    else {
+        return err;
+    };
+    if position.offset < prefix_bytes {
+        return ConnectorError::Query(message);
+    }
+    ConnectorError::query_at(
+        message,
+        mystique_connector_api::SourcePosition {
+            offset: position.offset - prefix_bytes,
+            line: 1,
+            column: 1,
+        },
+        statement_index,
+    )
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::{char_to_byte, shift_query_position};
+    use mystique_connector_api::ConnectorError;
+
+    #[test]
+    fn a_multibyte_character_index_lands_on_that_character() {
+        let sql = "SELECT '你'";
+        let offset = char_to_byte(sql, 8);
+        let at = usize::try_from(offset).unwrap_or(sql.len());
+        assert_eq!(sql.get(at..at.saturating_add('你'.len_utf8())), Some("你"));
+    }
+
+    #[test]
+    fn declare_prefix_moves_the_offset_onto_the_user_body() {
+        let body = "SELECT * FORM t";
+        let prefix = "DECLARE mystique_row_cap NO SCROLL CURSOR FOR ";
+        let declare = format!("{prefix}{body}");
+        let Some(form) = declare.find("FORM") else {
+            panic!("FORM missing");
+        };
+        let Ok(form_at) = u32::try_from(form) else {
+            panic!("offset");
+        };
+        let err = ConnectorError::query_at(
+            "syntax",
+            mystique_connector_api::position_at(&declare, form_at),
+            None,
+        );
+        let Ok(prefix_len) = u32::try_from(prefix.len()) else {
+            panic!("prefix");
+        };
+        let shifted = shift_query_position(err, prefix_len);
+        let ConnectorError::QueryAt { position, .. } = shifted else {
+            panic!("expected a position");
+        };
+        let at = usize::try_from(position.offset).unwrap_or(body.len());
+        assert_eq!(body.get(at..at.saturating_add(4)), Some("FORM"));
+    }
+
+    #[test]
+    fn a_position_inside_the_declare_prefix_is_not_an_underline() {
+        let err = ConnectorError::query_at(
+            "syntax",
+            mystique_connector_api::position_at("DECLARE x", 0),
+            None,
+        );
+        let shifted = shift_query_position(err, 40);
+        assert!(matches!(shifted, ConnectorError::Query(_)));
+    }
+}
+
 /// `Row::get` panics on NULL or a width mismatch (Cockroach INT8 vs INT4).
 pub(crate) fn pg_col<'a, T>(row: &'a tokio_postgres::Row, idx: usize) -> ConnectorResult<T>
 where

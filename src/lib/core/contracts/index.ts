@@ -59,6 +59,7 @@ export type {
 	QueryColumn,
 	QueryMode,
 	QueryResult,
+	SourcePosition,
 	SqlRange,
 	StatementKind,
 	StatementResult,

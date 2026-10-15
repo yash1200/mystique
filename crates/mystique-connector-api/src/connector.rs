@@ -152,7 +152,7 @@ pub trait ConnectorSession: Send + Sync {
                     if batch.control.is_cancelled() {
                         return Err(err);
                     }
-                    results.push(StatementResult::failed(stmt, 0, err.to_string()));
+                    results.push(StatementResult::failed(stmt, 0, &err));
                     if let Some(progress) = &batch.progress {
                         progress.emit(
                             BatchEvent {

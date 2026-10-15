@@ -22,6 +22,33 @@ pub struct PlannedStatement {
     pub destructive_names: Vec<String>,
 }
 
+/// One statement the parser rejected. `offset` is a byte into the whole batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxFault {
+    pub index: u32,
+    pub message: String,
+    pub offset: u32,
+}
+
+/// First statement that is a syntax error. Known fallbacks are not faults.
+pub fn first_syntax_fault(sql: &str, dialect: SqlDialect) -> Option<SyntaxFault> {
+    for (index, span) in split_statement_spans(sql, dialect).into_iter().enumerate() {
+        let Ok(index) = u32::try_from(index) else {
+            break;
+        };
+        let Some((message, local)) = super::risk::syntax_fault_in(&span.text, dialect) else {
+            continue;
+        };
+        let base = u32::try_from(span.start).unwrap_or(u32::MAX);
+        return Some(SyntaxFault {
+            index,
+            message,
+            offset: base.saturating_add(local),
+        });
+    }
+    None
+}
+
 /// Split `sql` and route every statement from a single parse.
 ///
 /// Empty and comment-only chunks are dropped. An empty batch is an empty vec.
@@ -133,6 +160,34 @@ mod tests {
         assert_eq!(plan[0].risk, StatementRisk::Write);
         assert!(plan[0].returns_rows);
         assert!(!plan[0].cursor);
+    }
+
+    #[test]
+    fn form_is_a_syntax_fault_on_that_token() {
+        let sql = "SELECT * FORM t";
+        let fault = first_syntax_fault(sql, SqlDialect::Postgres).expect("fault");
+        assert_eq!(fault.index, 0);
+        let at = usize::try_from(fault.offset).unwrap_or(0);
+        let token = sql.get(at..).unwrap_or("");
+        assert!(
+            token.starts_with("FORM"),
+            "offset {at} landed on {token:?} ({fault:?})"
+        );
+    }
+
+    #[test]
+    fn syntax_fault_in_statement_two_is_not_at_the_start() {
+        let sql = "SELECT 1; SELECT * FORM t";
+        let fault = first_syntax_fault(sql, SqlDialect::Postgres).expect("fault");
+        assert_eq!(fault.index, 1);
+        let at = usize::try_from(fault.offset).unwrap_or(0);
+        assert!(sql.get(at..).unwrap_or("").starts_with("FORM"), "{fault:?}");
+        assert!(at > "SELECT 1; ".len(), "{fault:?}");
+    }
+
+    #[test]
+    fn table_read_is_not_a_syntax_fault() {
+        assert!(first_syntax_fault("TABLE t", SqlDialect::Postgres).is_none());
     }
 
     #[test]

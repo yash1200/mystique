@@ -12,8 +12,8 @@ use mystique_connector_api::{
 use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
-use super::query_failed;
 use super::PostgresSession;
+use super::{query_failed, query_failed_at, shift_query_position};
 
 /// Portal name for the capped fetch. Closed before the next statement.
 const ROW_CURSOR: &str = "mystique_row_cap";
@@ -167,6 +167,7 @@ async fn run_planned(
         let mut opened = false;
         if stmt.cursor && !*in_txn {
             if let Err(err) = client.batch_execute("BEGIN").await {
+                // The failure is in the wrapper, not in the user's statement.
                 return postgres_statement_error(stmt, query_failed(err), &batch.control);
             }
             opened = true;
@@ -235,7 +236,13 @@ async fn run_planned(
     if stmt.returns_count {
         let messages = match client.simple_query(&stmt.sql).await {
             Ok(messages) => messages,
-            Err(err) => return postgres_statement_error(stmt, query_failed(err), &batch.control),
+            Err(err) => {
+                return postgres_statement_error(
+                    stmt,
+                    query_failed_at(&stmt.sql, err),
+                    &batch.control,
+                )
+            }
         };
         let affected = messages
             .into_iter()
@@ -248,7 +255,7 @@ async fn run_planned(
     }
 
     if let Err(err) = client.batch_execute(&stmt.sql).await {
-        return postgres_statement_error(stmt, query_failed(err), &batch.control);
+        return postgres_statement_error(stmt, query_failed_at(&stmt.sql, err), &batch.control);
     }
     Ok(executed_statement(stmt, batch.mode, None, started))
 }
@@ -285,7 +292,7 @@ fn postgres_statement_error(
     if control.is_cancelled() {
         Err(err)
     } else {
-        Ok(StatementResult::failed(stmt, 0, err.to_string()))
+        Ok(StatementResult::failed(stmt, 0, &err))
     }
 }
 
@@ -498,10 +505,11 @@ async fn fetch_cursor(client: &Client, sql: &str, limit: usize) -> ConnectorResu
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
     let count = fetch_count(limit)?;
-    client
-        .batch_execute(&format!("DECLARE {ROW_CURSOR} NO SCROLL CURSOR FOR {body}"))
-        .await
-        .map_err(query_failed)?;
+    let declare = format!("DECLARE {ROW_CURSOR} NO SCROLL CURSOR FOR {body}");
+    let prefix = u32::try_from(declare.len().saturating_sub(body.len())).unwrap_or(0);
+    if let Err(err) = client.batch_execute(&declare).await {
+        return Err(shift_query_position(query_failed_at(&declare, err), prefix));
+    }
 
     let fetched = read_fetch(client, limit, count).await;
     let closed = client
@@ -517,32 +525,44 @@ async fn fetch_cursor(client: &Client, sql: &str, limit: usize) -> ConnectorResu
 
 async fn read_fetch(client: &Client, limit: usize, count: i32) -> ConnectorResult<Fetched> {
     let sql = format!("FETCH {count} FROM {ROW_CURSOR}");
-    read_stream(client, &sql, limit).await
+    read_stream(client, &sql, limit, false).await
 }
 
 /// Small utility result. Not a cursor, so this is not how large SELECTs run.
 async fn fetch_utility(client: &Client, sql: &str, limit: usize) -> ConnectorResult<Fetched> {
-    read_stream(client, sql, limit).await
+    read_stream(client, sql, limit, true).await
 }
 
-async fn read_stream(client: &Client, sql: &str, limit: usize) -> ConnectorResult<Fetched> {
+async fn read_stream(
+    client: &Client,
+    sql: &str,
+    limit: usize,
+    locate: bool,
+) -> ConnectorResult<Fetched> {
+    let locate_err = |err: tokio_postgres::Error| {
+        if locate {
+            query_failed_at(sql, err)
+        } else {
+            query_failed(err)
+        }
+    };
     let stream = client
         .query_raw(sql, std::iter::empty::<i32>())
         .await
-        .map_err(query_failed)?;
+        .map_err(locate_err)?;
     let mut stream = pin!(stream);
     let capped = collect_capped(&mut stream, limit).await;
     // A truncated FETCH still owes ReadyForQuery. An error does too. Polling
     // again after a clean end asks a closed response channel and fails.
     if !matches!(capped, Ok(ref got) if got.exhausted) {
         if let Err(err) = finish_stream(&mut stream).await {
-            return Err(query_failed(match capped {
+            return Err(locate_err(match capped {
                 Err(fetch_err) => fetch_err,
                 Ok(_) => err,
             }));
         }
     }
-    capped.map(rows_from).map_err(query_failed)
+    capped.map(rows_from).map_err(locate_err)
 }
 
 struct Capped<T> {

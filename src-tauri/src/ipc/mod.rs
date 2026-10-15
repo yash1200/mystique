@@ -46,6 +46,19 @@ pub fn guard_sync<T>(body: impl FnOnce() -> Result<T, String>) -> Result<T, Stri
 
 /// Run an async IPC body. Polled in place — Tauri `State` is not `'static`,
 /// so the command future cannot be moved onto `tokio::spawn`.
+pub async fn guard_query<T>(
+    body: impl std::future::Future<Output = mystique_core::ConnectorResult<T>> + Send,
+) -> Result<T, mystique_core::QueryIpcError> {
+    match futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(body)).await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(err)) => Err(mystique_core::QueryIpcError::from(err)),
+        Err(payload) => Err(mystique_core::QueryIpcError::plain(format!(
+            "internal error: {}",
+            panic_payload(&payload)
+        ))),
+    }
+}
+
 pub async fn guard<T>(
     body: impl std::future::Future<Output = Result<T, String>> + Send,
 ) -> Result<T, String> {

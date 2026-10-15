@@ -137,6 +137,12 @@ export interface QueryResult {
 	message?: string | null
 }
 
+export interface SourcePosition {
+	offset: number
+	line: number
+	column: number
+}
+
 export type StatementKind = 'read' | 'session' | 'write' | 'destructive'
 
 export interface SqlRange {
@@ -153,6 +159,7 @@ export interface StatementResult {
 	result?: QueryResult | null
 	affectedRows?: number | null
 	error?: string | null
+	errorPosition?: SourcePosition | null
 	notices?: string[]
 }
 

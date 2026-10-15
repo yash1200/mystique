@@ -583,7 +583,7 @@ fn sqlite_statement_error(
     if control.is_cancelled() {
         Err(mapped)
     } else {
-        Ok(StatementResult::failed(stmt, 0, mapped.to_string()))
+        Ok(StatementResult::failed(stmt, 0, &mapped))
     }
 }
 

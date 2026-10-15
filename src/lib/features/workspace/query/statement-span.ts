@@ -160,6 +160,23 @@ export function textToRun(
 	return statementAt(splitStatementSpans(sql, dialect), head)?.text ?? null
 }
 
+/** Editor index of the text [`textToRun`] returns. */
+export function submissionStart(
+	sql: string,
+	dialect: SplitDialect,
+	head: number,
+	anchor: number,
+	all: boolean,
+): number {
+	if (all) return sql.length - sql.trimStart().length
+	if (anchor !== head) {
+		const from = Math.min(anchor, head)
+		const raw = sql.slice(from, Math.max(anchor, head))
+		return from + (raw.length - raw.trimStart().length)
+	}
+	return statementAt(splitStatementSpans(sql, dialect), head)?.start ?? 0
+}
+
 function pushSpan(
 	out: StatementSpan[],
 	sql: string,

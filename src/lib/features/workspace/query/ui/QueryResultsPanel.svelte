@@ -41,6 +41,8 @@
 		onnext: () => void
 		onrefresh: () => void
 		onaskai?: (message: string) => void
+		canLocate?: boolean
+		onlocate?: () => void
 		statements?: StatementResult[]
 		activeIndex?: number
 		submittedText?: string
@@ -64,6 +66,8 @@
 		onnext,
 		onrefresh,
 		onaskai,
+		canLocate = false,
+		onlocate,
 		statements = [],
 		activeIndex = 0,
 		submittedText = '',
@@ -267,6 +271,11 @@
 						>
 							<Icon name={copiedError ? 'check' : 'copy'} />
 						</IconButton>
+						{#if canLocate && onlocate}
+							<Button size="sm" variant="secondary" onclick={onlocate}>
+								Locate error
+							</Button>
+						{/if}
 						{#if onaskai}
 							<Button
 								size="sm"
@@ -340,6 +349,11 @@
 					>
 						<Icon name={copiedError ? 'check' : 'copy'} />
 					</IconButton>
+					{#if canLocate && onlocate}
+						<Button size="sm" variant="secondary" onclick={onlocate}>
+							Locate error
+						</Button>
+					{/if}
 					{#if onaskai}
 						<Button
 							size="sm"

@@ -27,7 +27,7 @@ mod query;
 mod structure;
 mod transfer;
 
-pub(super) use crate::connector::pool::query_failed;
+pub(super) use crate::connector::pool::{query_failed, query_failed_at};
 
 pub struct MysqlSession {
     pool: Pool,

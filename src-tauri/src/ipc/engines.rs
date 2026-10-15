@@ -224,16 +224,9 @@ pub async fn cancel_engine_query(
 pub async fn execute_engine_query(
     state: State<'_, AppState>,
     request: mystique_core::ExecuteQueryRequest,
-) -> Result<mystique_core::QueryResult, String> {
-    super::guard(async move {
-        state
-            .services
-            .connections()
-            .execute_query(request)
-            .await
-            .map_err(|e| e.to_string())
-    })
-    .await
+) -> Result<mystique_core::QueryResult, mystique_core::QueryIpcError> {
+    super::guard_query(async move { state.services.connections().execute_query(request).await })
+        .await
 }
 
 #[tauri::command]
@@ -241,8 +234,8 @@ pub async fn execute_engine_batch(
     state: State<'_, AppState>,
     request: mystique_core::ExecuteQueryRequest,
     on_progress: tauri::ipc::Channel<mystique_core::BatchEvent>,
-) -> Result<mystique_core::QueryBatchResult, String> {
-    super::guard(async move {
+) -> Result<mystique_core::QueryBatchResult, mystique_core::QueryIpcError> {
+    super::guard_query(async move {
         let progress = mystique_core::ProgressPump::new(move |event| {
             let _ = on_progress.send(event);
         });
@@ -251,7 +244,6 @@ pub async fn execute_engine_batch(
             .connections()
             .execute_batch(request, Some(progress))
             .await
-            .map_err(|e| e.to_string())
     })
     .await
 }

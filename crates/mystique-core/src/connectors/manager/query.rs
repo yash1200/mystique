@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    clamp_timeout_ms, gate_sql_batch, BatchEvent, BatchPhase, ConnectorError, ConnectorResult,
-    ExecuteQueryRequest, ProgressPump, QueryBatchResult, QueryMode, QueryResult, SqlDialect,
-    SqlRange, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery, DEFAULT_MAX_ROWS,
-    HARD_MAX_ROWS,
+    clamp_timeout_ms, gate_sql_batch, position_at, BatchEvent, BatchPhase, ConnectorError,
+    ConnectorResult, ExecuteQueryRequest, ProgressPump, QueryBatchResult, QueryMode, QueryResult,
+    SqlDialect, SqlRange, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery,
+    DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
 };
 
 use super::ConnectionManager;
@@ -71,9 +71,12 @@ impl ConnectionManager {
             control: Arc::clone(&control),
             progress,
         };
-        let result = self
+        let mut result = self
             .drive_registered(&control, timeout_ms, session.execute_batch(&batch))
             .await;
+        if let Ok(batch_result) = result.as_mut() {
+            place_error_positions(&req.text, batch_result);
+        }
         self.finish_run(&id).await;
         result
     }
@@ -159,6 +162,7 @@ impl ConnectionManager {
                 result: Some(result),
                 affected_rows: None,
                 error: None,
+                error_position: None,
                 notices: Vec::new(),
             }],
             stopped_at: None,
@@ -167,6 +171,14 @@ impl ConnectionManager {
 }
 
 /// Last successful statement, or the error that stopped the batch.
+fn place_error_positions(text: &str, batch: &mut QueryBatchResult) {
+    for stmt in &mut batch.results {
+        if let Some(position) = stmt.error_position.as_mut() {
+            *position = position_at(text, position.offset);
+        }
+    }
+}
+
 fn fold_batch(batch: QueryBatchResult) -> ConnectorResult<QueryResult> {
     if let Some(index) = batch.stopped_at {
         let message = batch

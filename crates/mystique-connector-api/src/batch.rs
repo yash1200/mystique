@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::cancel::QueryControl;
-use crate::error::{ConnectorError, ConnectorResult};
+use crate::error::{position_at, ConnectorError, ConnectorResult};
 use crate::query::{QueryMode, QueryResult};
 use crate::SqlDialect;
 use crate::WriteRisk;
@@ -210,6 +210,9 @@ pub struct StatementResult {
     pub affected_rows: Option<u64>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Byte offset in the submitted batch. Absent when the engine named no character.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_position: Option<crate::SourcePosition>,
     #[serde(default)]
     pub notices: Vec<String>,
 }
@@ -230,11 +233,17 @@ impl StatementResult {
             result: Some(result),
             affected_rows,
             error: None,
+            error_position: None,
             notices,
         }
     }
 
-    pub fn failed(stmt: &PlannedStatement, set_index: u32, error: impl Into<String>) -> Self {
+    pub fn failed(stmt: &PlannedStatement, set_index: u32, err: &crate::ConnectorError) -> Self {
+        let error_position = err.local_position().map(|local| crate::SourcePosition {
+            offset: stmt.sql_range.start.saturating_add(local.offset),
+            line: local.line,
+            column: local.column,
+        });
         Self {
             index: stmt.index,
             set_index,
@@ -242,7 +251,8 @@ impl StatementResult {
             kind: stmt.kind,
             result: None,
             affected_rows: None,
-            error: Some(error.into()),
+            error: Some(err.user_message()),
+            error_position,
             notices: Vec::new(),
         }
     }
@@ -277,6 +287,13 @@ pub fn gate_sql_batch(
     dialect: SqlDialect,
     mode: QueryMode,
 ) -> ConnectorResult<SqlBatchPlan> {
+    if let Some(fault) = mystique_sql::first_syntax_fault(text, dialect) {
+        return Err(ConnectorError::query_at(
+            fault.message,
+            position_at(text, fault.offset),
+            Some(fault.index),
+        ));
+    }
     let planned = mystique_sql::plan_batch(text, dialect);
     if planned.is_empty() {
         return Err(ConnectorError::Policy("Query is empty.".into()));
@@ -309,22 +326,30 @@ pub fn gate_sql_batch(
     }
 
     if let Some(stmt) = statements.iter().find(|stmt| stmt.txn_boundary) {
-        return Err(ConnectorError::Query(format!(
-            "Statement {} starts or ends a transaction ({}). Nothing ran.",
-            display_index(stmt.index),
-            sql_snippet(&stmt.sql)
-        )));
+        return Err(ConnectorError::query_at(
+            format!(
+                "Statement {} starts or ends a transaction ({}). Nothing ran.",
+                display_index(stmt.index),
+                sql_snippet(&stmt.sql)
+            ),
+            position_at(text, stmt.sql_range.start),
+            Some(stmt.index),
+        ));
     }
     if mode == QueryMode::Read {
         if let Some(stmt) = statements
             .iter()
             .find(|stmt| stmt.kind != StatementKind::Read)
         {
-            return Err(ConnectorError::Policy(format!(
-                "Statement {} is not a read ({}). Nothing ran.",
-                display_index(stmt.index),
-                sql_snippet(&stmt.sql)
-            )));
+            return Err(ConnectorError::query_at(
+                format!(
+                    "policy: Statement {} is not a read ({}). Nothing ran.",
+                    display_index(stmt.index),
+                    sql_snippet(&stmt.sql)
+                ),
+                position_at(text, stmt.sql_range.start),
+                Some(stmt.index),
+            ));
         }
     }
 

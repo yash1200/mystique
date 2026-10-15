@@ -5,7 +5,7 @@ use sqlparser::ast::{
     FunctionArguments, JoinConstraint, JoinOperator, MergeAction, ObjectName, Query, Select,
     SelectItem, Set, SetExpr, Statement, TableFactor,
 };
-use sqlparser::parser::Parser;
+use sqlparser::parser::{Parser, ParserError};
 
 use super::{split_statements, SqlDialect};
 
@@ -122,14 +122,97 @@ pub fn destructive_object_name(sql: &str, dialect: SqlDialect) -> Option<String>
 }
 
 fn parse(sql: &str, dialect: SqlDialect) -> Option<Vec<Statement>> {
+    parse_result(sql, dialect).ok()
+}
+
+fn parse_result(sql: &str, dialect: SqlDialect) -> Result<Vec<Statement>, ParserError> {
     let boxed = dialect.parser_dialect();
-    Parser::parse_sql(&*boxed, sql).ok().or_else(|| {
-        if matches!(dialect, SqlDialect::Generic) {
-            None
-        } else {
-            Parser::parse_sql(&sqlparser::dialect::GenericDialect {}, sql).ok()
+    match Parser::parse_sql(&*boxed, sql) {
+        Ok(statements) => Ok(statements),
+        Err(primary) => {
+            if matches!(dialect, SqlDialect::Generic) {
+                return Err(primary);
+            }
+            match Parser::parse_sql(&sqlparser::dialect::GenericDialect {}, sql) {
+                Ok(statements) => Ok(statements),
+                Err(_) => Err(primary),
+            }
         }
-    })
+    }
+}
+
+/// A statement the planner still accepts when sqlparser cannot read it.
+pub(crate) fn skip_syntax_check(sql: &str) -> bool {
+    has_versioned_comment(sql)
+        || looks_like_do_block(sql)
+        || looks_like_table_read(sql)
+        || looks_like_pragma_read(sql)
+}
+
+/// Parse failure that should not be sent to the engine.
+///
+/// `offset` is a byte offset in `sql`. Known fallbacks (`TABLE`, `PRAGMA`,
+/// versioned comments, `DO` blocks) return none.
+pub(crate) fn syntax_fault_in(sql: &str, dialect: SqlDialect) -> Option<(String, u32)> {
+    if skip_syntax_check(sql) {
+        return None;
+    }
+    let Err(err) = parse_result(sql, dialect) else {
+        return None;
+    };
+    let raw = err.to_string();
+    let (line, column) = location_from_message(&raw).unwrap_or((1, 1));
+    let offset = byte_at(sql, line.max(1), column.max(1));
+    Some((
+        strip_location(&raw),
+        u32::try_from(offset).unwrap_or(u32::MAX),
+    ))
+}
+
+fn location_from_message(message: &str) -> Option<(u32, u32)> {
+    let marker = "Line:";
+    let line_at = message.rfind(marker)?;
+    let rest = message[line_at + marker.len()..].trim_start();
+    let line = rest
+        .split(|ch: char| !ch.is_ascii_digit())
+        .next()
+        .unwrap_or("")
+        .parse()
+        .ok()?;
+    let col_marker = "Column:";
+    let col_at = rest.find(col_marker)?;
+    let col_rest = rest[col_at + col_marker.len()..].trim_start();
+    let column = col_rest
+        .split(|ch: char| !ch.is_ascii_digit())
+        .next()
+        .unwrap_or("")
+        .parse()
+        .ok()?;
+    Some((line, column))
+}
+
+fn strip_location(message: &str) -> String {
+    let Some(at) = message.rfind(" at Line:") else {
+        return message.trim().to_string();
+    };
+    message[..at].trim().to_string()
+}
+
+fn byte_at(text: &str, line: u32, column: u32) -> usize {
+    let mut cur_line = 1u32;
+    let mut cur_col = 1u32;
+    for (index, ch) in text.char_indices() {
+        if cur_line == line && cur_col == column {
+            return index;
+        }
+        if ch == '\n' {
+            cur_line += 1;
+            cur_col = 1;
+        } else {
+            cur_col += 1;
+        }
+    }
+    text.len()
 }
 
 fn classify_one(sql: &str, dialect: SqlDialect) -> StatementRisk {

@@ -28,8 +28,10 @@
 	import {
 		splitDialectFor,
 		splitStatementSpans,
+		submissionStart,
 		textToRun,
 	} from '../statement-span'
+	import { setDiagnostics } from '@codemirror/lint'
 	import { basicSetup } from 'codemirror'
 	import { onMount } from 'svelte'
 	import { mystiqueSearch } from '../cm-search-panel'
@@ -65,7 +67,11 @@
 		onchange?: (text: string) => void
 		/** Caret and document, so a shortcut from outside the editor can run too. */
 		onactivity?: (snap: { doc: string; head: number; anchor: number }) => void
-		onrun: (request: { text: string }) => void
+		onrun: (request: { text: string; start: number }) => void
+		/** Underline in the editor. Null clears it. */
+		diagnostic?: { from: number; to: number; message: string } | null
+		/** Bumps when Locate error should scroll again. */
+		locateNonce?: number
 		/** Save query for this connection (name prompt handled by parent). */
 		onsave?: () => void
 	}
@@ -90,10 +96,14 @@
 		onactivity,
 		onrun,
 		onsave,
+		diagnostic = null,
+		locateNonce = 0,
 	}: Props = $props()
 
 	let hostEl = $state<HTMLDivElement | null>(null)
 	let view: EditorView | null = null
+	let editorReady = $state(0)
+	let scrolledKey = ''
 	let langCompartment = new Compartment()
 	let placeholderCompartment = new Compartment()
 	let themeCompartment = new Compartment()
@@ -107,7 +117,7 @@
 
 	// Stable bag so CM keymaps/listeners always call latest props.
 	const callbacks = {
-		onrun: (_request: { text: string }) => {},
+		onrun: (_request: { text: string; start: number }) => {},
 		onformat: () => {},
 		onsave: undefined as Props['onsave'],
 		onchange: undefined as Props['onchange'],
@@ -127,9 +137,11 @@
 
 	class StatementRunMarker extends GutterMarker {
 		text: string
-		constructor(text: string) {
+		start: number
+		constructor(text: string, start: number) {
 			super()
 			this.text = text
+			this.start = start
 		}
 		toDOM() {
 			const btn = document.createElement('button')
@@ -146,7 +158,7 @@
 				event.preventDefault()
 				event.stopPropagation()
 				if (callbacks.running) return
-				callbacks.onrun({ text: this.text })
+				callbacks.onrun({ text: this.text, start: this.start })
 			})
 			return btn
 		}
@@ -166,7 +178,11 @@
 					)
 					if (line.number === lastLine) continue
 					lastLine = line.number
-					builder.add(line.from, line.from, new StatementRunMarker(span.text))
+					builder.add(
+						line.from,
+						line.from,
+						new StatementRunMarker(span.text, span.start),
+					)
 				}
 				return builder.finish()
 			},
@@ -177,9 +193,13 @@
 		const doc = view?.state.doc.toString() ?? localText ?? ''
 		const head = view?.state.selection.main.head ?? doc.length
 		const anchor = view?.state.selection.main.anchor ?? head
-		const text = textToRun(doc, splitDialectFor(engine), head, anchor, all)
+		const dialect = splitDialectFor(engine)
+		const text = textToRun(doc, dialect, head, anchor, all)
 		if (!text || callbacks.running) return
-		callbacks.onrun({ text })
+		callbacks.onrun({
+			text,
+			start: submissionStart(doc, dialect, head, anchor, all),
+		})
 	}
 
 	function publishActivity() {
@@ -268,6 +288,7 @@
 			langCompartment.of(languageExtension(lang, engine, catalogColumns)),
 			placeholderCompartment.of(ph ? cmPlaceholder(ph) : []),
 			autocompletion({ activateOnTyping: true, icons: true }),
+			// No linter source. An empty source replaces setDiagnostics after its idle delay.
 			EditorView.lineWrapping,
 			// Beat basicSetup's defaultKeymap (Mod-Enter = insertBlankLine).
 			Prec.highest(
@@ -347,6 +368,7 @@
 			extensions: buildExtensions(language, placeholder),
 			parent: hostEl,
 		})
+		editorReady += 1
 		publishActivity()
 
 		return () => {
@@ -386,6 +408,41 @@
 			changes: { from: 0, to: cur.length, insert: next },
 		})
 		applyingExternal = false
+	})
+
+	$effect(() => {
+		void editorReady
+		const range = diagnostic
+		const nonce = locateNonce
+		const v = view
+		if (!v) return
+		const length = v.state.doc.length
+		const from = range ? Math.min(range.from, length) : 0
+		const to = range ? Math.min(Math.max(range.to, from), length) : 0
+		const marks =
+			range && to > from
+				? [
+						{
+							from,
+							to,
+							severity: 'error' as const,
+							message: range.message,
+						},
+					]
+				: []
+		v.dispatch(setDiagnostics(v.state, marks))
+		const key = range && to > from ? `${nonce}:${from}:${to}` : ''
+		if (!key) {
+			scrolledKey = ''
+			return
+		}
+		if (key === scrolledKey) return
+		scrolledKey = key
+		v.dispatch({
+			selection: { anchor: from, head: to },
+			scrollIntoView: true,
+		})
+		v.focus()
 	})
 
 	// Language / placeholder / catalog completions when engine or schema changes.

@@ -1,4 +1,5 @@
 import type { QueryBatchResult, QueryMode, QueryResult } from '#core/contracts'
+import type { QueryDiagnostic } from './query-diagnostic'
 
 export type RunState =
 	| { status: 'idle' }
@@ -25,4 +26,8 @@ export type QueryRunCache = {
 	submittedText?: string
 	/** Selected result-set chip. Restored when the tab is shown again. */
 	activeIndex?: number
+	/** Editor index of `submittedText`. Diagnostics are offsets from here. */
+	submittedStart?: number
+	/** Cleared on the next edit. Survives a results-panel re-render. */
+	diagnostic?: QueryDiagnostic | null
 }

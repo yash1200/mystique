@@ -1083,6 +1083,52 @@ async fn begin_is_refused_and_a_later_write_does_not_run() {
 }
 
 #[tokio::test]
+async fn syntax_error_names_form_and_runs_nothing() {
+    let path = temp_db("batch-syntax");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-syntax").await;
+    mgr.execute_query(write_req(
+        "batch-syntax",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+
+    let sql = "SELECT 1; SELECT * FORM t";
+    let err = mgr
+        .execute_batch(
+            batch_req(
+                "batch-syntax",
+                sql,
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect_err("syntax");
+    match err {
+        mystique_connector_api::ConnectorError::QueryAt {
+            position,
+            statement_index,
+            ..
+        } => {
+            assert_eq!(statement_index, Some(1));
+            let at = usize::try_from(position.offset).unwrap_or(0);
+            assert!(
+                sql.get(at..).unwrap_or("").starts_with("FORM"),
+                "offset {at} in {sql:?}"
+            );
+        }
+        other => panic!("expected a positioned error, got {other}"),
+    }
+    assert_eq!(count_rows(&mgr, "batch-syntax").await, 1);
+
+    let _ = mgr.close_session("batch-syntax").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
 async fn a_later_statement_error_keeps_the_earlier_result() {
     let path = temp_db("batch-partial");
     let _ = std::fs::remove_file(&path);
