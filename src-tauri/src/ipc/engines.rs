@@ -314,6 +314,15 @@ pub async fn cancel_engine_query(
 }
 
 #[tauri::command]
+pub async fn explain_engine_query(
+    state: State<'_, AppState>,
+    request: mystique_core::ExplainQueryRequest,
+) -> Result<mystique_core::ExplainPlan, mystique_core::QueryIpcError> {
+    super::guard_query(async move { state.services.connections().explain_query(request).await })
+        .await
+}
+
+#[tauri::command]
 pub async fn execute_engine_query(
     state: State<'_, AppState>,
     request: mystique_core::ExecuteQueryRequest,

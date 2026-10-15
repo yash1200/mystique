@@ -19,6 +19,7 @@ mod catalog;
 mod config;
 mod connector;
 mod error;
+mod explain;
 mod form;
 mod json_cell;
 mod metrics;
@@ -40,6 +41,10 @@ pub use catalog::*;
 pub use config::*;
 pub use connector::*;
 pub use error::*;
+pub use explain::{
+    explain_rejection, ExplainPlan, ExplainQueryRequest, PlanField, PlanNode, EXPLAIN_NOT_EXECUTED,
+    EXPLAIN_REJECTED,
+};
 pub use form::*;
 pub use json_cell::{json_decimal, json_f64, json_i64, json_u64, JS_MAX_SAFE_INTEGER};
 pub use metrics::*;

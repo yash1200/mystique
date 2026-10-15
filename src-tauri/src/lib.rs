@@ -98,6 +98,7 @@ pub fn run() {
             ipc::engines::get_engine_session,
             ipc::engines::unlock_engine_writes,
             ipc::engines::execute_engine_query,
+            ipc::engines::explain_engine_query,
             ipc::engines::execute_engine_batch,
             ipc::engines::execute_pinned_batch,
             ipc::engines::pin_query_tab,

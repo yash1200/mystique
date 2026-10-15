@@ -70,6 +70,8 @@ export interface EngineCapabilities {
 	supportsCancelQuery: boolean
 	/** Manual commit on a pinned connection. Off until a Mongo replica set is detected. */
 	supportsTransactions?: boolean
+	/** Explain button. Missing means the engine did not advertise it. */
+	supportsExplainPlan?: boolean
 	/** Query gutter. One implementation for every engine that can run a statement. */
 	supportsQuery: boolean
 	supportsPooling: boolean

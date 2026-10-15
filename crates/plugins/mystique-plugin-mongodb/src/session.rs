@@ -7,12 +7,12 @@ use mongodb::bson::doc;
 use mongodb::Client;
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, ColumnInfo,
-    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
-    ExportObjectResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
-    PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult, ServerMetricsSnapshot,
-    TableAdminInput, TableAdminResult, TablePreviewResult, TablePreviewStats,
-    TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
+    ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExplainPlan,
+    ExportObjectInput, ExportObjectResult, FetchServerMetricsInput, FetchTablePreviewInput,
+    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure,
+    PinnedSession, PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult,
+    ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
+    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
 };
 
 mod admin;
@@ -20,6 +20,7 @@ mod catalog;
 mod edits;
 mod encode;
 mod error;
+mod explain;
 mod metrics;
 mod pin;
 mod preview;
@@ -120,6 +121,14 @@ impl ConnectorSession for MongoSession {
 
     async fn execute_query(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         query::execute_query(self, query).await
+    }
+
+    async fn explain_query(
+        &self,
+        query: &ValidatedQuery,
+        analyze: bool,
+    ) -> ConnectorResult<ExplainPlan> {
+        explain::explain_query(self, query, analyze).await
     }
 
     async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {

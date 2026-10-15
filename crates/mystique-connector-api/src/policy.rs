@@ -12,9 +12,10 @@ use crate::WriteRisk;
 pub use mongo::{mongo_is_safe_dml, mongo_is_write_command, MongoQueryPolicy};
 pub use sql::{
     classify_sql_statement, classify_sql_statement_for, split_sql_statements,
-    split_sql_statements_for, sql_destructive_object_name, sql_destructive_object_name_for,
-    sql_explain_executes, sql_is_safe_dml, sql_is_safe_dml_for, validate_sql_statement,
-    validate_sql_statement_for, SqlDialect,
+    split_sql_statements_for, sql_analyze_guard_risk, sql_destructive_object_name,
+    sql_destructive_object_name_for, sql_explain_executes, sql_explain_subject, sql_is_proven_read,
+    sql_is_safe_dml, sql_is_safe_dml_for, validate_sql_statement, validate_sql_statement_for,
+    SqlDialect,
 };
 
 /// Engine-specific statement classification + allow/deny.

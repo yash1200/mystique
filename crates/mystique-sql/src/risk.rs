@@ -49,6 +49,26 @@ pub fn is_safe_dml(sql: &str, dialect: SqlDialect) -> bool {
     stmts.iter().all(|s| one_is_safe_dml(s, dialect))
 }
 
+/// Statement text to wrap in `EXPLAIN`. A leading `EXPLAIN` is peeled off
+/// so the button does not plan `EXPLAIN EXPLAIN …`.
+pub fn explain_subject(sql: &str, dialect: SqlDialect) -> Result<String, String> {
+    let parsed = parse_result(sql, dialect).map_err(|err| err.to_string())?;
+    let Some(stmt) = parsed.first() else {
+        return Err("Query is empty.".into());
+    };
+    if parsed.len() != 1 {
+        return Err("Explain one statement.".into());
+    }
+    match stmt {
+        Statement::Explain { statement, .. } => Ok(trim_statement(&statement.to_string())),
+        _ => Ok(trim_statement(sql)),
+    }
+}
+
+fn trim_statement(sql: &str) -> String {
+    sql.trim().trim_end_matches(';').trim().to_string()
+}
+
 /// True when a statement will execute its target, not only plan it.
 ///
 /// `EXPLAIN ANALYZE` and `EXPLAIN (ANALYZE …)` run the inner statement.
@@ -959,6 +979,16 @@ fn last_object_ident(name: &ObjectName) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explain_subject_peels_explain_and_keeps_a_plain_select() {
+        let subject = explain_subject("EXPLAIN SELECT 1", SqlDialect::Postgres).expect("subject");
+        let lower = subject.to_ascii_lowercase();
+        assert!(lower.contains("select"), "{subject}");
+        assert!(!lower.trim_start().starts_with("explain"), "{subject}");
+        let plain = explain_subject("SELECT 1;", SqlDialect::Sqlite).expect("plain");
+        assert_eq!(plain, "SELECT 1");
+    }
 
     fn pg(sql: &str) -> StatementRisk {
         classify(sql, SqlDialect::Postgres)

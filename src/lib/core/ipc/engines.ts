@@ -6,12 +6,13 @@ import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
 	ApplyTableEditsRequest,
 	ApplyTableEditsResult,
+	BatchEvent,
 	CatalogColumnRow,
 	CatalogDatabase,
 	CatalogRelationship,
-	BatchEvent,
 	ExecuteQueryRequest,
-	QueryBatchResult,
+	ExplainPlan,
+	ExplainQueryRequest,
 	ExportObjectRequest,
 	ExportObjectResult,
 	FetchServerMetricsRequest,
@@ -31,16 +32,17 @@ import type {
 	ParsedConnectionUrl,
 	PreviewImportRequest,
 	PreviewImportResult,
+	QueryBatchResult,
 	QueryResult,
 	ServerMetricsSnapshot,
 	SessionInfo,
+	SshHostKeyPrompt,
 	TableAdminRequest,
 	TableAdminResult,
 	TablePreviewResult,
 	TablePreviewStats,
 	TerminateSessionRequest,
 	TerminateSessionResult,
-	SshHostKeyPrompt,
 	TestResult,
 } from '../contracts/engines'
 
@@ -182,6 +184,13 @@ export async function executePinnedBatch(
 	const channel = new Channel<BatchEvent>()
 	if (onProgress) channel.onmessage = onProgress
 	return invoke('execute_pinned_batch', { request, tabId, onProgress: channel })
+}
+
+export async function explainEngineQuery(
+	request: ExplainQueryRequest,
+): Promise<ExplainPlan> {
+	requireTauri()
+	return invoke('explain_engine_query', { request })
 }
 
 export async function executeEngineBatch(

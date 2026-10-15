@@ -67,6 +67,7 @@ export function relationalCapabilities(
 		supportsWrite: false,
 		supportsCancelQuery: true,
 		supportsTransactions: true,
+		supportsExplainPlan: true,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: true,
@@ -87,7 +88,10 @@ export function relationalCapabilities(
 	}
 }
 
-export function parseSupportDepth(v: unknown, fallback: SupportDepth): SupportDepth {
+export function parseSupportDepth(
+	v: unknown,
+	fallback: SupportDepth,
+): SupportDepth {
 	const s = String(v ?? '')
 		.toLowerCase()
 		.trim()
@@ -96,7 +100,9 @@ export function parseSupportDepth(v: unknown, fallback: SupportDepth): SupportDe
 }
 
 /** Clamp chrome flags to supportDepth. `operate` leaves plugin flags as-is. */
-export function applySupportDepth(caps: EngineCapabilities): EngineCapabilities {
+export function applySupportDepth(
+	caps: EngineCapabilities,
+): EngineCapabilities {
 	const depth = parseSupportDepth(caps.supportDepth, 'operate')
 	if (depth === 'operate') {
 		return { ...caps, supportDepth: 'operate', supportsExplorer: true }

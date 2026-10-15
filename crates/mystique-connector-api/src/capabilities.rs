@@ -141,6 +141,9 @@ pub struct EngineCapabilities {
     /// Manual commit on a pinned connection. Mongo is on only for a replica set.
     #[serde(default = "default_true")]
     pub supports_transactions: bool,
+    /// Explain button. The UI does not parse engine text itself.
+    #[serde(default = "default_true")]
+    pub supports_explain_plan: bool,
     /// Query editor gutter. Every runtime can run a statement.
     #[serde(default = "default_supports_query")]
     pub supports_query: bool,

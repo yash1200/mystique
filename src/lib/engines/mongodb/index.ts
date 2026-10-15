@@ -21,8 +21,7 @@ export const mongodb: EngineAdapter = {
 	defaultPort: 27017,
 
 	connection: {
-		uriPlaceholder:
-			'mongodb://user:pass@127.0.0.1:27017/mydb?authSource=admin',
+		uriPlaceholder: 'mongodb://user:pass@127.0.0.1:27017/mydb?authSource=admin',
 		emptyDraft: () => ({
 			engine: 'mongodb',
 			host: '',
@@ -103,6 +102,7 @@ export const mongodb: EngineAdapter = {
 		supportsWrite: false,
 		supportsCancelQuery: true,
 		supportsTransactions: false,
+		supportsExplainPlan: true,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: false,

@@ -21,6 +21,7 @@ impl EngineCapabilities {
             supports_write: false,
             supports_cancel_query: true,
             supports_transactions: true,
+            supports_explain_plan: true,
             supports_query: true,
             supports_pooling: true,
             binds_session_to_database: true,
@@ -55,6 +56,7 @@ impl EngineCapabilities {
             supports_write: false,
             supports_cancel_query: true,
             supports_transactions: true,
+            supports_explain_plan: true,
             supports_query: true,
             supports_pooling: true,
             binds_session_to_database: false,
@@ -89,6 +91,7 @@ impl EngineCapabilities {
             supports_write: false,
             supports_cancel_query: true,
             supports_transactions: false,
+            supports_explain_plan: true,
             supports_query: true,
             supports_pooling: true,
             binds_session_to_database: false,
@@ -123,6 +126,7 @@ impl EngineCapabilities {
             supports_write: false,
             supports_cancel_query: true,
             supports_transactions: true,
+            supports_explain_plan: true,
             supports_query: true,
             supports_pooling: true,
             binds_session_to_database: true,
@@ -158,6 +162,11 @@ mod create_caps_tests {
             assert!(
                 caps.supports_cancel_query,
                 "{} does not advertise cancel",
+                caps.engine
+            );
+            assert!(
+                caps.supports_explain_plan,
+                "{} does not advertise explain",
                 caps.engine
             );
         }

@@ -99,7 +99,7 @@ async fn release_conn<T>(
     result
 }
 
-async fn end_read_only_txn<T>(
+pub(super) async fn end_read_only_txn<T>(
     mut conn: mysql_async::Conn,
     result: ConnectorResult<T>,
 ) -> ConnectorResult<T> {

@@ -12,6 +12,7 @@
 	import { indentWithTab } from '@codemirror/commands'
 	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'
 	import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
+	import { setDiagnostics } from '@codemirror/lint'
 	import {
 		Compartment,
 		Prec,
@@ -21,17 +22,10 @@
 	import {
 		placeholder as cmPlaceholder,
 		EditorView,
-		GutterMarker,
 		gutter,
+		GutterMarker,
 		keymap,
 	} from '@codemirror/view'
-	import {
-		splitDialectFor,
-		splitStatementSpans,
-		submissionStart,
-		textToRun,
-	} from '../statement-span'
-	import { setDiagnostics } from '@codemirror/lint'
 	import { basicSetup } from 'codemirror'
 	import { onMount } from 'svelte'
 	import { mystiqueSearch } from '../cm-search-panel'
@@ -40,6 +34,12 @@
 		identPathHighlight,
 		mystiqueHighlight,
 	} from '../cm-theme'
+	import {
+		splitDialectFor,
+		splitStatementSpans,
+		submissionStart,
+		textToRun,
+	} from '../statement-span'
 
 	interface Props {
 		connectionId: string
@@ -68,6 +68,12 @@
 		/** Caret and document, so a shortcut from outside the editor can run too. */
 		onactivity?: (snap: { doc: string; head: number; anchor: number }) => void
 		onrun: (request: { text: string; start: number }) => void
+		/** Explain button. Comes from `supportsExplainPlan`. */
+		showExplain?: boolean
+		/** Analyze collects actual rows. Off until the user turns it on. */
+		analyze?: boolean
+		onanalyze?: (on: boolean) => void
+		onexplain?: () => void
 		/** Engine can hold a transaction on one connection. */
 		showTransactions?: boolean
 		/** Off means the tab is pinned and auto-commit is off. */
@@ -103,6 +109,10 @@
 		onchange,
 		onactivity,
 		onrun,
+		showExplain = false,
+		analyze = false,
+		onanalyze,
+		onexplain,
 		showTransactions = false,
 		manualCommit = false,
 		transactionOpen = false,
@@ -183,13 +193,14 @@
 			class: 'cm-stmt-gutter',
 			markers(view) {
 				const doc = view.state.doc.toString()
-				const spans = splitStatementSpans(doc, splitDialectFor(callbacks.engine))
+				const spans = splitStatementSpans(
+					doc,
+					splitDialectFor(callbacks.engine),
+				)
 				const builder = new RangeSetBuilder<GutterMarker>()
 				let lastLine = -1
 				for (const span of spans) {
-					const line = view.state.doc.lineAt(
-						Math.min(span.start, doc.length),
-					)
+					const line = view.state.doc.lineAt(Math.min(span.start, doc.length))
 					if (line.number === lastLine) continue
 					lastLine = line.number
 					builder.add(
@@ -285,10 +296,7 @@
 			upperCaseKeywords: true,
 		})
 		if (!extra) return support
-		return [
-			support,
-			dialect.language.data.of({ autocomplete: extra }),
-		]
+		return [support, dialect.language.data.of({ autocomplete: extra })]
 	}
 
 	function buildExtensions(lang: string, ph: string): Extension[] {
@@ -396,7 +404,9 @@
 		const v = view
 		if (!v) return
 		v.dispatch({
-			effects: runGutterCompartment.reconfigure(show ? [statementGutter()] : []),
+			effects: runGutterCompartment.reconfigure(
+				show ? [statementGutter()] : [],
+			),
 		})
 	})
 
@@ -566,6 +576,27 @@
 						Rollback
 					</Button>
 				{/if}
+			{/if}
+			{#if showExplain}
+				<Button
+					variant="ghost"
+					size="sm"
+					aria-pressed={analyze}
+					disabled={running}
+					onclick={() => onanalyze?.(!analyze)}
+					title="Collect actual rows. A statement that is not a read still cannot change data."
+				>
+					Analyze
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={!localText.trim() || running}
+					onclick={() => onexplain?.()}
+					title="Explain the statement at the cursor"
+				>
+					Explain
+				</Button>
 			{/if}
 			<Button
 				variant="ghost"

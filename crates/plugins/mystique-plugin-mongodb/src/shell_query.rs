@@ -329,9 +329,65 @@ pub fn slice_balanced<'a>(
     )))
 }
 
+#[derive(Debug, Clone)]
+pub struct ParsedAggregate {
+    pub collection: Option<String>,
+    pub pipeline: Vec<Document>,
+}
+
+/// `None` when the text is not an aggregate call.
+pub fn parse_aggregate(text: &str) -> ConnectorResult<Option<ParsedAggregate>> {
+    let t = text.trim().trim_end_matches(';').trim();
+    let lower = t.to_ascii_lowercase();
+    let Some(at) = find_ident(&lower, "aggregate") else {
+        return Ok(None);
+    };
+    if at == 0 || t.as_bytes().get(at - 1) != Some(&b'.') {
+        return Ok(None);
+    }
+    let collection = collection_before_find(t, at);
+    let after = skip_ws(t, at + "aggregate".len());
+    if t.as_bytes().get(after) != Some(&b'(') {
+        return Err(ConnectorError::Query(
+            "aggregate needs a pipeline array.".into(),
+        ));
+    }
+    let call = slice_balanced(t, after, '(', ')')?;
+    let inner = peel(call).trim();
+    if !inner.starts_with('[') {
+        return Err(ConnectorError::Query(
+            "aggregate() takes a pipeline array `[ ... ]`.".into(),
+        ));
+    }
+    let array = slice_balanced(inner, 0, '[', ']')?;
+    let body = peel(array);
+    let stages = split_top_level_objects(body)?;
+    let mut pipeline = Vec::new();
+    for stage in stages {
+        pipeline.push(parse_filter_object(stage)?);
+    }
+    Ok(Some(ParsedAggregate {
+        collection,
+        pipeline,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aggregate_pipeline_keeps_the_collection() {
+        let parsed = match parse_aggregate(r#"db.orders.aggregate([{"$match":{"a":1}}])"#) {
+            Ok(parsed) => parsed,
+            Err(err) => panic!("{err}"),
+        };
+        let Some(parsed) = parsed else {
+            panic!("missing aggregate");
+        };
+        assert_eq!(parsed.collection.as_deref(), Some("orders"));
+        assert_eq!(parsed.pipeline.len(), 1);
+    }
 
     #[test]
     fn find_filter_projection_sort() {

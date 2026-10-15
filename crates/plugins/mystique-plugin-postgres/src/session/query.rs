@@ -307,7 +307,7 @@ fn postgres_statement_error(
     }
 }
 
-async fn end_read_only_txn<T>(
+pub(super) async fn end_read_only_txn<T>(
     client: deadpool_postgres::Object,
     result: ConnectorResult<T>,
 ) -> ConnectorResult<T> {

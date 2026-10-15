@@ -7,11 +7,11 @@ use deadpool_postgres::Pool;
 use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
-    FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
-    ImportObjectResult, InterruptGuard, ObjectStructure, PinnedSession, PoolStatus,
-    PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl, QueryResult,
-    ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
+    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult,
+    FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, InterruptGuard, ObjectStructure, PinnedSession,
+    PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl,
+    QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
     TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedBatch,
     ValidatedQuery,
 };
@@ -20,6 +20,7 @@ mod admin;
 mod catalog;
 mod edits;
 mod encode;
+mod explain;
 mod metrics;
 mod pin;
 mod preview;
@@ -133,6 +134,14 @@ impl ConnectorSession for PostgresSession {
 
     async fn execute_batch(&self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
         query::execute_batch(self, batch).await
+    }
+
+    async fn explain_query(
+        &self,
+        query: &ValidatedQuery,
+        analyze: bool,
+    ) -> ConnectorResult<ExplainPlan> {
+        explain::explain_query(self, query, analyze).await
     }
 
     async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {

@@ -121,6 +121,39 @@ export interface ExecuteQueryRequest {
 	executionId?: string | null
 }
 
+export interface ExplainQueryRequest {
+	sessionId: string
+	text: string
+	analyze?: boolean
+	mode?: QueryMode
+	timeoutMs?: number
+	profileReadOnly?: boolean
+	confirmObjectName?: string | null
+	collection?: string | null
+	database?: string | null
+	executionId?: string | null
+}
+
+export interface PlanField {
+	label: string
+	value: string
+}
+
+export interface PlanNode {
+	name: string
+	rows?: number | null
+	cost?: number | null
+	fields?: PlanField[]
+	children?: PlanNode[]
+}
+
+export interface ExplainPlan {
+	raw: string
+	rawFormat: string
+	root: PlanNode
+	warnings?: string[]
+}
+
 export interface QueryColumn {
 	name: string
 	dataType?: string | null

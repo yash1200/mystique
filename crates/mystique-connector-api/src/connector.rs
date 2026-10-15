@@ -10,6 +10,7 @@ use crate::catalog::{
 };
 use crate::config::{ConnectionConfig, FormattedConnectionUrl, ParsedConnectionUrl};
 use crate::error::ConnectorResult;
+use crate::explain::ExplainPlan;
 use crate::form::ConnectionFormSchema;
 use crate::metrics::{
     FetchServerMetricsInput, ServerMetricsSnapshot, TerminateSessionInput, TerminateSessionResult,
@@ -109,6 +110,22 @@ pub trait ConnectorSession: Send + Sync {
     async fn execute_query(&self, _query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "execute_query not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Explain one statement. `analyze` asks for actual rows.
+    ///
+    /// The default is unsupported. Plugins normalise their own plan format.
+    /// Analyze runs where the statement cannot delete: a read-only transaction
+    /// for SQL, and Mongo's explain command (which does not apply writes).
+    async fn explain_query(
+        &self,
+        _query: &ValidatedQuery,
+        _analyze: bool,
+    ) -> ConnectorResult<ExplainPlan> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "explain is not supported for engine `{}`",
             self.engine_id()
         )))
     }

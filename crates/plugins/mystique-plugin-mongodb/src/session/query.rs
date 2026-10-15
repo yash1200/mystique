@@ -26,7 +26,7 @@ pub(super) fn find_max_time(timeout_ms: u64) -> Duration {
 
 /// Dropping `fut` is what aborts a Mongo command. Unlike SQL drivers, there is
 /// no `RESET` to run after the server interrupt.
-async fn drive<T, F>(control: &QueryControl, action: F) -> ConnectorResult<T>
+pub(super) async fn drive<T, F>(control: &QueryControl, action: F) -> ConnectorResult<T>
 where
     F: IntoFuture<Output = Result<T, mongodb::error::Error>>,
 {

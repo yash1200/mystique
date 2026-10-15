@@ -3,19 +3,24 @@
 	 * Query space: Run → BE execute → results table.
 	 * Composes toolbar / editor / results; native paste via bind:value.
 	 */
-	import type { EngineCapabilities, QueryMode } from '#core/contracts'
+	import type {
+		EngineCapabilities,
+		ExplainPlan,
+		QueryMode,
+	} from '#core/contracts'
 	import {
 		cancelTabRun,
 		commitPinnedTab,
 		executeEngineBatch,
 		executePinnedBatch,
+		explainEngineQuery,
+		finishTabRun,
+		isTauri,
 		pinQueryTab,
 		pinnedTabStatus,
 		rollbackPinnedTab,
-		unpinQueryTab,
-		finishTabRun,
-		isTauri,
 		startTabRun,
+		unpinQueryTab,
 	} from '#core/ipc'
 	import { Resizable } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
@@ -37,6 +42,11 @@
 	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { initialActiveIndex } from '../batch-view'
+	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
+	import { userFacingQueryError } from '../display'
+	import { appendQueryHistory } from '../history-api'
+	import type { QueryHistoryItem } from '../history-types'
+	import { queryLanguageFor, queryPlaceholder } from '../policy'
 	import {
 		editorEpoch,
 		noteEditorEdit,
@@ -44,13 +54,13 @@
 		readQueryFault,
 		type QueryDiagnostic,
 	} from '../query-diagnostic'
-	import { splitDialectFor, submissionStart, textToRun } from '../statement-span'
-	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
-	import { userFacingQueryError } from '../display'
-	import { appendQueryHistory } from '../history-api'
-	import type { QueryHistoryItem } from '../history-types'
-	import { queryLanguageFor, queryPlaceholder } from '../policy'
 	import type { RunState } from '../run-types'
+	import {
+		splitDialectFor,
+		submissionStart,
+		textToRun,
+	} from '../statement-span'
+	import ExplainView from './ExplainView.svelte'
 	import QueryEditor from './QueryEditor.svelte'
 	import QueryResultsPanel, {
 		type ResultExportAction,
@@ -113,7 +123,10 @@
 	let locateNonce = $state(0)
 	let manualCommit = $state(false)
 	let transactionOpen = $state(false)
+	let analyze = $state(false)
+	let explainPlan = $state<ExplainPlan | null>(null)
 	const showTransactions = $derived(capabilities?.supportsTransactions === true)
+	const showExplain = $derived(capabilities?.supportsExplainPlan === true)
 
 	// One-time seed from prop; $effect below re-syncs when parent draft changes.
 	let localText = $state(untrack(() => text ?? ''))
@@ -230,7 +243,10 @@
 
 	function faultDiagnostic(
 		message: string,
-		position: { offset: number; line: number; column: number } | null | undefined,
+		position:
+			| { offset: number; line: number; column: number }
+			| null
+			| undefined,
 		start: number,
 		startedEpoch: number,
 	): QueryDiagnostic | null {
@@ -322,7 +338,10 @@
 			else if (res.cancelled) {
 				showToast('info', copy ? 'Copy cancelled' : 'Export cancelled')
 			} else {
-				showToast('danger', res.error || (copy ? 'Copy failed' : 'Export failed'))
+				showToast(
+					'danger',
+					res.error || (copy ? 'Copy failed' : 'Export failed'),
+				)
 			}
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
@@ -366,8 +385,83 @@
 		}
 	}
 
+	async function explainQuery() {
+		if (runState.status === 'running') return
+		const doc = editorSnap.doc || localText
+		const dialect = splitDialectFor(engine)
+		const sqlText = (
+			textToRun(doc, dialect, editorSnap.head, editorSnap.anchor, false) ?? ''
+		).trim()
+		if (!sqlText) return
+		const mode = effectiveMode
+		const start = performance.now()
+		explainPlan = null
+		persistRunCache({ status: 'running' }, 0, sqlText, 0, null)
+
+		if (!isTauri()) {
+			persistRunCache({
+				status: 'error',
+				message:
+					'Explain requires the Mystique desktop app. Connect and try again.',
+				mode,
+				elapsedMs: Math.round(performance.now() - start),
+			})
+			return
+		}
+		let sid = engineSessionId
+		if (!sid && onreconnect) sid = await onreconnect()
+		if (!sid) {
+			persistRunCache({
+				status: 'error',
+				message:
+					'No live engine session. Go Home → Connect so a pooled session is opened.',
+				mode,
+				elapsedMs: Math.round(performance.now() - start),
+			})
+			return
+		}
+		const executionId = startTabRun(tabId)
+		try {
+			const plan = await runWithWriteGuard(sid, (confirmObjectName) =>
+				explainEngineQuery({
+					sessionId: sid as string,
+					text: sqlText,
+					analyze,
+					mode,
+					timeoutMs: 120_000,
+					profileReadOnly,
+					confirmObjectName: confirmObjectName ?? null,
+					collection: language === 'mql' ? collection.trim() || null : null,
+					database:
+						language === 'mql' && database?.trim() ? database.trim() : null,
+					executionId,
+				}),
+			)
+			if (!tabStillOpen()) return
+			explainPlan = plan
+			persistRunCache({ status: 'idle' })
+		} catch (e) {
+			if (!tabStillOpen()) return
+			const fault = readQueryFault(e)
+			const msg = fault.message
+			const elapsedMs = Math.round(performance.now() - start)
+			const shown = /policy:/i.test(msg)
+				? msg.replace(/^policy:\s*/i, '')
+				: userFacingQueryError(msg)
+			persistRunCache({
+				status: /policy:/i.test(msg) ? 'blocked' : 'error',
+				message: shown,
+				mode,
+				elapsedMs,
+			})
+		} finally {
+			finishTabRun(tabId, executionId)
+		}
+	}
+
 	async function runQuery(body?: string, origin = 0) {
 		if (runState.status === 'running') return
+		explainPlan = null
 		const mode = effectiveMode
 		const start = performance.now()
 		const sqlText = (body ?? currentQueryText()).trim()
@@ -456,7 +550,8 @@
 				)
 			} catch (e) {
 				// Read mode rolls back. A write may already have landed.
-				if (mode === 'write' || !onreconnect || !isSessionMissingError(e)) throw e
+				if (mode === 'write' || !onreconnect || !isSessionMissingError(e))
+					throw e
 				const next = await onreconnect()
 				if (!next) throw e
 				batch = await runWithWriteGuard(next, (confirmObjectName) =>
@@ -467,15 +562,14 @@
 			if (!tabStillOpen()) return
 			const index = initialActiveIndex(batch.results, batch.stoppedAt)
 			const active = batch.results[index]
-			const diagnostic =
-				active?.error
-					? faultDiagnostic(
-							active.error,
-							active.errorPosition,
-							origin,
-							startedEpoch,
-						)
-					: null
+			const diagnostic = active?.error
+				? faultDiagnostic(
+						active.error,
+						active.errorPosition,
+						origin,
+						startedEpoch,
+					)
+				: null
 			persistRunCache(
 				{
 					status: 'ok',
@@ -687,6 +781,10 @@
 				showStatementGutter={capabilities?.supportsQuery !== false}
 				running={runState.status === 'running'}
 				oncancel={cancelRun}
+				{showExplain}
+				{analyze}
+				onanalyze={(on) => (analyze = on)}
+				onexplain={() => void explainQuery()}
 				{showTransactions}
 				{manualCommit}
 				{transactionOpen}
@@ -719,33 +817,37 @@
 		/>
 
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-			<QueryResultsPanel
-				{runState}
-				{resultColumns}
-				{resultPageRows}
-				{resultTotal}
-				{resultPageStart}
-				{resultPageEnd}
-				{resultSafePage}
-				{resultTotalPages}
-				{canExport}
-				{exporting}
-				statements={batchResults}
-				{activeIndex}
-				submittedText={cachedRun?.submittedText ?? ''}
-				onselectstatement={selectStatement}
-				refreshing={runState.status === 'running'}
-				onexport={(f) => void exportResults(f)}
-				onprev={goResultPrev}
-				onnext={goResultNext}
-				canLocate={!!cachedRun?.diagnostic}
-				onlocate={locateError}
-				onrefresh={() => {
-					const cached = workspaceSession.getQueryRunCache(tabId)
-					void runQuery(cached?.submittedText, cached?.submittedStart ?? 0)
-				}}
-				onaskai={askAiAboutError}
-			/>
+			{#if explainPlan}
+				<ExplainView plan={explainPlan} />
+			{:else}
+				<QueryResultsPanel
+					{runState}
+					{resultColumns}
+					{resultPageRows}
+					{resultTotal}
+					{resultPageStart}
+					{resultPageEnd}
+					{resultSafePage}
+					{resultTotalPages}
+					{canExport}
+					{exporting}
+					statements={batchResults}
+					{activeIndex}
+					submittedText={cachedRun?.submittedText ?? ''}
+					onselectstatement={selectStatement}
+					refreshing={runState.status === 'running'}
+					onexport={(f) => void exportResults(f)}
+					onprev={goResultPrev}
+					onnext={goResultNext}
+					canLocate={!!cachedRun?.diagnostic}
+					onlocate={locateError}
+					onrefresh={() => {
+						const cached = workspaceSession.getQueryRunCache(tabId)
+						void runQuery(cached?.submittedText, cached?.submittedStart ?? 0)
+					}}
+					onaskai={askAiAboutError}
+				/>
+			{/if}
 		</div>
 	</div>
 </div>

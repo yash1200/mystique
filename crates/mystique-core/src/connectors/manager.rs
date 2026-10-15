@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 mod catalog;
 mod depth;
+mod explain;
 mod guard;
 mod metrics;
 mod pin;

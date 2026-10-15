@@ -19,6 +19,25 @@ pub fn sql_explain_executes(text: &str, dialect: SqlDialect) -> bool {
     mystique_sql::explain_executes(text, dialect)
 }
 
+/// Inner statement the Explain button should plan.
+pub fn sql_explain_subject(text: &str, dialect: SqlDialect) -> Result<String, String> {
+    mystique_sql::explain_subject(text, dialect)
+}
+
+/// A proven read is `StatementRisk::Read`. `SET` and writes are not.
+pub fn sql_is_proven_read(text: &str, dialect: SqlDialect) -> bool {
+    mystique_sql::classify(text, dialect) == StatementRisk::Read
+}
+
+/// Guard risk for analyze. Session prompts on production; a plain read does not.
+pub fn sql_analyze_guard_risk(text: &str, dialect: SqlDialect) -> WriteRisk {
+    match mystique_sql::classify(text, dialect) {
+        StatementRisk::Read => WriteRisk::Read,
+        StatementRisk::Destructive => WriteRisk::Destructive,
+        StatementRisk::Write | StatementRisk::Session => WriteRisk::Write,
+    }
+}
+
 pub fn sql_is_safe_dml(text: &str) -> bool {
     sql_is_safe_dml_for(text, SqlDialect::Generic)
 }

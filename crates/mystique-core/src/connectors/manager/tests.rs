@@ -1217,6 +1217,153 @@ async fn manual_commit_hides_an_update_until_commit() {
     let _ = std::fs::remove_file(&path);
 }
 
+fn explain_req(
+    session_id: &str,
+    text: &str,
+    analyze: bool,
+) -> mystique_connector_api::ExplainQueryRequest {
+    mystique_connector_api::ExplainQueryRequest {
+        session_id: session_id.into(),
+        text: text.into(),
+        analyze,
+        mode: mystique_connector_api::QueryMode::Write,
+        timeout_ms: Some(5_000),
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+        execution_id: None,
+    }
+}
+
+#[tokio::test]
+async fn explain_select_returns_a_tree() {
+    let path = temp_db("explain-select");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-select", "local", false))
+        .await
+        .expect("open");
+    mgr.execute_query(write_req(
+        "explain-select",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t (id) VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+    let plan = mgr
+        .explain_query(explain_req("explain-select", "SELECT * FROM t", false))
+        .await
+        .expect("explain");
+    let rendered = format!("{:?}", plan.root).to_ascii_lowercase();
+    assert!(
+        rendered.contains("scan") || rendered.contains('t'),
+        "{rendered}"
+    );
+    assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
+    assert!(!plan.raw.is_empty());
+    let _ = mgr.close_session("explain-select").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn explain_analyze_delete_on_production_does_not_delete() {
+    let path = temp_db("explain-prod");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-seed", "local", false))
+        .await
+        .expect("seed open");
+    mgr.execute_query(write_req(
+        "explain-seed",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER); INSERT INTO t (id, a) VALUES (1, 0)",
+    ))
+    .await
+    .expect("seed");
+    let _ = mgr.close_session("explain-seed").await;
+    mgr.open_session(sqlite_open(&path, "explain-prod", "production", false))
+        .await
+        .expect("open");
+
+    let blocked = mgr
+        .explain_query(explain_req(
+            "explain-prod",
+            "DELETE FROM t WHERE id = 1",
+            true,
+        ))
+        .await
+        .expect_err("production analyze needs a confirm");
+    assert!(
+        matches!(
+            blocked,
+            mystique_connector_api::ConnectorError::WriteGuard(_)
+        ),
+        "{blocked}"
+    );
+    assert_eq!(
+        cell(&mgr, "explain-prod", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+
+    mgr.unlock_writes("explain-prod").await.expect("unlock");
+    let plan = mgr
+        .explain_query(explain_req(
+            "explain-prod",
+            "DELETE FROM t WHERE id = 1",
+            true,
+        ))
+        .await
+        .expect("explain after confirm");
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|warning| warning.contains("did not change")),
+        "{:?}",
+        plan.warnings
+    );
+    assert_eq!(
+        cell(&mgr, "explain-prod", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+    let _ = mgr.close_session("explain-prod").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn explain_analyze_delete_on_a_read_only_profile_runs_nothing() {
+    let path = temp_db("explain-ro");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-ro-seed", "local", false))
+        .await
+        .expect("seed open");
+    mgr.execute_query(write_req(
+        "explain-ro-seed",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t (id) VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+    let _ = mgr.close_session("explain-ro-seed").await;
+    mgr.open_session(sqlite_open(&path, "explain-ro", "local", true))
+        .await
+        .expect("open read-only");
+    let err = mgr
+        .explain_query(explain_req(
+            "explain-ro",
+            "DELETE FROM t WHERE id = 1",
+            true,
+        ))
+        .await
+        .expect_err("read-only explain");
+    let msg = err.to_string().to_ascii_lowercase();
+    assert!(msg.contains("read") || msg.contains("nothing ran"), "{err}");
+    assert_eq!(
+        cell(&mgr, "explain-ro", "SELECT COUNT(*) FROM t").await,
+        json!(1)
+    );
+    let _ = mgr.close_session("explain-ro").await;
+    let _ = std::fs::remove_file(&path);
+}
+
 #[tokio::test]
 async fn closing_the_pin_rolls_the_update_back() {
     let path = temp_db("pin-rollback");
