@@ -31,9 +31,10 @@ impl ConnectionManager {
                 "this engine does not export {format} files"
             )));
         }
+        let session_id = req.session_id.clone();
         let execution_id = req.execution_id.clone();
         let mut input = req.into_input();
-        let (id, control) = self.begin_run(execution_id).await;
+        let (id, control) = self.begin_run(&session_id, execution_id).await;
         input.control = Arc::clone(&control);
         let result = self
             .drive_until_cancel(&control, session.export_object(&input))

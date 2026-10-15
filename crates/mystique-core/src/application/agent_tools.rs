@@ -96,13 +96,15 @@ impl AgentTools {
             "get_schema_dbml" => {
                 let id = req_str(args, "connection_id")?;
                 let database = opt_str(args, "database");
-                let dbml = self.get_schema_dbml(&id, database.as_deref()).await?;
+                let dbml = self
+                    .get_schema_dbml(&id, database.as_deref(), caller)
+                    .await?;
                 Ok(json!({ "dbml": dbml }))
             }
             "list_objects" => {
                 let id = req_str(args, "connection_id")?;
                 let database = opt_str(args, "database");
-                let objects = self.list_objects(&id, database.as_deref()).await?;
+                let objects = self.list_objects(&id, database.as_deref(), caller).await?;
                 Ok(json!({ "objects": objects }))
             }
             "describe_object" => {
@@ -111,7 +113,7 @@ impl AgentTools {
                 let database = opt_str(args, "database");
                 let schema = opt_str(args, "schema");
                 let cols = self
-                    .describe_object(&id, &name, schema.as_deref(), database.as_deref())
+                    .describe_object(&id, &name, schema.as_deref(), database.as_deref(), caller)
                     .await?;
                 Ok(json!({ "name": name, "schema": schema, "columns": cols }))
             }
@@ -134,6 +136,7 @@ impl AgentTools {
                         max_rows,
                         &format,
                         types::AgentCellWindow::from_args(args),
+                        caller,
                     )
                     .await?;
                 Ok(serde_json::to_value(result)?)
@@ -157,6 +160,7 @@ impl AgentTools {
                         max_rows,
                         &format,
                         types::AgentCellWindow::from_args(args),
+                        caller,
                     )
                     .await?;
                 Ok(serde_json::to_value(result)?)
@@ -191,19 +195,37 @@ impl AgentTools {
         }
     }
 
-    /// Open a pooled session for this profile if needed. Session id == profile id
-    /// so the desktop UI can reuse it.
+    /// Open a pooled session for this profile if needed.
+    ///
+    /// The id is `agent:{profile}` or `mcp:{profile}`, not the desktop session.
+    /// Closing the UI pool must not cancel an in-flight tool query.
     pub async fn ensure_session(&self, connection_id: &str) -> AppResult<String> {
-        let id = connection_id.trim();
-        if id.is_empty() {
+        self.ensure_session_for(connection_id, policy::ToolCaller::Agent)
+            .await
+    }
+
+    pub async fn ensure_session_for(
+        &self,
+        connection_id: &str,
+        caller: policy::ToolCaller,
+    ) -> AppResult<String> {
+        let profile_id = connection_id.trim();
+        if profile_id.is_empty() {
             return Err(AppError::Invalid("connection_id is required".into()));
         }
-        // Reuse the desktop session. Do not ping — that is an extra network
-        // round-trip and blocks the agent on a live query tab.
-        if self.connections.get_session(id).await.is_some() {
-            return Ok(id.to_string());
-        }
-        let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;
+        let (sid, origin) = match caller {
+            policy::ToolCaller::Agent => (
+                format!("agent:{profile_id}"),
+                crate::connectors::SessionOrigin::Agent,
+            ),
+            policy::ToolCaller::Mcp => (
+                format!("mcp:{profile_id}"),
+                crate::connectors::SessionOrigin::Mcp,
+            ),
+        };
+        let profile = self
+            .db
+            .with_conn(|c| repo::connections::get_by_id(c, profile_id))?;
         let req = super::bind_open_request(
             &self.db,
             &self.secrets,
@@ -218,7 +240,7 @@ impl AgentTools {
                     acquire_timeout_ms: 10_000,
                     idle_timeout_secs: 0,
                 }),
-                session_id: Some(profile.id.clone()),
+                session_id: Some(sid.clone()),
                 ssh: None,
                 tls_key_passphrase: None,
                 environment: Some(profile.environment.clone()),
@@ -227,11 +249,11 @@ impl AgentTools {
                 use_saved_ssh: true,
             },
         )?;
-        self.connections.open_session(req).await?;
+        self.connections.get_or_open(req, origin).await?;
         let _ = self
             .db
             .with_conn(|c| repo::connections::touch_last_connected(c, &profile.id));
-        Ok(profile.id)
+        Ok(sid)
     }
 }
 

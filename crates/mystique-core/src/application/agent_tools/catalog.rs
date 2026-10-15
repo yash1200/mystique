@@ -28,7 +28,9 @@ impl AgentTools {
             .into_iter()
             .filter(|p| allow.as_ref().is_none_or(|set| set.contains(&p.id)))
             .map(|p| AgentConnectionInfo {
-                connected: live.contains(&p.id),
+                connected: live.contains(&p.id)
+                    || live.contains(&format!("agent:{}", p.id))
+                    || live.contains(&format!("mcp:{}", p.id)),
                 database: profile_database(&p),
                 id: p.id.clone(),
                 name: p.name,
@@ -42,11 +44,12 @@ impl AgentTools {
         &self,
         connection_id: &str,
         database: Option<&str>,
+        caller: ToolCaller,
     ) -> AppResult<String> {
-        let sid = self.ensure_session(connection_id).await?;
+        let sid = self.ensure_session_for(connection_id, caller).await?;
         let profile = self
             .db
-            .with_conn(|c| repo::connections::get_by_id(c, &sid))?;
+            .with_conn(|c| repo::connections::get_by_id(c, connection_id.trim()))?;
         let db = database
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -81,8 +84,9 @@ impl AgentTools {
         &self,
         connection_id: &str,
         database: Option<&str>,
+        caller: ToolCaller,
     ) -> AppResult<Vec<AgentObjectInfo>> {
-        let sid = self.ensure_session(connection_id).await?;
+        let sid = self.ensure_session_for(connection_id, caller).await?;
         let catalog = self
             .connections
             .list_catalog(ListCatalogRequest {
@@ -115,8 +119,9 @@ impl AgentTools {
         name: &str,
         schema: Option<&str>,
         database: Option<&str>,
+        caller: ToolCaller,
     ) -> AppResult<Vec<AgentColumnInfo>> {
-        let sid = self.ensure_session(connection_id).await?;
+        let sid = self.ensure_session_for(connection_id, caller).await?;
         let cols: Vec<ColumnInfo> = self
             .connections
             .describe_table(mystique_connector_api::DescribeTableRequest {

@@ -9,10 +9,10 @@ use mystique_connector_api::{
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
     FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
-    ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult,
-    QueryBatchResult, QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult,
-    TablePreviewResult, TablePreviewStats, TerminateSessionInput, TerminateSessionResult,
-    ValidatedBatch, ValidatedQuery,
+    ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus, PreviewImportInput,
+    PreviewImportResult, QueryBatchResult, QueryResult, ServerMetricsSnapshot, TableAdminInput,
+    TableAdminResult, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
+    TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -24,6 +24,7 @@ mod encode;
 mod error;
 mod interrupt;
 mod metrics;
+mod pin;
 mod preview;
 mod query;
 mod structure;
@@ -119,6 +120,13 @@ impl ConnectorSession for SqliteSession {
 
     async fn execute_batch(&self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
         query::execute_batch(self, batch).await
+    }
+
+    async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
+        self.ensure_open()?;
+        let path = self.path();
+        let pin = self.blocking(move || pin::SqlitePin::open(&path)).await?;
+        Ok(Box::new(pin))
     }
 
     async fn describe_table(

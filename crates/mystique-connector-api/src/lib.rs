@@ -23,6 +23,7 @@ mod form;
 mod json_cell;
 mod metrics;
 mod object_structure;
+mod pin;
 mod policy;
 mod pool;
 mod products;
@@ -43,6 +44,7 @@ pub use form::*;
 pub use json_cell::{json_decimal, json_f64, json_i64, json_u64, JS_MAX_SAFE_INTEGER};
 pub use metrics::*;
 pub use object_structure::*;
+pub use pin::{PinStatus, PinnedSession};
 pub use policy::*;
 pub use pool::*;
 pub use products::{

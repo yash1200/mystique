@@ -5,9 +5,6 @@ mod code;
 mod mongo;
 mod sort;
 
-#[cfg(test)]
-mod tests;
-
 use super::sql::{quote_ident, sql_string_literal, SqlIdentStyle};
 use crate::catalog::TableFilter;
 use crate::error::{ConnectorError, ConnectorResult};
@@ -140,3 +137,6 @@ pub fn sql_preview_where(
     }
     sql_where_clause(style, &all)
 }
+
+#[cfg(test)]
+mod tests;

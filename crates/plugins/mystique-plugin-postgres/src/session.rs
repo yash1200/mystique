@@ -9,10 +9,11 @@ use mystique_connector_api::{
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
     FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
-    ImportObjectResult, InterruptGuard, ObjectStructure, PoolStatus, PreviewImportInput,
-    PreviewImportResult, QueryBatchResult, QueryControl, QueryResult, ServerMetricsSnapshot,
-    TableAdminInput, TableAdminResult, TablePreviewResult, TablePreviewStats,
-    TerminateSessionInput, TerminateSessionResult, ValidatedBatch, ValidatedQuery,
+    ImportObjectResult, InterruptGuard, ObjectStructure, PinnedSession, PoolStatus,
+    PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl, QueryResult,
+    ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TablePreviewResult,
+    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedBatch,
+    ValidatedQuery,
 };
 
 mod admin;
@@ -20,6 +21,7 @@ mod catalog;
 mod edits;
 mod encode;
 mod metrics;
+mod pin;
 mod preview;
 mod query;
 mod structure;
@@ -131,6 +133,12 @@ impl ConnectorSession for PostgresSession {
 
     async fn execute_batch(&self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
         query::execute_batch(self, batch).await
+    }
+
+    async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
+        self.ensure_open()?;
+        let client = self.client().await?;
+        Ok(Box::new(pin::PostgresPin::new(client, self.cancel_tls())))
     }
 
     async fn describe_table(

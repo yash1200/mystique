@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    clamp_timeout_ms, gate_sql_batch, position_at, BatchEvent, BatchPhase, ConnectorError,
-    ConnectorResult, ExecuteQueryRequest, ProgressPump, QueryBatchResult, QueryMode, QueryResult,
-    SqlDialect, SqlRange, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery,
-    DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
+    position_at, BatchEvent, BatchPhase, ConnectorError, ConnectorResult, ExecuteQueryRequest,
+    ProgressPump, QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementKind,
+    StatementResult, ValidatedQuery,
 };
 
 use super::ConnectionManager;
@@ -19,69 +18,20 @@ impl ConnectionManager {
         fold_batch(self.execute_batch(req, None).await?)
     }
 
-    /// Run a batch on one connection.
+    /// Run a batch on one pooled connection.
     ///
     /// SQL is planned once. Read mode rejects a non-read before anything runs.
-    /// `BEGIN` / `COMMIT` / `ROLLBACK` are refused until pinned sessions exist.
+    /// `BEGIN` / `COMMIT` / `ROLLBACK` are refused unless the tab is pinned.
     /// MongoDB is not parsed as SQL; it stays one statement.
     pub async fn execute_batch(
         &self,
         req: ExecuteQueryRequest,
         progress: Option<ProgressPump>,
     ) -> ConnectorResult<QueryBatchResult> {
-        let (session, live_read_only) = self.session_and_read_only(&req.session_id).await?;
-        let engine = session.engine_id().to_string();
-        // The live session wins. A client can only make the call stricter.
-        let read_only = live_read_only || req.profile_read_only;
-        let mode = if read_only { QueryMode::Read } else { req.mode };
-        let max_rows = req
-            .max_rows
-            .unwrap_or(DEFAULT_MAX_ROWS)
-            .clamp(1, HARD_MAX_ROWS);
-        let timeout_ms = clamp_timeout_ms(req.timeout_ms);
-
-        if engine.eq_ignore_ascii_case("mongodb") {
-            return self
-                .execute_document_batch(
-                    session, req, mode, max_rows, timeout_ms, read_only, progress,
-                )
-                .await;
-        }
-
-        let plan = gate_sql_batch(&req.text, SqlDialect::from_engine(&engine), mode)?;
-        self.enforce_write_guard(
-            &req.session_id,
-            plan.worst.write_risk(),
-            &req.text,
-            plan.destructive_name.as_deref(),
-            req.confirm_object_name.as_deref(),
-            read_only,
-        )
-        .await?;
-
-        let (id, control) = self.begin_run(req.execution_id).await;
-        let batch = ValidatedBatch {
-            statements: plan.statements,
-            mode,
-            max_rows,
-            timeout_ms,
-            explain_executes: plan.explain_executes,
-            collection: req.collection,
-            database: req.database,
-            control: Arc::clone(&control),
-            progress,
-        };
-        let mut result = self
-            .drive_registered(&control, timeout_ms, session.execute_batch(&batch))
-            .await;
-        if let Ok(batch_result) = result.as_mut() {
-            place_error_positions(&req.text, batch_result);
-        }
-        self.finish_run(&id).await;
-        result
+        self.execute_batch_in(req, progress, None).await
     }
 
-    async fn execute_document_batch(
+    pub(super) async fn execute_document_batch(
         &self,
         session: Arc<dyn mystique_connector_api::ConnectorSession>,
         req: ExecuteQueryRequest,
@@ -90,6 +40,7 @@ impl ConnectionManager {
         timeout_ms: u64,
         read_only: bool,
         progress: Option<ProgressPump>,
+        tab_id: Option<String>,
     ) -> ConnectorResult<QueryBatchResult> {
         let engine = session.engine_id().to_string();
         let policy = self.registry.policy(&engine).ok_or_else(|| {
@@ -116,7 +67,10 @@ impl ConnectionManager {
             mystique_connector_api::WriteRisk::Write => StatementKind::Write,
             mystique_connector_api::WriteRisk::Destructive => StatementKind::Destructive,
         };
-        let (id, control) = self.begin_run(req.execution_id).await;
+        if let Some(tab) = tab_id.as_deref() {
+            self.ensure_tab_pin(&req.session_id, tab).await?;
+        }
+        let (id, control) = self.begin_run(&req.session_id, req.execution_id).await;
         if let Some(progress) = &progress {
             progress.emit(
                 BatchEvent {
@@ -136,11 +90,42 @@ impl ConnectionManager {
             database: req.database,
             control: Arc::clone(&control),
         };
+        if let Some(tab) = tab_id.as_deref() {
+            let batch = self
+                .drive_registered(
+                    &control,
+                    timeout_ms,
+                    self.pinned_document_batch(
+                        &req.session_id,
+                        tab,
+                        &validated.text,
+                        mode,
+                        max_rows,
+                        timeout_ms,
+                        validated.collection.clone(),
+                        validated.database.clone(),
+                        Arc::clone(&control),
+                    ),
+                )
+                .await;
+            self.finish_run(&id).await;
+            if let Some(progress) = &progress {
+                progress.emit(
+                    BatchEvent {
+                        index: 0,
+                        total: 1,
+                        phase: BatchPhase::Finished,
+                    },
+                    true,
+                );
+                progress.flush();
+            }
+            return batch;
+        }
         let result = self
             .drive_registered(&control, timeout_ms, session.execute_query(&validated))
             .await;
         self.finish_run(&id).await;
-        let result = result?;
         if let Some(progress) = &progress {
             progress.emit(
                 BatchEvent {
@@ -152,6 +137,7 @@ impl ConnectionManager {
             );
             progress.flush();
         }
+        let result = result?;
         let end = u32::try_from(validated.text.len()).unwrap_or(u32::MAX);
         Ok(QueryBatchResult {
             results: vec![StatementResult {
@@ -171,7 +157,7 @@ impl ConnectionManager {
 }
 
 /// Last successful statement, or the error that stopped the batch.
-fn place_error_positions(text: &str, batch: &mut QueryBatchResult) {
+pub(super) fn place_error_positions(text: &str, batch: &mut QueryBatchResult) {
     for stmt in &mut batch.results {
         if let Some(position) = stmt.error_position.as_mut() {
             *position = position_at(text, position.offset);

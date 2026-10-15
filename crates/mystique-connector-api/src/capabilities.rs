@@ -138,6 +138,9 @@ pub struct EngineCapabilities {
     pub supports_pagination: bool,
     pub supports_write: bool,
     pub supports_cancel_query: bool,
+    /// Manual commit on a pinned connection. Mongo is on only for a replica set.
+    #[serde(default = "default_true")]
+    pub supports_transactions: bool,
     /// Query editor gutter. Every runtime can run a statement.
     #[serde(default = "default_supports_query")]
     pub supports_query: bool,

@@ -742,6 +742,8 @@ async fn insert_probe(
             environment: "production".into(),
             read_only,
             connection_name: "Prod Mongo".into(),
+            origin: super::SessionOrigin::Ui,
+            last_used: std::sync::Mutex::new(std::time::Instant::now()),
         },
     );
     ran
@@ -1156,4 +1158,360 @@ async fn a_later_statement_error_keeps_the_earlier_result() {
 
     let _ = mgr.close_session("batch-partial").await;
     let _ = std::fs::remove_file(&path);
+}
+
+async fn cell(mgr: &ConnectionManager, session_id: &str, sql: &str) -> serde_json::Value {
+    let result = mgr
+        .execute_query(batch_req(
+            session_id,
+            sql,
+            mystique_connector_api::QueryMode::Read,
+        ))
+        .await
+        .expect("read");
+    result.rows[0][0].clone()
+}
+
+#[tokio::test]
+async fn manual_commit_hides_an_update_until_commit() {
+    let path = temp_db("pin-vis");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "pin-vis", "local", false))
+        .await
+        .expect("open");
+    mgr.open_session(sqlite_open(&path, "pin-other", "local", false))
+        .await
+        .expect("other");
+    mgr.execute_query(write_req(
+        "pin-vis",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER); INSERT INTO t (id, a) VALUES (1, 0)",
+    ))
+    .await
+    .expect("seed");
+    mgr.pin_tab("pin-vis", "tab-1").await.expect("pin");
+    mgr.execute_pinned_batch(
+        batch_req(
+            "pin-vis",
+            "BEGIN; UPDATE t SET a = 1 WHERE id = 1",
+            mystique_connector_api::QueryMode::Write,
+        ),
+        "tab-1".into(),
+        None,
+    )
+    .await
+    .expect("update");
+    assert_eq!(
+        cell(&mgr, "pin-other", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+    let status = mgr.commit_tab("tab-1").await.expect("commit");
+    assert!(status.pinned);
+    assert!(!status.in_transaction);
+    assert_eq!(
+        cell(&mgr, "pin-other", "SELECT a FROM t WHERE id = 1").await,
+        json!(1)
+    );
+    let _ = mgr.close_session("pin-vis").await;
+    let _ = mgr.close_session("pin-other").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn closing_the_pin_rolls_the_update_back() {
+    let path = temp_db("pin-rollback");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "pin-rb", "local", false))
+        .await
+        .expect("open");
+    mgr.open_session(sqlite_open(&path, "pin-rb-other", "local", false))
+        .await
+        .expect("other");
+    mgr.execute_query(write_req(
+        "pin-rb",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER); INSERT INTO t (id, a) VALUES (1, 0)",
+    ))
+    .await
+    .expect("seed");
+    mgr.pin_tab("pin-rb", "tab-rb").await.expect("pin");
+    mgr.execute_pinned_batch(
+        batch_req(
+            "pin-rb",
+            "BEGIN; UPDATE t SET a = 1 WHERE id = 1",
+            mystique_connector_api::QueryMode::Write,
+        ),
+        "tab-rb".into(),
+        None,
+    )
+    .await
+    .expect("update");
+    mgr.rollback_tab("tab-rb").await.expect("unpin");
+    assert!(!mgr.pin_status("tab-rb").await.pinned);
+    assert_eq!(
+        cell(&mgr, "pin-rb-other", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+    let _ = mgr.close_session("pin-rb").await;
+    let _ = mgr.close_session("pin-rb-other").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn idle_pin_rolls_back() {
+    let path = temp_db("pin-idle");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "pin-idle", "local", false))
+        .await
+        .expect("open");
+    mgr.open_session(sqlite_open(&path, "pin-idle-other", "local", false))
+        .await
+        .expect("other");
+    mgr.execute_query(write_req(
+        "pin-idle",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER); INSERT INTO t (id, a) VALUES (1, 0)",
+    ))
+    .await
+    .expect("seed");
+    mgr.pin_tab_for("pin-idle", "tab-idle", std::time::Duration::from_millis(1))
+        .await
+        .expect("pin");
+    mgr.execute_pinned_batch(
+        batch_req(
+            "pin-idle",
+            "BEGIN; UPDATE t SET a = 1 WHERE id = 1",
+            mystique_connector_api::QueryMode::Write,
+        ),
+        "tab-idle".into(),
+        None,
+    )
+    .await
+    .expect("update");
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    mgr.reap_idle().await;
+    assert!(!mgr.pin_status("tab-idle").await.pinned);
+    assert_eq!(
+        cell(&mgr, "pin-idle-other", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+    let _ = mgr.close_session("pin-idle").await;
+    let _ = mgr.close_session("pin-idle-other").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn a_temp_table_stays_on_the_pinned_tab() {
+    let path = temp_db("pin-temp");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "pin-temp", "local", false))
+        .await
+        .expect("open");
+    mgr.open_session(sqlite_open(&path, "pin-temp-other", "local", false))
+        .await
+        .expect("other");
+    mgr.pin_tab("pin-temp", "tab-temp").await.expect("pin");
+    mgr.execute_pinned_batch(
+        batch_req(
+            "pin-temp",
+            "CREATE TEMP TABLE mystique_pin (id INTEGER); INSERT INTO mystique_pin (id) VALUES (7)",
+            mystique_connector_api::QueryMode::Write,
+        ),
+        "tab-temp".into(),
+        None,
+    )
+    .await
+    .expect("temp");
+    let seen = mgr
+        .execute_pinned_batch(
+            batch_req(
+                "pin-temp",
+                "SELECT id FROM mystique_pin",
+                mystique_connector_api::QueryMode::Read,
+            ),
+            "tab-temp".into(),
+            None,
+        )
+        .await
+        .expect("same tab");
+    assert_eq!(
+        seen.results[0].result.as_ref().expect("rows").rows[0][0],
+        json!(7)
+    );
+    // The other tab is not pinned, so it must not see the temp table.
+    // Use the other session id, which has its own connections.
+    let err = mgr
+        .execute_query(batch_req(
+            "pin-temp-other",
+            "SELECT id FROM mystique_pin",
+            mystique_connector_api::QueryMode::Read,
+        ))
+        .await
+        .expect_err("other connection");
+    assert!(
+        err.to_string()
+            .to_ascii_lowercase()
+            .contains("mystique_pin")
+            || err
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("no such table"),
+        "{err}"
+    );
+    let _ = mgr.rollback_tab("tab-temp").await;
+    let _ = mgr.close_session("pin-temp").await;
+    let _ = mgr.close_session("pin-temp-other").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn read_only_pin_rejects_a_write_before_execute() {
+    let path = temp_db("pin-ro");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "pin-ro", "local", true))
+        .await
+        .expect("open");
+    mgr.execute_query(batch_req(
+        "pin-ro",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER)",
+        mystique_connector_api::QueryMode::Read,
+    ))
+    .await
+    .expect_err("create is a write");
+    // Seed through a write session, then pin the read-only one.
+    mgr.open_session(sqlite_open(&path, "pin-ro-write", "local", false))
+        .await
+        .expect("writer");
+    mgr.execute_query(write_req(
+        "pin-ro-write",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER); INSERT INTO t (id, a) VALUES (1, 0)",
+    ))
+    .await
+    .expect("seed");
+    mgr.pin_tab("pin-ro", "tab-ro").await.expect("pin");
+    let err = mgr
+        .execute_pinned_batch(
+            batch_req(
+                "pin-ro",
+                "UPDATE t SET a = 1 WHERE id = 1",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            "tab-ro".into(),
+            None,
+        )
+        .await
+        .expect_err("read-only");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("read"),
+        "{err}"
+    );
+    assert_eq!(
+        cell(&mgr, "pin-ro-write", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+    let _ = mgr.rollback_tab("tab-ro").await;
+    let _ = mgr.close_session("pin-ro").await;
+    let _ = mgr.close_session("pin-ro-write").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn autocommit_does_not_leave_a_begin_open() {
+    let path = temp_db("pin-auto");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "pin-auto", "local", false))
+        .await
+        .expect("open");
+    mgr.execute_query(batch_req(
+        "pin-auto",
+        "SELECT 1",
+        mystique_connector_api::QueryMode::Write,
+    ))
+    .await
+    .expect("select");
+    let err = mgr
+        .execute_batch(
+            batch_req(
+                "pin-auto",
+                "BEGIN",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect_err("begin refused");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("transaction"),
+        "{err}"
+    );
+    mgr.open_session(sqlite_open(&path, "pin-auto-other", "local", false))
+        .await
+        .expect("other");
+    mgr.execute_query(write_req("pin-auto-other", "CREATE TABLE t (id INTEGER)"))
+        .await
+        .expect("no leftover lock");
+    let _ = mgr.close_session("pin-auto").await;
+    let _ = mgr.close_session("pin-auto-other").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn two_get_or_open_calls_keep_one_session() {
+    let path = temp_db("pin-once");
+    let _ = std::fs::remove_file(&path);
+    let mgr = std::sync::Arc::new(ConnectionManager::bootstrap());
+    let req = sqlite_open(&path, "pin-once", "local", false);
+    let first = mgr
+        .get_or_open(req.clone(), super::SessionOrigin::Ui)
+        .await
+        .expect("first");
+    let second = mgr
+        .get_or_open(req, super::SessionOrigin::Ui)
+        .await
+        .expect("second");
+    assert_eq!(first.opened_at, second.opened_at);
+    mgr.execute_query(batch_req(
+        "pin-once",
+        "SELECT 1",
+        mystique_connector_api::QueryMode::Read,
+    ))
+    .await
+    .expect("still open");
+    let _ = mgr.close_session("pin-once").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn closing_one_session_leaves_another_query_running() {
+    let path_a = temp_db("pin-a");
+    let path_b = temp_db("pin-b");
+    let _ = std::fs::remove_file(&path_a);
+    let _ = std::fs::remove_file(&path_b);
+    let mgr = std::sync::Arc::new(ConnectionManager::bootstrap());
+    mgr.open_session(sqlite_open(&path_a, "sess-a", "local", false))
+        .await
+        .expect("a");
+    mgr.open_session(sqlite_open(&path_b, "sess-b", "local", false))
+        .await
+        .expect("b");
+    let worker = std::sync::Arc::clone(&mgr);
+    let running = tokio::spawn(async move {
+        worker
+            .execute_query(batch_req(
+                "sess-b",
+                "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 200000) SELECT max(x) FROM c",
+                mystique_connector_api::QueryMode::Read,
+            ))
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    mgr.close_session("sess-a").await.expect("close a");
+    let result = running.await.expect("join").expect("query b");
+    assert_eq!(result.rows[0][0], json!(200000));
+    let _ = mgr.close_session("sess-b").await;
+    let _ = std::fs::remove_file(&path_a);
+    let _ = std::fs::remove_file(&path_b);
 }

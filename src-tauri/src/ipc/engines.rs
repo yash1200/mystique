@@ -127,6 +127,99 @@ pub async fn open_engine_session(
 }
 
 #[tauri::command]
+pub async fn pin_query_tab(
+    state: State<'_, AppState>,
+    session_id: String,
+    tab_id: String,
+) -> Result<mystique_core::PinStatus, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .pin_tab(&session_id, &tab_id)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn unpin_query_tab(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<mystique_core::PinStatus, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .rollback_tab(&tab_id)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn commit_pinned_tab(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<mystique_core::PinStatus, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .commit_tab(&tab_id)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rollback_pinned_tab(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<mystique_core::PinStatus, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .rollback_open_tab(&tab_id)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn pinned_tab_status(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<mystique_core::PinStatus, String> {
+    super::guard(async move { Ok(state.services.connections().pin_status(&tab_id).await) }).await
+}
+
+#[tauri::command]
+pub async fn execute_pinned_batch(
+    state: State<'_, AppState>,
+    request: mystique_core::ExecuteQueryRequest,
+    tab_id: String,
+    on_progress: tauri::ipc::Channel<mystique_core::BatchEvent>,
+) -> Result<mystique_core::QueryBatchResult, mystique_core::QueryIpcError> {
+    super::guard_query(async move {
+        let progress = mystique_core::ProgressPump::new(move |event| {
+            let _ = on_progress.send(event);
+        });
+        state
+            .services
+            .connections()
+            .execute_pinned_batch(request, tab_id, Some(progress))
+            .await
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn close_engine_session(
     state: State<'_, AppState>,
     session_id: String,

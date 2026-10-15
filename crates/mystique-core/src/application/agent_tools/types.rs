@@ -64,40 +64,6 @@ const _: () = assert!(
     "agent row cap must stay below the driver fetch ceiling"
 );
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agent_row_cap_clamps_zero_and_huge() {
-        assert_eq!(clamp_agent_max_rows(None), AGENT_DEFAULT_ROWS);
-        assert_eq!(clamp_agent_max_rows(Some(0)), 1);
-        assert_eq!(clamp_agent_max_rows(Some(50)), 50);
-        assert_eq!(clamp_agent_max_rows(Some(u32::MAX)), AGENT_MAX_ROWS);
-    }
-
-    #[test]
-    fn cell_window_defaults_and_clamps() {
-        assert_eq!(
-            AgentCellWindow::from_options(None, None),
-            AgentCellWindow::default()
-        );
-        assert_eq!(AgentCellWindow::default().limit, AGENT_DEFAULT_CELL_CHARS);
-        assert_eq!(
-            AgentCellWindow::from_options(None, Some(100_000)).limit,
-            AGENT_MAX_CELL_CHARS
-        );
-        assert_eq!(AgentCellWindow::from_options(None, Some(0)).limit, 1);
-        assert_eq!(
-            AgentCellWindow::from_options(Some(u64::MAX), Some(u64::MAX)),
-            AgentCellWindow {
-                offset: AGENT_MAX_CELL_OFFSET,
-                limit: AGENT_MAX_CELL_CHARS,
-            }
-        );
-    }
-}
-
 /// Safe connection card for models (no host / password / URI).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,4 +122,38 @@ pub struct AgentToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub input_schema: JsonValue,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_row_cap_clamps_zero_and_huge() {
+        assert_eq!(clamp_agent_max_rows(None), AGENT_DEFAULT_ROWS);
+        assert_eq!(clamp_agent_max_rows(Some(0)), 1);
+        assert_eq!(clamp_agent_max_rows(Some(50)), 50);
+        assert_eq!(clamp_agent_max_rows(Some(u32::MAX)), AGENT_MAX_ROWS);
+    }
+
+    #[test]
+    fn cell_window_defaults_and_clamps() {
+        assert_eq!(
+            AgentCellWindow::from_options(None, None),
+            AgentCellWindow::default()
+        );
+        assert_eq!(AgentCellWindow::default().limit, AGENT_DEFAULT_CELL_CHARS);
+        assert_eq!(
+            AgentCellWindow::from_options(None, Some(100_000)).limit,
+            AGENT_MAX_CELL_CHARS
+        );
+        assert_eq!(AgentCellWindow::from_options(None, Some(0)).limit, 1);
+        assert_eq!(
+            AgentCellWindow::from_options(Some(u64::MAX), Some(u64::MAX)),
+            AgentCellWindow {
+                offset: AGENT_MAX_CELL_OFFSET,
+                limit: AGENT_MAX_CELL_CHARS,
+            }
+        );
+    }
 }

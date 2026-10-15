@@ -315,7 +315,7 @@ fn located_batch(batch: &ValidatedBatch, sql: &str, err: mysql_async::Error) -> 
     }
 }
 
-async fn run_planned_batch(
+pub(super) async fn run_planned_batch(
     conn: &mut mysql_async::Conn,
     batch: &ValidatedBatch,
     locked: bool,

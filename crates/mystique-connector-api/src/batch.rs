@@ -287,6 +287,17 @@ pub fn gate_sql_batch(
     dialect: SqlDialect,
     mode: QueryMode,
 ) -> ConnectorResult<SqlBatchPlan> {
+    gate_sql_batch_in(text, dialect, mode, false)
+}
+
+/// `allow_txn` is set only for a pinned tab. Auto-commit still refuses
+/// `BEGIN` / `COMMIT` / `ROLLBACK` so a transaction cannot return to the pool.
+pub fn gate_sql_batch_in(
+    text: &str,
+    dialect: SqlDialect,
+    mode: QueryMode,
+    allow_txn: bool,
+) -> ConnectorResult<SqlBatchPlan> {
     if let Some(fault) = mystique_sql::first_syntax_fault(text, dialect) {
         return Err(ConnectorError::query_at(
             fault.message,
@@ -325,16 +336,18 @@ pub fn gate_sql_batch(
         });
     }
 
-    if let Some(stmt) = statements.iter().find(|stmt| stmt.txn_boundary) {
-        return Err(ConnectorError::query_at(
-            format!(
-                "Statement {} starts or ends a transaction ({}). Nothing ran.",
-                display_index(stmt.index),
-                sql_snippet(&stmt.sql)
-            ),
-            position_at(text, stmt.sql_range.start),
-            Some(stmt.index),
-        ));
+    if !allow_txn {
+        if let Some(stmt) = statements.iter().find(|stmt| stmt.txn_boundary) {
+            return Err(ConnectorError::query_at(
+                format!(
+                    "Statement {} starts or ends a transaction ({}). Nothing ran.",
+                    display_index(stmt.index),
+                    sql_snippet(&stmt.sql)
+                ),
+                position_at(text, stmt.sql_range.start),
+                Some(stmt.index),
+            ));
+        }
     }
     if mode == QueryMode::Read {
         if let Some(stmt) = statements
@@ -374,6 +387,28 @@ pub fn gate_sql_batch(
 
 fn display_index(index: u32) -> u64 {
     u64::from(index) + 1
+}
+
+fn sql_snippet(sql: &str) -> String {
+    let mut out = String::new();
+    for word in sql.split_whitespace() {
+        if out.is_empty() {
+            if word.chars().count() > 80 {
+                let cut: String = word.chars().take(79).collect();
+                return format!("{cut}…");
+            }
+            out.push_str(word);
+            continue;
+        }
+        let extra = word.chars().count() + 1;
+        if out.chars().count() + extra > 80 {
+            out.push('…');
+            return out;
+        }
+        out.push(' ');
+        out.push_str(word);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -452,26 +487,4 @@ mod tests {
         assert!(plan.statements[0].returns_rows);
         assert!(plan.statements[0].cursor);
     }
-}
-
-fn sql_snippet(sql: &str) -> String {
-    let mut out = String::new();
-    for word in sql.split_whitespace() {
-        if out.is_empty() {
-            if word.chars().count() > 80 {
-                let cut: String = word.chars().take(79).collect();
-                return format!("{cut}…");
-            }
-            out.push_str(word);
-            continue;
-        }
-        let extra = word.chars().count() + 1;
-        if out.chars().count() + extra > 80 {
-            out.push('…');
-            return out;
-        }
-        out.push(' ');
-        out.push_str(word);
-    }
-    out
 }

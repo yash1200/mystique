@@ -95,16 +95,27 @@ pub(super) async fn execute_batch(
         let result = run_planned_batch(&client, batch, true).await;
         end_read_only_txn(client, result).await
     } else {
-        let _ = client
-            .batch_execute(&format!("SET statement_timeout = {timeout}"))
-            .await;
-        let result = run_planned_batch(&client, batch, false).await;
-        let _ = client.batch_execute("RESET statement_timeout").await;
-        result
+        execute_held(session, &client, batch).await
     }
 }
 
-async fn run_planned_batch(
+/// Run on a connection the caller keeps. Does not open or close a transaction.
+pub(super) async fn execute_held(
+    session: &PostgresSession,
+    client: &deadpool_postgres::Object,
+    batch: &ValidatedBatch,
+) -> ConnectorResult<QueryBatchResult> {
+    let _guard = session.arm_cancel(client, &batch.control);
+    let timeout = batch.timeout_ms.max(1);
+    let _ = client
+        .batch_execute(&format!("SET statement_timeout = {timeout}"))
+        .await;
+    let result = run_planned_batch(client, batch, false).await;
+    let _ = client.batch_execute("RESET statement_timeout").await;
+    result
+}
+
+pub(super) async fn run_planned_batch(
     client: &Client,
     batch: &ValidatedBatch,
     locked: bool,

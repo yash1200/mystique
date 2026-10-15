@@ -6,7 +6,13 @@
 	import type { EngineCapabilities, QueryMode } from '#core/contracts'
 	import {
 		cancelTabRun,
+		commitPinnedTab,
 		executeEngineBatch,
+		executePinnedBatch,
+		pinQueryTab,
+		pinnedTabStatus,
+		rollbackPinnedTab,
+		unpinQueryTab,
 		finishTabRun,
 		isTauri,
 		startTabRun,
@@ -105,6 +111,9 @@
 	let editorSnap = $state({ doc: '', head: 0, anchor: 0 })
 	let exporting = $state<ResultExportAction | null>(null)
 	let locateNonce = $state(0)
+	let manualCommit = $state(false)
+	let transactionOpen = $state(false)
+	const showTransactions = $derived(capabilities?.supportsTransactions === true)
 
 	// One-time seed from prop; $effect below re-syncs when parent draft changes.
 	let localText = $state(untrack(() => text ?? ''))
@@ -119,6 +128,19 @@
 	let splitDragging = $state(false)
 
 	const language = $derived(queryLanguageFor(engine, capabilities))
+
+	$effect(() => {
+		const tab = tabId
+		const enabled = showTransactions
+		if (!enabled || !isTauri()) return
+		void pinnedTabStatus(tab)
+			.then((status) => {
+				if (tab !== tabId) return
+				manualCommit = status.pinned
+				transactionOpen = status.inTransaction
+			})
+			.catch(() => {})
+	})
 
 	$effect(() => {
 		const sid = engineSessionId
@@ -414,16 +436,23 @@
 					current.activeIndex ?? 0,
 				)
 			}
+			const runBatch = (
+				sessionId: string,
+				confirmObjectName: string | null,
+			) => {
+				const body = {
+					...request,
+					sessionId,
+					confirmObjectName,
+				}
+				return manualCommit
+					? executePinnedBatch(body, tabId, onProgress)
+					: executeEngineBatch(body, onProgress)
+			}
 			let batch
 			try {
 				batch = await runWithWriteGuard(sid, (confirmObjectName) =>
-					executeEngineBatch(
-						{
-							...request,
-							confirmObjectName: confirmObjectName ?? null,
-						},
-						onProgress,
-					),
+					runBatch(sid, confirmObjectName ?? null),
 				)
 			} catch (e) {
 				// Read mode rolls back. A write may already have landed.
@@ -431,14 +460,7 @@
 				const next = await onreconnect()
 				if (!next) throw e
 				batch = await runWithWriteGuard(next, (confirmObjectName) =>
-					executeEngineBatch(
-						{
-							...request,
-							sessionId: next,
-							confirmObjectName: confirmObjectName ?? null,
-						},
-						onProgress,
-					),
+					runBatch(next, confirmObjectName ?? null),
 				)
 			}
 			const elapsedMs = Math.round(performance.now() - start)
@@ -507,12 +529,62 @@
 			})
 		} finally {
 			finishTabRun(tabId, executionId)
+			if (manualCommit) void refreshPin()
 		}
 	}
 
 	function cancelRun() {
 		if (runState.status !== 'running') return
 		void cancelTabRun(tabId)
+	}
+
+	async function refreshPin() {
+		if (!showTransactions || !isTauri()) return
+		try {
+			const status = await pinnedTabStatus(tabId)
+			manualCommit = status.pinned
+			transactionOpen = status.inTransaction
+		} catch {
+			/* The toolbar keeps the last status. */
+		}
+	}
+
+	async function setManualCommit(manual: boolean) {
+		if (!engineSessionId) {
+			showToast('danger', 'Connect before changing auto-commit.')
+			return
+		}
+		const wasOpen = transactionOpen
+		try {
+			const status = manual
+				? await pinQueryTab(engineSessionId, tabId)
+				: await unpinQueryTab(tabId)
+			manualCommit = manual ? status.pinned : false
+			transactionOpen = status.inTransaction
+			if (!manual && wasOpen) showToast('info', 'Open transaction rolled back.')
+		} catch (e) {
+			showToast('danger', e instanceof Error ? e.message : String(e))
+		}
+	}
+
+	async function commitPin() {
+		try {
+			const status = await commitPinnedTab(tabId)
+			transactionOpen = status.inTransaction
+			showToast('success', 'Committed.')
+		} catch (e) {
+			showToast('danger', e instanceof Error ? e.message : String(e))
+		}
+	}
+
+	async function rollbackPin() {
+		try {
+			const status = await rollbackPinnedTab(tabId)
+			transactionOpen = status.inTransaction
+			showToast('info', 'Rolled back.')
+		} catch (e) {
+			showToast('danger', e instanceof Error ? e.message : String(e))
+		}
 	}
 
 	function askAiAboutError(errorMessage: string) {
@@ -615,6 +687,12 @@
 				showStatementGutter={capabilities?.supportsQuery !== false}
 				running={runState.status === 'running'}
 				oncancel={cancelRun}
+				{showTransactions}
+				{manualCommit}
+				{transactionOpen}
+				onmanualcommit={(manual) => void setManualCommit(manual)}
+				oncommit={() => void commitPin()}
+				onrollback={() => void rollbackPin()}
 				{dirty}
 				{saving}
 				onchange={emitText}

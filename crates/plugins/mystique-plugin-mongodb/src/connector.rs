@@ -110,10 +110,8 @@ impl DatabaseConnector for MongoConnector {
             .await
             .map_err(|e| ConnectorError::Connect(e.to_string()))?;
 
-        Ok(Box::new(MongoSession::new(
-            client,
-            config.pool.max_size,
-            default_db,
-        )))
+        let session = MongoSession::new(client, config.pool.max_size, default_db);
+        session.note_transactions().await;
+        Ok(Box::new(session))
     }
 }

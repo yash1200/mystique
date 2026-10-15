@@ -19,8 +19,9 @@ impl AgentTools {
         max_rows: Option<u32>,
         format: &str,
         window: AgentCellWindow,
+        caller: ToolCaller,
     ) -> AppResult<AgentQueryDownload> {
-        let sid = self.ensure_session(connection_id).await?;
+        let sid = self.ensure_session_for(connection_id, caller).await?;
         let text = query.trim();
         if text.is_empty() {
             return Err(AppError::Invalid("query is required".into()));
@@ -60,6 +61,7 @@ impl AgentTools {
         max_rows: Option<u32>,
         format: &str,
         window: AgentCellWindow,
+        caller: ToolCaller,
     ) -> AppResult<AgentQueryDownload> {
         let text = query.trim();
         if text.is_empty() {
@@ -76,7 +78,7 @@ impl AgentTools {
                 "This connection is read-only. Disable read-only to run writes.".into(),
             ));
         }
-        let sid = self.ensure_session(connection_id).await?;
+        let sid = self.ensure_session_for(connection_id, caller).await?;
         let max = clamp_agent_max_rows(max_rows);
         let mode = if risk == WriteRisk::Read {
             QueryMode::Read

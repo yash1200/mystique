@@ -16,13 +16,11 @@ mod catalog;
 mod depth;
 mod guard;
 mod metrics;
+mod pin;
 mod query;
 mod run;
 mod table;
 mod transfer;
-
-#[cfg(test)]
-mod tests;
 
 use super::ssh::{
     open_tunnel, pin_forwarded_mongo, rewrite_plugin_config_for_tunnel, ssh_target, SshTunnel,
@@ -86,6 +84,15 @@ fn default_use_saved_ssh() -> bool {
     true
 }
 
+/// Who opened the pool. Pins are keyed by tab id, not by this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SessionOrigin {
+    #[default]
+    Ui,
+    Agent,
+    Mcp,
+}
+
 struct LiveSession {
     session: Arc<dyn ConnectorSession>,
     display_name: String,
@@ -97,6 +104,8 @@ struct LiveSession {
     environment: String,
     read_only: bool,
     connection_name: String,
+    origin: SessionOrigin,
+    last_used: std::sync::Mutex<std::time::Instant>,
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
@@ -106,9 +115,13 @@ pub struct ConnectionManager {
     /// Session ids unlocked for writes this process (P3.1). Not persisted.
     write_unlocks: Mutex<HashSet<String>>,
     /// `execution_id` → control. Not the profile id.
-    running: Mutex<HashMap<String, std::sync::Arc<mystique_connector_api::QueryControl>>>,
+    running: Mutex<HashMap<String, run::Inflight>>,
     /// Caps explorer/metadata fan-out. Never closed. Queries do not take a permit.
     metadata: Semaphore,
+    /// Query-tab id → pinned connection.
+    pins: Mutex<HashMap<String, std::sync::Arc<pin::TabPin>>>,
+    /// Per-id lock so `get_or_open` cannot build two pools.
+    open_gates: Mutex<HashMap<String, std::sync::Arc<Mutex<()>>>>,
 }
 
 impl ConnectionManager {
@@ -119,6 +132,8 @@ impl ConnectionManager {
             write_unlocks: Mutex::new(HashSet::new()),
             running: Mutex::new(HashMap::new()),
             metadata: run::metadata_limiter(),
+            pins: Mutex::new(HashMap::new()),
+            open_gates: Mutex::new(HashMap::new()),
         }
     }
 
@@ -214,6 +229,14 @@ impl ConnectionManager {
     }
 
     pub async fn open_session(&self, req: OpenSessionRequest) -> ConnectorResult<SessionInfo> {
+        self.open_session_as(req, SessionOrigin::Ui).await
+    }
+
+    pub(super) async fn open_session_as(
+        &self,
+        req: OpenSessionRequest,
+        origin: SessionOrigin,
+    ) -> ConnectorResult<SessionInfo> {
         let connector = self.registry.get(&req.engine).ok_or_else(|| {
             ConnectorError::InvalidConfig(format!("unknown engine `{}`", req.engine))
         })?;
@@ -270,6 +293,8 @@ impl ConnectionManager {
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&info.display_name)
                 .to_string(),
+            origin,
+            last_used: std::sync::Mutex::new(std::time::Instant::now()),
         };
 
         // Swap under the lock; close the previous session after releasing it.
@@ -289,14 +314,23 @@ impl ConnectionManager {
     }
 
     pub async fn close_session(&self, session_id: &str) -> ConnectorResult<()> {
+        self.rollback_pins_for_session(session_id).await;
+        let busy = self.cancel_runs_for(session_id).await;
         let live = {
             let mut guard = self.sessions.write().await;
             guard.remove(session_id)
         };
         if let Some(live) = live {
             self.write_unlocks.lock().await.remove(session_id);
-            shutdown_live(live).await?;
-            Ok(())
+            if busy {
+                tokio::spawn(async move {
+                    let _ = shutdown_live(live).await;
+                });
+                Ok(())
+            } else {
+                shutdown_live(live).await?;
+                Ok(())
+            }
         } else {
             Err(ConnectorError::InvalidConfig(format!(
                 "session not found: {session_id}"
@@ -500,3 +534,6 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
         ssh_host_key: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

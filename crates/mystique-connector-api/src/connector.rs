@@ -15,6 +15,7 @@ use crate::metrics::{
     FetchServerMetricsInput, ServerMetricsSnapshot, TerminateSessionInput, TerminateSessionResult,
 };
 use crate::object_structure::ObjectStructure;
+use crate::pin::PinnedSession;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
 use crate::table::{
@@ -108,6 +109,17 @@ pub trait ConnectorSession: Send + Sync {
     async fn execute_query(&self, _query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "execute_query not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Hold one connection for a query tab.
+    ///
+    /// The default is unsupported. SQL plugins override this. Mongo does too
+    /// when the deployment can start a transaction.
+    async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "manual transactions are not supported for engine `{}`",
             self.engine_id()
         )))
     }

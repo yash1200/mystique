@@ -8,7 +8,7 @@ import type {
 	EngineCapabilities,
 	SessionLiveStatus,
 } from '#core/contracts'
-import { cancelTabRun, isTauri } from '#core/ipc'
+import { cancelTabRun, isTauri, unpinQueryTab } from '#core/ipc'
 import { normalizeCapabilities } from '#engines'
 import type { QueryRunCache } from '#features/workspace/query'
 import {
@@ -502,6 +502,9 @@ class WorkspaceSessionStore {
 	closeTab(tabId: string) {
 		void cancelTabRun(tabId)
 		const tab = this.openTabs.find((t) => t.id === tabId)
+		if (isTauri() && tab?.kind === 'query') {
+			void unpinQueryTab(tabId).catch(() => {})
+		}
 		if (!tab) return
 		const connectionId = tab.connectionId
 		const siblingIdx = this.openTabs

@@ -101,7 +101,7 @@ pub(super) async fn handle_method(
                         .require_allowlisted(ToolCaller::Mcp, id)
                         .map_err(|e| (-32000, e.to_string()))?;
                     let dbml = tools
-                        .get_schema_dbml(id, None)
+                        .get_schema_dbml(id, None, ToolCaller::Mcp)
                         .await
                         .map_err(|e| (-32000, e.to_string()))?;
                     return Ok(json!({

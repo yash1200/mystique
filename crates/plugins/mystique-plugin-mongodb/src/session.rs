@@ -9,10 +9,10 @@ use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase, ColumnInfo,
     ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, ExportObjectInput,
     ExportObjectResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PoolStatus,
-    PreviewImportInput, PreviewImportResult, QueryResult, ServerMetricsSnapshot, TableAdminInput,
-    TableAdminResult, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
-    TerminateSessionResult, ValidatedQuery,
+    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
+    PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult, ServerMetricsSnapshot,
+    TableAdminInput, TableAdminResult, TablePreviewResult, TablePreviewStats,
+    TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
 };
 
 mod admin;
@@ -21,6 +21,7 @@ mod edits;
 mod encode;
 mod error;
 mod metrics;
+mod pin;
 mod preview;
 mod query;
 mod structure;
@@ -33,6 +34,8 @@ pub struct MongoSession {
     max_size: u32,
     default_db: Option<String>,
     closed: AtomicBool,
+    /// Set from `hello` at connect. Standalone stays false.
+    pub(super) transactions: AtomicBool,
 }
 
 impl MongoSession {
@@ -42,6 +45,7 @@ impl MongoSession {
             max_size,
             default_db,
             closed: AtomicBool::new(false),
+            transactions: AtomicBool::new(false),
         }
     }
 
@@ -50,6 +54,12 @@ impl MongoSession {
             return Err(ConnectorError::Connect("session closed".into()));
         }
         Ok(())
+    }
+
+    pub(crate) async fn note_transactions(&self) {
+        if pin::probe_transactions(&self.client).await {
+            self.transactions.store(true, Ordering::SeqCst);
+        }
     }
 
     pub(super) fn resolve_database(&self, explicit: Option<&str>) -> ConnectorResult<String> {
@@ -73,7 +83,9 @@ impl ConnectorSession for MongoSession {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::mongodb_defaults()
+        let mut caps = EngineCapabilities::mongodb_defaults();
+        caps.supports_transactions = self.transactions.load(Ordering::SeqCst);
+        caps
     }
 
     async fn ping(&self) -> ConnectorResult<()> {
@@ -108,6 +120,17 @@ impl ConnectorSession for MongoSession {
 
     async fn execute_query(&self, query: &ValidatedQuery) -> ConnectorResult<QueryResult> {
         query::execute_query(self, query).await
+    }
+
+    async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
+        self.ensure_open()?;
+        if !self.transactions.load(Ordering::SeqCst) {
+            return Err(ConnectorError::NotSupported(
+                "MongoDB transactions need a replica set.".into(),
+            ));
+        }
+        let pin = pin::MongoPin::open(self.share_client(), self.share_default_db()).await?;
+        Ok(Box::new(pin))
     }
 
     async fn describe_table(

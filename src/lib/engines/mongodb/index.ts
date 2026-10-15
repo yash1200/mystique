@@ -102,6 +102,7 @@ export const mongodb: EngineAdapter = {
 		supportsPagination: true,
 		supportsWrite: false,
 		supportsCancelQuery: true,
+		supportsTransactions: false,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: false,

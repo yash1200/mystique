@@ -68,6 +68,14 @@
 		/** Caret and document, so a shortcut from outside the editor can run too. */
 		onactivity?: (snap: { doc: string; head: number; anchor: number }) => void
 		onrun: (request: { text: string; start: number }) => void
+		/** Engine can hold a transaction on one connection. */
+		showTransactions?: boolean
+		/** Off means the tab is pinned and auto-commit is off. */
+		manualCommit?: boolean
+		transactionOpen?: boolean
+		onmanualcommit?: (manual: boolean) => void
+		oncommit?: () => void
+		onrollback?: () => void
 		/** Underline in the editor. Null clears it. */
 		diagnostic?: { from: number; to: number; message: string } | null
 		/** Bumps when Locate error should scroll again. */
@@ -95,6 +103,12 @@
 		onchange,
 		onactivity,
 		onrun,
+		showTransactions = false,
+		manualCommit = false,
+		transactionOpen = false,
+		onmanualcommit,
+		oncommit,
+		onrollback,
 		onsave,
 		diagnostic = null,
 		locateNonce = 0,
@@ -514,6 +528,44 @@
 					aria-label="Collection name"
 					title="Collection name"
 				/>
+			{/if}
+			{#if showTransactions}
+				<Button
+					variant="ghost"
+					size="sm"
+					aria-pressed={!manualCommit}
+					disabled={running}
+					onclick={() => onmanualcommit?.(!manualCommit)}
+					title={manualCommit
+						? 'Turn auto-commit on. An open transaction is rolled back.'
+						: 'Turn auto-commit off and keep one connection for this tab.'}
+				>
+					Auto-commit
+				</Button>
+				{#if manualCommit}
+					<span
+						class="size-1.5 shrink-0 rounded-full {transactionOpen
+							? 'bg-warning'
+							: 'bg-fg-muted/40'}"
+						title={transactionOpen ? 'Transaction open' : 'No open transaction'}
+					></span>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={running || !transactionOpen}
+						onclick={() => oncommit?.()}
+					>
+						Commit
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={running || !transactionOpen}
+						onclick={() => onrollback?.()}
+					>
+						Rollback
+					</Button>
+				{/if}
 			{/if}
 			<Button
 				variant="ghost"

@@ -13,6 +13,11 @@ use uuid::Uuid;
 
 use super::ConnectionManager;
 
+pub(super) struct Inflight {
+    pub session_id: String,
+    control: Arc<QueryControl>,
+}
+
 /// Explorer and metrics only. Query execution is not limited by this.
 pub(super) const METADATA_PERMITS: usize = 6;
 
@@ -23,7 +28,12 @@ impl ConnectionManager {
         if id.is_empty() {
             return Ok(());
         }
-        let control = self.running.lock().await.get(id).cloned();
+        let control = self
+            .running
+            .lock()
+            .await
+            .get(id)
+            .map(|run| Arc::clone(&run.control));
         if let Some(control) = control {
             control.cancel();
         }
@@ -32,6 +42,7 @@ impl ConnectionManager {
 
     pub(super) async fn begin_run(
         &self,
+        session_id: &str,
         execution_id: Option<String>,
     ) -> (String, Arc<QueryControl>) {
         let id = execution_id
@@ -39,11 +50,38 @@ impl ConnectionManager {
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let control = QueryControl::new();
+        self.running.lock().await.insert(
+            id.clone(),
+            Inflight {
+                session_id: session_id.to_string(),
+                control: Arc::clone(&control),
+            },
+        );
+        (id, control)
+    }
+
+    pub(super) async fn session_busy(&self, session_id: &str) -> bool {
         self.running
             .lock()
             .await
-            .insert(id.clone(), Arc::clone(&control));
-        (id, control)
+            .values()
+            .any(|run| run.session_id == session_id)
+    }
+
+    pub(super) async fn cancel_runs_for(&self, session_id: &str) -> bool {
+        let controls: Vec<Arc<QueryControl>> = self
+            .running
+            .lock()
+            .await
+            .values()
+            .filter(|run| run.session_id == session_id)
+            .map(|run| Arc::clone(&run.control))
+            .collect();
+        let any = !controls.is_empty();
+        for control in controls {
+            control.cancel();
+        }
+        any
     }
 
     pub(super) async fn finish_run(&self, id: &str) {
@@ -231,6 +269,8 @@ mod tests {
                 environment: "local".into(),
                 read_only: false,
                 connection_name: "probe".into(),
+                origin: super::super::SessionOrigin::Ui,
+                last_used: std::sync::Mutex::new(std::time::Instant::now()),
             },
         );
         seen

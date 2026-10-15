@@ -99,6 +99,12 @@ pub fn run() {
             ipc::engines::unlock_engine_writes,
             ipc::engines::execute_engine_query,
             ipc::engines::execute_engine_batch,
+            ipc::engines::execute_pinned_batch,
+            ipc::engines::pin_query_tab,
+            ipc::engines::unpin_query_tab,
+            ipc::engines::commit_pinned_tab,
+            ipc::engines::rollback_pinned_tab,
+            ipc::engines::pinned_tab_status,
             ipc::engines::cancel_engine_query,
             ipc::engines::describe_engine_table,
             ipc::engines::list_engine_catalog_columns,
@@ -162,6 +168,17 @@ pub fn run() {
             ipc::agent::update_agent_chat,
             ipc::agent::send_agent_message,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                let Some(state) = app.try_state::<AppState>() else {
+                    return;
+                };
+                let services = std::sync::Arc::clone(&state.services);
+                let _ = tauri::async_runtime::block_on(async move {
+                    services.connections().rollback_all_pins().await;
+                });
+            }
+        });
 }

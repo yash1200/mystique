@@ -10,10 +10,10 @@ use mystique_connector_api::{
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
     EngineCapabilities, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
     FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
-    ImportObjectResult, ObjectStructure, PoolStatus, PreviewImportInput, PreviewImportResult,
-    QueryBatchResult, QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult,
-    TablePreviewResult, TablePreviewStats, TerminateSessionInput, TerminateSessionResult,
-    ValidatedBatch, ValidatedQuery,
+    ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus, PreviewImportInput,
+    PreviewImportResult, QueryBatchResult, QueryResult, ServerMetricsSnapshot, TableAdminInput,
+    TableAdminResult, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
+    TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
 
 mod admin;
@@ -22,6 +22,7 @@ mod catalog;
 mod edits;
 mod encode;
 mod metrics;
+mod pin;
 mod preview;
 mod query;
 mod structure;
@@ -105,6 +106,12 @@ impl ConnectorSession for MysqlSession {
 
     async fn execute_batch(&self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
         query::execute_batch(self, batch).await
+    }
+
+    async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
+        self.ensure_open()?;
+        let conn = self.conn().await?;
+        Ok(Box::new(pin::MysqlPin::new(self.pool(), conn)))
     }
 
     async fn describe_table(

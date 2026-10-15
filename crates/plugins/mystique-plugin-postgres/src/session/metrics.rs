@@ -437,6 +437,14 @@ async fn optional_metric(client: &deadpool_postgres::Object, sql: &str) -> Optio
     f64_cell(&row, 0)
 }
 
+fn opt_string(row: &Row, idx: usize) -> Option<String> {
+    row.try_get::<_, Option<String>>(idx)
+        .ok()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,12 +456,4 @@ mod tests {
         assert!(SIZE_SQL.contains("pg_database_size"));
         assert!(UPTIME_SQL.contains("pg_postmaster_start_time"));
     }
-}
-
-fn opt_string(row: &Row, idx: usize) -> Option<String> {
-    row.try_get::<_, Option<String>>(idx)
-        .ok()
-        .flatten()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
 }

@@ -140,6 +140,50 @@ export async function executeEngineQuery(
 }
 
 /** Run every statement. `onProgress` fires at statement boundaries, not per row. */
+export interface PinStatus {
+	pinned: boolean
+	inTransaction: boolean
+}
+
+export async function pinQueryTab(
+	sessionId: string,
+	tabId: string,
+): Promise<PinStatus> {
+	requireTauri()
+	return invoke('pin_query_tab', { sessionId, tabId })
+}
+
+export async function unpinQueryTab(tabId: string): Promise<PinStatus> {
+	requireTauri()
+	return invoke('unpin_query_tab', { tabId })
+}
+
+export async function commitPinnedTab(tabId: string): Promise<PinStatus> {
+	requireTauri()
+	return invoke('commit_pinned_tab', { tabId })
+}
+
+export async function rollbackPinnedTab(tabId: string): Promise<PinStatus> {
+	requireTauri()
+	return invoke('rollback_pinned_tab', { tabId })
+}
+
+export async function pinnedTabStatus(tabId: string): Promise<PinStatus> {
+	requireTauri()
+	return invoke('pinned_tab_status', { tabId })
+}
+
+export async function executePinnedBatch(
+	request: ExecuteQueryRequest,
+	tabId: string,
+	onProgress?: (event: BatchEvent) => void,
+): Promise<QueryBatchResult> {
+	requireTauri()
+	const channel = new Channel<BatchEvent>()
+	if (onProgress) channel.onmessage = onProgress
+	return invoke('execute_pinned_batch', { request, tabId, onProgress: channel })
+}
+
 export async function executeEngineBatch(
 	request: ExecuteQueryRequest,
 	onProgress?: (event: BatchEvent) => void,

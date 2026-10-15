@@ -56,9 +56,19 @@ impl AppServices {
         connections: ConnectionManager,
         secrets: SecretStore,
     ) -> Self {
+        let connections = Arc::new(connections);
+        let reaper = Arc::clone(&connections);
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    reaper.reap_idle().await;
+                }
+            });
+        }
         let svc = Self {
             db: Arc::new(db),
-            connections: Arc::new(connections),
+            connections,
             secrets: Arc::new(secrets),
         };
         let _ = svc.profiles().migrate_plaintext_secrets();

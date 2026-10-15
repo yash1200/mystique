@@ -68,6 +68,8 @@ export interface EngineCapabilities {
 	supportsPagination: boolean
 	supportsWrite: boolean
 	supportsCancelQuery: boolean
+	/** Manual commit on a pinned connection. Off until a Mongo replica set is detected. */
+	supportsTransactions?: boolean
 	/** Query gutter. One implementation for every engine that can run a statement. */
 	supportsQuery: boolean
 	supportsPooling: boolean

@@ -66,6 +66,7 @@ export function relationalCapabilities(
 		supportsPagination: true,
 		supportsWrite: false,
 		supportsCancelQuery: true,
+		supportsTransactions: true,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: true,

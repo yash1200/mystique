@@ -128,58 +128,6 @@ fn pretty_mysql_code(code: u16, message: &str) -> Option<String> {
     }
 }
 
-#[cfg(test)]
-mod offset_tests {
-    use super::mysql_local_offset;
-
-    #[test]
-    fn near_token_on_line_two_is_not_the_start_of_the_buffer() {
-        let sql = "SELECT 1;\nSELECT * FORM t";
-        let message = "You have an error in your SQL syntax near 'FORM t' at line 2";
-        let offset = mysql_local_offset(sql, message).expect("offset");
-        let at = usize::try_from(offset).unwrap_or(0);
-        assert!(sql.get(at..).unwrap_or("").starts_with("FORM"), "{offset}");
-    }
-
-    #[test]
-    fn a_message_without_a_line_has_no_position() {
-        assert!(mysql_local_offset("SELECT 1", "Duplicate entry").is_none());
-    }
-
-    #[test]
-    fn syntax_error_points_at_the_near_token() {
-        let sql = "SELECT * FORM t";
-        let err = mysql_async::Error::Server(mysql_async::ServerError {
-            code: 1064,
-            message: "You have an error in your SQL syntax near 'FORM t' at line 1".into(),
-            state: "42000".into(),
-        });
-        let mapped = super::query_failed_at(sql, err);
-        let mystique_connector_api::ConnectorError::QueryAt { position, .. } = mapped else {
-            panic!("expected a position, got {mapped}");
-        };
-        let at = usize::try_from(position.offset).unwrap_or(sql.len());
-        assert!(
-            sql.get(at..).is_some_and(|rest| rest.starts_with("FORM")),
-            "{at}"
-        );
-    }
-
-    #[test]
-    fn duplicate_entry_has_no_position() {
-        let err = mysql_async::Error::Server(mysql_async::ServerError {
-            code: 1062,
-            message: "Duplicate entry 'a' for key 't.PRIMARY'".into(),
-            state: "23000".into(),
-        });
-        let mapped = super::query_failed_at("INSERT INTO t VALUES (1)", err);
-        assert!(
-            matches!(mapped, mystique_connector_api::ConnectorError::Query(_)),
-            "{mapped}"
-        );
-    }
-}
-
 pub(super) fn wants_ssl(config: &ConnectionConfig) -> bool {
     TlsSettings::from_config(config).enabled()
 }
@@ -279,6 +227,57 @@ pub(super) async fn connect_once(
     Ok((conn, pool))
 }
 
+#[cfg(test)]
+mod offset_tests {
+    use super::mysql_local_offset;
+
+    #[test]
+    fn near_token_on_line_two_is_not_the_start_of_the_buffer() {
+        let sql = "SELECT 1;\nSELECT * FORM t";
+        let message = "You have an error in your SQL syntax near 'FORM t' at line 2";
+        let offset = mysql_local_offset(sql, message).expect("offset");
+        let at = usize::try_from(offset).unwrap_or(0);
+        assert!(sql.get(at..).unwrap_or("").starts_with("FORM"), "{offset}");
+    }
+
+    #[test]
+    fn a_message_without_a_line_has_no_position() {
+        assert!(mysql_local_offset("SELECT 1", "Duplicate entry").is_none());
+    }
+
+    #[test]
+    fn syntax_error_points_at_the_near_token() {
+        let sql = "SELECT * FORM t";
+        let err = mysql_async::Error::Server(mysql_async::ServerError {
+            code: 1064,
+            message: "You have an error in your SQL syntax near 'FORM t' at line 1".into(),
+            state: "42000".into(),
+        });
+        let mapped = super::query_failed_at(sql, err);
+        let mystique_connector_api::ConnectorError::QueryAt { position, .. } = mapped else {
+            panic!("expected a position, got {mapped}");
+        };
+        let at = usize::try_from(position.offset).unwrap_or(sql.len());
+        assert!(
+            sql.get(at..).is_some_and(|rest| rest.starts_with("FORM")),
+            "{at}"
+        );
+    }
+
+    #[test]
+    fn duplicate_entry_has_no_position() {
+        let err = mysql_async::Error::Server(mysql_async::ServerError {
+            code: 1062,
+            message: "Duplicate entry 'a' for key 't.PRIMARY'".into(),
+            state: "23000".into(),
+        });
+        let mapped = super::query_failed_at("INSERT INTO t VALUES (1)", err);
+        assert!(
+            matches!(mapped, mystique_connector_api::ConnectorError::Query(_)),
+            "{mapped}"
+        );
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::format_error;

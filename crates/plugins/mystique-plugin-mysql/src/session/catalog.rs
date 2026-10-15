@@ -49,26 +49,6 @@ WHERE referenced_table_name IS NOT NULL \
   AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
 ORDER BY table_schema, table_name";
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn catalog_names_are_bound_not_concatenated() {
-        let payload = "x\\'; DROP TABLE users; -- ";
-        for sql in [
-            DESCRIBE_COLUMNS_SQL,
-            LIST_COLUMNS_ONE_SCHEMA_SQL,
-            LIST_RELATIONSHIPS_ONE_SCHEMA_SQL,
-        ] {
-            assert!(sql.contains('?'), "{sql}");
-            assert!(!sql.contains(payload), "{sql}");
-            assert!(!sql.to_ascii_lowercase().contains("drop table"), "{sql}");
-            assert!(!sql.contains("'{"), "{sql}");
-        }
-    }
-}
-
 pub(super) async fn describe_columns(
     session: &MysqlSession,
     database: Option<&str>,
@@ -343,4 +323,24 @@ pub(super) async fn list_relationships(
             },
         )
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_names_are_bound_not_concatenated() {
+        let payload = "x\\'; DROP TABLE users; -- ";
+        for sql in [
+            DESCRIBE_COLUMNS_SQL,
+            LIST_COLUMNS_ONE_SCHEMA_SQL,
+            LIST_RELATIONSHIPS_ONE_SCHEMA_SQL,
+        ] {
+            assert!(sql.contains('?'), "{sql}");
+            assert!(!sql.contains(payload), "{sql}");
+            assert!(!sql.to_ascii_lowercase().contains("drop table"), "{sql}");
+            assert!(!sql.contains("'{"), "{sql}");
+        }
+    }
 }
