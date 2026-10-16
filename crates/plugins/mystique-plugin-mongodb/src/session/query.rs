@@ -1,23 +1,22 @@
-//! Mongo find / meta commands / JSON write ops.
+//! Mongo find, aggregate, count, distinct, and shell writes.
 
 use std::future::IntoFuture;
 use std::time::{Duration, Instant};
 
 use mongodb::bson::{Bson, Document};
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, QueryColumn, QueryControl, QueryMode, QueryResult,
+    json_u64, ConnectorError, ConnectorResult, QueryColumn, QueryControl, QueryMode, QueryResult,
     ValidatedQuery,
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::encode::{
-    bson_to_json, bson_type_label, is_mongo_write_command, normalize_meta_command, resolve_db_name,
-    MongoWriteCmd,
-};
+use super::encode::{bson_to_json, bson_type_label, normalize_meta_command, resolve_db_name};
 use super::query_failed;
 use super::MongoSession;
-use crate::shell_filter::json_to_document;
-use crate::shell_query::parse_read_query;
+use crate::shell_query::{
+    aggregate_effect, parse_mongo_call, AggregateEffect, BulkModel, MongoCall, ParsedFind,
+    ShellWrite,
+};
 
 /// `find` is sent with `maxTimeMS` equal to this duration (the clamped timeout).
 pub(super) fn find_max_time(timeout_ms: u64) -> Duration {
@@ -43,15 +42,6 @@ pub(super) async fn execute_query(
     query: &ValidatedQuery,
 ) -> ConnectorResult<QueryResult> {
     session.ensure_open()?;
-    if is_mongo_write_command(&query.text) {
-        if query.mode == QueryMode::Read {
-            return Err(ConnectorError::Policy(
-                "Write operation blocked. This connection is read-only.".into(),
-            ));
-        }
-        return execute_write(session, query).await;
-    }
-
     let start = Instant::now();
     let text_key = normalize_meta_command(&query.text);
 
@@ -66,8 +56,47 @@ pub(super) async fn execute_query(
         return list_collections(session, &db_name, query, start).await;
     }
 
+    let call = parse_mongo_call(&query.text)?;
+    dispatch_call(session, query, call, start).await
+}
+
+async fn dispatch_call(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    call: MongoCall,
+    start: Instant,
+) -> ConnectorResult<QueryResult> {
+    match call {
+        MongoCall::Find(parsed) => execute_find(session, query, parsed, start).await,
+        MongoCall::Aggregate(aggregate) => {
+            execute_aggregate(session, query, aggregate, start).await
+        }
+        MongoCall::Count { collection, filter } => {
+            execute_count(session, query, collection, filter, start).await
+        }
+        MongoCall::Distinct {
+            collection,
+            field,
+            filter,
+        } => execute_distinct(session, query, collection, field, filter, start).await,
+        MongoCall::Write(write) => {
+            if query.mode == QueryMode::Read {
+                return Err(ConnectorError::Policy(
+                    "Write operation blocked. This connection is read-only.".into(),
+                ));
+            }
+            execute_shell_write(session, query, write, start).await
+        }
+    }
+}
+
+async fn execute_find(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    parsed: ParsedFind,
+    start: Instant,
+) -> ConnectorResult<QueryResult> {
     let db_name = resolve_db_name(session, query)?;
-    let parsed = parse_read_query(&query.text)?;
     let coll_name = parsed
         .collection
         .clone()
@@ -187,95 +216,397 @@ pub(super) async fn execute_query(
     })
 }
 
-pub(super) async fn execute_write(
+fn collection_name(parsed: Option<&str>, query: &ValidatedQuery) -> ConnectorResult<String> {
+    parsed
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            query
+                .collection
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+        })
+        .ok_or_else(|| {
+            ConnectorError::InvalidConfig(
+                "Mongo queries need a collection (db.collection.method(...) or the Collection field)."
+                    .into(),
+            )
+        })
+}
+
+fn reject_read_only_mutation(effect: AggregateEffect, mode: QueryMode) -> ConnectorResult<()> {
+    if mode == QueryMode::Read && effect != AggregateEffect::Read {
+        return Err(ConnectorError::Policy(
+            "Write operation blocked. This connection is read-only.".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn execute_aggregate(
     session: &MongoSession,
     query: &ValidatedQuery,
+    aggregate: crate::shell_query::ParsedAggregate,
+    start: Instant,
 ) -> ConnectorResult<QueryResult> {
-    let start = Instant::now();
-    let cmd: MongoWriteCmd = serde_json::from_str(query.text.trim()).map_err(|e| {
-        ConnectorError::Query(format!(
-            "Mongo write expects JSON {{ op, filter?, update?, doc? }}: {e}"
-        ))
-    })?;
-    let op = cmd.op.to_ascii_lowercase();
+    reject_read_only_mutation(aggregate_effect(&aggregate.pipeline), query.mode)?;
     let db_name = resolve_db_name(session, query)?;
-    let coll_name = query
-        .collection
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| ConnectorError::InvalidConfig("Mongo write requires collection".into()))?;
+    let coll_name = collection_name(aggregate.collection.as_deref(), query)?;
     let coll = session
         .client
         .database(&db_name)
-        .collection::<Document>(coll_name);
+        .collection::<Document>(&coll_name);
+    let batch = query.max_rows.clamp(1, 1_000);
+    let cursor = coll
+        .aggregate(aggregate.pipeline)
+        .batch_size(batch)
+        .max_time(find_max_time(query.timeout_ms));
+    let cursor = drive(&query.control, cursor).await?;
+    let (docs, truncated) = drain_cursor(cursor, query).await?;
+    docs_result(
+        docs,
+        truncated,
+        query.mode,
+        start,
+        format!("aggregate on {db_name}.{coll_name}"),
+    )
+}
 
-    let message = match op.as_str() {
-        "updateone" => {
-            let filter_v = cmd
-                .filter
-                .ok_or_else(|| ConnectorError::Query("updateOne requires `filter`".into()))?;
-            let update_v = cmd
-                .update
-                .ok_or_else(|| ConnectorError::Query("updateOne requires `update`".into()))?;
-            let filter = json_to_document(&filter_v)?;
-            let update = json_to_document(&update_v)?;
+async fn execute_count(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    collection: Option<String>,
+    filter: Document,
+    start: Instant,
+) -> ConnectorResult<QueryResult> {
+    let db_name = resolve_db_name(session, query)?;
+    let coll_name = collection_name(collection.as_deref(), query)?;
+    let coll = session
+        .client
+        .database(&db_name)
+        .collection::<Document>(&coll_name);
+    let count = drive(
+        &query.control,
+        coll.count_documents(filter)
+            .max_time(find_max_time(query.timeout_ms)),
+    )
+    .await?;
+    Ok(QueryResult {
+        engine: "mongodb".into(),
+        mode: query.mode,
+        columns: vec![QueryColumn {
+            name: "count".into(),
+            data_type: Some("number".into()),
+        }],
+        rows: vec![vec![json_u64(count)]],
+        row_count: 1,
+        truncated: false,
+        duration_ms: start.elapsed().as_millis() as u64,
+        message: Some(format!("countDocuments on {db_name}.{coll_name}")),
+    })
+}
+
+async fn execute_distinct(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    collection: Option<String>,
+    field: String,
+    filter: Document,
+    start: Instant,
+) -> ConnectorResult<QueryResult> {
+    let db_name = resolve_db_name(session, query)?;
+    let coll_name = collection_name(collection.as_deref(), query)?;
+    let coll = session
+        .client
+        .database(&db_name)
+        .collection::<Document>(&coll_name);
+    let mut values = drive(
+        &query.control,
+        coll.distinct(&field, filter)
+            .max_time(find_max_time(query.timeout_ms)),
+    )
+    .await?;
+    let truncated = values.len() as u32 > query.max_rows;
+    if truncated {
+        values.truncate(query.max_rows as usize);
+    }
+    let rows = values
+        .into_iter()
+        .map(|value| vec![bson_to_json(value)])
+        .collect::<Vec<_>>();
+    let row_count = rows.len() as u64;
+    Ok(QueryResult {
+        engine: "mongodb".into(),
+        mode: query.mode,
+        columns: vec![QueryColumn {
+            name: "value".into(),
+            data_type: Some("bson".into()),
+        }],
+        rows,
+        row_count,
+        truncated,
+        duration_ms: start.elapsed().as_millis() as u64,
+        message: Some(format!("distinct {field} on {db_name}.{coll_name}")),
+    })
+}
+
+async fn execute_shell_write(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    write: ShellWrite,
+    start: Instant,
+) -> ConnectorResult<QueryResult> {
+    let db_name = resolve_db_name(session, query)?;
+    let collection = match &write {
+        ShellWrite::InsertOne { collection, .. }
+        | ShellWrite::InsertMany { collection, .. }
+        | ShellWrite::UpdateOne { collection, .. }
+        | ShellWrite::UpdateMany { collection, .. }
+        | ShellWrite::ReplaceOne { collection, .. }
+        | ShellWrite::DeleteOne { collection, .. }
+        | ShellWrite::DeleteMany { collection, .. }
+        | ShellWrite::FindOneAndUpdate { collection, .. }
+        | ShellWrite::Bulk { collection, .. } => collection.as_deref(),
+    };
+    let coll_name = collection_name(collection, query)?;
+    let coll = session
+        .client
+        .database(&db_name)
+        .collection::<Document>(&coll_name);
+    let message = match write {
+        ShellWrite::InsertOne { document, .. } => {
+            let result = drive(&query.control, coll.insert_one(document)).await?;
+            format!(
+                "insertOne on {db_name}.{coll_name} id={:?}",
+                result.inserted_id
+            )
+        }
+        ShellWrite::InsertMany { documents, .. } => {
+            let result = drive(&query.control, coll.insert_many(documents)).await?;
+            format!(
+                "insertMany on {db_name}.{coll_name} inserted={}",
+                result.inserted_ids.len()
+            )
+        }
+        ShellWrite::UpdateOne { filter, update, .. } => {
             let result = drive(&query.control, coll.update_one(filter, update)).await?;
             format!(
                 "updateOne on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
             )
         }
-        "insertone" => {
-            let doc_v = cmd
-                .doc
-                .ok_or_else(|| ConnectorError::Query("insertOne requires `doc`".into()))?;
-            let doc = json_to_document(&doc_v)?;
-            let result = drive(&query.control, coll.insert_one(doc)).await?;
+        ShellWrite::UpdateMany { filter, update, .. } => {
+            let result = drive(&query.control, coll.update_many(filter, update)).await?;
             format!(
-                "insertOne on {db_name}.{coll_name} id={:?}",
-                result.inserted_id
+                "updateMany on {db_name}.{coll_name} matched={} modified={}",
+                result.matched_count, result.modified_count
             )
         }
-        "deleteone" => {
-            let filter_v = cmd
-                .filter
-                .ok_or_else(|| ConnectorError::Query("deleteOne requires `filter`".into()))?;
-            let filter = json_to_document(&filter_v)?;
+        ShellWrite::ReplaceOne {
+            filter,
+            replacement,
+            ..
+        } => {
+            let result = drive(&query.control, coll.replace_one(filter, replacement)).await?;
+            format!(
+                "replaceOne on {db_name}.{coll_name} matched={} modified={}",
+                result.matched_count, result.modified_count
+            )
+        }
+        ShellWrite::DeleteOne { filter, .. } => {
             let result = drive(&query.control, coll.delete_one(filter)).await?;
             format!(
                 "deleteOne on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
             )
         }
-        "deletemany" => {
-            let filter_v = cmd
-                .filter
-                .ok_or_else(|| ConnectorError::Query("deleteMany requires `filter`".into()))?;
-            let filter = json_to_document(&filter_v)?;
+        ShellWrite::DeleteMany { filter, .. } => {
             let result = drive(&query.control, coll.delete_many(filter)).await?;
             format!(
                 "deleteMany on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
             )
         }
-        other => {
-            return Err(ConnectorError::NotSupported(format!(
-                "Mongo write op `{other}` is not implemented."
-            )));
+        ShellWrite::FindOneAndUpdate { filter, update, .. } => {
+            let result = drive(&query.control, coll.find_one_and_update(filter, update)).await?;
+            return match result {
+                Some(doc) => docs_result(
+                    vec![doc],
+                    false,
+                    query.mode,
+                    start,
+                    format!("findOneAndUpdate on {db_name}.{coll_name}"),
+                ),
+                None => Ok(write_message(
+                    query.mode,
+                    start,
+                    format!("findOneAndUpdate on {db_name}.{coll_name} matched=0"),
+                )),
+            };
+        }
+        ShellWrite::Bulk { models, .. } => {
+            bulk_summary(query, &coll, &db_name, &coll_name, models).await?
         }
     };
+    Ok(write_message(query.mode, start, message))
+}
 
+/// Ordered bulk write via collection methods.
+///
+/// `Client::bulk_write` is the MongoDB 8.0 command. DocumentDB and older
+/// servers reject it. One guard decision already happened before this runs.
+async fn bulk_summary(
+    query: &ValidatedQuery,
+    coll: &mongodb::Collection<Document>,
+    db_name: &str,
+    coll_name: &str,
+    models: Vec<BulkModel>,
+) -> ConnectorResult<String> {
+    let mut inserted = 0u64;
+    let mut matched = 0u64;
+    let mut modified = 0u64;
+    let mut deleted = 0u64;
+    for model in models {
+        match model {
+            BulkModel::InsertOne(document) => {
+                drive(&query.control, coll.insert_one(document)).await?;
+                inserted = inserted.saturating_add(1);
+            }
+            BulkModel::UpdateOne { filter, update } => {
+                let result = drive(&query.control, coll.update_one(filter, update)).await?;
+                matched = matched.saturating_add(result.matched_count);
+                modified = modified.saturating_add(result.modified_count);
+            }
+            BulkModel::UpdateMany { filter, update } => {
+                let result = drive(&query.control, coll.update_many(filter, update)).await?;
+                matched = matched.saturating_add(result.matched_count);
+                modified = modified.saturating_add(result.modified_count);
+            }
+            BulkModel::ReplaceOne {
+                filter,
+                replacement,
+            } => {
+                let result = drive(&query.control, coll.replace_one(filter, replacement)).await?;
+                matched = matched.saturating_add(result.matched_count);
+                modified = modified.saturating_add(result.modified_count);
+            }
+            BulkModel::DeleteOne(filter) => {
+                let result = drive(&query.control, coll.delete_one(filter)).await?;
+                deleted = deleted.saturating_add(result.deleted_count);
+            }
+            BulkModel::DeleteMany(filter) => {
+                let result = drive(&query.control, coll.delete_many(filter)).await?;
+                deleted = deleted.saturating_add(result.deleted_count);
+            }
+        }
+    }
+    Ok(format!(
+        "bulkWrite on {db_name}.{coll_name} inserted={inserted} matched={matched} modified={modified} deleted={deleted}"
+    ))
+}
+
+async fn drain_cursor(
+    mut cursor: mongodb::Cursor<Document>,
+    query: &ValidatedQuery,
+) -> ConnectorResult<(Vec<Document>, bool)> {
+    let mut docs = Vec::new();
+    let mut saw_doc = false;
+    let mut truncated = false;
+    loop {
+        let advanced = tokio::select! {
+            biased;
+            _ = query.control.token.cancelled() => {
+                drop(cursor);
+                return Err(ConnectorError::Query("Query cancelled.".into()));
+            }
+            _ = tokio::time::sleep(Duration::from_millis(mystique_connector_api::INACTIVITY_TIMEOUT_MS)), if saw_doc => {
+                query.control.cancel();
+                drop(cursor);
+                return Err(ConnectorError::Timeout(format!(
+                    "No rows arrived for {} ms.",
+                    mystique_connector_api::INACTIVITY_TIMEOUT_MS
+                )));
+            }
+            advanced = cursor.advance() => advanced.map_err(query_failed)?,
+        };
+        if !advanced {
+            break;
+        }
+        saw_doc = true;
+        docs.push(cursor.deserialize_current().map_err(query_failed)?);
+        if docs.len() >= query.max_rows as usize {
+            truncated = true;
+            break;
+        }
+    }
+    Ok((docs, truncated))
+}
+
+fn docs_result(
+    docs: Vec<Document>,
+    truncated: bool,
+    mode: QueryMode,
+    start: Instant,
+    message: String,
+) -> ConnectorResult<QueryResult> {
+    let mut key_set: Vec<String> = Vec::new();
+    for doc in &docs {
+        for key in doc.keys() {
+            if !key_set.iter().any(|existing| existing == key) {
+                key_set.push(key.clone());
+            }
+        }
+    }
+    if let Some(index) = key_set.iter().position(|key| key == "_id") {
+        let id = key_set.remove(index);
+        key_set.insert(0, id);
+    }
+    let columns: Vec<QueryColumn> = key_set
+        .iter()
+        .map(|key| {
+            let sample = docs.iter().find_map(|doc| doc.get(key)).cloned();
+            QueryColumn {
+                name: key.clone(),
+                data_type: Some(bson_type_label(sample.as_ref())),
+            }
+        })
+        .collect();
+    let mut rows = Vec::with_capacity(docs.len());
+    for doc in docs {
+        let mut cells = Vec::with_capacity(key_set.len());
+        for key in &key_set {
+            let value = doc.get(key).cloned().unwrap_or(Bson::Null);
+            cells.push(bson_to_json(value));
+        }
+        rows.push(cells);
+    }
+    let row_count = rows.len() as u64;
     Ok(QueryResult {
         engine: "mongodb".into(),
-        mode: query.mode,
-        columns: Vec::new(),
-        row_count: 0,
-        rows: Vec::new(),
-        truncated: false,
+        mode,
+        columns,
+        rows,
+        row_count,
+        truncated,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(message),
     })
+}
+
+fn write_message(mode: QueryMode, start: Instant, message: String) -> QueryResult {
+    QueryResult {
+        engine: "mongodb".into(),
+        mode,
+        columns: Vec::new(),
+        rows: Vec::new(),
+        row_count: 0,
+        truncated: false,
+        duration_ms: start.elapsed().as_millis() as u64,
+        message: Some(message),
+    }
 }
 
 pub(super) async fn list_databases(

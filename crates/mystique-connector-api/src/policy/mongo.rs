@@ -103,20 +103,23 @@ fn inspect_mongo(text: &str) -> MongoSeen {
 
 fn inspect_json(value: &Value) -> MongoSeen {
     let has_out = json_has_out_stage(value);
+    let has_drop = json_has_drop_stage(value);
     if let Some(op) = value.get("op") {
         return match op.as_str() {
-            Some(op) => seen_from_op(op, has_out),
+            Some(op) => seen_from_op(op, has_out, has_drop),
             None => MongoSeen::UnknownOp,
         };
     }
-    if has_out {
+    if has_drop {
         MongoSeen::Destructive
+    } else if has_out {
+        MongoSeen::Write
     } else {
         MongoSeen::Read
     }
 }
 
-fn seen_from_op(op: &str, has_out: bool) -> MongoSeen {
+fn seen_from_op(op: &str, has_out: bool, has_drop: bool) -> MongoSeen {
     let op = op.trim().to_ascii_lowercase();
     if op.is_empty() {
         return MongoSeen::UnknownOp;
@@ -133,8 +136,10 @@ fn seen_from_op(op: &str, has_out: bool) -> MongoSeen {
         | "listindexes"
         | "explain" => MongoSeen::Read,
         "aggregate" => {
-            if has_out {
+            if has_drop {
                 MongoSeen::Destructive
+            } else if has_out {
+                MongoSeen::Write
             } else {
                 MongoSeen::Read
             }
@@ -181,18 +186,18 @@ fn named_op(text: &str) -> Option<String> {
 
 fn seen_from_facts(facts: ShellFacts, text: &str) -> MongoSeen {
     if let Some(op) = facts.op_field.as_deref() {
-        return seen_from_op(op, facts.has_out_stage);
+        return seen_from_op(op, facts.has_out_stage, facts.has_drop_stage);
     }
-    if facts.saw_destructive {
+    if facts.saw_destructive || facts.has_drop_stage {
         return MongoSeen::Destructive;
     }
     let aggregate = facts
         .command
         .as_deref()
         .is_some_and(|c| c.eq_ignore_ascii_case("aggregate"));
-    // `$out` / `$merge` count only as a pipeline stage, not as text inside a find.
+    // `$out` / `$merge` are writes. A quoted `$out` inside a filter is not a stage.
     if facts.has_out_stage && (aggregate || !facts.saw_read) {
-        return MongoSeen::Destructive;
+        return MongoSeen::Write;
     }
     if facts.saw_write {
         return MongoSeen::Write;
@@ -239,6 +244,36 @@ fn is_out_stage_key(key: &str) -> bool {
     key == "$out" || key == "$merge"
 }
 
+fn json_has_drop_stage(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map
+            .iter()
+            .any(|(key, child)| is_drop_stage_key(key) || json_has_drop_stage(child)),
+        Value::Array(items) => items.iter().any(json_has_drop_stage),
+        _ => false,
+    }
+}
+
+fn is_drop_stage_key(key: &str) -> bool {
+    key.eq_ignore_ascii_case("$drop")
+}
+
+/// Op name for the production prompt. One bulk write stays one name.
+pub fn mongo_op_preview(text: &str) -> String {
+    named_op(text).unwrap_or_else(|| {
+        let compact: String = text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .take(80)
+            .collect();
+        if compact.is_empty() {
+            "write".into()
+        } else {
+            compact
+        }
+    })
+}
+
 #[derive(Default)]
 struct ShellFacts {
     saw_read: bool,
@@ -246,6 +281,7 @@ struct ShellFacts {
     saw_destructive: bool,
     saw_unknown_method: bool,
     has_out_stage: bool,
+    has_drop_stage: bool,
     op_field: Option<String>,
     command: Option<String>,
 }
@@ -301,10 +337,12 @@ fn scan_shell(text: &str) -> ShellFacts {
         if c == '$' {
             if let Some(name) = ident_at(&chars, i + 1) {
                 let after = i + 1 + name.len();
-                if (name.eq_ignore_ascii_case("out") || name.eq_ignore_ascii_case("merge"))
-                    && colon_after(&chars, after)
-                {
-                    facts.has_out_stage = true;
+                if colon_after(&chars, after) {
+                    if name.eq_ignore_ascii_case("out") || name.eq_ignore_ascii_case("merge") {
+                        facts.has_out_stage = true;
+                    } else if name.eq_ignore_ascii_case("drop") {
+                        facts.has_drop_stage = true;
+                    }
                 }
             }
             i += 1;
@@ -555,16 +593,55 @@ mod tests {
         assert_eq!(policy.classify("db.dropDatabase()"), WriteRisk::Destructive);
         assert_eq!(
             policy.classify(r#"db.c.aggregate([{$out: "t"}])"#),
-            WriteRisk::Destructive
+            WriteRisk::Write
         );
+        assert!(mongo_is_write_command(r#"db.c.aggregate([{$out: "t"}])"#));
         assert_eq!(
             policy.classify(r#"[{"$match":{"a":1}},{"$merge":"t"}]"#),
+            WriteRisk::Write
+        );
+        assert_eq!(
+            policy.classify(r#"db.c.aggregate([{$match:{}},{$drop: "t"}])"#),
             WriteRisk::Destructive
         );
         assert_eq!(
             policy.classify(r#"db.c.aggregate([{$match:{note:"$out"}}])"#),
             WriteRisk::Read
         );
+        assert_eq!(
+            mongo_op_preview(r#"db.orders.bulkWrite([{insertOne:{document:{a:1}}}])"#),
+            "bulkwrite"
+        );
+    }
+
+    #[test]
+    fn count_and_distinct_are_reads_and_shell_writes_are_not() {
+        let policy = MongoQueryPolicy;
+        assert_eq!(
+            policy.classify(r#"db.orders.countDocuments({ status: "open" })"#),
+            WriteRisk::Read
+        );
+        assert_eq!(
+            policy.classify(r#"db.orders.distinct("city", { a: 1 })"#),
+            WriteRisk::Read
+        );
+        assert!(policy
+            .validate(
+                r#"db.orders.aggregate([{ $match: {} }, { $limit: 5 }])"#,
+                QueryMode::Read
+            )
+            .is_ok());
+        for text in [
+            r#"db.orders.insertMany([{a:1},{a:2}])"#,
+            r#"db.orders.updateMany({a:1}, {$set:{b:2}})"#,
+            r#"db.orders.replaceOne({a:1}, {a:2})"#,
+            r#"db.orders.findOneAndUpdate({a:1}, {$set:{b:2}})"#,
+            r#"db.orders.bulkWrite([{insertOne:{document:{a:1}}}])"#,
+        ] {
+            assert_eq!(policy.classify(text), WriteRisk::Write, "{text}");
+            assert!(policy.validate(text, QueryMode::Read).is_err(), "{text}");
+            assert!(policy.validate(text, QueryMode::Write).is_ok(), "{text}");
+        }
     }
 
     #[test]

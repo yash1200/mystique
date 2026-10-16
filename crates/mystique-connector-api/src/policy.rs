@@ -9,7 +9,7 @@ use crate::error::ConnectorResult;
 use crate::query::QueryMode;
 use crate::WriteRisk;
 
-pub use mongo::{mongo_is_safe_dml, mongo_is_write_command, MongoQueryPolicy};
+pub use mongo::{mongo_is_safe_dml, mongo_is_write_command, mongo_op_preview, MongoQueryPolicy};
 pub use sql::{
     classify_sql_statement, classify_sql_statement_for, split_sql_statements,
     split_sql_statements_for, sql_analyze_guard_risk, sql_destructive_object_name,

@@ -750,6 +750,56 @@ async fn insert_probe(
 }
 
 #[tokio::test]
+async fn aggregate_out_on_production_prompts_once() {
+    let mgr = ConnectionManager::bootstrap();
+    let ran = insert_probe(&mgr, "prod-agg", false).await;
+    let err = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "prod-agg".into(),
+            text: r#"db.orders.aggregate([{ $match: {} }, { $out: "archive" }])"#.into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+            execution_id: None,
+        })
+        .await
+        .expect_err("aggregate $out prompts");
+    let msg = err.to_string();
+    assert!(msg.contains("writeGuard"), "{msg}");
+    assert!(msg.contains("aggregate"), "{msg}");
+    assert!(
+        !ran.load(std::sync::atomic::Ordering::SeqCst),
+        "$out must not run before unlock"
+    );
+
+    let read_only = insert_probe(&mgr, "ro-bulk", true).await;
+    let blocked = mgr
+        .execute_query(mystique_connector_api::ExecuteQueryRequest {
+            session_id: "ro-bulk".into(),
+            text: r#"db.orders.bulkWrite([{ insertOne: { document: { a: 1 } } }])"#.into(),
+            mode: mystique_connector_api::QueryMode::Write,
+            max_rows: None,
+            timeout_ms: None,
+            profile_read_only: false,
+            confirm_object_name: None,
+            collection: None,
+            database: None,
+            execution_id: None,
+        })
+        .await
+        .expect_err("read-only bulkWrite");
+    assert!(
+        blocked.to_string().to_ascii_lowercase().contains("read"),
+        "{blocked}"
+    );
+    assert!(!read_only.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
 async fn mongo_delete_many_on_production_prompts() {
     let mgr = ConnectionManager::bootstrap();
     let ran = insert_probe(&mgr, "prod-mongo", false).await;

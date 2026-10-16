@@ -1,8 +1,7 @@
-//! BSON / JSON encoding and Mongo write-command helpers.
+//! BSON / JSON encoding for Mongo results.
 
 use mongodb::bson::Bson;
 use mystique_connector_api::{json_f64, json_i64, ConnectorResult, ValidatedQuery};
-use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
 use super::MongoSession;
@@ -90,19 +89,4 @@ pub(super) fn resolve_db_name(
     query: &ValidatedQuery,
 ) -> ConnectorResult<String> {
     session.resolve_database(query.database.as_deref())
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct MongoWriteCmd {
-    pub(super) op: String,
-    #[serde(default)]
-    pub(super) filter: Option<JsonValue>,
-    #[serde(default)]
-    pub(super) update: Option<JsonValue>,
-    #[serde(default)]
-    pub(super) doc: Option<JsonValue>,
-}
-
-pub(super) fn is_mongo_write_command(text: &str) -> bool {
-    mystique_connector_api::mongo_is_write_command(text)
 }

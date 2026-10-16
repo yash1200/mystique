@@ -52,10 +52,11 @@ impl ConnectionManager {
         } else {
             policy.classify(&req.text)
         };
+        let preview = mystique_connector_api::mongo_op_preview(&req.text);
         self.enforce_write_guard(
             &req.session_id,
             risk,
-            &req.text,
+            &preview,
             None,
             req.confirm_object_name.as_deref(),
             read_only,
