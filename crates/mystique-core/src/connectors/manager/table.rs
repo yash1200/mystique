@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
+    plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
-    ConnectorResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest, TableAdminOp,
-    TableAdminRequest, TableAdminResult, TablePreviewResult, TablePreviewStats, WriteRisk,
-    DEFAULT_MAX_ROWS, HARD_MAX_ROWS, MAX_TIMEOUT_MS,
+    ConnectorResult, DdlDialect, DescribeTableDefinitionRequest, FetchTablePreviewRequest,
+    FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
+    PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
+    TableDefinition, TablePreviewResult, TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS,
+    HARD_MAX_ROWS, MAX_TIMEOUT_MS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -129,4 +132,171 @@ impl ConnectionManager {
         let input = req.into_input();
         meta.session.apply_table_admin(&input).await
     }
+
+    pub async fn describe_table_definition(
+        &self,
+        req: DescribeTableDefinitionRequest,
+    ) -> ConnectorResult<TableDefinition> {
+        let session = self.session(&req.session_id).await?;
+        session
+            .describe_table_definition(
+                req.database.as_deref(),
+                req.schema.as_deref(),
+                &req.table,
+                req.kind.as_deref(),
+            )
+            .await
+    }
+
+    pub async fn list_table_definitions(
+        &self,
+        req: ListTableDefinitionsRequest,
+    ) -> ConnectorResult<Vec<TableDefinition>> {
+        let session = self.session(&req.session_id).await?;
+        session
+            .list_table_definitions(req.database.as_deref(), req.schema.as_deref())
+            .await
+    }
+
+    pub async fn plan_ddl(
+        &self,
+        req: PlanDdlRequest,
+    ) -> ConnectorResult<mystique_connector_api::DdlPlan> {
+        let meta = self.session_meta(&req.session_id).await?;
+        if !meta.caps.supports_structure_edit {
+            return Err(ConnectorError::NotSupported(
+                "This engine cannot edit structure.".into(),
+            ));
+        }
+        Ok(plan_table_alter(dialect_of(&meta), &req.draft))
+    }
+
+    pub async fn apply_ddl(&self, req: ApplyDdlRequest) -> ConnectorResult<ApplyDdlResult> {
+        let meta = self.session_meta(&req.session_id).await?;
+        if !meta.caps.supports_structure_edit {
+            return Err(ConnectorError::NotSupported(
+                "This engine cannot edit structure.".into(),
+            ));
+        }
+        let plan = plan_table_alter(dialect_of(&meta), &req.draft);
+        if !plan.warnings.is_empty() {
+            return Err(ConnectorError::Policy(plan.warnings.join(" ")));
+        }
+        if plan.statements.is_empty() {
+            return Ok(ApplyDdlResult {
+                applied: Vec::new(),
+                message: "Nothing to change.".into(),
+            });
+        }
+        self.enforce_write_guard(
+            &req.session_id,
+            mystique_connector_api::ddl_risk(&req.draft),
+            &format!("Structure change {}", req.draft.name),
+            Some(req.draft.name.as_str()),
+            req.confirm_object_name.as_deref(),
+            req.profile_read_only,
+        )
+        .await?;
+        meta.session.apply_ddl(&plan, &req.draft).await
+    }
+
+    pub async fn plan_schema_diff(
+        &self,
+        req: PlanSchemaDiffRequest,
+    ) -> ConnectorResult<SchemaMigration> {
+        let meta = self.session_meta(&req.session_id).await?;
+        if !meta.caps.supports_structure_edit {
+            return Err(ConnectorError::NotSupported(
+                "This engine cannot edit structure.".into(),
+            ));
+        }
+        Ok(plan_schema_diff(
+            dialect_of(&meta),
+            &req.source,
+            &req.target,
+            &req.renames,
+        ))
+    }
+
+    pub async fn apply_schema_diff(
+        &self,
+        req: ApplySchemaDiffRequest,
+    ) -> ConnectorResult<ApplyDdlResult> {
+        let meta = self.session_meta(&req.session_id).await?;
+        if !meta.caps.supports_structure_edit {
+            return Err(ConnectorError::NotSupported(
+                "This engine cannot edit structure.".into(),
+            ));
+        }
+        let migration = plan_schema_diff(dialect_of(&meta), &req.source, &req.target, &req.renames);
+        if !migration.warnings.is_empty() {
+            return Err(ConnectorError::Policy(migration.warnings.join(" ")));
+        }
+        let changes: Vec<_> = migration
+            .changes
+            .into_iter()
+            .filter(|change| change.action != "unchanged" && change.plan.applyable())
+            .collect();
+        if changes.is_empty() {
+            return Ok(ApplyDdlResult {
+                applied: Vec::new(),
+                message: "Nothing to change.".into(),
+            });
+        }
+        let destructive = changes.iter().any(|change| {
+            change.action == "drop"
+                || change.draft.drop_table
+                || change.draft.columns.iter().any(|column| column.drop)
+        });
+        let object = changes
+            .iter()
+            .find(|change| {
+                change.action == "drop"
+                    || change.draft.drop_table
+                    || change.draft.columns.iter().any(|column| column.drop)
+            })
+            .map(|change| change.name.as_str())
+            .unwrap_or("schema");
+        self.enforce_write_guard(
+            &req.session_id,
+            if destructive {
+                WriteRisk::Destructive
+            } else {
+                WriteRisk::Write
+            },
+            "Schema diff",
+            Some(object),
+            req.confirm_object_name.as_deref(),
+            req.profile_read_only,
+        )
+        .await?;
+        let mut applied = Vec::new();
+        for change in &changes {
+            let result = match meta.session.apply_ddl(&change.plan, &change.draft).await {
+                Ok(result) => result,
+                Err(err) if applied.is_empty() => return Err(err),
+                Err(err) => {
+                    return Err(ConnectorError::Query(format!(
+                        "Applied {} statement(s) from earlier changes, then failed. {err}",
+                        applied.len()
+                    )));
+                }
+            };
+            applied.extend(result.applied);
+        }
+        let count = applied.len();
+        Ok(ApplyDdlResult {
+            applied,
+            message: format!("Applied {count} statement(s)."),
+        })
+    }
+}
+
+fn dialect_of(meta: &super::SessionMeta) -> DdlDialect {
+    let engine = if meta.session.engine_id() == "mongodb" {
+        "mongodb"
+    } else {
+        meta.product_id.as_str()
+    };
+    DdlDialect::from_engine(engine, &meta.caps.sql_dialect)
 }

@@ -95,3 +95,4 @@ export type {
 	WriteGuardPrompt,
 } from './engines'
 export type * from './session'
+export type * from './ddl'

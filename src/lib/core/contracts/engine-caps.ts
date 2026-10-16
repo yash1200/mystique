@@ -72,6 +72,8 @@ export interface EngineCapabilities {
 	supportsTransactions?: boolean
 	/** Explain button. Missing means the engine did not advertise it. */
 	supportsExplainPlan?: boolean
+	/** Structure tab can add, alter, and drop columns, indexes, and foreign keys. */
+	supportsStructureEdit?: boolean
 	/** Query gutter. One implementation for every engine that can run a statement. */
 	supportsQuery: boolean
 	supportsPooling: boolean

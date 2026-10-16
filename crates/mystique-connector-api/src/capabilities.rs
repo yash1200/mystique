@@ -144,6 +144,9 @@ pub struct EngineCapabilities {
     /// Explain button. The UI does not parse engine text itself.
     #[serde(default = "default_true")]
     pub supports_explain_plan: bool,
+    /// Structure tab can preview and apply a DDL plan. The UI does not build SQL.
+    #[serde(default = "default_true")]
+    pub supports_structure_edit: bool,
     /// Query editor gutter. Every runtime can run a statement.
     #[serde(default = "default_supports_query")]
     pub supports_query: bool,
@@ -195,6 +198,7 @@ impl EngineCapabilities {
             }
             SupportDepth::Browse => {
                 self.supports_explorer = true;
+                self.supports_structure_edit = false;
                 self.supports_er_diagram = false;
                 self.supports_model_view = false;
                 self.model_view_kind = ModelViewKind::None;

@@ -163,6 +163,14 @@
 		diagramPunKey = key
 	})
 	const structureError = $derived(workspaceStudio.structureError)
+	const structureCaps = $derived(
+		activeSession
+			? resolveCapabilities(
+					String(activeSession.profile.engine),
+					activeSession.capabilities,
+				)
+			: null,
+	)
 	const rowSyncTick = $derived(workspaceStudio.rowSyncTick)
 	const tablePreviewTick = $derived(workspaceStudio.tablePreviewTick)
 	const baselineEpoch = $derived(workspaceStudio.baselineEpoch)
@@ -367,6 +375,12 @@
 					loading={structureLoading}
 					error={structureError}
 					lastFetchedAt={structureFetchedAt}
+					canEdit={structureCaps?.supportsStructureEdit === true}
+					readOnly={!!activeSession.profile.readOnly}
+					showForeignKeys={structureCaps?.supportsForeignKeys === true}
+					connectionId={activeSession.profile.id}
+					engine={String(activeSession.profile.engine)}
+					table={structureTable}
 					onretry={() => {
 						if (structureTable) void openObjectStructure(structureTable, true)
 					}}

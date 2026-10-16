@@ -119,6 +119,12 @@ pub fn run() {
             ipc::engines::preview_engine_import,
             ipc::engines::import_engine_object,
             ipc::engines::describe_engine_object_structure,
+            ipc::engines::describe_engine_table_definition,
+            ipc::engines::list_engine_table_definitions,
+            ipc::engines::plan_engine_ddl,
+            ipc::engines::apply_engine_ddl,
+            ipc::engines::plan_engine_schema_diff,
+            ipc::engines::apply_engine_schema_diff,
             ipc::engines::fetch_engine_server_metrics,
             ipc::engines::terminate_engine_session,
             // profiles

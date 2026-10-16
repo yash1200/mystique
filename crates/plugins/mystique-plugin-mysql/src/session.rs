@@ -6,19 +6,20 @@ use async_trait::async_trait;
 use mysql_async::prelude::*;
 use mysql_async::Pool;
 use mystique_connector_api::{
-    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
-    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
+    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
     EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult,
     FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
     ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus,
     PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryResult, ServerMetricsSnapshot,
-    TableAdminInput, TableAdminResult, TablePreviewResult, TablePreviewStats,
+    TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats,
     TerminateSessionInput, TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
 
 mod admin;
 mod cancel;
 mod catalog;
+mod ddl;
 mod edits;
 mod encode;
 mod explain;
@@ -206,6 +207,32 @@ impl ConnectorSession for MysqlSession {
 
     async fn import_chunk(&self, input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
         transfer::import_chunk(self, input).await
+    }
+
+    async fn describe_table_definition(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+        _kind: Option<&str>,
+    ) -> ConnectorResult<TableDefinition> {
+        ddl::describe_table_definition(self, database, schema, table).await
+    }
+
+    async fn list_table_definitions(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+    ) -> ConnectorResult<Vec<TableDefinition>> {
+        ddl::list_table_definitions(self, database, schema).await
+    }
+
+    async fn apply_ddl(
+        &self,
+        plan: &DdlPlan,
+        draft: &TableDefinition,
+    ) -> ConnectorResult<ApplyDdlResult> {
+        ddl::apply_ddl(self, plan, draft).await
     }
 
     async fn describe_object_structure(

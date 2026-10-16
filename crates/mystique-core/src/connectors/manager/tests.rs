@@ -1,5 +1,6 @@
 use mystique_connector_api::{
-    ConnectorResult, ConnectorSession, EngineCapabilities, PoolConfig, PoolStatus,
+    ApplyDdlResult, ColumnDraft, ConnectorResult, ConnectorSession, DdlPlan, EngineCapabilities,
+    IndexDraft, PoolConfig, PoolStatus, TableDefinition,
 };
 use serde_json::json;
 
@@ -702,6 +703,18 @@ impl ConnectorSession for GuardProbe {
 
     async fn close(&self) -> ConnectorResult<()> {
         Ok(())
+    }
+
+    async fn apply_ddl(
+        &self,
+        plan: &DdlPlan,
+        _draft: &TableDefinition,
+    ) -> ConnectorResult<ApplyDdlResult> {
+        self.ran.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(ApplyDdlResult {
+            applied: plan.statements.clone(),
+            message: "ran".into(),
+        })
     }
 
     async fn execute_query(
@@ -1711,4 +1724,85 @@ async fn closing_one_session_leaves_another_query_running() {
     let _ = mgr.close_session("sess-b").await;
     let _ = std::fs::remove_file(&path_a);
     let _ = std::fs::remove_file(&path_b);
+}
+
+fn mongo_collection(name: &str, indexes: Vec<IndexDraft>) -> TableDefinition {
+    let mut draft = TableDefinition::loaded(Some("app".into()), None, name, "collection");
+    draft.indexes = indexes;
+    draft
+}
+
+fn added_column(name: &str) -> ColumnDraft {
+    ColumnDraft {
+        name: name.into(),
+        data_type: "text".into(),
+        nullable: true,
+        pk_position: 0,
+        original: None,
+        drop: false,
+    }
+}
+
+#[tokio::test]
+async fn a_structure_plan_with_warnings_never_runs() {
+    let mgr = ConnectionManager::bootstrap();
+    let ran = insert_probe(&mgr, "ddl-warn", false).await;
+    let mut draft = mongo_collection("orders", Vec::new());
+    draft.columns.push(added_column("note"));
+    let err = mgr
+        .apply_ddl(mystique_connector_api::ApplyDdlRequest {
+            session_id: "ddl-warn".into(),
+            draft,
+            profile_read_only: false,
+            confirm_object_name: None,
+        })
+        .await
+        .expect_err("warning blocks apply");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("column"),
+        "{err}"
+    );
+    assert!(!ran.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
+    let mgr = ConnectionManager::bootstrap();
+    let index = IndexDraft {
+        name: "note".into(),
+        columns: vec!["note".into()],
+        unique: false,
+        primary: false,
+        concurrent: false,
+        original: None,
+        drop: false,
+    };
+    let ran = insert_probe(&mgr, "ddl-prod", false).await;
+    let err = mgr
+        .apply_ddl(mystique_connector_api::ApplyDdlRequest {
+            session_id: "ddl-prod".into(),
+            draft: mongo_collection("orders", vec![index.clone()]),
+            profile_read_only: false,
+            confirm_object_name: None,
+        })
+        .await
+        .expect_err("production prompts");
+    assert!(err.to_string().contains("writeGuard"), "{err}");
+    assert!(!ran.load(std::sync::atomic::Ordering::SeqCst));
+
+    let read_only = insert_probe(&mgr, "ddl-ro", true).await;
+    let blocked = mgr
+        .apply_ddl(mystique_connector_api::ApplyDdlRequest {
+            session_id: "ddl-ro".into(),
+            draft: mongo_collection("orders", vec![index]),
+            profile_read_only: false,
+            confirm_object_name: None,
+        })
+        .await
+        .expect_err("read-only");
+    assert!(
+        blocked.to_string().to_ascii_lowercase().contains("read"),
+        "{blocked}"
+    );
+    assert!(!read_only.load(std::sync::atomic::Ordering::SeqCst));
 }

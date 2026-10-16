@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use mystique_connector_api::{
-    ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
-    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession,
+    ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
+    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
     EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult,
     FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
     ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus,
     PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryResult, ServerMetricsSnapshot,
-    TableAdminInput, TableAdminResult, TablePreviewResult, TablePreviewStats,
+    TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats,
     TerminateSessionInput, TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
 use r2d2::Pool;
@@ -19,6 +19,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 
 mod admin;
 mod catalog;
+mod ddl;
 mod edits;
 mod encode;
 mod error;
@@ -221,6 +222,32 @@ impl ConnectorSession for SqliteSession {
 
     async fn import_chunk(&self, input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
         transfer::import_chunk(self, input).await
+    }
+
+    async fn describe_table_definition(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        table: &str,
+        _kind: Option<&str>,
+    ) -> ConnectorResult<TableDefinition> {
+        ddl::describe_table_definition(self, table).await
+    }
+
+    async fn list_table_definitions(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> ConnectorResult<Vec<TableDefinition>> {
+        ddl::list_table_definitions(self).await
+    }
+
+    async fn apply_ddl(
+        &self,
+        plan: &DdlPlan,
+        draft: &TableDefinition,
+    ) -> ConnectorResult<ApplyDdlResult> {
+        ddl::apply_ddl(self, plan, draft).await
     }
 
     async fn describe_object_structure(

@@ -18,6 +18,7 @@ mod capabilities;
 mod catalog;
 mod config;
 mod connector;
+mod ddl;
 mod error;
 mod explain;
 mod form;
@@ -40,6 +41,7 @@ pub use capabilities::*;
 pub use catalog::*;
 pub use config::*;
 pub use connector::*;
+pub use ddl::*;
 pub use error::*;
 pub use explain::{
     explain_rejection, ExplainPlan, ExplainQueryRequest, PlanField, PlanNode, EXPLAIN_NOT_EXECUTED,

@@ -3,7 +3,7 @@
 	 * Object structure — columns, indexes, relations, and engine metadata.
 	 * Plugin-owned data; this panel only renders sections.
 	 */
-	import type { ObjectStructure, StructureSection } from '#core/contracts'
+	import type { ObjectStructure, StructureSection, TableMeta } from '#core/contracts'
 	import {
 		Alert,
 		Button,
@@ -25,6 +25,8 @@
 	import type { IconName } from '#icons'
 	import { SvelteSet } from 'svelte/reactivity'
 	import ExplorerSearch from './ExplorerSearch.svelte'
+	import StructureDiff from './StructureDiff.svelte'
+	import StructureEditor from './StructureEditor.svelte'
 
 	interface Props {
 		structure: ObjectStructure | null
@@ -34,6 +36,12 @@
 		lastFetchedAt?: number | null
 		onretry?: () => void
 		onopentable?: () => void
+		canEdit?: boolean
+		readOnly?: boolean
+		showForeignKeys?: boolean
+		connectionId?: string | null
+		engine?: string
+		table?: TableMeta | null
 	}
 
 	let {
@@ -43,7 +51,19 @@
 		lastFetchedAt = null,
 		onretry,
 		onopentable,
+		canEdit = false,
+		readOnly = false,
+		showForeignKeys = false,
+		connectionId = null,
+		engine = '',
+		table = null,
 	}: Props = $props()
+
+	let editing = $state(false)
+	let comparing = $state(false)
+	const editable = $derived(
+		canEdit && !!table && !!connectionId && structure?.objectKind !== 'view',
+	)
 
 	let activeSection = $state<string | null>(null)
 	let filter = $state('')
@@ -234,7 +254,23 @@
 <svelte:window onkeydown={onFindKeydown} />
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-	{#if loading && !structure}
+	{#if comparing && table && connectionId}
+		<StructureDiff
+			{connectionId}
+			{engine}
+			{table}
+			onclose={() => (comparing = false)}
+		/>
+	{/if}
+	{#if editing && table && connectionId}
+		<StructureEditor
+			{connectionId}
+			{table}
+			{readOnly}
+			{showForeignKeys}
+			ondone={() => (editing = false)}
+		/>
+	{:else if loading && !structure}
 		<div class="flex min-h-0 flex-1 flex-col" aria-busy="true">
 			<div
 				class="flex h-control shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5"
@@ -320,7 +356,11 @@
 					<Pill tone="neutral" uppercase>{structure.objectKind}</Pill>
 				{/if}
 			</div>
-			<div class="w-52 shrink-0">
+			{#if editable}
+				<Button variant="secondary" size="sm" onclick={() => (editing = true)}>Edit</Button>
+				<Button variant="ghost" size="sm" onclick={() => (comparing = true)}>Compare</Button>
+			{/if}
+			<div class="w-40 shrink-0">
 				<ExplorerSearch
 					bind:value={filter}
 					id="structure-filter"

@@ -103,6 +103,7 @@ export const mongodb: EngineAdapter = {
 		supportsCancelQuery: true,
 		supportsTransactions: false,
 		supportsExplainPlan: true,
+		supportsStructureEdit: true,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: false,

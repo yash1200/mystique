@@ -527,6 +527,102 @@ pub async fn apply_engine_table_admin(
 }
 
 #[tauri::command]
+pub async fn describe_engine_table_definition(
+    state: State<'_, AppState>,
+    request: mystique_core::DescribeTableDefinitionRequest,
+) -> Result<mystique_core::TableDefinition, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .describe_table_definition(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_engine_table_definitions(
+    state: State<'_, AppState>,
+    request: mystique_core::ListTableDefinitionsRequest,
+) -> Result<Vec<mystique_core::TableDefinition>, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .list_table_definitions(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plan_engine_ddl(
+    state: State<'_, AppState>,
+    request: mystique_core::PlanDdlRequest,
+) -> Result<mystique_core::DdlPlan, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .plan_ddl(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn apply_engine_ddl(
+    state: State<'_, AppState>,
+    request: mystique_core::ApplyDdlRequest,
+) -> Result<mystique_core::ApplyDdlResult, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .apply_ddl(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plan_engine_schema_diff(
+    state: State<'_, AppState>,
+    request: mystique_core::PlanSchemaDiffRequest,
+) -> Result<mystique_core::SchemaMigration, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .plan_schema_diff(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn apply_engine_schema_diff(
+    state: State<'_, AppState>,
+    request: mystique_core::ApplySchemaDiffRequest,
+) -> Result<mystique_core::ApplyDdlResult, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .apply_schema_diff(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn describe_engine_object_structure(
     state: State<'_, AppState>,
     request: mystique_core::ObjectStructureRequest,

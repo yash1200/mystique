@@ -9,6 +9,7 @@ use crate::catalog::{
     TablePreviewResult, TablePreviewStats,
 };
 use crate::config::{ConnectionConfig, FormattedConnectionUrl, ParsedConnectionUrl};
+use crate::ddl::{ApplyDdlResult, DdlPlan, TableDefinition};
 use crate::error::ConnectorResult;
 use crate::explain::ExplainPlan;
 use crate::form::ConnectionFormSchema;
@@ -350,6 +351,44 @@ pub trait ConnectorSession: Send + Sync {
     async fn import_chunk(&self, _input: &ImportChunkInput) -> ConnectorResult<ImportChunkResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "import is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Columns, indexes, and foreign keys the structure editor can change.
+    async fn describe_table_definition(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _table: &str,
+        _kind: Option<&str>,
+    ) -> ConnectorResult<TableDefinition> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "structure editing is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Every base table in one database or schema, for a same-engine diff.
+    async fn list_table_definitions(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> ConnectorResult<Vec<TableDefinition>> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "structure editing is not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Run a plan produced by [`crate::plan_table_alter`]. Statements are not rewritten.
+    async fn apply_ddl(
+        &self,
+        _plan: &DdlPlan,
+        _draft: &TableDefinition,
+    ) -> ConnectorResult<ApplyDdlResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "structure editing is not implemented for engine `{}`",
             self.engine_id()
         )))
     }

@@ -68,6 +68,7 @@ export function relationalCapabilities(
 		supportsCancelQuery: true,
 		supportsTransactions: true,
 		supportsExplainPlan: true,
+		supportsStructureEdit: true,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: true,
@@ -116,6 +117,7 @@ export function applySupportDepth(
 		modelViewKind: 'NONE',
 		supportsServerMetrics: false,
 		supportsTerminateSession: false,
+		supportsStructureEdit: false,
 		tableAdmin: {
 			...caps.tableAdmin,
 			createStatement: false,
@@ -246,6 +248,11 @@ export function mergeCapabilities(
 			c.supportsExplorer ??
 				(c as { supports_explorer?: unknown }).supports_explorer,
 			fallback.supportsExplorer,
+		),
+		supportsStructureEdit: asBool(
+			c.supportsStructureEdit ??
+				(c as { supports_structure_edit?: unknown }).supports_structure_edit,
+			fallback.supportsStructureEdit ?? true,
 		),
 		supportDepth: parseSupportDepth(
 			c.supportDepth ?? (c as { support_depth?: unknown }).support_depth,

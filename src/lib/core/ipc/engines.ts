@@ -45,6 +45,18 @@ import type {
 	TerminateSessionResult,
 	TestResult,
 } from '../contracts/engines'
+import type {
+	ApplyDdlRequest,
+	ApplyDdlResult,
+	ApplySchemaDiffRequest,
+	DescribeTableDefinitionRequest,
+	DdlPlan,
+	ListTableDefinitionsRequest,
+	PlanDdlRequest,
+	PlanSchemaDiffRequest,
+	SchemaMigration,
+	TableDefinition,
+} from '../contracts/ddl'
 
 import { isTauri } from './tauri'
 function requireTauri() {
@@ -277,6 +289,46 @@ export async function importEngineObject(
 ): Promise<ImportObjectResult> {
 	requireTauri()
 	return invoke('import_engine_object', { request })
+}
+
+export async function describeEngineTableDefinition(
+	request: DescribeTableDefinitionRequest,
+): Promise<TableDefinition> {
+	requireTauri()
+	return invoke('describe_engine_table_definition', { request })
+}
+
+export async function listEngineTableDefinitions(
+	request: ListTableDefinitionsRequest,
+): Promise<TableDefinition[]> {
+	requireTauri()
+	return invoke('list_engine_table_definitions', { request })
+}
+
+export async function planEngineDdl(request: PlanDdlRequest): Promise<DdlPlan> {
+	requireTauri()
+	return invoke('plan_engine_ddl', { request })
+}
+
+export async function applyEngineDdl(
+	request: ApplyDdlRequest,
+): Promise<ApplyDdlResult> {
+	requireTauri()
+	return invoke('apply_engine_ddl', { request })
+}
+
+export async function planEngineSchemaDiff(
+	request: PlanSchemaDiffRequest,
+): Promise<SchemaMigration> {
+	requireTauri()
+	return invoke('plan_engine_schema_diff', { request })
+}
+
+export async function applyEngineSchemaDiff(
+	request: ApplySchemaDiffRequest,
+): Promise<ApplyDdlResult> {
+	requireTauri()
+	return invoke('apply_engine_schema_diff', { request })
 }
 
 /** Plugin-owned object structure for “View structure”. */
