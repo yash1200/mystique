@@ -10,6 +10,7 @@
 	import { AboutModal, appAboutUi, appSettingsUi } from '#features/settings'
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
+	import { mountAppChords, QuickOpen } from '#features/workspace/quick-open'
 	import { resetAppToHome } from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount } from 'svelte'
@@ -66,6 +67,7 @@
 		}
 		window.addEventListener('keydown', onKey, true)
 		window.addEventListener('keydown', blockHistoryBackspace, true)
+		const unsubChords = mountAppChords()
 
 		const unsubs: Array<() => void> = []
 		let cancelled = false
@@ -92,6 +94,7 @@
 			unwatchScheme()
 			window.removeEventListener('keydown', onKey, true)
 			window.removeEventListener('keydown', blockHistoryBackspace, true)
+			unsubChords()
 			for (const u of unsubs) u()
 		}
 	})
@@ -100,6 +103,7 @@
 <ToastContext>
 	{@render children()}
 	<AboutModal />
+	<QuickOpen />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}

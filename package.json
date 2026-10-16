@@ -70,6 +70,7 @@
 		"#features/workspace/grid": "./src/lib/features/workspace/grid/index.js",
 		"#features/workspace/metrics": "./src/lib/features/workspace/metrics/index.js",
 		"#features/workspace/query": "./src/lib/features/workspace/query/index.js",
+		"#features/workspace/quick-open": "./src/lib/features/workspace/quick-open/index.js",
 		"#features/workspace/shell": "./src/lib/features/workspace/shell/index.js",
 		"#lib/app": "./src/lib/app/index.js",
 		"#lib/*": "./src/lib/*",

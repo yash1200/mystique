@@ -21,6 +21,7 @@
 	} from '#core/util'
 	import { showToast } from '#features/toast'
 	import { workspaceSession } from '#features/workspace/shell'
+	import { appChrome } from '#lib/app'
 	import { onMount } from 'svelte'
 	import {
 		draftFromProfile,
@@ -584,9 +585,15 @@
 				loading = false
 			}
 		})()
+		const onQuickConnect = (event: Event) => {
+			const id = (event as CustomEvent<{ id?: string }>).detail?.id
+			if (id) void connectById(id)
+		}
+		window.addEventListener('mystique:quick-open-connect', onQuickConnect)
 		return () => {
 			cancelled = true
 			unsubMenu()
+			window.removeEventListener('mystique:quick-open-connect', onQuickConnect)
 		}
 	})
 </script>
@@ -594,18 +601,20 @@
 <svelte:window onkeydown={onHomeKeydown} />
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
-	<ConnectionSidebar
-		{connections}
-		{selectedId}
-		creating={creating || editing}
-		{connectingId}
-		onselect={selectConnection}
-		onnew={startCreate}
-		onconnect={connectById}
-		onaction={handleConnectionAction}
-		onrefresh={refreshConnections}
-		refreshing={listRefreshing}
-	/>
+	{#if appChrome.homeSidebarOpen}
+		<ConnectionSidebar
+			{connections}
+			{selectedId}
+			creating={creating || editing}
+			{connectingId}
+			onselect={selectConnection}
+			onnew={startCreate}
+			onconnect={connectById}
+			onaction={handleConnectionAction}
+			onrefresh={refreshConnections}
+			refreshing={listRefreshing}
+		/>
+	{/if}
 
 	<main class="relative h-full min-w-0 flex-1 overflow-hidden bg-app-wash">
 		<div class="relative z-10 h-full overflow-auto">

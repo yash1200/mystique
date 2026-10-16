@@ -23,6 +23,7 @@
 		pluginConfigForSession,
 		SshHostKeyModal,
 	} from '#features/connections'
+	import { appChrome } from '#lib/app'
 	import {
 		catalogColumnsCache,
 		ensureCatalogForActiveSession,
@@ -406,12 +407,24 @@
 			else unsubMenu = u
 		})
 		const unsubHealth = startSessionHealthWatch()
+		const onQuickConnect = (event: Event) => {
+			const id = (event as CustomEvent<{ id?: string }>).detail?.id
+			if (!id) return
+			if (workspaceSession.sessions.some((session) => session.profile.id === id)) {
+				workspaceSession.setActiveConnection(id)
+				return
+			}
+			const profile = connectionProfiles.profile(id)
+			if (profile) void connectAdditional(profile)
+		}
+		window.addEventListener('mystique:quick-open-connect', onQuickConnect)
 
 		return () => {
 			cancelled = true
 			unsubKeys()
 			unsubMenu()
 			unsubHealth()
+			window.removeEventListener('mystique:quick-open-connect', onQuickConnect)
 		}
 	})
 </script>
@@ -423,6 +436,7 @@
 		: undefined}
 	data-env={activeSession?.profile.environment ?? undefined}
 >
+	{#if appChrome.sessionRailOpen}
 	<SessionsRail
 		onselect={onSelectConnection}
 		ondisconnect={handleDisconnect}
@@ -437,6 +451,7 @@
 		onreorder={(movedId, beforeId) =>
 			workspaceSession.reorderSessions(movedId, beforeId)}
 	/>
+	{/if}
 
 	<WorkspaceSidePane />
 

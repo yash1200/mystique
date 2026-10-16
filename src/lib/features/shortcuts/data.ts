@@ -77,8 +77,14 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		id: 'workspace',
 		title: 'Workspace',
 		items: [
+			{ id: 'quick-open', label: 'Quick open', keys: ['mod', 'K'], orKeys: ['mod', 'P'] },
 			{ id: 'new-query', label: 'New query tab', keys: ['mod', 'T'] },
 			{ id: 'close-tab', label: 'Close tab', keys: ['mod', 'W'] },
+			{ id: 'toggle-rail', label: 'Toggle session rail', keys: ['mod', 'B'] },
+			{ id: 'focus-filter', label: 'Focus object filter', keys: ['mod', 'L'] },
+			{ id: 'focus-tab', label: 'Focus workspace tab 1–9', keys: ['mod', '1'] },
+			{ id: 'prev-connection', label: 'Previous connection', keys: ['mod', 'shift', '['] },
+			{ id: 'next-connection', label: 'Next connection', keys: ['mod', 'shift', ']'] },
 			{ id: 'save', label: 'Save query or table', keys: ['mod', 'S'] },
 			{
 				id: 'open-connection',
