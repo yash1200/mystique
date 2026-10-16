@@ -1,8 +1,12 @@
-import { goto } from '$app/navigation'
-import { appChrome } from '#lib/app'
-import { tick } from 'svelte'
-import { findCatalogTable, workspaceSession, workspaceStudio } from '#features/workspace/shell'
 import { tablePreview } from '#features/workspace/grid'
+import {
+	findCatalogTable,
+	workspaceSession,
+	workspaceStudio,
+} from '#features/workspace/shell'
+import { appChrome } from '#lib/app'
+import { goto } from '$app/navigation'
+import { tick } from 'svelte'
 import type { QuickOpenCommand, QuickOpenItem } from './items'
 
 const CONNECT_EVENT = 'mystique:quick-open-connect'
@@ -20,7 +24,12 @@ export async function runQuickOpenItem(item: QuickOpenItem) {
 		await openCatalogObject(item.connectionId, item.tableId)
 		return
 	}
-	if (item.kind === 'saved' && item.connectionId && item.savedId && item.body != null) {
+	if (
+		item.kind === 'saved' &&
+		item.connectionId &&
+		item.savedId &&
+		item.body != null
+	) {
 		await focusConnection(item.connectionId)
 		workspaceSession.openSavedQuery(item.connectionId, {
 			id: item.savedId,
@@ -103,14 +112,14 @@ function tabsForActive() {
 }
 
 async function openConnection(id: string) {
-	const open = workspaceSession.sessions.some((session) => session.profile.id === id)
+	const open = workspaceSession.sessions.some(
+		(session) => session.profile.id === id,
+	)
 	if (open) {
 		await focusConnection(id)
 		return
 	}
-	window.dispatchEvent(
-		new CustomEvent(CONNECT_EVENT, { detail: { id } }),
-	)
+	window.dispatchEvent(new CustomEvent(CONNECT_EVENT, { detail: { id } }))
 }
 
 async function openCatalogObject(connectionId: string, tableId: string) {

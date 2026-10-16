@@ -131,7 +131,7 @@
 			{@render node(plan.root, '0')}
 		{:else}
 			<pre
-				class="whitespace-pre-wrap break-words font-mono text-caption text-fg">{plan.raw}</pre>
+				class="whitespace-pre-wrap wrap-break-word font-mono text-caption text-fg">{plan.raw}</pre>
 		{/if}
 	</div>
 </div>

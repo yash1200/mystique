@@ -89,7 +89,9 @@ const IDLE_TABLES = 12
 const IDLE_SAVED = 8
 const IDLE_HISTORY = 5
 
-export function collectQuickOpenItems(source: QuickOpenSource): QuickOpenItem[] {
+export function collectQuickOpenItems(
+	source: QuickOpenSource,
+): QuickOpenItem[] {
 	const active = source.activeConnectionId
 	const items: QuickOpenItem[] = []
 	if (source.inWorkspace && active) {
@@ -101,7 +103,9 @@ export function collectQuickOpenItems(source: QuickOpenSource): QuickOpenItem[] 
 			command('toggle-rail', 'Toggle session rail', '⌘/Ctrl+B', true),
 		)
 		if (source.supportsMetrics) {
-			items.push(command('metrics', 'Server metrics', 'Open the metrics tab', true))
+			items.push(
+				command('metrics', 'Server metrics', 'Open the metrics tab', true),
+			)
 		}
 	}
 
@@ -140,7 +144,12 @@ export function collectQuickOpenItems(source: QuickOpenSource): QuickOpenItem[] 
 				id: `catalog:${catalog.connectionId}:${table.id}`,
 				kind: 'catalog',
 				title: table.name,
-				detail: [catalog.name, table.database, table.schema, kindWord(table.kind)]
+				detail: [
+					catalog.name,
+					table.database,
+					table.schema,
+					kindWord(table.kind),
+				]
 					.filter((part) => part.length > 0)
 					.join(' · '),
 				terms: [table.name, qualified, table.database, table.schema].filter(

@@ -22,11 +22,14 @@ export function appChord(event: ChordEvent): AppChord | null {
 	if (event.altKey) return null
 	if (!(event.metaKey || event.ctrlKey)) return null
 	if (event.shiftKey) {
-		if (event.code === 'BracketLeft') return { type: 'cycle-connection', delta: -1 }
-		if (event.code === 'BracketRight') return { type: 'cycle-connection', delta: 1 }
+		if (event.code === 'BracketLeft')
+			return { type: 'cycle-connection', delta: -1 }
+		if (event.code === 'BracketRight')
+			return { type: 'cycle-connection', delta: 1 }
 		return null
 	}
-	if (event.code === 'KeyK' || event.code === 'KeyP') return { type: 'quick-open' }
+	if (event.code === 'KeyK' || event.code === 'KeyP')
+		return { type: 'quick-open' }
 	if (event.code === 'KeyB') return { type: 'toggle-sidebar' }
 	if (event.code === 'KeyL') return { type: 'focus-explorer-filter' }
 	if (event.code.startsWith('Digit')) {

@@ -1,10 +1,6 @@
 <script lang="ts">
+	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
-	import {
-		adapterFor,
-		engineLabel,
-		resolveCapabilities,
-	} from '#engines'
 	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 	import { tick } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
@@ -38,17 +34,22 @@
 		}
 		const activeId = workspaceSession.activeConnectionId
 		const sessions = workspaceSession.sessions
-		const activeSession = sessions.find((session) => session.profile.id === activeId)
+		const activeSession = sessions.find(
+			(session) => session.profile.id === activeId,
+		)
 		const profiles = connectionProfiles.items.map(toProfile)
 		const orderedIds = [
 			...(activeId ? [activeId] : []),
-			...sessions.map((session) => session.profile.id).filter((id) => id !== activeId),
+			...sessions
+				.map((session) => session.profile.id)
+				.filter((id) => id !== activeId),
 		]
 		const catalogs: QuickOpenSource['catalogs'] = []
 		for (const id of orderedIds) {
 			const session = sessions.find((row) => row.profile.id === id)
 			if (!session) continue
-			const profile = profiles.find((row) => row.id === id) ?? toProfile(session.profile)
+			const profile =
+				profiles.find((row) => row.id === id) ?? toProfile(session.profile)
 			const databases = workspaceStudio.catalogs[id] ?? []
 			catalogs.push({
 				connectionId: id,
@@ -207,91 +208,97 @@
 <svelte:window onkeydowncapture={onKeydown} />
 
 {#if quickOpen.open}
-<div
-	class="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[10vh]"
-	role="presentation"
->
-	<button
-		type="button"
-		class="absolute inset-0 border-none bg-black/45"
-		aria-label="Dismiss quick open"
-		onclick={onBackdrop}
-	></button>
 	<div
-		class="relative z-10 flex max-h-[min(32rem,70vh)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
-		role="dialog"
-		aria-modal="true"
-		aria-label="Quick open"
+		class="fixed inset-0 z-60 flex items-start justify-center px-4 pt-[10vh]"
+		role="presentation"
 	>
-		<div class="border-b border-line p-2">
-			<input
-				bind:this={inputEl}
-				bind:value={quickOpen.query}
-				class="h-control w-full rounded-md border border-line bg-input px-2.5 text-body text-fg placeholder:text-fg-muted focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted"
-				role="combobox"
-				aria-autocomplete="list"
-				aria-expanded="true"
-				aria-controls="quick-open-list"
-				aria-activedescendant={ranked[cursor] ? `quick-open-opt-${cursor}` : undefined}
-				placeholder="Connections, tables, queries"
-				autocomplete="off"
-				spellcheck="false"
-				oninput={onQueryInput}
-			/>
-		</div>
+		<button
+			type="button"
+			class="absolute inset-0 border-none bg-black/45"
+			aria-label="Dismiss quick open"
+			onclick={onBackdrop}
+		></button>
 		<div
-			bind:this={listEl}
-			id="quick-open-list"
-			class="min-h-0 flex-1 overflow-y-auto p-1"
-			role="listbox"
-			aria-label="Quick open results"
+			class="relative z-10 flex max-h-[min(32rem,70vh)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Quick open"
 		>
-			{#if ranked.length === 0}
-				<p class="px-2 py-6 text-center text-label text-fg-muted">No matches</p>
-			{:else}
-				{#each ranked as item, index (item.id)}
-					<button
-						type="button"
-						id="quick-open-opt-{index}"
-						data-index={index}
-						role="option"
-						aria-selected={index === cursor}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
-						cursor
-							? 'bg-accent-muted'
-							: 'hover:bg-hover'}"
-						onpointerenter={() => (active = index)}
-						onclick={() => void choose(item)}
-					>
-						{#if item.colorId}
+			<div class="border-b border-line p-2">
+				<input
+					bind:this={inputEl}
+					bind:value={quickOpen.query}
+					class="h-control w-full rounded-md border border-line bg-input px-2.5 text-body text-fg placeholder:text-fg-muted focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted"
+					role="combobox"
+					aria-autocomplete="list"
+					aria-expanded="true"
+					aria-controls="quick-open-list"
+					aria-activedescendant={ranked[cursor]
+						? `quick-open-opt-${cursor}`
+						: undefined}
+					placeholder="Connections, tables, queries"
+					autocomplete="off"
+					spellcheck="false"
+					oninput={onQueryInput}
+				/>
+			</div>
+			<div
+				bind:this={listEl}
+				id="quick-open-list"
+				class="min-h-0 flex-1 overflow-y-auto p-1"
+				role="listbox"
+				aria-label="Quick open results"
+			>
+				{#if ranked.length === 0}
+					<p class="px-2 py-6 text-center text-label text-fg-muted">
+						No matches
+					</p>
+				{:else}
+					{#each ranked as item, index (item.id)}
+						<button
+							type="button"
+							id="quick-open-opt-{index}"
+							data-index={index}
+							role="option"
+							aria-selected={index === cursor}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
+							cursor
+								? 'bg-accent-muted'
+								: 'hover:bg-hover'}"
+							onpointerenter={() => (active = index)}
+							onclick={() => void choose(item)}
+						>
+							{#if item.colorId}
+								<span
+									class="size-2 shrink-0 rounded-full"
+									style="background: {colorHex(item.colorId)}"
+									aria-hidden="true"
+								></span>
+							{:else}
+								<span class="size-2 shrink-0" aria-hidden="true"></span>
+							{/if}
 							<span
-								class="size-2 shrink-0 rounded-full"
-								style="background: {colorHex(item.colorId)}"
-								aria-hidden="true"
-							></span>
-						{:else}
-							<span class="size-2 shrink-0" aria-hidden="true"></span>
-						{/if}
-						<span
-							class="w-8 shrink-0 truncate text-caption font-medium text-fg-muted"
-							>{item.mark}</span
-						>
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-label text-fg">{item.title}</span>
-							<span class="block truncate text-caption text-fg-muted"
-								>{item.detail}</span
+								class="w-8 shrink-0 truncate text-caption font-medium text-fg-muted"
+								>{item.mark}</span
 							>
-						</span>
-						<span class="shrink-0 text-caption text-fg-muted"
-							>{quickOpenKindLabel(item)}</span
-						>
-					</button>
-				{/each}
-			{/if}
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-label text-fg"
+									>{item.title}</span
+								>
+								<span class="block truncate text-caption text-fg-muted"
+									>{item.detail}</span
+								>
+							</span>
+							<span class="shrink-0 text-caption text-fg-muted"
+								>{quickOpenKindLabel(item)}</span
+							>
+						</button>
+					{/each}
+				{/if}
+			</div>
+			<p class="border-t border-line px-3 py-1.5 text-caption text-fg-muted">
+				↑↓ move · Enter open · Esc close
+			</p>
 		</div>
-		<p class="border-t border-line px-3 py-1.5 text-caption text-fg-muted">
-			↑↓ move · Enter open · Esc close
-		</p>
 	</div>
-</div>
 {/if}
