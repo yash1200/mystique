@@ -3,6 +3,7 @@
  * File dialogs and byte writing live in `#core/util/files.js`.
  */
 import type { TableFileFormat } from '#core/contracts'
+import { isLargeCell, largeCellText } from './large-cell'
 import {
 	safeFileBase,
 	saveBytesWithPrompt,
@@ -158,6 +159,7 @@ export function exportFileBaseFromQuery(opts: {
 }
 
 function cellToString(v: unknown): string {
+	if (isLargeCell(v)) return largeCellText(v)
 	if (v === null || v === undefined) return ''
 	if (typeof v === 'string') return v
 	if (typeof v === 'number' || typeof v === 'boolean') return String(v)
@@ -219,6 +221,7 @@ export async function exportRowsAsCsv(
  * Already-parsed objects are left as-is. Plain text is unchanged.
  */
 function reviveJsonCell(value: unknown): unknown {
+	if (isLargeCell(value)) return largeCellText(value)
 	if (value == null) return null
 	if (typeof value === 'object') return value
 	if (typeof value !== 'string') return value

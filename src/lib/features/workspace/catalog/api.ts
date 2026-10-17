@@ -249,6 +249,9 @@ export function applyPreviewStats(
 /** Keep PKs / ObjectIds usable for updates & deletes (not stringified blobs). */
 function unwrapPreviewCell(v: unknown): unknown {
 	if (v == null) return null
+	if (typeof v === 'object' && (v as { $large?: unknown }).$large === true) {
+		return v
+	}
 	if (typeof v !== 'object') return v
 	const o = v as Record<string, unknown>
 	if (typeof o.$oid === 'string') return o.$oid

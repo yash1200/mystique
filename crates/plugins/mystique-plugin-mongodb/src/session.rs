@@ -8,12 +8,12 @@ use mongodb::Client;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan, EngineCapabilities,
-    ExplainPlan, ExportObjectInput, ExportObjectResult, FetchServerMetricsInput,
-    FetchTablePreviewInput, ImportChunkInput, ImportChunkResult, ImportObjectInput,
-    ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus, PreviewImportInput,
-    PreviewImportResult, QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult,
-    TableDefinition, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
-    TerminateSessionResult, ValidatedQuery,
+    ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
+    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
+    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
+    PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult, ServerMetricsSnapshot,
+    TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats,
+    TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
 };
 
 mod admin;
@@ -23,6 +23,7 @@ mod edits;
 mod encode;
 mod error;
 mod explain;
+mod large;
 mod metrics;
 mod pin;
 mod preview;
@@ -180,6 +181,13 @@ impl ConnectorSession for MongoSession {
         input: &FetchTablePreviewInput,
     ) -> ConnectorResult<TablePreviewStats> {
         preview::fetch_table_preview_stats(self, input).await
+    }
+
+    async fn fetch_large_value(
+        &self,
+        input: &FetchLargeValueInput,
+    ) -> ConnectorResult<FetchLargeValueResult> {
+        large::fetch_large_value(self, input).await
     }
 
     async fn list_catalog(

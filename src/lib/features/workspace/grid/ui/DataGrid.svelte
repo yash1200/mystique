@@ -6,6 +6,7 @@
 		TablePreviewSortDir,
 	} from '#core/contracts'
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
+	import { fetchEngineLargeValue } from '#core/ipc'
 	import { copyTextToClipboard } from '#core/util'
 	import { showToast } from '#features/toast'
 	import {
@@ -19,6 +20,13 @@
 	import { onMount, tick, untrack } from 'svelte'
 	import { persistTableEdits } from '../api'
 	import { valueToEditorText } from '../cell-view'
+	import {
+		cellsIncludeLarge,
+		isLargeCell,
+		largeCellText,
+		PARTIAL_COPY_MESSAGE,
+		type LargeCellLocator,
+	} from '../large-cell'
 	import {
 		selectDraftToValue,
 		usesSelectEditor,
@@ -151,6 +159,8 @@
 		col: string
 		type: string
 		text: string
+		locator: LargeCellLocator | null
+		unfetchable: boolean
 	} | null>(null)
 
 	const PAGE_SIZE = 100
@@ -558,8 +568,9 @@
 	function notifyCopy(
 		res: { ok: boolean; cancelled?: boolean; error?: string },
 		okMsg: string,
+		partial = false,
 	) {
-		if (res.ok) showToast('success', okMsg)
+		if (res.ok) showToast(partial ? 'warning' : 'success', okMsg)
 		else if (res.cancelled) showToast('info', 'Copy cancelled')
 		else showToast('danger', res.error || 'Copy failed')
 	}
@@ -823,7 +834,12 @@
 				break
 		}
 		const res = await copyTextToClipboard(text)
-		notifyCopy(res, okMsg)
+		const partial = cellsIncludeLarge(cells)
+		notifyCopy(
+			res,
+			partial ? `${okMsg}. ${PARTIAL_COPY_MESSAGE}` : okMsg,
+			partial,
+		)
 	}
 
 	async function copySelection(
@@ -855,7 +871,12 @@
 						break
 				}
 				const res = await copyTextToClipboard(text)
-				notifyCopy(res, okMsg)
+				const partial = cellsIncludeLarge(payload.cells)
+				notifyCopy(
+					res,
+					partial ? `${okMsg}. ${PARTIAL_COPY_MESSAGE}` : okMsg,
+					partial,
+				)
 				return
 			}
 		}
@@ -1599,6 +1620,14 @@
 			flashStatus('Row is marked for delete — undo delete to edit')
 			return
 		}
+		if (isLargeCell(rows[row]?.[col])) {
+			if (seedDraft !== undefined) {
+				flashStatus('Open the cell to load the full value before editing.')
+				return
+			}
+			openCellModal(row, col)
+			return
+		}
 		highlightRow = row
 		selectedCell = { row, col }
 		if (editing?.row === row && editing.col === col && seedDraft === undefined)
@@ -1663,11 +1692,14 @@
 		}
 		const value = rows[row]?.[col]
 		const def = columnDef(col)
+		const large = isLargeCell(value) ? value : null
 		cellModal = {
 			row,
 			col,
 			type: def?.type ?? '',
 			text: seedText !== undefined ? seedText : valueToEditorText(value),
+			locator: large?.locator ?? null,
+			unfetchable: !!large && !(large.locator && large.locator.keys.length > 0),
 		}
 		selectedCell = { row, col }
 		highlightRow = row
@@ -1722,15 +1754,23 @@
 	async function copySelectedCell(e?: ClipboardEvent) {
 		if (!selectedCell || editing) return
 		const v = rows[selectedCell.row]?.[selectedCell.col]
-		// Clipboard: empty string for NULL (paste-friendly)
-		const text = v === null || v === undefined ? '' : String(v)
+		const partial = isLargeCell(v)
+		// Clipboard: empty string for NULL (paste-friendly). A large cell
+		// copies its preview until the modal has loaded the rest.
+		const text =
+			v === null || v === undefined
+				? ''
+				: partial
+					? largeCellText(v)
+					: cellText(v)
+		const message = partial ? `Cell copied. ${PARTIAL_COPY_MESSAGE}` : 'Cell copied'
 		if (e?.clipboardData) {
 			e.preventDefault()
 			e.clipboardData.setData('text/plain', text)
-			showToast('success', 'Cell copied')
+			showToast(partial ? 'warning' : 'success', message)
 			return
 		}
-		notifyCopy(await copyTextToClipboard(text), 'Cell copied')
+		notifyCopy(await copyTextToClipboard(text), message, partial)
 	}
 
 	function pasteIntoGrid(text: string) {
@@ -2256,12 +2296,17 @@
 	</div>
 
 	{#if cellModal}
+		{@const locator = cellModal.locator}
 		<CellValueModal
 			column={cellModal.col}
 			columnType={cellModal.type}
 			rowIndex={cellModal.row}
 			initialText={cellModal.text}
 			readonly={profileReadOnly}
+			unfetchable={cellModal.unfetchable || (!!locator && !sessionId)}
+			fetchChunk={locator && sessionId
+				? (offset) => fetchEngineLargeValue({ sessionId, locator, offset })
+				: undefined}
 			onapply={applyCellModal}
 			onclose={closeCellModal}
 		/>

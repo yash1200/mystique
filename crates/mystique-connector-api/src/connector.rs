@@ -280,6 +280,18 @@ pub trait ConnectorSession: Send + Sync {
         Ok(TablePreviewStats::default())
     }
 
+    /// Re-read one large cell by the primary key carried on its preview.
+    /// The grid IPC clips the page; this is how the cell modal loads the rest.
+    async fn fetch_large_value(
+        &self,
+        _input: &crate::FetchLargeValueInput,
+    ) -> ConnectorResult<crate::FetchLargeValueResult> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "fetch_large_value not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
     /// Explorer tree: databases + tables/collections (plugin-owned listing SQL / APIs).
     /// `include_objects` false = database picker only (skip tables/collections).
     async fn list_catalog(

@@ -303,6 +303,34 @@ export interface TablePreviewSort {
 	dir: TablePreviewSortDir
 }
 
+export interface LargeCellKey {
+	column: string
+	value: unknown
+}
+
+export interface LargeCellLocator {
+	database?: string | null
+	schema?: string | null
+	table: string
+	column: string
+	keys: LargeCellKey[]
+}
+
+export interface FetchLargeValueRequest {
+	sessionId: string
+	locator: LargeCellLocator
+	offset?: number
+	limit?: number
+	executionId?: string | null
+}
+
+export interface FetchLargeValueResult {
+	text: string
+	offset: number
+	nextOffset?: number | null
+	totalChars: number
+}
+
 export interface FetchTablePreviewRequest {
 	sessionId: string
 	table: string

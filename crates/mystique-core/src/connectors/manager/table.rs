@@ -3,11 +3,11 @@ use std::sync::Arc;
 use mystique_connector_api::{
     plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
-    ConnectorResult, DdlDialect, DescribeTableDefinitionRequest, FetchTablePreviewRequest,
-    FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
-    PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableDefinition, TablePreviewResult, TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS,
-    HARD_MAX_ROWS, MAX_TIMEOUT_MS,
+    ConnectorResult, DdlDialect, DescribeTableDefinitionRequest, FetchLargeValueRequest,
+    FetchLargeValueResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest,
+    ListTableDefinitionsRequest, PlanDdlRequest, PlanSchemaDiffRequest, SchemaMigration,
+    TableAdminOp, TableAdminRequest, TableAdminResult, TableDefinition, TablePreviewResult,
+    TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS, HARD_MAX_ROWS, MAX_TIMEOUT_MS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -70,6 +70,23 @@ impl ConnectionManager {
     ) -> ConnectorResult<TablePreviewStats> {
         let session = self.session(&req.session_id).await?;
         session.fetch_table_preview_stats(&req.into_input()).await
+    }
+
+    pub async fn fetch_large_value(
+        &self,
+        req: FetchLargeValueRequest,
+    ) -> ConnectorResult<FetchLargeValueResult> {
+        let session = self.session(&req.session_id).await?;
+        let session_id = req.session_id.clone();
+        let execution_id = req.execution_id.clone();
+        let mut input = req.into_input();
+        let (id, control) = self.begin_run(&session_id, execution_id).await;
+        input.control = Arc::clone(&control);
+        let result = self
+            .drive_registered(&control, MAX_TIMEOUT_MS, session.fetch_large_value(&input))
+            .await;
+        self.finish_run(&id).await;
+        result
     }
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
     pub async fn apply_table_admin(

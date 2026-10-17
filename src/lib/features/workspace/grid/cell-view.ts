@@ -1,3 +1,4 @@
+import { isLargeCell, largeCellText } from './large-cell'
 import type { CellViewMode } from './types'
 export const CELL_VIEW_MODES: { id: CellViewMode; label: string }[] = [
 	{ id: 'text', label: 'Text' },
@@ -7,6 +8,7 @@ export const CELL_VIEW_MODES: { id: CellViewMode; label: string }[] = [
 
 /** String shown / edited in the expanded cell modal. */
 export function valueToEditorText(value: unknown): string {
+	if (isLargeCell(value)) return largeCellText(value)
 	if (value === null || value === undefined) return ''
 	if (typeof value === 'string') return value
 	if (typeof value === 'boolean') return value ? 'true' : 'false'

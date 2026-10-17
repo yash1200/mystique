@@ -24,6 +24,7 @@
 	import { untrack } from 'svelte'
 	import { selectOptionsForColumn, usesSelectEditor } from '../column-editor'
 	import { numericColumn } from '../filters'
+	import { isLargeCell, largeCellHint } from '../large-cell'
 	import {
 		cellDisplay,
 		computeColumnWindow,
@@ -421,7 +422,9 @@
 										? undefined
 										: dirty
 											? `Edited · original: ${cellDisplay(originals[i]?.[col.name])}`
-											: shown}
+											: isLargeCell(raw)
+												? largeCellHint(raw)
+												: shown}
 									onclick={(e) => {
 										e.stopPropagation()
 										onSelectCell(i, col.name, e)
@@ -450,6 +453,11 @@
 												numericColumn(col.type) && 'text-right',
 											)}
 										>{shown}</span>
+										{#if isLargeCell(raw)}
+											<span
+												class="shrink-0 font-sans text-caption tracking-normal text-fg-muted"
+											>large</span>
+										{/if}
 										{#if dirty}
 											<span
 												class="size-1.5 shrink-0 rounded-full bg-warning"

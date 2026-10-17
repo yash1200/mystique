@@ -23,6 +23,7 @@ mod error;
 mod explain;
 mod form;
 mod json_cell;
+mod large_cell;
 mod metrics;
 mod object_structure;
 mod pin;
@@ -49,6 +50,12 @@ pub use explain::{
 };
 pub use form::*;
 pub use json_cell::{json_decimal, json_f64, json_i64, json_u64, JS_MAX_SAFE_INTEGER};
+pub use large_cell::{
+    cell_display_text, clip_batch_result, clip_query_result, clip_table_preview, large_cell_select,
+    page_cell, FetchLargeValueInput, FetchLargeValueRequest, FetchLargeValueResult, LargeCellKey,
+    LargeCellLocator, LargeCellSelect, SqlPlaceholder, SqlTextCast, LARGE_CELL_BYTES,
+    LARGE_CELL_CHUNK_CHARS, LARGE_CELL_PREVIEW_CHARS,
+};
 pub use metrics::*;
 pub use object_structure::*;
 pub use pin::{PinStatus, PinnedSession};

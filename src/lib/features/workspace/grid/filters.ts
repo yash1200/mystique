@@ -1,3 +1,4 @@
+import { isLargeCell, largeCellText } from './large-cell'
 import type { FilterOp, FilterRule } from './types'
 export const FILTER_OPS: {
 	value: FilterOp
@@ -131,6 +132,7 @@ export function rulesToCode(rules: FilterRule[]): string {
 }
 
 export function cellText(value: unknown): string {
+	if (isLargeCell(value)) return largeCellText(value)
 	if (value === null || value === undefined) return 'NULL'
 	if (typeof value === 'boolean') return value ? 'true' : 'false'
 	return String(value)

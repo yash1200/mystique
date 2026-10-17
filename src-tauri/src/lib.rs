@@ -110,6 +110,7 @@ pub fn run() {
             ipc::engines::describe_engine_table,
             ipc::engines::list_engine_catalog_columns,
             ipc::engines::apply_engine_table_edits,
+            ipc::engines::fetch_engine_large_value,
             ipc::engines::fetch_engine_table_preview,
             ipc::engines::fetch_engine_table_preview_stats,
             ipc::engines::list_engine_catalog,

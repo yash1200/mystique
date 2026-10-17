@@ -8,12 +8,13 @@ use mysql_async::Pool;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
-    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult,
-    FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
-    ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus,
-    PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryResult, ServerMetricsSnapshot,
-    TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats,
-    TerminateSessionInput, TerminateSessionResult, ValidatedBatch, ValidatedQuery,
+    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
+    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
+    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
+    PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryResult,
+    ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult,
+    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedBatch,
+    ValidatedQuery,
 };
 
 mod admin;
@@ -23,6 +24,7 @@ mod ddl;
 mod edits;
 mod encode;
 mod explain;
+mod large;
 mod metrics;
 mod pin;
 mod preview;
@@ -160,6 +162,13 @@ impl ConnectorSession for MysqlSession {
         input: &FetchTablePreviewInput,
     ) -> ConnectorResult<TablePreviewStats> {
         preview::fetch_table_preview_stats(self, input).await
+    }
+
+    async fn fetch_large_value(
+        &self,
+        input: &FetchLargeValueInput,
+    ) -> ConnectorResult<FetchLargeValueResult> {
+        large::fetch_large_value(self, input).await
     }
 
     async fn list_catalog(

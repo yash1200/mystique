@@ -12,6 +12,11 @@
 	import { showToast } from '#features/toast'
 	import {
 		CellValueModal,
+		cellsIncludeLarge,
+		isLargeCell,
+		largeCellHint,
+		largeCellText,
+		PARTIAL_COPY_MESSAGE,
 		buildCsv,
 		buildJson,
 		buildMarkdown,
@@ -452,12 +457,17 @@
 		rowMenu = { row: absRow, x: e.clientX, y: e.clientY }
 	}
 
-	async function flashCopy(ok: boolean, okMsg: string) {
-		showToast(ok ? 'success' : 'danger', ok ? okMsg : 'Copy failed')
+	async function flashCopy(ok: boolean, okMsg: string, partial = false) {
+		if (!ok) {
+			showToast('danger', 'Copy failed')
+			return
+		}
+		showToast(partial ? 'warning' : 'success', okMsg)
 	}
 
 	function cellClipboardText(v: unknown): string {
 		if (v === null || v === undefined) return ''
+		if (isLargeCell(v)) return largeCellText(v)
 		if (typeof v === 'object') {
 			try {
 				return JSON.stringify(v)
@@ -469,10 +479,14 @@
 	}
 
 	async function copyCellValue(absRow: number, col: number) {
-		const res = await copyTextToClipboard(
-			cellClipboardText(cellValue(absRow, col)),
+		const value = cellValue(absRow, col)
+		const partial = isLargeCell(value)
+		const res = await copyTextToClipboard(cellClipboardText(value))
+		await flashCopy(
+			res.ok,
+			partial ? `Cell copied. ${PARTIAL_COPY_MESSAGE}` : 'Cell copied',
+			partial,
 		)
-		await flashCopy(res.ok, 'Cell copied')
 	}
 
 	async function copyColumnName(col: number) {
@@ -483,21 +497,29 @@
 
 	async function copyCellJson(absRow: number, col: number) {
 		const v = cellValue(absRow, col)
-		let text: string
-		try {
-			text = `${JSON.stringify(v === undefined ? null : v, null, 2)}\n`
-		} catch {
-			text = String(v)
-		}
+		const partial = isLargeCell(v)
+		const text = partial
+			? largeCellText(v)
+			: `${JSON.stringify(v === undefined ? null : v, null, 2)}\n`
 		const res = await copyTextToClipboard(text)
-		await flashCopy(res.ok, 'Copied as JSON')
+		await flashCopy(
+			res.ok,
+			partial ? `Copied as JSON. ${PARTIAL_COPY_MESSAGE}` : 'Copied as JSON',
+			partial,
+		)
 	}
 
 	async function copyCellTsv(absRow: number, col: number) {
+		const value = cellValue(absRow, col)
+		const partial = isLargeCell(value)
 		const colDef = exportCols[col] ?? { name: columns[col]?.name ?? 'value' }
-		const text = buildTsv([colDef], [[cellValue(absRow, col)]])
+		const text = buildTsv([colDef], [[value]])
 		const res = await copyTextToClipboard(text)
-		await flashCopy(res.ok, 'Copied as TSV')
+		await flashCopy(
+			res.ok,
+			partial ? `Copied as TSV. ${PARTIAL_COPY_MESSAGE}` : 'Copied as TSV',
+			partial,
+		)
 	}
 
 	function cellSelectionPayload(): {
@@ -558,7 +580,12 @@
 					: `${payload.count} cells copied`
 		}
 		const res = await copyTextToClipboard(text)
-		await flashCopy(res.ok, okMsg)
+		const partial = cellsIncludeLarge(payload.cells)
+		await flashCopy(
+			res.ok,
+			partial ? `${okMsg}. ${PARTIAL_COPY_MESSAGE}` : okMsg,
+			partial,
+		)
 	}
 
 	async function copyRowAs(
@@ -587,7 +614,12 @@
 			okMsg = n === 1 ? 'Copied as Markdown' : `Copied ${n} rows as Markdown`
 		}
 		const res = await copyTextToClipboard(text)
-		await flashCopy(res.ok, okMsg)
+		const partial = cellsIncludeLarge(rowsOut)
+		await flashCopy(
+			res.ok,
+			partial ? `${okMsg}. ${PARTIAL_COPY_MESSAGE}` : okMsg,
+			partial,
+		)
 	}
 
 	function targetRows(primary: number): number[] {
@@ -885,9 +917,12 @@
 								role="gridcell"
 								aria-selected={isFocused || isCellSelected(absolute, ci)}
 								class="qrg-cell qrg-data border-b border-line/60 px-2.5 font-mono text-label {numericColumn(_col.dataType) ? 'text-right' : ''}"
-								title={text}
+								title={isLargeCell(cell) ? largeCellHint(cell) : text}
 							>
 								{text}
+								{#if isLargeCell(cell)}
+									<span class="ml-1 font-sans text-caption text-fg-muted">large</span>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -898,12 +933,15 @@
 </div>
 
 {#if cellModal}
+	{@const raw = cellValue(cellModal.row, cellModal.col)}
 	<CellValueModal
 		column={modalColumn}
 		columnType={modalType}
 		rowIndex={cellModal.row}
 		initialText={modalValue}
 		readonly
+		unfetchable={isLargeCell(raw) &&
+			!(raw.locator && raw.locator.keys.length > 0)}
 		onclose={() => (cellModal = null)}
 	/>
 {/if}

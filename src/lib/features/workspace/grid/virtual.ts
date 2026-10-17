@@ -16,6 +16,8 @@
  * that gap; rows behind it are only there to absorb a direction flip.
  */
 
+import { isLargeCell, largeCellText } from './large-cell'
+
 export const RESULT_HEADER_H = 32
 /** Floor of rows kept on each side of the viewport. */
 export const OVERSCAN_MIN = 16
@@ -60,9 +62,10 @@ export type ResultColLayout = {
  * fling into 1.2s of layout.
  *
  * 512 monospace characters at the 12px cell size is ~3700px — wider than any
- * single column can stretch to, so nothing visible is lost. The untouched
- * value stays in `rows` for the cell modal, clipboard and export paths.
+ * single column can stretch to, so nothing visible is lost. Values the server
+ * marked large are already a preview; the cell modal loads the rest by key.
  */
+
 export const CELL_TEXT_MAX = 512
 
 const objectText = new WeakMap<object, string>()
@@ -73,6 +76,7 @@ function clampText(text: string): string {
 
 export function cellDisplay(v: unknown): string {
 	if (v === null || v === undefined) return 'NULL'
+	if (isLargeCell(v)) return largeCellText(v)
 	if (typeof v === 'object') {
 		const hit = objectText.get(v)
 		if (hit !== undefined) return hit

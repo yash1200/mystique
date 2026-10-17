@@ -210,11 +210,13 @@ pub async fn execute_pinned_batch(
         let progress = mystique_core::ProgressPump::new(move |event| {
             let _ = on_progress.send(event);
         });
-        state
+        let mut result = state
             .services
             .connections()
             .execute_pinned_batch(request, tab_id, Some(progress))
-            .await
+            .await?;
+        mystique_core::clip_batch_result(&mut result);
+        Ok(result)
     })
     .await
 }
@@ -327,8 +329,12 @@ pub async fn execute_engine_query(
     state: State<'_, AppState>,
     request: mystique_core::ExecuteQueryRequest,
 ) -> Result<mystique_core::QueryResult, mystique_core::QueryIpcError> {
-    super::guard_query(async move { state.services.connections().execute_query(request).await })
-        .await
+    super::guard_query(async move {
+        let mut result = state.services.connections().execute_query(request).await?;
+        mystique_core::clip_query_result(&mut result);
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -341,11 +347,13 @@ pub async fn execute_engine_batch(
         let progress = mystique_core::ProgressPump::new(move |event| {
             let _ = on_progress.send(event);
         });
-        state
+        let mut result = state
             .services
             .connections()
             .execute_batch(request, Some(progress))
-            .await
+            .await?;
+        mystique_core::clip_batch_result(&mut result);
+        Ok(result)
     })
     .await
 }
@@ -404,10 +412,36 @@ pub async fn fetch_engine_table_preview(
     request: mystique_core::FetchTablePreviewRequest,
 ) -> Result<mystique_core::TablePreviewResult, String> {
     super::guard(async move {
-        state
+        let database = request.database.clone();
+        let schema = request.schema.clone();
+        let table = request.table.clone();
+        let mut result = state
             .services
             .connections()
             .fetch_table_preview(request)
+            .await
+            .map_err(|e| e.to_string())?;
+        mystique_core::clip_table_preview(
+            &mut result,
+            database.as_deref(),
+            schema.as_deref(),
+            &table,
+        );
+        Ok(result)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn fetch_engine_large_value(
+    state: State<'_, AppState>,
+    request: mystique_core::FetchLargeValueRequest,
+) -> Result<mystique_core::FetchLargeValueResult, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .fetch_large_value(request)
             .await
             .map_err(|e| e.to_string())
     })

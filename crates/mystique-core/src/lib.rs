@@ -33,12 +33,13 @@ pub use storage::AppDatabase;
 
 // Re-export API types for IPC adapters
 pub use mystique_connector_api::{
-    ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest, ApplyTableEditsRequest,
-    ApplyTableEditsResult, BatchEvent, CatalogColumnRow, CatalogDatabase, CatalogObject,
-    CatalogRelationship, ColumnInfo, ColumnReference, ConnectionConfig, ConnectorError,
-    ConnectorResult, DdlPlan, DescribeTableDefinitionRequest, DescribeTableRequest,
-    EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, ExplainPlan, ExplainQueryRequest,
-    ExportFormat, ExportObjectRequest, ExportObjectResult, FetchServerMetricsRequest,
+    clip_batch_result, clip_query_result, clip_table_preview, ApplyDdlRequest, ApplyDdlResult,
+    ApplySchemaDiffRequest, ApplyTableEditsRequest, ApplyTableEditsResult, BatchEvent,
+    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
+    ColumnReference, ConnectionConfig, ConnectorError, ConnectorResult, DdlPlan,
+    DescribeTableDefinitionRequest, DescribeTableRequest, EngineCapabilities, EngineDescriptor,
+    ExecuteQueryRequest, ExplainPlan, ExplainQueryRequest, ExportFormat, ExportObjectRequest,
+    ExportObjectResult, FetchLargeValueRequest, FetchLargeValueResult, FetchServerMetricsRequest,
     FetchTablePreviewRequest, FetchTablePreviewStatsRequest, FormattedConnectionUrl,
     ImportObjectRequest, ImportObjectResult, ListCatalogColumnsRequest, ListCatalogRequest,
     ListRelationshipsRequest, ListTableDefinitionsRequest, ObjectStructure, ObjectStructureRequest,

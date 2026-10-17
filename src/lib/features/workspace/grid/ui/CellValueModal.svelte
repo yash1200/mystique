@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Kbd, Modal, Textarea } from '#core/ui'
-	import { cn } from '#core/util'
+	import { cn, copyTextToClipboard } from '#core/util'
 	import { onMount, untrack } from 'svelte'
 	import {
 		CELL_VIEW_MODES,
@@ -9,6 +9,11 @@
 		minifyJson,
 		prettyJson,
 	} from '../cell-view'
+	import {
+		PARTIAL_COPY_MESSAGE,
+		UNKEYED_LARGE_CELL,
+		type LargeCellPage,
+	} from '../large-cell'
 	import type { CellViewMode } from '../types'
 	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
 
@@ -19,6 +24,10 @@
 		initialText: string
 		/** When true, the value cannot be edited (query results). */
 		readonly?: boolean
+		/** Load the next chunk of a large cell. Absent when the preview is the whole value. */
+		fetchChunk?: (offset: number) => Promise<LargeCellPage>
+		/** Large cell with no primary key. The preview is all we can show. */
+		unfetchable?: boolean
 		onapply?: (text: string) => void
 		onclose: () => void
 	}
@@ -29,6 +38,8 @@
 		rowIndex,
 		initialText,
 		readonly = false,
+		fetchChunk,
+		unfetchable = false,
 		onapply,
 		onclose,
 	}: Props = $props()
@@ -44,6 +55,13 @@
 		),
 	)
 	let editorWrap = $state<HTMLDivElement | null>(null)
+	let loading = $state(false)
+	let loadedChars = $state(0)
+	let totalChars = $state(0)
+	let loadError = $state('')
+	let copyNote = $state('')
+	const previewOnly = untrack(() => unfetchable || !!fetchChunk)
+	const locked = $derived(readonly || loading || unfetchable || !!loadError)
 
 	function focusEditor() {
 		editorWrap?.querySelector('textarea')?.focus()
@@ -70,8 +88,47 @@
 		if (pretty) text = pretty
 	}
 
+	async function loadFull() {
+		const load = fetchChunk
+		if (!load) return
+		loading = true
+		loadError = ''
+		let offset = 0
+		const parts: string[] = []
+		try {
+			for (;;) {
+				const page = await load(offset)
+				if (!alive) return
+				parts.push(page.text)
+				totalChars = page.totalChars
+				loadedChars = page.nextOffset ?? page.totalChars
+				if (page.nextOffset == null) break
+				offset = page.nextOffset
+			}
+			if (!alive) return
+			const full = parts.join('')
+			text = mode === 'json' ? (prettyJson(full) ?? full) : full
+		} catch (err) {
+			if (!alive) return
+			loadError = err instanceof Error ? err.message : String(err)
+		} finally {
+			if (alive) loading = false
+		}
+	}
+
+	async function copyValue() {
+		const partial = loading || unfetchable || !!loadError || !!fetchChunk && text === initialText
+		const payload = partial ? initialText : text
+		const res = await copyTextToClipboard(payload)
+		copyNote = !res.ok
+			? 'Copy failed'
+			: partial
+				? PARTIAL_COPY_MESSAGE
+				: 'Copied the full value.'
+	}
+
 	function apply() {
-		if (readonly || !canApply) return
+		if (locked || !canApply) return
 		if (mode === 'json') {
 			const compact = minifyJson(text)
 			onapply?.(compact ?? text)
@@ -85,7 +142,7 @@
 			e.stopPropagation()
 			if (readonly) e.preventDefault()
 		}
-		if (readonly) return
+		if (locked) return
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			e.preventDefault()
 			e.stopPropagation()
@@ -93,10 +150,16 @@
 		}
 	}
 
+	let alive = true
+
 	onMount(() => {
 		queueMicrotask(focusEditor)
+		if (fetchChunk) void loadFull()
 		window.addEventListener('keydown', onKeydown, true)
-		return () => window.removeEventListener('keydown', onKeydown, true)
+		return () => {
+			alive = false
+			window.removeEventListener('keydown', onKeydown, true)
+		}
 	})
 </script>
 
@@ -149,6 +212,17 @@
 	{/snippet}
 
 	<div bind:this={editorWrap} class="flex min-h-0 flex-1 flex-col gap-2 p-3">
+		{#if unfetchable}
+			<p class="m-0 text-caption text-fg-muted">{UNKEYED_LARGE_CELL}</p>
+		{:else if loading}
+			<p class="m-0 text-caption text-fg-muted">
+				Loading {loadedChars.toLocaleString()} / {totalChars.toLocaleString()} characters
+			</p>
+		{:else if loadError}
+			<p class="m-0 text-caption text-danger">{loadError}</p>
+		{:else if copyNote}
+			<p class="m-0 text-caption text-fg-muted">{copyNote}</p>
+		{/if}
 		{#if mode === 'html'}
 			<div
 				class="grid min-h-0 flex-1 grid-rows-2 gap-2 md:grid-cols-2 md:grid-rows-1"
@@ -159,7 +233,7 @@
 						bind:value={text}
 						spellcheck={false}
 						autofocus
-						{readonly}
+						readonly={locked}
 						class="min-h-40 flex-1 resize-none font-mono text-label leading-relaxed"
 					/>
 				</label>
@@ -179,13 +253,13 @@
 				</div>
 			</div>
 		{:else if mode === 'json'}
-			<JsonHighlightEditor bind:value={text} {readonly} invalid={!!jsonError} />
+			<JsonHighlightEditor bind:value={text} readonly={locked} invalid={!!jsonError} />
 		{:else}
 			<Textarea
 				bind:value={text}
 				spellcheck={false}
 				autofocus
-				{readonly}
+				readonly={locked}
 				class="min-h-64 flex-1 resize-none font-mono text-label leading-relaxed"
 			/>
 		{/if}
@@ -196,7 +270,7 @@
 
 	{#snippet footer()}
 		<div class="flex w-full items-center justify-between gap-2">
-			{#if readonly}
+			{#if locked}
 				<p class="m-0 flex items-center gap-1.5 text-caption text-fg-muted">
 					<Kbd>esc</Kbd>
 					<span>close</span>
@@ -211,6 +285,9 @@
 				</p>
 			{/if}
 			<div class="flex items-center gap-2">
+				<Button variant="ghost" size="sm" onclick={() => void copyValue()}>
+					{previewOnly && (loading || unfetchable || loadError) ? 'Copy preview' : 'Copy'}
+				</Button>
 				{#if mode === 'json'}
 					<Button
 						variant="ghost"
@@ -221,7 +298,7 @@
 						Prettify
 					</Button>
 				{/if}
-				{#if readonly}
+				{#if locked}
 					<Button variant="primary" size="sm" onclick={onclose}>Close</Button>
 				{:else}
 					<Button variant="ghost" size="sm" onclick={onclose}>Cancel</Button>

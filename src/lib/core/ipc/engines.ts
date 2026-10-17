@@ -15,6 +15,8 @@ import type {
 	ExplainQueryRequest,
 	ExportObjectRequest,
 	ExportObjectResult,
+	FetchLargeValueRequest,
+	FetchLargeValueResult,
 	FetchServerMetricsRequest,
 	FetchTablePreviewRequest,
 	FetchTablePreviewStatsRequest,
@@ -231,6 +233,13 @@ export async function applyEngineTableEdits(
 ): Promise<ApplyTableEditsResult> {
 	requireTauri()
 	return invoke('apply_engine_table_edits', { request })
+}
+
+export async function fetchEngineLargeValue(
+	request: FetchLargeValueRequest,
+): Promise<FetchLargeValueResult> {
+	requireTauri()
+	return invoke('fetch_engine_large_value', { request })
 }
 
 export async function fetchEngineTablePreview(
