@@ -1,5 +1,6 @@
 /** Table data grid: rows, filters, cell editing, import and export. */
 export * from './api'
+export * from './virtual'
 export * from './cell-view'
 export * from './column-editor'
 export * from './export'

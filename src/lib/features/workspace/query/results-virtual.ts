@@ -1,203 +1,26 @@
 /**
- * Query-results virtualization helpers.
- *
- * Window updates are hysteresis-based: keep the current slice until the
- * viewport nears the leading edge. Everyday scrolling then composites
- * already-mounted rows. CSS-grid + transform (not table spacer <tr>s) keeps
- * remounts cheap when the window does move.
- *
- * The buffer is asymmetric: WebKit scrolls the overflow layer on the
- * compositor, so the scroll event (and therefore the remount) can land a few
- * frames after the pixels moved. Rows ahead of the motion are what covers
- * that gap; rows behind it are only there to absorb a direction flip.
+ * Query-results virtualization.
+ * The implementation lives in the grid feature so the table grid can reuse
+ * it. This module re-exports that file; the row window, overscan, hysteresis,
+ * and 512-character clip are unchanged.
  */
+export {
+	CELL_TEXT_MAX,
+	COL_MAX_PX,
+	COL_MIN_PX,
+	HYSTERESIS_VIEWPORTS,
+	OVERSCAN_LEAD,
+	OVERSCAN_MIN,
+	OVERSCAN_TRAIL,
+	RESULT_HEADER_H,
+	cellDisplay,
+	computeColumnWindow,
+	computeResultWindow,
+	measureColLayout,
+} from '#features/workspace/grid'
 
-export const RESULT_HEADER_H = 32
-/** Floor of rows kept on each side of the viewport. */
-export const OVERSCAN_MIN = 16
-/** Buffer ahead of the scroll direction, as a multiple of the visible rows. */
-export const OVERSCAN_LEAD = 2.5
-/** Buffer behind the scroll direction, as a multiple of the visible rows. */
-export const OVERSCAN_TRAIL = 1.25
-/**
- * Keep the current window until the leading edge is this close (in
- * viewports). Normal wheel/trackpad motion then scrolls already-painted
- * rows — no remount, no blank frame. Must stay below OVERSCAN_TRAIL so a
- * direction flip does not force an immediate remount.
- */
-export const HYSTERESIS_VIEWPORTS = 1
-
-export const COL_MIN_PX = 72
-/** Matches the previous `max-w-xs` cap. */
-export const COL_MAX_PX = 288
-const COL_PAD_PX = 20
-const CHAR_PX = 7.25
-
-export type ResultColumn = { name: string; dataType?: string | null }
-
-export type ResultWindow = { start: number; end: number }
-
-export type ResultColLayout = {
-	idxW: number
-	widths: number[]
-	total: number
-	template: string
-}
-
-/**
- * Longest text a cell ever puts in the DOM.
- *
- * A cell is one line of `white-space: nowrap` text, so the engine has to
- * shape and measure the *whole* run before it can place the ellipsis — the
- * clip is a paint-time operation, not a shortcut out of layout. A results set
- * with a JSON or long-text column therefore pays layout proportional to the
- * bytes in the column, not to the pixels on screen: 6k rows x 20 cols of 20k
- * character values put 6.6M characters in the mounted window and turned a
- * fling into 1.2s of layout.
- *
- * 512 monospace characters at the 12px cell size is ~3700px — wider than any
- * single column can stretch to, so nothing visible is lost. The untouched
- * value stays in `rows` for the cell modal, clipboard and export paths.
- */
-export const CELL_TEXT_MAX = 512
-
-const objectText = new WeakMap<object, string>()
-
-function clampText(text: string): string {
-	return text.length > CELL_TEXT_MAX ? `${text.slice(0, CELL_TEXT_MAX)}…` : text
-}
-
-export function cellDisplay(v: unknown): string {
-	if (v === null || v === undefined) return 'NULL'
-	if (typeof v === 'object') {
-		const hit = objectText.get(v)
-		if (hit !== undefined) return hit
-		let text: string
-		try {
-			text = JSON.stringify(v)
-		} catch {
-			text = String(v)
-		}
-		// Cache the clamped form: the cache lives as long as the result set,
-		// so caching the raw string would retain the payload twice over.
-		const shown = clampText(text)
-		objectText.set(v, shown)
-		return shown
-	}
-	if (typeof v === 'string') return clampText(v)
-	return String(v)
-}
-
-function estimateLen(v: unknown): number {
-	if (v === null || v === undefined) return 4
-	if (typeof v === 'string') return v.length
-	if (
-		typeof v === 'number' ||
-		typeof v === 'boolean' ||
-		typeof v === 'bigint'
-	) {
-		return String(v).length
-	}
-	return 24
-}
-
-/**
- * Visible-row window. Reuses `current` until the viewport nears the leading
- * edge so everyday scrolling is native compositing of already-mounted rows.
- */
-export function computeResultWindow(opts: {
-	totalRows: number
-	scrollTop: number
-	viewportH: number
-	rowH: number
-	headerH: number
-	scrollDir: 1 | -1
-	current?: ResultWindow | null
-}): ResultWindow {
-	const n = opts.totalRows
-	if (n <= 0) return { start: 0, end: 0 }
-
-	const rowH = Math.max(1, opts.rowH)
-	const usable = Math.max(
-		opts.viewportH > opts.headerH
-			? opts.viewportH - opts.headerH
-			: opts.viewportH,
-		rowH,
-	)
-	const first = Math.max(
-		0,
-		Math.min(n - 1, Math.floor(Math.max(0, opts.scrollTop) / rowH)),
-	)
-	const visibleCount = Math.ceil(usable / rowH) + 1
-	const last = Math.min(n, first + visibleCount)
-	const lead = Math.max(OVERSCAN_MIN, Math.ceil(visibleCount * OVERSCAN_LEAD))
-	const trail = Math.max(OVERSCAN_MIN, Math.ceil(visibleCount * OVERSCAN_TRAIL))
-	const keep = Math.max(
-		OVERSCAN_MIN,
-		Math.ceil(visibleCount * HYSTERESIS_VIEWPORTS),
-	)
-	const down = opts.scrollDir > 0
-
-	const cur = opts.current
-	if (cur && cur.end > cur.start && cur.start < n) {
-		const end = Math.min(cur.end, n)
-		const inside = first >= cur.start && last <= end
-		// Only the leading edge needs headroom; the trailing edge just has to
-		// still cover the viewport. Checking both would defeat the hysteresis,
-		// because the trailing buffer is deliberately smaller than `keep`.
-		const leadOk = down
-			? end >= n || end - last >= keep
-			: cur.start === 0 || first - cur.start >= keep
-		if (inside && leadOk) return cur
-	}
-
-	const before = down ? trail : lead
-	const after = down ? lead : trail
-	const block = Math.max(8, Math.ceil(visibleCount / 2))
-	let start = Math.max(0, first - before)
-	start = Math.floor(start / block) * block
-	let end = Math.min(n, Math.max(start, last + after))
-	end = Math.min(n, Math.ceil(end / block) * block)
-	if (end <= start) end = Math.min(n, start + visibleCount)
-	return { start, end }
-}
-
-/**
- * Fixed column widths from headers + a small row sample.
- * `minmax(w, 1fr)` lets few-column results fill the pane without reflow
- * on every virtual window shift.
- */
-export function measureColLayout(
-	columns: ResultColumn[],
-	rows: unknown[][],
-	pageStart: number,
-): ResultColLayout {
-	const lastNum = pageStart + Math.max(rows.length, 1)
-	const idxW = Math.max(44, Math.ceil(String(lastNum).length * 8.5) + 18)
-	const n = rows.length
-	const sample: number[] = []
-	if (n <= 80) {
-		for (let i = 0; i < n; i++) sample.push(i)
-	} else {
-		for (let i = 0; i < 40; i++) sample.push(i)
-		for (let i = 1; i <= 20; i++) sample.push(Math.floor((n * i) / 21))
-		for (let i = n - 20; i < n; i++) sample.push(i)
-	}
-
-	const widths = columns.map((col, ci) => {
-		let maxChars =
-			col.name.length + (col.dataType ? col.dataType.length + 1 : 0)
-		for (const i of sample) {
-			const len = estimateLen(rows[i]?.[ci])
-			if (len > maxChars) maxChars = len
-		}
-		return Math.min(
-			COL_MAX_PX,
-			Math.max(COL_MIN_PX, Math.ceil(maxChars * CHAR_PX) + COL_PAD_PX),
-		)
-	})
-	const total = idxW + widths.reduce((a, b) => a + b, 0)
-	const parts = [`${idxW}px`]
-	for (const w of widths) parts.push(`minmax(${w}px, 1fr)`)
-	return { idxW, widths, total, template: parts.join(' ') }
-}
+export type {
+	ResultColLayout,
+	ResultColumn,
+	ResultWindow,
+} from '#features/workspace/grid'

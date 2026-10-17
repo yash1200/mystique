@@ -117,6 +117,27 @@ export function reopenTableAction(tabId: string): 'focus' | 'load' {
 	return tabEditsAreDirty(tabId) ? 'focus' : 'load'
 }
 
+/**
+ * Remount keeps unsaved edits. A clean empty buffer is not an edit: the grid
+ * stored the catalog leaf (no columns, no rows) and then unmounted for the
+ * preview spinner. The real page arrives on that same tick, so restoring the
+ * leaf would swallow it.
+ */
+export function shouldRestoreEditBuffer(
+	existing: EditBuffer | undefined,
+	serverRowCount: number,
+): existing is EditBuffer {
+	if (!existing) return false
+	if (
+		!bufferIsDirty(existing) &&
+		existing.rows.length === 0 &&
+		serverRowCount > 0
+	) {
+		return false
+	}
+	return true
+}
+
 export function dropEditBuffer(tabId: string) {
 	buffers.delete(tabId)
 }

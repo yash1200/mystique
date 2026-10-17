@@ -12,6 +12,7 @@
 		adoptServerRows,
 		getEditBuffer,
 		rememberEditBuffer,
+		shouldRestoreEditBuffer,
 		tabEditsAreDirty,
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
@@ -40,6 +41,7 @@
 		rulesToCode,
 		valuesEqual,
 	} from '../filters'
+	import { gridTrackPx } from '../virtual'
 	import type { FilterMode, FilterOp, FilterRule } from '../types'
 	import CellValueModal from './CellValueModal.svelte'
 	import GridFilterBar from './GridFilterBar.svelte'
@@ -1370,7 +1372,7 @@
 		const key = tabId
 		if (key) {
 			const existing = getEditBuffer(key)
-			if (existing) {
+			if (shouldRestoreEditBuffer(existing, table.rows.length)) {
 				restoreBuffer(existing)
 				applySeedState()
 				appliedSyncTick = rowSyncTick
@@ -1506,27 +1508,35 @@
 	function scrollCellIntoView(row: number, col: string) {
 		const scroller = gridScrollEl()
 		if (!scroller) return
-		const esc =
-			typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-				? CSS.escape(col)
-				: col.replace(/"/g, '\\"')
-		const el = scroller.querySelector<HTMLElement>(
-			`[data-grid-cell][data-row="${row}"][data-col="${esc}"]`,
-		)
-		if (!el) return
-		// Native scrollIntoView aligns to the scrollport top and tucks the first
-		// data row under the sticky thead — looks like we landed on row 2.
+		const cols = colNames()
+		const colIdx = cols.indexOf(col)
+		const rowH = appPrefs.gridRowHeightPx
+		const root =
+			parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+		const { indexW, colW } = gridTrackPx(root)
 		const headerH =
-			scroller.querySelector('thead')?.getBoundingClientRect().height ?? 0
-		const port = scroller.getBoundingClientRect()
-		const cell = el.getBoundingClientRect()
-		const top = port.top + headerH
-		if (cell.top < top) scroller.scrollTop -= top - cell.top
-		else if (cell.bottom > port.bottom)
-			scroller.scrollTop += cell.bottom - port.bottom
+			scroller.querySelector('[data-grid-head]')?.getBoundingClientRect()
+				.height ?? 36
+		const top = row * rowH
+		const viewTop = scroller.scrollTop
+		const viewSpan = Math.max(0, scroller.clientHeight - headerH)
+		if (top < viewTop) scroller.scrollTop = top
+		else if (top + rowH > viewTop + viewSpan) {
+			scroller.scrollTop = Math.max(0, top + rowH - viewSpan)
+		}
 		// First data column: snap fully left so the # gutter is not left off-screen
-		// after scrolling in from the right.
-		if (colNames()[0] === col) pinScrollToRowGutter()
+		// after scrolling in from the right. Geometry, not the cell node — a
+		// windowed cell is not mounted until this scroll lands.
+		if (colIdx <= 0) {
+			pinScrollToRowGutter()
+			return
+		}
+		const left = indexW + colIdx * colW
+		const right = left + colW
+		const viewLeft = scroller.scrollLeft
+		const viewRight = viewLeft + scroller.clientWidth
+		if (left < viewLeft + indexW) scroller.scrollLeft = Math.max(0, left - indexW)
+		else if (right > viewRight) scroller.scrollLeft = right - scroller.clientWidth
 	}
 
 	/** Current page is already fetched from the server; just scroll. */

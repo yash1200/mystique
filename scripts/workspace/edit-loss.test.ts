@@ -13,6 +13,7 @@ import {
 	rememberEditBuffer,
 	reopenTableAction,
 	savePayload,
+	shouldRestoreEditBuffer,
 } from '../../src/lib/features/workspace/shell/edit-buffer.ts'
 import {
 	createPersistScheduler,
@@ -76,6 +77,35 @@ test('FE-02 unconfirmed refresh keeps edits; confirmed refresh keeps page', () =
 	})
 	const jumped = confirmServerRefresh('tab', [{ id: 1, name: 'server' }], true)
 	assert.equal(jumped.page, 0)
+})
+
+test('a clean empty buffer does not hide a loaded page', () => {
+	clearEditBuffers()
+	adoptServerRows('tab', [], 0)
+	const leaf = getEditBuffer('tab')
+	assert.equal(shouldRestoreEditBuffer(leaf, 0), true)
+	assert.equal(shouldRestoreEditBuffer(leaf, 4), false)
+	assert.equal(shouldRestoreEditBuffer(undefined, 4), false)
+
+	rememberEditBuffer('tab', {
+		baseline: [{ id: 1 }],
+		rows: [{ id: 1, name: 'kept' }],
+		dirtyKeys: [],
+		newRowIndices: [],
+		deletedIndices: [],
+		page: 0,
+	})
+	assert.equal(shouldRestoreEditBuffer(getEditBuffer('tab'), 4), true)
+
+	rememberEditBuffer('tab', {
+		baseline: [{ id: 1 }],
+		rows: [],
+		dirtyKeys: [],
+		newRowIndices: [],
+		deletedIndices: [0],
+		page: 0,
+	})
+	assert.equal(shouldRestoreEditBuffer(getEditBuffer('tab'), 4), true)
 })
 
 test('FE-03 a dirty tab is focused and a clean tab can reload', () => {

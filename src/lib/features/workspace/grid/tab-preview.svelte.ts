@@ -165,8 +165,14 @@ class TablePreview {
 	hydrateActive() {
 		const tab = workspaceSession.activeTab
 		const session = workspaceSession.activeSession
-		if (!tab || tab.kind !== 'table' || !tab.tableId || !session || !isTauri())
+		if (!tab || tab.kind !== 'table' || !tab.tableId || !session) return
+		if (!isTauri()) {
+			// No engine fetch. Mark settled so the pane does not spin on the leaf.
+			if (!this.hydratedTabs[tab.id]) {
+				this.hydratedTabs = { ...this.hydratedTabs, [tab.id]: true }
+			}
 			return
+		}
 		const table = findCatalogTable(
 			catalogsFor(workspaceStudio.catalogs, tab.connectionId),
 			tab.tableId,

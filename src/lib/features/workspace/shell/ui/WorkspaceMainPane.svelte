@@ -81,16 +81,6 @@
 	let diagramPun = $state(randomLoadingPun())
 	let tablePunKey = ''
 	let diagramPunKey = ''
-
-	$effect(() => {
-		const show =
-			tableLoading && (!gridTable || gridTable.columns.length === 0)
-		const key = show ? String(activeTabId ?? '') : ''
-		if (key && key !== tablePunKey) {
-			tablePun = randomLoadingPun()
-		}
-		tablePunKey = key
-	})
 	const rowSelectionIndex = $derived.by(() => {
 		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
 		if (
@@ -150,6 +140,29 @@
 	)
 
 	const catalogError = $derived(workspaceStudio.catalogError)
+	// A restored tab renders before hydrate starts. The catalog leaf has no
+	// columns yet. Mounting the grid then stores an empty edit buffer and the
+	// real preview is ignored on remount. Wait until the fetch settles.
+	const tablePreviewSettled = $derived(
+		!!activeTabId &&
+			tablePreview.hydratedTabs[activeTabId] === true &&
+			!tableLoading,
+	)
+	const showTableLoading = $derived(
+		!catalogError &&
+			((tableLoading && (!gridTable || gridTable.columns.length === 0)) ||
+				(!!gridTable &&
+					gridTable.columns.length === 0 &&
+					!tablePreviewSettled)),
+	)
+
+	$effect(() => {
+		const key = showTableLoading ? String(activeTabId ?? '') : ''
+		if (key && key !== tablePunKey) {
+			tablePun = randomLoadingPun()
+		}
+		tablePunKey = key
+	})
 	const modelError = $derived(workspaceStudio.modelError)
 	const modelLoading = $derived(workspaceStudio.modelLoading)
 	const structureLoading = $derived(workspaceStudio.structureLoading)
@@ -391,7 +404,7 @@
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-				{#if tableLoading && (!gridTable || gridTable.columns.length === 0)}
+				{#if showTableLoading}
 					<div class="flex flex-1 items-center justify-center p-8">
 						<EmptyState title="Loading table…" description={tablePun} />
 					</div>
