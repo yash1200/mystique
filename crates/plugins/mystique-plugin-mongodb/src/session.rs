@@ -19,6 +19,7 @@ use mystique_connector_api::{
 mod admin;
 mod catalog;
 mod ddl;
+mod distinct;
 mod edits;
 mod encode;
 mod error;
@@ -167,6 +168,13 @@ impl ConnectorSession for MongoSession {
         edits: &ApplyTableEditsInput,
     ) -> ConnectorResult<ApplyTableEditsResult> {
         edits::apply_table_edits(self, edits).await
+    }
+
+    async fn distinct_column_values(
+        &self,
+        input: &mystique_connector_api::DistinctColumnValuesInput,
+    ) -> ConnectorResult<Vec<serde_json::Value>> {
+        distinct::distinct_column_values(self, input).await
     }
 
     async fn fetch_table_preview(

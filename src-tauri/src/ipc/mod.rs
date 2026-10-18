@@ -28,6 +28,7 @@
 
 pub mod agent;
 pub mod engines;
+pub mod grid_layout;
 pub mod history;
 pub mod mcp;
 pub mod profiles;

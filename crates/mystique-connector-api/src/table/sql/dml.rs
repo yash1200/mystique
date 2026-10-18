@@ -240,6 +240,7 @@ mod tests {
                 updates: vec![],
                 inserts: vec![],
                 deletes: vec![],
+                dry_run: false,
             },
             &TableRowUpdate { original, values },
         )

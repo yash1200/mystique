@@ -7,11 +7,12 @@ const SCHEMA_SQL: &str = include_str!("../../../migrations/001_init.sql");
 const V2_SQL: &str = include_str!("../../../migrations/002_saved_query_favorite.sql");
 const V3_SQL: &str = include_str!("../../../migrations/003_connection_favorite.sql");
 const V4_SQL: &str = include_str!("../../../migrations/004_ssh_tunnel.sql");
+const V5_SQL: &str = include_str!("../../../migrations/005_grid_layout.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema; their stamp is collapsed to 1 so 002+ can apply.
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -94,6 +95,11 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         stamp(conn, 4)?;
     }
 
+    if current < 5 {
+        conn.execute_batch(V5_SQL)?;
+        stamp(conn, 5)?;
+    }
+
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
@@ -155,7 +161,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
 
         let groups: i32 = conn
             .query_row(
@@ -221,11 +227,11 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 4);
+        assert_eq!(n, 5);
     }
 
     #[test]
@@ -271,7 +277,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -307,6 +313,6 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 }

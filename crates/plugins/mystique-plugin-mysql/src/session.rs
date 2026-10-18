@@ -21,6 +21,7 @@ mod admin;
 mod cancel;
 mod catalog;
 mod ddl;
+mod distinct;
 mod edits;
 mod encode;
 mod explain;
@@ -148,6 +149,17 @@ impl ConnectorSession for MysqlSession {
         edits: &ApplyTableEditsInput,
     ) -> ConnectorResult<ApplyTableEditsResult> {
         edits::apply_table_edits(self, edits).await
+    }
+
+    async fn apply_rollback_sql(&self, statements: &[String]) -> ConnectorResult<()> {
+        edits::apply_rollback_sql(self, statements).await
+    }
+
+    async fn distinct_column_values(
+        &self,
+        input: &mystique_connector_api::DistinctColumnValuesInput,
+    ) -> ConnectorResult<Vec<serde_json::Value>> {
+        distinct::distinct_column_values(self, input).await
     }
 
     async fn fetch_table_preview(

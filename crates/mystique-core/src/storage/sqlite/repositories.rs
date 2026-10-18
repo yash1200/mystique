@@ -1,6 +1,7 @@
 pub mod agent_chats;
 pub mod ai_secrets;
 pub mod connections;
+pub mod grid_layout;
 pub mod history;
 pub mod ids;
 pub mod queries;

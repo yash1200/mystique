@@ -63,6 +63,9 @@ pub struct ApplyTableEditsRequest {
     pub profile_read_only: bool,
     #[serde(default)]
     pub confirm_object_name: Option<String>,
+    /// Compile the statements and do not write.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 /// Plugin-facing input (session already resolved).
@@ -75,6 +78,7 @@ pub struct ApplyTableEditsInput {
     pub updates: Vec<TableRowUpdate>,
     pub inserts: Vec<TableRowInsert>,
     pub deletes: Vec<TableRowDelete>,
+    pub dry_run: bool,
 }
 
 impl From<ApplyTableEditsRequest> for ApplyTableEditsInput {
@@ -87,6 +91,7 @@ impl From<ApplyTableEditsRequest> for ApplyTableEditsInput {
             updates: req.updates,
             inserts: req.inserts,
             deletes: req.deletes,
+            dry_run: req.dry_run,
         }
     }
 }
@@ -98,6 +103,12 @@ pub struct ApplyTableEditsResult {
     pub inserted: u32,
     #[serde(default)]
     pub deleted: u32,
+    /// Literal SQL the confirm dialog shows. One statement per changed row.
+    #[serde(default)]
+    pub statements: Vec<String>,
+    /// Inverse statements, last write first.
+    #[serde(default)]
+    pub rollback_sql: Vec<String>,
 }
 
 impl ApplyTableEditsResult {
@@ -106,6 +117,63 @@ impl ApplyTableEditsResult {
             updated: 0,
             inserted: 0,
             deleted: 0,
+            statements: Vec::new(),
+            rollback_sql: Vec::new(),
         }
     }
+}
+
+fn default_distinct_limit() -> u32 {
+    1_000
+}
+
+/// Distinct values for one catalog column. `limit` is clamped to 1000.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DistinctColumnValuesRequest {
+    pub session_id: String,
+    pub table: String,
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub database: Option<String>,
+    pub column: String,
+    #[serde(default = "default_distinct_limit")]
+    pub limit: u32,
+}
+
+/// Plugin-facing distinct request.
+#[derive(Debug, Clone)]
+pub struct DistinctColumnValuesInput {
+    pub table: String,
+    pub schema: Option<String>,
+    pub database: Option<String>,
+    pub column: String,
+    pub limit: u32,
+}
+
+impl From<DistinctColumnValuesRequest> for DistinctColumnValuesInput {
+    fn from(req: DistinctColumnValuesRequest) -> Self {
+        Self {
+            table: req.table,
+            schema: req.schema,
+            database: req.database,
+            column: req.column,
+            limit: req.limit.clamp(1, 1_000),
+        }
+    }
+}
+
+/// Run the inverse statements from a previous save.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RollbackTableEditsRequest {
+    pub session_id: String,
+    pub table: String,
+    #[serde(default)]
+    pub statements: Vec<String>,
+    #[serde(default)]
+    pub profile_read_only: bool,
+    #[serde(default)]
+    pub confirm_object_name: Option<String>,
 }

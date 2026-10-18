@@ -282,12 +282,33 @@ export interface ApplyTableEditsRequest {
 	deletes?: TableRowDelete[]
 	profileReadOnly?: boolean
 	confirmObjectName?: string | null
+	/** Compile the statements and do not write. */
+	dryRun?: boolean
 }
 
 export interface ApplyTableEditsResult {
 	updated: number
 	inserted: number
 	deleted?: number
+	statements?: string[]
+	rollbackSql?: string[]
+}
+
+export interface RollbackTableEditsRequest {
+	sessionId: string
+	table: string
+	statements: string[]
+	profileReadOnly?: boolean
+	confirmObjectName?: string | null
+}
+
+export interface DistinctColumnValuesRequest {
+	sessionId: string
+	table: string
+	schema?: string | null
+	database?: string | null
+	column: string
+	limit?: number
 }
 
 export interface TablePreviewFilter {

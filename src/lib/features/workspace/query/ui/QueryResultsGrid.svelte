@@ -18,9 +18,17 @@
 		largeCellText,
 		PARTIAL_COPY_MESSAGE,
 		buildCsv,
+		buildInList,
+		buildInsertSql,
 		buildJson,
 		buildMarkdown,
 		buildTsv,
+		buildUpdateSql,
+		buildWhereSql,
+		formatSelectionStats,
+		selectionStats,
+		type CopyColumn,
+		type IdentStyle,
 		numericColumn,
 		valueToEditorText,
 	} from '#features/workspace/grid'
@@ -38,13 +46,14 @@
 
 	interface Props {
 		columns: QueryResult['columns']
+		identStyle?: IdentStyle
 		/** Rows for the current page (may be up to 50k). */
 		rows: unknown[][]
 		/** Absolute index of rows[0] in the full result set (for # column). */
 		pageStart: number
 	}
 
-	let { columns, rows, pageStart }: Props = $props()
+	let { columns, rows, pageStart, identStyle = 'postgres' }: Props = $props()
 
 	const mac = isMacPlatform()
 	const copyShortcut = `${labelForKey('mod', mac)}+C`
@@ -588,9 +597,27 @@
 		)
 	}
 
+	function resultColumns(): CopyColumn[] {
+		return columns.map((column) => ({
+			name: column.name,
+			dataType: column.dataType ?? '',
+		}))
+	}
+
+	function resultSql(
+		kind: 'insert' | 'update' | 'in' | 'where',
+		cols: CopyColumn[],
+		cells: unknown[][],
+	): string {
+		if (kind === 'insert') return buildInsertSql(identStyle, 'results', cols, cells)
+		if (kind === 'update') return buildUpdateSql(identStyle, 'results', cols, cells)
+		if (kind === 'in') return buildInList(identStyle, cols, cells)
+		return buildWhereSql(identStyle, cols, cells)
+	}
+
 	async function copyRowAs(
 		indices: number[],
-		kind: 'copy' | 'csv' | 'json' | 'markdown',
+		kind: 'copy' | 'csv' | 'json' | 'markdown' | 'insert' | 'update' | 'in' | 'where',
 	) {
 		const rowsOut: unknown[][] = []
 		for (const abs of indices) {
@@ -609,9 +636,22 @@
 		} else if (kind === 'json') {
 			text = buildJson(exportCols, rowsOut, true)
 			okMsg = n === 1 ? 'Copied as JSON' : `Copied ${n} rows as JSON`
-		} else {
+		} else if (kind === 'markdown') {
 			text = buildMarkdown(exportCols, rowsOut)
 			okMsg = n === 1 ? 'Copied as Markdown' : `Copied ${n} rows as Markdown`
+		} else {
+			const cols = resultColumns().filter((column) =>
+				exportCols.some((item) => item.name === column.name),
+			)
+			text = resultSql(kind, cols.length > 0 ? cols : resultColumns(), rowsOut)
+			okMsg =
+				kind === 'insert'
+					? 'Copied as INSERT'
+					: kind === 'update'
+						? 'Copied as UPDATE'
+						: kind === 'in'
+							? 'Copied as IN list'
+							: 'Copied as WHERE'
 		}
 		const res = await copyTextToClipboard(text)
 		const partial = cellsIncludeLarge(rowsOut)
@@ -658,6 +698,10 @@
 			{ id: 'copy-row-csv', label: 'Copy row as CSV' },
 			{ id: 'copy-row-json', label: 'Copy row as JSON' },
 			{ id: 'copy-row-markdown', label: 'Copy row as Markdown' },
+			{ id: 'copy-row-insert', label: 'Copy row as INSERT' },
+			{ id: 'copy-row-update', label: 'Copy row as UPDATE' },
+			{ id: 'copy-row-in', label: 'Copy as IN list' },
+			{ id: 'copy-row-where', label: 'Copy as WHERE' },
 			{
 				id: 'copy-column',
 				label: 'Copy column name',
@@ -675,6 +719,10 @@
 		{ id: 'copy-csv', label: 'Copy as CSV' },
 		{ id: 'copy-json', label: 'Copy as JSON' },
 		{ id: 'copy-markdown', label: 'Copy as Markdown' },
+		{ id: 'copy-insert', label: 'Copy as INSERT' },
+		{ id: 'copy-update', label: 'Copy as UPDATE' },
+		{ id: 'copy-in', label: 'Copy as IN list' },
+		{ id: 'copy-where', label: 'Copy as WHERE' },
 	])
 
 	function onCellMenuPick(id: string) {
@@ -692,6 +740,10 @@
 		if (id === 'copy-row-csv') void copyRowAs([ctx.row], 'csv')
 		if (id === 'copy-row-json') void copyRowAs([ctx.row], 'json')
 		if (id === 'copy-row-markdown') void copyRowAs([ctx.row], 'markdown')
+		if (id === 'copy-row-insert') void copyRowAs([ctx.row], 'insert')
+		if (id === 'copy-row-update') void copyRowAs([ctx.row], 'update')
+		if (id === 'copy-row-in') void copyRowAs([ctx.row], 'in')
+		if (id === 'copy-row-where') void copyRowAs([ctx.row], 'where')
 		if (id === 'copy-column') void copyColumnName(ctx.col)
 	}
 
@@ -704,6 +756,10 @@
 		if (id === 'copy-csv') void copyRowAs(targets, 'csv')
 		if (id === 'copy-json') void copyRowAs(targets, 'json')
 		if (id === 'copy-markdown') void copyRowAs(targets, 'markdown')
+		if (id === 'copy-insert') void copyRowAs(targets, 'insert')
+		if (id === 'copy-update') void copyRowAs(targets, 'update')
+		if (id === 'copy-in') void copyRowAs(targets, 'in')
+		if (id === 'copy-where') void copyRowAs(targets, 'where')
 	}
 
 	function moveSelection(dRow: number, dCol: number, extend = false) {
@@ -836,6 +892,28 @@
 	const modalType = $derived(
 		cellModal ? (columns[cellModal.col]?.dataType ?? '') : '',
 	)
+	const selectionLabel = $derived.by(() => {
+		const values: unknown[] = []
+		if (selKind === 'cells') {
+			for (const key of selectedCells) {
+				const sep = key.indexOf('::')
+				if (sep < 0) continue
+				const row = Number(key.slice(0, sep))
+				const col = Number(key.slice(sep + 2))
+				if (!Number.isFinite(row) || !Number.isFinite(col)) continue
+				values.push(cellValue(row, col))
+			}
+		} else if (selKind === 'rows') {
+			for (const row of selectedRows) {
+				const cells = rowCells(row)
+				if (!cells) continue
+				values.push(...cells)
+			}
+		} else if (selectedCell) {
+			values.push(cellValue(selectedCell.row, selectedCell.col))
+		}
+		return formatSelectionStats(selectionStats(values))
+	})
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -930,6 +1008,11 @@
 			</div>
 		</div>
 	</div>
+	{#if selectionLabel}
+		<p class="m-0 shrink-0 border-t border-line px-2 py-1 text-caption text-fg-secondary tabular-nums">
+			{selectionLabel}
+		</p>
+	{/if}
 </div>
 
 {#if cellModal}

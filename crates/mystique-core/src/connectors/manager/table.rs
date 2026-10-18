@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
-    ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
-    ConnectorResult, DdlDialect, DescribeTableDefinitionRequest, FetchLargeValueRequest,
+    plan_schema_diff, plan_table_alter, validate_rollback_statements, ApplyDdlRequest,
+    ApplyDdlResult, ApplySchemaDiffRequest, ApplyTableEditsInput, ApplyTableEditsRequest,
+    ApplyTableEditsResult, ConnectorError, ConnectorResult, DdlDialect,
+    DescribeTableDefinitionRequest, DistinctColumnValuesRequest, FetchLargeValueRequest,
     FetchLargeValueResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest,
-    ListTableDefinitionsRequest, PlanDdlRequest, PlanSchemaDiffRequest, SchemaMigration,
-    TableAdminOp, TableAdminRequest, TableAdminResult, TableDefinition, TablePreviewResult,
-    TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS, HARD_MAX_ROWS, MAX_TIMEOUT_MS,
+    ListTableDefinitionsRequest, PlanDdlRequest, PlanSchemaDiffRequest, RollbackTableEditsRequest,
+    SchemaMigration, SqlDialect, TableAdminOp, TableAdminRequest, TableAdminResult,
+    TableDefinition, TablePreviewResult, TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS,
+    HARD_MAX_ROWS, MAX_TIMEOUT_MS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -22,11 +24,39 @@ impl ConnectionManager {
         if req.updates.is_empty() && req.inserts.is_empty() && req.deletes.is_empty() {
             return Ok(ApplyTableEditsResult::empty());
         }
+        if !req.dry_run {
+            let preview = format!(
+                "Save {} update(s), {} insert(s), {} delete(s) on {}",
+                req.updates.len(),
+                req.inserts.len(),
+                req.deletes.len(),
+                req.table
+            );
+            self.enforce_write_guard(
+                &req.session_id,
+                WriteRisk::Write,
+                &preview,
+                Some(req.table.as_str()),
+                req.confirm_object_name.as_deref(),
+                req.profile_read_only,
+            )
+            .await?;
+        }
+        let session = self.session(&req.session_id).await?;
+        let input = ApplyTableEditsInput::from(req);
+        session.apply_table_edits(&input).await
+    }
+
+    /// Inverse DML from a previous save. Each statement must be one row write.
+    pub async fn rollback_table_edits(
+        &self,
+        req: RollbackTableEditsRequest,
+    ) -> ConnectorResult<()> {
+        let meta = self.session_meta(&req.session_id).await?;
+        validate_rollback_statements(&req.statements, SqlDialect::from_engine(&meta.product_id))?;
         let preview = format!(
-            "Save {} update(s), {} insert(s), {} delete(s) on {}",
-            req.updates.len(),
-            req.inserts.len(),
-            req.deletes.len(),
+            "Roll back {} statement(s) on {}",
+            req.statements.len(),
             req.table
         );
         self.enforce_write_guard(
@@ -38,9 +68,16 @@ impl ConnectionManager {
             req.profile_read_only,
         )
         .await?;
+        meta.session.apply_rollback_sql(&req.statements).await
+    }
+
+    pub async fn distinct_column_values(
+        &self,
+        req: DistinctColumnValuesRequest,
+    ) -> ConnectorResult<Vec<serde_json::Value>> {
         let session = self.session(&req.session_id).await?;
-        let input = ApplyTableEditsInput::from(req);
-        session.apply_table_edits(&input).await
+        let input = mystique_connector_api::DistinctColumnValuesInput::from(req);
+        session.distinct_column_values(&input).await
     }
 
     pub async fn fetch_table_preview(

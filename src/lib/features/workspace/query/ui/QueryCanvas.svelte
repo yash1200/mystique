@@ -62,6 +62,7 @@
 	} from '../statement-span'
 	import ExplainView from './ExplainView.svelte'
 	import QueryEditor from './QueryEditor.svelte'
+	import { identStyleFor } from '#features/workspace/grid'
 	import QueryResultsPanel, {
 		type ResultExportAction,
 	} from './QueryResultsPanel.svelte'
@@ -821,6 +822,7 @@
 				<ExplainView plan={explainPlan} />
 			{:else}
 				<QueryResultsPanel
+					identStyle={identStyleFor(engine, capabilities?.sqlDialect ?? '')}
 					{runState}
 					{resultColumns}
 					{resultPageRows}

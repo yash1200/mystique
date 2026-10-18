@@ -407,6 +407,38 @@ pub async fn apply_engine_table_edits(
 }
 
 #[tauri::command]
+pub async fn distinct_engine_column_values(
+    state: State<'_, AppState>,
+    request: mystique_core::DistinctColumnValuesRequest,
+) -> Result<Vec<serde_json::Value>, String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .distinct_column_values(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rollback_engine_table_edits(
+    state: State<'_, AppState>,
+    request: mystique_core::RollbackTableEditsRequest,
+) -> Result<(), String> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .rollback_table_edits(request)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn fetch_engine_table_preview(
     state: State<'_, AppState>,
     request: mystique_core::FetchTablePreviewRequest,

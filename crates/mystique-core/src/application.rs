@@ -6,6 +6,7 @@ mod agent_chat;
 mod agent_tools;
 mod ai_secrets;
 pub(crate) mod dbml;
+mod grid_layout;
 mod history;
 mod profiles;
 mod query_library;
@@ -20,6 +21,7 @@ pub use agent_tools::{
     SETTING_MCP_POLICY,
 };
 pub use ai_secrets::AiSecretsService;
+pub use grid_layout::GridLayoutService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;
@@ -133,6 +135,10 @@ impl AppServices {
 
     pub fn workspace_tabs(&self) -> WorkspaceTabsService<'_> {
         WorkspaceTabsService { db: &self.db }
+    }
+
+    pub fn grid_layout(&self) -> GridLayoutService<'_> {
+        GridLayoutService { db: &self.db }
     }
 
     pub fn history(&self) -> HistoryService<'_> {

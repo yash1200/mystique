@@ -42,6 +42,36 @@ pub fn sql_is_safe_dml(text: &str) -> bool {
     sql_is_safe_dml_for(text, SqlDialect::Generic)
 }
 
+/// Each entry is one parsed INSERT, UPDATE, or DELETE. Used before inverse DML runs.
+pub fn validate_rollback_statements(
+    statements: &[String],
+    dialect: SqlDialect,
+) -> ConnectorResult<()> {
+    const CAP: usize = 100;
+    if statements.is_empty() {
+        return Err(ConnectorError::Query("Nothing to roll back.".into()));
+    }
+    if statements.len() > CAP {
+        return Err(ConnectorError::Policy(format!(
+            "Rollback has {} statements. The limit is {CAP}.",
+            statements.len()
+        )));
+    }
+    for sql in statements {
+        if sql.len() > 1_048_576 {
+            return Err(ConnectorError::Policy(
+                "A rollback statement is too large.".into(),
+            ));
+        }
+        if !mystique_sql::is_single_row_dml(sql, dialect) {
+            return Err(ConnectorError::Policy(
+                "Rollback only runs one INSERT, UPDATE, or DELETE per statement.".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn sql_is_safe_dml_for(text: &str, dialect: SqlDialect) -> bool {
     mystique_sql::is_safe_dml(text, dialect)
 }

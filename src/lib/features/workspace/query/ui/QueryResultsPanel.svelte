@@ -47,6 +47,7 @@
 		activeIndex?: number
 		submittedText?: string
 		onselectstatement?: (index: number) => void
+		identStyle?: 'postgres' | 'mysql'
 	}
 
 	let {
@@ -72,6 +73,7 @@
 		activeIndex = 0,
 		submittedText = '',
 		onselectstatement,
+		identStyle = 'postgres',
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
@@ -315,6 +317,7 @@
 					columns={resultColumns}
 					rows={resultPageRows}
 					pageStart={resultPageStart}
+					{identStyle}
 				/>
 			{/if}
 			{:else}

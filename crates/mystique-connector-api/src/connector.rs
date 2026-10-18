@@ -21,9 +21,9 @@ use crate::pin::PinnedSession;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
 use crate::table::{
-    ApplyTableEditsInput, ApplyTableEditsResult, ExportObjectInput, ExportObjectResult,
-    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, PreviewImportInput,
-    PreviewImportResult, TableAdminInput, TableAdminResult,
+    ApplyTableEditsInput, ApplyTableEditsResult, DistinctColumnValuesInput, ExportObjectInput,
+    ExportObjectResult, ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult,
+    PreviewImportInput, PreviewImportResult, TableAdminInput, TableAdminResult,
 };
 use crate::types::EngineDescriptor;
 use crate::EngineFamily;
@@ -253,6 +253,25 @@ pub trait ConnectorSession: Send + Sync {
     ) -> ConnectorResult<ApplyTableEditsResult> {
         Err(crate::ConnectorError::NotSupported(format!(
             "apply_table_edits not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Apply inverse DML from a previous save, in one transaction.
+    async fn apply_rollback_sql(&self, _statements: &[String]) -> ConnectorResult<()> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "apply_rollback_sql not implemented for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Up to 1000 distinct non-null values for one known column.
+    async fn distinct_column_values(
+        &self,
+        _input: &DistinctColumnValuesInput,
+    ) -> ConnectorResult<Vec<serde_json::Value>> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "distinct_column_values not implemented for engine `{}`",
             self.engine_id()
         )))
     }

@@ -17,6 +17,13 @@
 		onAddRow: () => void
 		onReset: () => void
 		onSave: () => void
+		selectionLabel?: string
+		canUndo?: boolean
+		canRedo?: boolean
+		canRollback?: boolean
+		onUndo?: () => void
+		onRedo?: () => void
+		onRollback?: () => void
 	}
 
 	let {
@@ -34,6 +41,13 @@
 		onAddRow,
 		onReset,
 		onSave,
+		selectionLabel = '',
+		canUndo = false,
+		canRedo = false,
+		canRollback = false,
+		onUndo,
+		onRedo,
+		onRollback,
 	}: Props = $props()
 
 	const hasChanges = $derived(dirtyCount > 0)
@@ -72,6 +86,9 @@
 				>
 			</span>
 		{/if}
+		{#if selectionLabel}
+			<span class="shrink-0 tabular-nums text-caption text-fg-secondary">{selectionLabel}</span>
+		{/if}
 		{#if hasChanges}
 			<span
 				class="shrink-0 rounded-sm border border-warning/45 bg-warning/15 px-1 py-px text-micro font-medium text-warning"
@@ -101,6 +118,27 @@
 		>
 			<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 		</IconButton>
+		{#if canUndo && onUndo}
+			<Button variant="ghost" size="sm" disabled={saving} onclick={onUndo} title="Undo pending edit">
+				Undo
+			</Button>
+		{/if}
+		{#if canRedo && onRedo}
+			<Button variant="ghost" size="sm" disabled={saving} onclick={onRedo} title="Redo pending edit">
+				Redo
+			</Button>
+		{/if}
+		{#if canRollback && onRollback}
+			<Button
+				variant="ghost"
+				size="sm"
+				disabled={saving || refreshing}
+				onclick={onRollback}
+				title="Roll back the last save"
+			>
+				Rollback
+			</Button>
+		{/if}
 		{#if !readOnly}
 			<IconButton
 				label="Add a new empty row (⌘/Ctrl+N)"

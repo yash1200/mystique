@@ -15,6 +15,10 @@
 		onApply: () => void
 		onClear: () => void
 		codePlaceholder?: string
+		completions?: string[]
+		onCodeInput?: (value: string, caret: number) => void
+		onPickCompletion?: (item: string) => void
+		distinctValues?: string[]
 	}
 
 	let {
@@ -30,7 +34,13 @@
 		onAddRule,
 		onApply,
 		onClear,
+		completions = [],
+		onCodeInput,
+		onPickCompletion,
+		distinctValues = [],
 	}: Props = $props()
+
+	const distinctListId = $props.id()
 </script>
 
 <!-- Filters: fixed single-row height so UI ↔ code does not shift layout -->
@@ -81,6 +91,7 @@
 							onUpdateFirst({
 								value: (e.currentTarget as HTMLInputElement).value,
 							})}
+						list={distinctValues.length > 0 ? distinctListId : undefined}
 						onkeydown={(e) => {
 							if (e.key === 'Enter') {
 								e.preventDefault()
@@ -91,12 +102,16 @@
 				</div>
 			{/if}
 		{:else}
-			<div class="min-w-0 flex-1">
+			<div class="relative min-w-0 flex-1">
 				<Input
 					inputSize="sm"
 					class="font-mono"
 					placeholder={codePlaceholder}
 					bind:value={filterCode}
+					oninput={(e) => {
+						const el = e.currentTarget as HTMLInputElement
+						onCodeInput?.(el.value, el.selectionStart ?? el.value.length)
+					}}
 					onkeydown={(e) => {
 						if (e.key === 'Enter') {
 							e.preventDefault()
@@ -104,6 +119,23 @@
 						}
 					}}
 				/>
+				{#if completions.length > 0}
+					<ul
+						class="absolute top-full left-0 z-30 mt-1 max-h-40 min-w-36 overflow-auto rounded-md border border-line bg-elevated py-1 shadow-sm"
+					>
+						{#each completions as item (item)}
+							<li>
+								<button
+									type="button"
+									class="block w-full px-2 py-1 text-left font-mono text-label text-fg hover:bg-hover"
+									onclick={() => onPickCompletion?.(item)}
+								>
+									{item}
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</div>
 		{/if}
 
@@ -188,6 +220,7 @@
 								onUpdateRule(rule.id, {
 									value: (e.currentTarget as HTMLInputElement).value,
 								})}
+							list={distinctValues.length > 0 ? distinctListId : undefined}
 							onkeydown={(e) => {
 								if (e.key === 'Enter') {
 									e.preventDefault()
@@ -211,5 +244,12 @@
 				</div>
 			{/each}
 		</div>
+	{/if}
+	{#if distinctValues.length > 0}
+		<datalist id={distinctListId}>
+			{#each distinctValues as value (value)}
+				<option {value}></option>
+			{/each}
+		</datalist>
 	{/if}
 </div>

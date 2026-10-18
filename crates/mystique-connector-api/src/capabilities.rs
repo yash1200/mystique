@@ -147,6 +147,9 @@ pub struct EngineCapabilities {
     /// Structure tab can preview and apply a DDL plan. The UI does not build SQL.
     #[serde(default = "default_true")]
     pub supports_structure_edit: bool,
+    /// Grid filter can ask for distinct column values. Hidden when false.
+    #[serde(default = "default_true")]
+    pub supports_distinct_values: bool,
     /// Query editor gutter. Every runtime can run a statement.
     #[serde(default = "default_supports_query")]
     pub supports_query: bool,

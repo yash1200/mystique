@@ -4,10 +4,15 @@
 use serde_json::Value as JsonValue;
 
 mod dml;
+mod plan;
 
 use super::edits::TableEditColumn;
 
 pub use dml::{compile_delete, compile_insert, compile_update, compile_upsert};
+pub use plan::{
+    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, EditPlan,
+    PlannedCount, PlannedEdit, AFFECTED_MISMATCH, KEYLESS_AMBIGUOUS,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SqlIdentStyle {
@@ -165,6 +170,76 @@ pub(super) fn pk_columns(columns: &[TableEditColumn]) -> Vec<&TableEditColumn> {
         .iter()
         .filter(|c| c.name == "id" || c.name == "_id" || c.name == "rowid")
         .collect()
+}
+
+/// `SELECT DISTINCT` for the grid filter. The column must be one the catalog returned.
+pub fn distinct_values_sql(
+    style: SqlIdentStyle,
+    database: Option<&str>,
+    schema: Option<&str>,
+    table: &str,
+    column: &str,
+    known: &[crate::ColumnInfo],
+    limit: u32,
+) -> crate::ConnectorResult<String> {
+    if !known.iter().any(|info| info.name == column) {
+        return Err(crate::ConnectorError::Query(format!(
+            "Unknown column “{column}”."
+        )));
+    }
+    let limit = limit.clamp(1, 1_000);
+    let ident = quote_ident(style, column);
+    let target = qualify_table(style, database, schema, table);
+    Ok(format!(
+        "SELECT DISTINCT {ident} FROM {target} WHERE {ident} IS NOT NULL LIMIT {limit}"
+    ))
+}
+
+#[cfg(test)]
+mod distinct_tests {
+    use super::distinct_values_sql;
+    use super::SqlIdentStyle;
+    use crate::ColumnInfo;
+
+    fn column(name: &str) -> ColumnInfo {
+        ColumnInfo {
+            name: name.into(),
+            data_type: "text".into(),
+            nullable: true,
+            pk: false,
+            enum_values: None,
+            default_value: None,
+            references: None,
+        }
+    }
+
+    #[test]
+    fn distinct_quotes_a_known_column_and_caps_the_limit() {
+        let sql = distinct_values_sql(
+            SqlIdentStyle::Postgres,
+            None,
+            Some("public"),
+            "docs",
+            "body",
+            &[column("id"), column("body")],
+            5_000,
+        )
+        .expect("sql");
+        assert_eq!(
+            sql,
+            "SELECT DISTINCT \"body\" FROM \"public\".\"docs\" WHERE \"body\" IS NOT NULL LIMIT 1000"
+        );
+        assert!(distinct_values_sql(
+            SqlIdentStyle::Mysql,
+            Some("app"),
+            None,
+            "docs",
+            "nope",
+            &[column("id")],
+            10,
+        )
+        .is_err());
+    }
 }
 
 pub(super) fn is_empty_value(v: &JsonValue) -> bool {

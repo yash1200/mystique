@@ -6,6 +6,8 @@ import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
 	ApplyTableEditsRequest,
 	ApplyTableEditsResult,
+	DistinctColumnValuesRequest,
+	RollbackTableEditsRequest,
 	BatchEvent,
 	CatalogColumnRow,
 	CatalogDatabase,
@@ -233,6 +235,20 @@ export async function applyEngineTableEdits(
 ): Promise<ApplyTableEditsResult> {
 	requireTauri()
 	return invoke('apply_engine_table_edits', { request })
+}
+
+export async function rollbackEngineTableEdits(
+	request: RollbackTableEditsRequest,
+): Promise<void> {
+	requireTauri()
+	return invoke('rollback_engine_table_edits', { request })
+}
+
+export async function distinctEngineColumnValues(
+	request: DistinctColumnValuesRequest,
+): Promise<unknown[]> {
+	requireTauri()
+	return invoke('distinct_engine_column_values', { request })
 }
 
 export async function fetchEngineLargeValue(

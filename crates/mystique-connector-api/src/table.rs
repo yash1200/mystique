@@ -23,6 +23,8 @@ pub use import::{
     IMPORT_PREVIEW_ROWS,
 };
 pub use sql::{
-    compile_delete, compile_insert, compile_update, compile_upsert, qualify_table, quote_ident,
-    sql_literal, SqlIdentStyle,
+    affected_mismatch, compile_delete, compile_insert, compile_update, compile_upsert,
+    distinct_values_sql, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, qualify_table,
+    quote_ident, sql_literal, EditPlan, PlannedCount, PlannedEdit, SqlIdentStyle,
+    AFFECTED_MISMATCH, KEYLESS_AMBIGUOUS,
 };

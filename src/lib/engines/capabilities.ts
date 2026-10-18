@@ -69,6 +69,7 @@ export function relationalCapabilities(
 		supportsTransactions: true,
 		supportsExplainPlan: true,
 		supportsStructureEdit: true,
+		supportsDistinctValues: true,
 		supportsQuery: true,
 		supportsPooling: true,
 		bindsSessionToDatabase: true,
@@ -253,6 +254,11 @@ export function mergeCapabilities(
 			c.supportsStructureEdit ??
 				(c as { supports_structure_edit?: unknown }).supports_structure_edit,
 			fallback.supportsStructureEdit ?? true,
+		),
+		supportsDistinctValues: asBool(
+			c.supportsDistinctValues ??
+				(c as { supports_distinct_values?: unknown }).supports_distinct_values,
+			fallback.supportsDistinctValues ?? true,
 		),
 		supportDepth: parseSupportDepth(
 			c.supportDepth ?? (c as { support_depth?: unknown }).support_depth,

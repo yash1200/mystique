@@ -1,5 +1,12 @@
 /** Table data grid: rows, filters, cell editing, import and export. */
 export * from './api'
+export * from './column-complete'
+export * from './column-layout'
+export * from './copy-as'
+export * from './edit-history'
+export * from './grid-keys'
+export * from './paste-batch'
+export * from './selection-stats'
 export * from './virtual'
 export * from './cell-view'
 export * from './column-editor'

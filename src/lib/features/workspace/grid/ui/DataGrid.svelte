@@ -18,7 +18,47 @@
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount, tick, untrack } from 'svelte'
-	import { persistTableEdits } from '../api'
+	import {
+		distinctColumnValues,
+		loadColumnLayout,
+		loadRollbackSql,
+		persistTableEdits,
+		rollbackTableEdits,
+		saveColumnLayout,
+		storeRollbackSql,
+	} from '../api'
+	import {
+		columnCompletions,
+		distinctCacheKey,
+		readDistinctCache,
+		DISTINCT_TTL_MS,
+		type DistinctCacheEntry,
+	} from '../column-complete'
+	import {
+		EMPTY_COLUMN_LAYOUT,
+		moveColumn,
+		toggleFrozen,
+		toggleHidden,
+		type GridColumnLayout,
+	} from '../column-layout'
+	import {
+		buildInList,
+		buildInsertSql,
+		buildUpdateSql,
+		buildWhereSql,
+		identStyleFor,
+		type CopyColumn,
+	} from '../copy-as'
+	import {
+		cloneSnapshot,
+		pushUndo,
+		redoEdit,
+		undoEdit,
+		type GridEditSnapshot,
+	} from '../edit-history'
+	import { accelPlatform, gridShortcutBlocked, isGridAccel } from '../grid-keys'
+	import { applyCellBatch, type CellEdit } from '../paste-batch'
+	import { formatSelectionStats, selectionStats } from '../selection-stats'
 	import { valueToEditorText } from '../cell-view'
 	import {
 		cellsIncludeLarge,
@@ -55,6 +95,7 @@
 	import GridFilterBar from './GridFilterBar.svelte'
 	import GridStatusBar from './GridStatusBar.svelte'
 	import GridTable, { type CellRef } from './GridTable.svelte'
+	import SaveStatementsModal from './SaveStatementsModal.svelte'
 
 	interface Props {
 		table: TableMeta
@@ -98,6 +139,9 @@
 		onopenstructure?: () => void
 		/** Tab id for the edit buffer. Remounts rehydrate this instead of the catalog. */
 		tabId?: string | null
+		connectionId?: string | null
+		sqlDialect?: string
+		supportsDistinct?: boolean
 	}
 
 	let {
@@ -121,10 +165,13 @@
 		onopenreference,
 		onopenstructure,
 		tabId = null,
+		connectionId = null,
+		sqlDialect = '',
+		supportsDistinct = true,
 	}: Props = $props()
 
 	let seed = $state<Record<string, unknown>[]>([])
-	let rows = $state<Record<string, unknown>[]>([])
+	let rows = $state.raw<Record<string, unknown>[]>([])
 	let dirtyKeys = $state<Set<string>>(new Set())
 	/** Absolute indices of rows added locally (not yet saved). */
 	let newRowIndices = $state<Set<number>>(new Set())
@@ -169,6 +216,17 @@
 	/** Second ⌘R confirms discarding a dirty buffer. */
 	let refreshArmed = $state(false)
 	let saving = $state(false)
+	let columnLayout = $state<GridColumnLayout>({ ...EMPTY_COLUMN_LAYOUT })
+	let rollbackSql = $state<string[]>([])
+	let undoStack = $state<GridEditSnapshot[]>([])
+	let redoStack = $state<GridEditSnapshot[]>([])
+	let savePreview = $state<string[] | null>(null)
+	let codeCompletions = $state<string[]>([])
+	let completionStart = $state(0)
+	let distinctValues = $state<string[]>([])
+	let columnMenu = $state<{ column: string; x: number; y: number } | null>(null)
+	const distinctCache = new Map<string, DistinctCacheEntry>()
+	let restoringHistory = false
 	let loadedTableId = $state<string | null>(null)
 	let appliedSyncTick = $state(0)
 	let appliedPreviewTick = $state(0)
@@ -203,6 +261,32 @@
 			if (!newRowIndices.has(i)) deletes += 1
 		}
 		return dirtyKeys.size + inserts + deletes
+	})
+
+	const selectionLabel = $derived.by(() => {
+		const values: unknown[] = []
+		if (selKind === 'cells') {
+			for (const key of selectedCells) {
+				const sep = key.indexOf('::')
+				if (sep < 0) continue
+				const row = Number(key.slice(0, sep))
+				const col = key.slice(sep + 2)
+				if (!Number.isFinite(row)) continue
+				values.push(rows[row]?.[col])
+			}
+		} else if (selKind === 'rows') {
+			for (const index of selectedRows) {
+				const row = rows[index]
+				if (!row) continue
+				for (const column of table.columns) {
+					if (columnLayout.hidden.includes(column.name)) continue
+					values.push(row[column.name])
+				}
+			}
+		} else if (selectedCell) {
+			values.push(rows[selectedCell.row]?.[selectedCell.col])
+		}
+		return formatSelectionStats(selectionStats(values))
 	})
 
 	$effect(() => {
@@ -390,12 +474,60 @@
 		filterRules = filterRules.map((r) => (r.id === id ? { ...r, ...patch } : r))
 	}
 
+	let distinctTimer: ReturnType<typeof setTimeout> | undefined
+
+	function scheduleDistinct(column: string) {
+		if (distinctTimer) clearTimeout(distinctTimer)
+		if (!supportsDistinct || !sessionId || !column) {
+			distinctValues = []
+			return
+		}
+		const key = distinctCacheKey(sessionId, table.id, column)
+		const cached = readDistinctCache(distinctCache, key, Date.now(), DISTINCT_TTL_MS)
+		if (cached) {
+			distinctValues = cached
+			return
+		}
+		const sid = sessionId
+		distinctTimer = setTimeout(() => {
+			void distinctColumnValues({ sessionId: sid, table, column })
+				.then((values) => {
+					distinctCache.set(key, { at: Date.now(), values })
+					distinctValues = values
+				})
+				.catch(() => {
+					distinctValues = []
+				})
+		}, 300)
+	}
+
+	function onCodeInput(value: string, caret: number) {
+		const found = columnCompletions(
+			value,
+			caret,
+			table.columns.map((column) => column.name),
+		)
+		completionStart = found.start
+		codeCompletions = found.items
+	}
+
+	function pickCompletion(item: string) {
+		const typed =
+			filterCode.slice(completionStart).match(/^[A-Za-z_][A-Za-z0-9_]*/)?.[0] ?? ''
+		filterCode =
+			filterCode.slice(0, completionStart) +
+			item +
+			filterCode.slice(completionStart + typed.length)
+		codeCompletions = []
+	}
+
 	function updateFirstRule(patch: Partial<FilterRule>) {
 		if (filterRules.length === 0) {
 			filterRules = [{ ...makeRule(), ...patch }]
-			return
+		} else {
+			updateRule(filterRules[0].id, patch)
 		}
-		updateRule(filterRules[0].id, patch)
+		if (patch.column) scheduleDistinct(patch.column)
 	}
 
 	function cellKey(row: number, col: string): string {
@@ -518,7 +650,8 @@
 	 * Baseline equals the inserted values so only real edits dirty cells;
 	 * membership in newRowIndices keeps Save/Reset visible.
 	 */
-	function insertLocalRowAtTop(row: Record<string, unknown>) {
+	function insertLocalRowAtTop(row: Record<string, unknown>, track = true) {
+		if (track) noteEdit()
 		shiftIndicesAfterPrepend()
 		const copy = { ...row }
 		rows = [copy, ...rows]
@@ -641,12 +774,16 @@
 			return
 		}
 		if (editing) commitEdit()
+		const pending = cells.filter((cell) => {
+			if (deletedIndices.has(cell.row)) return false
+			const cur = rows[cell.row]?.[cell.col]
+			return cur !== null && cur !== undefined
+		})
+		if (pending.length === 0) return
+		noteEdit()
 		let n = 0
-		for (const { row, col } of cells) {
-			if (deletedIndices.has(row)) continue
-			const cur = rows[row]?.[col]
-			if (cur === null || cur === undefined) continue
-			applyCellValue(row, col, 'NULL')
+		for (const { row, col } of pending) {
+			applyCellValue(row, col, 'NULL', false)
 			n += 1
 		}
 		if (n === 0) return
@@ -806,9 +943,37 @@
 		return { columns, cells, count: objects.length }
 	}
 
+	function copyColumns(columns: { name: string }[]): CopyColumn[] {
+		return columns.map((column) => {
+			const def = table.columns.find((item) => item.name === column.name)
+			return {
+				name: column.name,
+				dataType: def?.type,
+				pk: !!def?.pk,
+			}
+		})
+	}
+
+	function sqlText(
+		kind: 'insert' | 'update' | 'in' | 'where',
+		columns: { name: string }[],
+		cells: unknown[][],
+	): string {
+		const style = identStyleFor(engine, sqlDialect)
+		const cols = copyColumns(columns)
+		if (kind === 'insert') {
+			return buildInsertSql(style, table.name, cols, cells, table.database, table.schema)
+		}
+		if (kind === 'update') {
+			return buildUpdateSql(style, table.name, cols, cells, table.database, table.schema)
+		}
+		if (kind === 'in') return buildInList(style, cols, cells)
+		return buildWhereSql(style, cols, cells)
+	}
+
 	async function copyRowAs(
 		indices: number[],
-		kind: 'copy' | 'csv' | 'markdown' | 'json',
+		kind: 'copy' | 'csv' | 'markdown' | 'json' | 'insert' | 'update' | 'in' | 'where',
 	) {
 		const { columns, cells, count } = rowExportPayload(indices)
 		if (count === 0) return
@@ -831,6 +996,22 @@
 			case 'json':
 				text = buildJson(columns, cells, true)
 				okMsg = `Copied ${n} as JSON`
+				break
+			case 'insert':
+				text = sqlText('insert', columns, cells)
+				okMsg = `Copied ${n} as INSERT`
+				break
+			case 'update':
+				text = sqlText('update', columns, cells)
+				okMsg = `Copied ${n} as UPDATE`
+				break
+			case 'in':
+				text = sqlText('in', columns, cells)
+				okMsg = `Copied ${n} as IN list`
+				break
+			case 'where':
+				text = sqlText('where', columns, cells)
+				okMsg = `Copied ${n} as WHERE`
 				break
 		}
 		const res = await copyTextToClipboard(text)
@@ -911,8 +1092,10 @@
 			.map((i) => snapshotClone(i))
 			.filter((r): r is Record<string, unknown> => !!r)
 		if (snaps.length === 0) return
+		noteEdit()
 		for (let i = snaps.length - 1; i >= 0; i--) {
-			insertLocalRowAtTop(snaps[i]!)
+			const snap = snaps[i]
+			if (snap) insertLocalRowAtTop(snap, false)
 		}
 		showToast(
 			'info',
@@ -1009,6 +1192,7 @@
 	function deleteRows(indices: number[]) {
 		const unique = [...new Set(indices)].sort((a, b) => b - a)
 		if (unique.length === 0) return
+		noteEdit()
 		let removed = 0
 		let marked = 0
 		for (const i of unique) {
@@ -1032,14 +1216,9 @@
 
 	function undeleteRows(indices: number[]) {
 		const next = new Set(deletedIndices)
-		let n = 0
-		for (const i of indices) {
-			if (next.has(i)) {
-				next.delete(i)
-				n += 1
-			}
-		}
-		if (n === 0) return
+		if (![...indices].some((index) => next.has(index))) return
+		noteEdit()
+		for (const i of indices) next.delete(i)
 		deletedIndices = next
 	}
 
@@ -1094,6 +1273,10 @@
 			{ id: 'csv', label: 'Copy as CSV' },
 			{ id: 'markdown', label: 'Copy as Markdown' },
 			{ id: 'json', label: 'Copy as JSON' },
+			{ id: 'insert', label: 'Copy as INSERT' },
+			{ id: 'update', label: 'Copy as UPDATE' },
+			{ id: 'in', label: 'Copy as IN list' },
+			{ id: 'where', label: 'Copy as WHERE' },
 			{
 				id: 'clone',
 				label: 'Duplicate row',
@@ -1150,8 +1333,17 @@
 		rowMenu = null
 		if (row == null) return
 		const targets = targetRows(row)
-		if (id === 'copy' || id === 'csv' || id === 'markdown' || id === 'json') {
-			void copySelection(id, targets)
+		if (
+			id === 'copy' ||
+			id === 'csv' ||
+			id === 'markdown' ||
+			id === 'json' ||
+			id === 'insert' ||
+			id === 'update' ||
+			id === 'in' ||
+			id === 'where'
+		) {
+			void copyRowAs(targets, id)
 			return
 		}
 		if (id === 'clone') {
@@ -1216,6 +1408,10 @@
 			{ id: 'copy-row-csv', label: 'Copy row as CSV' },
 			{ id: 'copy-row-json', label: 'Copy row as JSON' },
 			{ id: 'copy-row-markdown', label: 'Copy row as Markdown' },
+			{ id: 'copy-row-insert', label: 'Copy row as INSERT' },
+			{ id: 'copy-row-update', label: 'Copy row as UPDATE' },
+			{ id: 'copy-row-in', label: 'Copy as IN list' },
+			{ id: 'copy-row-where', label: 'Copy as WHERE' },
 			{
 				id: 'copy-column',
 				label: 'Copy column name',
@@ -1303,6 +1499,22 @@
 		}
 		if (id === 'copy-row-markdown') {
 			void copyRowAs(targetRows(row), 'markdown')
+			return
+		}
+		if (id === 'copy-row-insert') {
+			void copyRowAs(targetRows(row), 'insert')
+			return
+		}
+		if (id === 'copy-row-update') {
+			void copyRowAs(targetRows(row), 'update')
+			return
+		}
+		if (id === 'copy-row-in') {
+			void copyRowAs(targetRows(row), 'in')
+			return
+		}
+		if (id === 'copy-row-where') {
+			void copyRowAs(targetRows(row), 'where')
 			return
 		}
 		if (id === 'copy-column') {
@@ -1645,14 +1857,64 @@
 		}
 	}
 
-	function applyCellValue(row: number, col: string, rawText: string) {
-		if (!assertWritable()) return
+	function currentSnapshot(): GridEditSnapshot {
+		return {
+			rows: rows.map((row) => ({ ...row })),
+			originals: originals.map((row) => ({ ...row })),
+			dirtyKeys: [...dirtyKeys],
+			newRows: [...newRowIndices],
+			deleted: [...deletedIndices],
+		}
+	}
+
+	function noteEdit() {
+		if (restoringHistory) return
+		undoStack = pushUndo(undoStack, currentSnapshot())
+		redoStack = []
+	}
+
+	function applySnapshot(snapshot: GridEditSnapshot) {
+		restoringHistory = true
+		const next = cloneSnapshot(snapshot)
+		rows = next.rows
+		originals = next.originals
+		dirtyKeys = new Set(next.dirtyKeys)
+		newRowIndices = new Set(next.newRows)
+		deletedIndices = new Set(next.deleted)
+		restoringHistory = false
+		ondirtychange?.(
+			dirtyKeys.size > 0 || newRowIndices.size > 0 || deletedIndices.size > 0,
+		)
+	}
+
+	function undoPending() {
+		const step = undoEdit(undoStack, redoStack, currentSnapshot())
+		if (!step) return
+		undoStack = step.undo
+		redoStack = step.redo
+		applySnapshot(step.current)
+	}
+
+	function redoPending() {
+		const step = redoEdit(undoStack, redoStack, currentSnapshot())
+		if (!step) return
+		undoStack = step.undo
+		redoStack = step.redo
+		applySnapshot(step.current)
+	}
+
+	function draftToValue(row: number, col: string, rawText: string): unknown {
 		const prev = rows[row]?.[col]
 		const def = columnDef(col)
-		const next =
-			def && usesSelectEditor(def, prev)
-				? selectDraftToValue(rawText, def, prev)
-				: parseDraft(rawText, prev)
+		return def && usesSelectEditor(def, prev)
+			? selectDraftToValue(rawText, def, prev)
+			: parseDraft(rawText, prev)
+	}
+
+	function applyCellValue(row: number, col: string, rawText: string, track = true) {
+		if (!assertWritable()) return
+		if (track) noteEdit()
+		const next = draftToValue(row, col, rawText)
 		rows = rows.map((r, i) => (i === row ? { ...r, [col]: next } : r))
 		const key = cellKey(row, col)
 		const original = originals[row]?.[col]
@@ -1783,51 +2045,61 @@
 		if (lines.length === 0) return
 
 		const parsed = lines.map((line) => line.split('\t'))
-		const isScalar = parsed.length === 1 && parsed[0]!.length === 1
+		const firstLine = parsed[0]
+		const isScalar = parsed.length === 1 && (firstLine?.length ?? 0) === 1
 		const targets = actionCells().filter((c) => !deletedIndices.has(c.row))
+		const edits: CellEdit[] = []
 
 		// One clipboard value → fill every selected cell (or the focused cell).
 		if (isScalar && targets.length > 0) {
-			const value = parsed[0]![0] ?? ''
+			const value = firstLine?.[0] ?? ''
 			for (const { row, col } of targets) {
-				applyCellValue(row, col, value)
+				edits.push({ row, col, value: draftToValue(row, col, value) })
 			}
-			return
-		}
+		} else {
+			const start =
+				(targets.length
+					? targets.reduce((best, c) => {
+							if (c.row < best.row) return c
+							if (
+								c.row === best.row &&
+								cols.indexOf(c.col) < cols.indexOf(best.col)
+							) {
+								return c
+							}
+							return best
+						})
+					: null) ??
+				(selectedCell ? { row: selectedCell.row, col: selectedCell.col } : null)
+			if (!start) return
+			const startColIdx = cols.indexOf(start.col)
+			if (startColIdx < 0) return
 
-		const start =
-			(targets.length
-				? targets.reduce((best, c) => {
-						if (c.row < best.row) return c
-						if (
-							c.row === best.row &&
-							cols.indexOf(c.col) < cols.indexOf(best.col)
-						) {
-							return c
-						}
-						return best
+			let filterIdx = pageEntries.findIndex((e) => e.index === start.row)
+			if (filterIdx < 0) filterIdx = 0
+
+			for (let r = 0; r < parsed.length; r++) {
+				const cells = parsed[r]
+				const entry = pageEntries[filterIdx + r]
+				if (!cells || !entry) break
+				const absRow = entry.index
+				if (deletedIndices.has(absRow)) continue
+				for (let c = 0; c < cells.length; c++) {
+					const colName = cols[startColIdx + c]
+					if (!colName) break
+					edits.push({
+						row: absRow,
+						col: colName,
+						value: draftToValue(absRow, colName, cells[c] ?? ''),
 					})
-				: null) ??
-			(selectedCell ? { row: selectedCell.row, col: selectedCell.col } : null)
-		if (!start) return
-		const startColIdx = cols.indexOf(start.col)
-		if (startColIdx < 0) return
-
-		let filterIdx = pageEntries.findIndex((e) => e.index === start.row)
-		if (filterIdx < 0) filterIdx = 0
-
-		for (let r = 0; r < parsed.length; r++) {
-			const cells = parsed[r]!
-			const entry = pageEntries[filterIdx + r]
-			if (!entry) break
-			const absRow = entry.index
-			if (deletedIndices.has(absRow)) continue
-			for (let c = 0; c < cells.length; c++) {
-				const colName = cols[startColIdx + c]
-				if (!colName) break
-				applyCellValue(absRow, colName, cells[c] ?? '')
+				}
 			}
 		}
+		if (edits.length === 0) return
+		noteEdit()
+		dirtyKeys = applyCellBatch(rows, originals, dirtyKeys, edits, (next) => {
+			rows = next
+		})
 	}
 
 	function onGridKeydown(e: KeyboardEvent) {
@@ -2105,36 +2377,71 @@
 		}
 	}
 
+	function editPayload(sid: string, dryRun: boolean) {
+		return {
+			sessionId: sid,
+			engine,
+			table,
+			rows,
+			originals,
+			newRowIndices,
+			deletedIndices,
+			dirtyKeys,
+			profileReadOnly,
+			dryRun,
+		}
+	}
+
+	async function liveSessionId(): Promise<string> {
+		let sid = sessionId
+		if (!sid && onreconnect) sid = await onreconnect()
+		return sid ?? ''
+	}
+
 	async function saveChanges() {
-		if (saving) return
+		if (saving || savePreview) return
 		if (!assertWritable()) return
 		if (editing) commitEdit()
 		if (dirtyCount === 0) return
 		saving = true
 		try {
+			const preview = await persistTableEdits({
+				...editPayload(await liveSessionId(), true),
+			})
+			const statements = preview.statements ?? []
+			if (statements.length === 0) {
+				showToast('info', 'Nothing to save')
+				return
+			}
+			savePreview = statements
+		} catch (err) {
+			reportGridError(err)
+		} finally {
+			saving = false
+		}
+	}
+
+	async function confirmSave() {
+		if (saving || !savePreview) return
+		if (!assertWritable()) return
+		saving = true
+		try {
 			const pendingDbDeletes = [...deletedIndices].filter(
 				(i) => !newRowIndices.has(i),
 			).length
-			const persist = (sid: string) =>
-				persistTableEdits({
-					sessionId: sid,
-					engine,
-					table,
-					rows,
-					originals,
-					newRowIndices,
-					deletedIndices,
-					dirtyKeys,
-					profileReadOnly,
-				})
-			let sid = sessionId
-			if (!sid && onreconnect) sid = await onreconnect()
 			// Do not retry after a dropped connection: the save may have landed.
-			const result = await persist(sid ?? '')
+			const result = await persistTableEdits(editPayload(await liveSessionId(), false))
 			if (pendingDbDeletes > 0 && (result.deleted ?? 0) < pendingDbDeletes) {
 				throw new Error(
 					'Delete did not apply. Restart Mystique and try the delete again.',
 				)
+			}
+			rollbackSql = result.rollbackSql ?? []
+			undoStack = []
+			redoStack = []
+			savePreview = null
+			if (connectionId && rollbackSql.length > 0) {
+				void storeRollbackSql(connectionId, table.id, rollbackSql).catch(() => {})
 			}
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
@@ -2169,30 +2476,143 @@
 		}
 	}
 
+	const columnMenuItems = $derived.by((): ContextMenuItem[] => {
+		const name = columnMenu?.column
+		if (!name) return []
+		return [
+			{
+				id: 'freeze',
+				label: columnLayout.frozen.includes(name) ? 'Unfreeze column' : 'Freeze column',
+			},
+			{ id: 'hide', label: 'Hide column' },
+			{ id: 'left', label: 'Move left' },
+			{ id: 'right', label: 'Move right' },
+		]
+	})
+
+	function changeLayout(next: GridColumnLayout) {
+		columnLayout = next
+		if (!connectionId) return
+		void saveColumnLayout(connectionId, table.id, next).catch(() => {})
+	}
+
+	function onColumnMenuPick(id: string) {
+		const name = columnMenu?.column
+		columnMenu = null
+		if (!name) return
+		const names = table.columns.map((column) => column.name)
+		if (id === 'freeze') changeLayout(toggleFrozen(columnLayout, name))
+		if (id === 'hide') changeLayout(toggleHidden(columnLayout, name))
+		if (id === 'left') changeLayout(moveColumn(columnLayout, names, name, -1))
+		if (id === 'right') changeLayout(moveColumn(columnLayout, names, name, 1))
+	}
+
+	let loadedLayoutKey = ''
+	$effect(() => {
+		const id = connectionId
+		const tableId = table.id
+		const key = `${id ?? ''}\n${tableId}`
+		if (!id || loadedLayoutKey === key) return
+		loadedLayoutKey = key
+		undoStack = []
+		redoStack = []
+		void loadColumnLayout(id, tableId)
+			.then((layout) => {
+				if (loadedLayoutKey !== key || !layout) return
+				columnLayout = layout
+			})
+			.catch(() => {})
+		void loadRollbackSql(id, tableId)
+			.then((sql) => {
+				if (loadedLayoutKey !== key) return
+				rollbackSql = sql
+			})
+			.catch(() => {})
+	})
+
+	async function rollbackLastSave() {
+		if (saving || rollbackSql.length === 0) return
+		if (!assertWritable()) return
+		saving = true
+		try {
+			await rollbackTableEdits({
+				sessionId: await liveSessionId(),
+				table: table.name,
+				statements: rollbackSql,
+				profileReadOnly,
+			})
+			rollbackSql = []
+			undoStack = []
+			redoStack = []
+			if (onreload) {
+				await onreload(reloadOpts(page * PAGE_SIZE))
+				loadFromTable(true)
+				markServerPreviewApplied()
+			}
+			showToast('success', 'Rolled back the last save')
+			onbaselinechange?.()
+		} catch (err) {
+			reportGridError(err)
+		} finally {
+			saving = false
+		}
+	}
+
 	// Global shortcuts + File→Save while this table is the active tab.
 	onMount(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
-			const k = e.key.toLowerCase()
-			if (k === 's') {
+			const platform = accelPlatform(
+				typeof navigator === 'undefined' ? '' : navigator.platform,
+			)
+			const key = e.key.toLowerCase()
+			const undoKey = key === 'z' && (platform === 'mac' ? e.metaKey && !e.ctrlKey : e.ctrlKey || e.metaKey) && !e.altKey
+			if (!undoKey && !isGridAccel(e, platform)) return
+			if (key !== 's' && key !== 'n' && key !== 'd' && key !== 'r' && key !== 'z') return
+			const target = e.target instanceof HTMLElement ? e.target : null
+			const inCellEditor = !!(
+				editing &&
+				target &&
+				(target === inputEl || inputEl?.contains(target))
+			)
+			if (
+				gridShortcutBlocked({
+					modalOpen: cellModal != null || savePreview != null,
+					inCellEditor,
+					tagName: target?.tagName,
+					contentEditable: target?.isContentEditable,
+					inDialog: !!target?.closest('[role="dialog"]'),
+				})
+			) {
+				return
+			}
+			if (key === 'z') {
+				if (inCellEditor) return
+				e.preventDefault()
+				e.stopPropagation()
+				if (e.shiftKey) redoPending()
+				else undoPending()
+				return
+			}
+			if (e.shiftKey) return
+			if (key === 's') {
 				e.preventDefault()
 				e.stopPropagation()
 				void saveChanges()
 				return
 			}
-			if (k === 'n') {
+			if (key === 'n') {
 				e.preventDefault()
 				e.stopPropagation()
 				addNewRow()
 				return
 			}
-			if (k === 'd') {
+			if (key === 'd') {
 				e.preventDefault()
 				e.stopPropagation()
 				cloneFocusedRow()
 				return
 			}
-			if (k === 'r') {
+			if (key === 'r') {
 				// Block browser reload; refresh table data instead.
 				e.preventDefault()
 				e.stopPropagation()
@@ -2213,6 +2633,7 @@
 	function resetChanges() {
 		if (editing) cancelEdit()
 		if (dirtyCount === 0) return
+		noteEdit()
 
 		// Drop locally added rows, restore the rest from baseline
 		if (newRowIndices.size > 0) {
@@ -2249,6 +2670,10 @@
 		onApply={applyFilters}
 		onClear={clearFilters}
 		codePlaceholder={codeFilterPlaceholder}
+		completions={codeCompletions}
+		onCodeInput={onCodeInput}
+		onPickCompletion={pickCompletion}
+		distinctValues={supportsDistinct ? distinctValues : []}
 	/>
 
 	<!-- tabindex so arrow/copy/paste work when grid is focused -->
@@ -2292,8 +2717,20 @@
 			onCellMenu={openCellMenu}
 			onOpenReference={onopenreference}
 			onSort={cycleSort}
+			{columnLayout}
+			onColumnMenu={(column, event) => {
+				columnMenu = { column, x: event.clientX, y: event.clientY }
+			}}
 		/>
 	</div>
+
+	<SaveStatementsModal
+		open={savePreview != null}
+		statements={savePreview ?? []}
+		busy={saving}
+		onconfirm={() => void confirmSave()}
+		oncancel={() => (savePreview = null)}
+	/>
 
 	{#if cellModal}
 		{@const locator = cellModal.locator}
@@ -2309,6 +2746,17 @@
 				: undefined}
 			onapply={applyCellModal}
 			onclose={closeCellModal}
+		/>
+	{/if}
+
+	{#if columnMenu}
+		<ContextMenu
+			x={columnMenu.x}
+			y={columnMenu.y}
+			items={columnMenuItems}
+			ariaLabel="Column actions"
+			onpick={onColumnMenuPick}
+			onclose={() => (columnMenu = null)}
 		/>
 	{/if}
 
@@ -2349,5 +2797,12 @@
 		onAddRow={addNewRow}
 		onReset={resetChanges}
 		onSave={() => void saveChanges()}
+		{selectionLabel}
+		canUndo={undoStack.length > 0}
+		canRedo={redoStack.length > 0}
+		canRollback={rollbackSql.length > 0 && !profileReadOnly}
+		onUndo={undoPending}
+		onRedo={redoPending}
+		onRollback={() => void rollbackLastSave()}
 	/>
 </div>

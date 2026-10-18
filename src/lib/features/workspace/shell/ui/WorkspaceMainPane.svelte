@@ -424,6 +424,15 @@
 							}}
 							onselectrow={onSelectRow}
 							engine={String(activeSession.profile.engine)}
+							connectionId={activeSession.profile.id}
+							sqlDialect={resolveCapabilities(
+								String(activeSession.profile.engine),
+								activeSession.capabilities,
+							).sqlDialect}
+							supportsDistinct={resolveCapabilities(
+								String(activeSession.profile.engine),
+								activeSession.capabilities,
+							).supportsDistinctValues !== false}
 							sessionId={activeSession.engineSessionId}
 							profileReadOnly={!!activeSession.profile.readOnly}
 							onreload={(opts) => tablePreview.reload(opts)}

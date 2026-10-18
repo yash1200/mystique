@@ -74,6 +74,8 @@ export interface EngineCapabilities {
 	supportsExplainPlan?: boolean
 	/** Structure tab can add, alter, and drop columns, indexes, and foreign keys. */
 	supportsStructureEdit?: boolean
+	/** Grid filter can list distinct values. Missing means the engine did not opt out. */
+	supportsDistinctValues?: boolean
 	/** Query gutter. One implementation for every engine that can run a statement. */
 	supportsQuery: boolean
 	supportsPooling: boolean

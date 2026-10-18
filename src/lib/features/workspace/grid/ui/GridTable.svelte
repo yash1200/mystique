@@ -25,6 +25,7 @@
 	import { selectOptionsForColumn, usesSelectEditor } from '../column-editor'
 	import { numericColumn } from '../filters'
 	import { isLargeCell, largeCellHint } from '../large-cell'
+	import { layoutColumns, type GridColumnLayout } from '../column-layout'
 	import {
 		cellDisplay,
 		computeColumnWindow,
@@ -69,6 +70,8 @@
 		sortColumn?: string | null
 		sortDir?: TablePreviewSortDir | null
 		onSort?: (column: string) => void
+		columnLayout?: GridColumnLayout | null
+		onColumnMenu?: (column: string, event: MouseEvent) => void
 	}
 
 	let {
@@ -98,6 +101,8 @@
 		sortColumn = null,
 		sortDir = null,
 		onSort,
+		columnLayout = null,
+		onColumnMenu,
 	}: Props = $props()
 
 	let scrollEl = $state<HTMLDivElement | null>(null)
@@ -119,9 +124,12 @@
 	let headerH = $state(36)
 
 	const rowH = $derived(appPrefs.gridRowHeightPx)
-	const totalCols = $derived(table.columns.length)
+	const placedColumns = $derived(layoutColumns(table.columns, columnLayout))
+	const frozenColumns = $derived(placedColumns.frozen)
+	const scrollColumns = $derived(placedColumns.scroll)
+	const totalCols = $derived(scrollColumns.length)
 	const totalRows = $derived(pageEntries.length)
-	const totalW = $derived(indexW + totalCols * colW)
+	const totalW = $derived(indexW + (frozenColumns.length + totalCols) * colW)
 	const canvasW = $derived(Math.max(totalW, viewW))
 	const bodyH = $derived(totalRows * rowH)
 	const rowY = $derived(winStart * rowH)
@@ -131,8 +139,31 @@
 		pageEntries.slice(winStart, Math.min(winEnd, totalRows)),
 	)
 	const colsShown = $derived(
-		table.columns.slice(colStart, Math.min(colEnd, totalCols)),
+		scrollColumns.slice(colStart, Math.min(colEnd, totalCols)),
 	)
+	const columnParts = $derived.by(() => {
+		const parts: Array<
+			| { key: string; spacer: number }
+			| {
+					key: string
+					column: (typeof table.columns)[number]
+					left: number | null
+			  }
+		> = []
+		frozenColumns.forEach((column, index) => {
+			parts.push({
+				key: `frozen:${column.name}`,
+				column,
+				left: indexW + index * colW,
+			})
+		})
+		if (leadW > 0) parts.push({ key: 'lead', spacer: leadW })
+		for (const column of colsShown) {
+			parts.push({ key: column.name, column, left: null })
+		}
+		if (tailW > 0) parts.push({ key: 'tail', spacer: tailW })
+		return parts
+	})
 
 	function sortLabel(name: string): string {
 		if (sortColumn === name && sortDir === 'asc') return `Sort ${name} descending`
@@ -160,7 +191,7 @@
 			scrollLeft,
 			viewportW: viewW,
 			colW,
-			frozenW: indexW,
+			frozenW: indexW + frozenColumns.length * colW,
 			scrollDir: scrollDirX,
 			current: { start: colStart, end: colEnd },
 		})
@@ -258,16 +289,24 @@
 					>
 						#
 					</th>
-					{#if leadW > 0}
-						<th style="width: {leadW}px" aria-hidden="true"></th>
-					{/if}
-					{#each colsShown as col (col.name)}
+					{#each columnParts as part (part.key)}
+						{#if 'spacer' in part}
+							<th style="width: {part.spacer}px" aria-hidden="true"></th>
+						{:else}
+						{@const col = part.column}
 						{@const active = sortColumn === col.name}
 						<th
-							class="border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary"
-							style="width: {colW}px"
+							class={cn(
+								'border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary',
+								part.left != null && 'sticky z-20 bg-elevated',
+							)}
+							style="width: {colW}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
 							title={col.type}
 							aria-sort={ariaSort(col.name)}
+							oncontextmenu={(e) => {
+								e.preventDefault()
+								onColumnMenu?.(col.name, e)
+							}}
 						>
 							<div class="flex items-center gap-1.5">
 								<span class="min-w-0 flex-1 truncate">
@@ -304,10 +343,8 @@
 								{/if}
 							</div>
 						</th>
+						{/if}
 					{/each}
-					{#if tailW > 0}
-						<th style="width: {tailW}px" aria-hidden="true"></th>
-					{/if}
 					<th class="w-full border-b border-line p-0" aria-hidden="true"></th>
 				</tr>
 			</thead>
@@ -375,10 +412,11 @@
 								{/if}
 								{i + 1}
 							</td>
-							{#if leadW > 0}
-								<td style="width: {leadW}px" aria-hidden="true"></td>
-							{/if}
-							{#each colsShown as col (col.name)}
+							{#each columnParts as part (part.key)}
+								{#if 'spacer' in part}
+									<td style="width: {part.spacer}px" aria-hidden="true"></td>
+								{:else}
+								{@const col = part.column}
 								{@const raw = row[col.name]}
 								{@const isNull = raw === null || raw === undefined}
 								{@const shown = cellDisplay(raw)}
@@ -393,6 +431,17 @@
 									data-col={col.name}
 									class={cn(
 										'relative p-0 font-mono text-label',
+										part.left != null && 'sticky z-10',
+										part.left != null &&
+											(isDeleted
+												? 'bg-danger/15'
+												: isNew
+													? 'bg-info/12'
+													: rowSelected
+														? 'bg-selected'
+														: stripe
+															? 'bg-panel'
+															: 'bg-app'),
 										isDeleted && 'text-danger/80',
 										dirty &&
 											!isDeleted &&
@@ -417,7 +466,7 @@
 											!cellSelected &&
 											'hover:bg-hover',
 									)}
-									style="width: {colW}px; max-width: {colW}px"
+									style="width: {colW}px; max-width: {colW}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
 									title={isEditing
 										? undefined
 										: dirty
@@ -517,10 +566,8 @@
 										{/if}
 									{/if}
 								</td>
+								{/if}
 							{/each}
-							{#if tailW > 0}
-								<td style="width: {tailW}px" aria-hidden="true"></td>
-							{/if}
 							<td class="w-full p-0" aria-hidden="true"></td>
 						</tr>
 					{/each}

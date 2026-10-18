@@ -6433,6 +6433,7 @@ name = "mystique-plugin-postgres"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "deadpool-postgres",
  "futures-util",

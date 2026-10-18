@@ -3,9 +3,17 @@
  * Dialects / execution live in Rust (`apply_table_edits`).
  */
 import type { ApplyTableEditsResult, TableMeta } from '#core/contracts'
-import { applyEngineTableEdits } from '#core/ipc'
+import {
+	applyEngineTableEdits,
+	distinctEngineColumnValues,
+	isTauri,
+	rollbackEngineTableEdits,
+} from '#core/ipc'
+import { invoke } from '@tauri-apps/api/core'
 import { runWithWriteGuard } from '#features/workspace/shell'
 import { identityCell } from './identity-cell'
+import type { GridColumnLayout } from './column-layout'
+import { DISTINCT_LIMIT } from './column-complete'
 export type PersistResult = ApplyTableEditsResult
 export { identityCell } from './identity-cell'
 
@@ -44,6 +52,7 @@ export async function persistTableEdits(input: {
 	deletedIndices: Set<number>
 	dirtyKeys: Set<string>
 	profileReadOnly: boolean
+	dryRun?: boolean
 }): Promise<PersistResult> {
 	if (!input.sessionId) {
 		throw new Error('No live engine session. Reconnect and try again.')
@@ -102,25 +111,54 @@ export async function persistTableEdits(input: {
 	}
 
 	if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
-		return { updated: 0, inserted: 0, deleted: 0 }
+		return { updated: 0, inserted: 0, deleted: 0, statements: [], rollbackSql: [] }
+	}
+
+	const request = {
+		sessionId: input.sessionId,
+		table: input.table.name,
+		schema: input.table.schema || null,
+		database: input.table.database || null,
+		columns: input.table.columns.map((c) => ({
+			name: c.name,
+			dataType: c.type,
+			nullable: !!c.nullable,
+			pk: !!c.pk,
+		})),
+		updates,
+		inserts,
+		deletes,
+		profileReadOnly: input.profileReadOnly,
 	}
 
 	try {
+		if (input.dryRun) {
+			return await applyEngineTableEdits({ ...request, dryRun: true })
+		}
 		return await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
 			applyEngineTableEdits({
+				...request,
+				dryRun: false,
+				confirmObjectName: confirmObjectName ?? null,
+			}),
+		)
+	} catch (err) {
+		throw new Error(invokeError(err))
+	}
+}
+
+export async function rollbackTableEdits(input: {
+	sessionId: string
+	table: string
+	statements: string[]
+	profileReadOnly: boolean
+}): Promise<void> {
+	try {
+		await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
+			rollbackEngineTableEdits({
 				sessionId: input.sessionId,
-				table: input.table.name,
-				schema: input.table.schema || null,
-				database: input.table.database || null,
-				columns: input.table.columns.map((c) => ({
-					name: c.name,
-					dataType: c.type,
-					nullable: !!c.nullable,
-					pk: !!c.pk,
-				})),
-				updates,
-				inserts,
-				deletes,
+				table: input.table,
+				statements: input.statements,
 				profileReadOnly: input.profileReadOnly,
 				confirmObjectName: confirmObjectName ?? null,
 			}),
@@ -128,4 +166,78 @@ export async function persistTableEdits(input: {
 	} catch (err) {
 		throw new Error(invokeError(err))
 	}
+}
+
+export async function distinctColumnValues(input: {
+	sessionId: string
+	table: TableMeta
+	column: string
+}): Promise<string[]> {
+	const values = await distinctEngineColumnValues({
+		sessionId: input.sessionId,
+		table: input.table.name,
+		schema: input.table.schema || null,
+		database: input.table.database || null,
+		column: input.column,
+		limit: DISTINCT_LIMIT,
+	})
+	const out: string[] = []
+	for (const value of values) {
+		if (value == null) continue
+		out.push(typeof value === 'string' ? value : JSON.stringify(value))
+		if (out.length >= DISTINCT_LIMIT) break
+	}
+	return out
+}
+
+export type StoredColumnLayout = GridColumnLayout & {
+	connectionId: string
+	tableId: string
+}
+
+export async function loadColumnLayout(
+	connectionId: string,
+	tableId: string,
+): Promise<GridColumnLayout | null> {
+	if (!isTauri()) return null
+	const row = await invoke<StoredColumnLayout | null>('get_grid_column_layout', {
+		connectionId,
+		tableId,
+	})
+	if (!row) return null
+	return { order: row.order ?? [], hidden: row.hidden ?? [], frozen: row.frozen ?? [] }
+}
+
+export async function saveColumnLayout(
+	connectionId: string,
+	tableId: string,
+	layout: GridColumnLayout,
+): Promise<void> {
+	if (!isTauri()) return
+	await invoke('save_grid_column_layout', {
+		layout: { connectionId, tableId, ...layout },
+	})
+}
+
+export async function loadRollbackSql(
+	connectionId: string,
+	tableId: string,
+): Promise<string[]> {
+	if (!isTauri()) return []
+	const row = await invoke<{ rollbackSql?: string[] } | null>('latest_grid_edit_history', {
+		connectionId,
+		tableId,
+	})
+	return row?.rollbackSql ?? []
+}
+
+export async function storeRollbackSql(
+	connectionId: string,
+	tableId: string,
+	rollbackSql: string[],
+): Promise<void> {
+	if (!isTauri() || rollbackSql.length === 0) return
+	await invoke('append_grid_edit_history', {
+		input: { connectionId, tableId, rollbackSql },
+	})
 }

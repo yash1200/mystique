@@ -199,6 +199,7 @@ pub fn import_chunk_sql(
         updates: Vec::new(),
         inserts: Vec::new(),
         deletes: Vec::new(),
+        dry_run: false,
     };
     let mut statements = Vec::new();
     let mut result = ImportChunkResult::default();

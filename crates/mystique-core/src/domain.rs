@@ -6,6 +6,7 @@
 mod agent_chat;
 mod ai_secret;
 mod connection;
+mod grid_layout;
 mod history;
 pub(crate) mod host_identity;
 pub(crate) mod mongo_uri;
@@ -18,6 +19,7 @@ mod workspace_tabs;
 pub use agent_chat::*;
 pub use ai_secret::*;
 pub use connection::*;
+pub use grid_layout::*;
 pub use history::*;
 pub use query_library::*;
 pub use settings::*;
