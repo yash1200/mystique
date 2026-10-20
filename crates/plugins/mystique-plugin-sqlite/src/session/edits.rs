@@ -155,11 +155,11 @@ fn exec_params(
         .map_err(query_failed_plain)
 }
 
-fn json_binds(params: &[JsonValue]) -> Vec<SqlBind> {
+pub(super) fn json_binds(params: &[JsonValue]) -> Vec<SqlBind> {
     params.iter().cloned().map(SqlBind).collect()
 }
 
-struct SqlBind(JsonValue);
+pub(super) struct SqlBind(JsonValue);
 
 impl ToSql for SqlBind {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
@@ -246,6 +246,7 @@ mod tests {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         };
         if let Err(err) = session.execute_query(&query).await {
             panic!("sql: {err}");
@@ -316,6 +317,7 @@ mod tests {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         };
         let rows = match session.execute_query(&check).await {
             Ok(result) => result.rows,
@@ -393,6 +395,7 @@ mod tests {
                     collection: None,
                     database: None,
                     control: QueryControl::new(),
+                    params: Vec::new(),
                 };
                 match session.execute_query(&check).await {
                     Ok(result) => result.rows,

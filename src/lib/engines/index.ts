@@ -45,7 +45,11 @@ export {
 } from './capabilities'
 
 export type { SqlCompleteConfig, SqlSnippetKind } from './sql/complete'
-export { sqlCatalogCompletion, sqlSchemaFromColumns } from './sql/complete'
+export {
+	catalogSignature,
+	sqlCatalogCompletion,
+	sqlSchemaFromColumns,
+} from './sql/complete'
 
 export {
 	emptySslDraft,

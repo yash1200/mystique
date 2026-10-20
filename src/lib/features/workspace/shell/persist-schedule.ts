@@ -24,6 +24,14 @@ export function createPersistScheduler(
 			timers.delete(connectionId)
 			return true
 		},
+		/** Stop every timer whose key matches. Disconnect uses this for tab drafts. */
+		cancelWhere(match: (key: string) => boolean) {
+			for (const [key, timer] of timers) {
+				if (!match(key)) continue
+				clearTimeout(timer)
+				timers.delete(key)
+			}
+		},
 		pending(connectionId: string): boolean {
 			return timers.has(connectionId)
 		},

@@ -45,6 +45,9 @@ pub struct ExecuteQueryRequest {
     /// Omitted ids are generated in core. Not stored on the connection profile.
     #[serde(default)]
     pub execution_id: Option<String>,
+    /// Bound values for `:name`, `?`, and `$n`. They are not spliced into `text`.
+    #[serde(default)]
+    pub params: Vec<JsonValue>,
 }
 
 /// One result column.
@@ -109,6 +112,7 @@ pub struct ValidatedQuery {
     pub collection: Option<String>,
     pub database: Option<String>,
     pub control: Arc<QueryControl>,
+    pub params: Vec<JsonValue>,
 }
 
 impl ValidatedQuery {
@@ -121,6 +125,7 @@ impl ValidatedQuery {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         }
     }
 }

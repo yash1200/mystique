@@ -65,6 +65,14 @@ export async function replaceWorkspaceTabs(
 	return invoke('replace_workspace_tabs', { input })
 }
 
+/** One tab. Keystrokes use this so the other tabs' bodies stay put. */
+export async function upsertWorkspaceTab(
+	input: SaveWorkspaceTabInput,
+): Promise<WorkspaceTabRecord> {
+	requireTauri()
+	return invoke('upsert_workspace_tab', { input })
+}
+
 export function recordToWorkspaceTab(r: WorkspaceTabRecord): WorkspaceTab {
 	const kind = r.kind as WorkspaceTabKind
 	return {

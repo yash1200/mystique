@@ -328,6 +328,7 @@ impl ConnectionManager {
                 multi_set: false,
                 txn_boundary: false,
                 explain_executes: false,
+                params: Vec::new(),
             }],
             mode,
             max_rows,
@@ -402,6 +403,7 @@ impl ConnectionManager {
             SqlDialect::from_engine(&engine),
             mode,
             tab_id.is_some(),
+            &req.params,
         )?;
         self.enforce_write_guard(
             &req.session_id,

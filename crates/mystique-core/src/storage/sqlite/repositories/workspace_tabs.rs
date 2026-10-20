@@ -174,6 +174,32 @@ pub fn replace_tabs(
     list_tabs(conn, &input.connection_id)
 }
 
+/// Insert or update one tab. An active tab clears `is_active` on the others.
+///
+/// Keystrokes use this so a draft save does not rewrite every tab body.
+pub fn upsert_one(
+    conn: &Connection,
+    input: SaveWorkspaceTabInput,
+) -> AppResult<WorkspaceTabRecord> {
+    ensure_connection_exists(conn, &input.connection_id)?;
+    let now = now_iso();
+    let id = input.id.trim().to_string();
+    let tx = conn.unchecked_transaction()?;
+    if input.is_active {
+        let connection_id = parse_id(&input.connection_id)?;
+        tx.execute(
+            "UPDATE workspace_tabs SET is_active = 0 WHERE connection_id = ?1 AND id != ?2",
+            params![connection_id, id],
+        )?;
+    }
+    upsert_tab(&tx, &input, &now)?;
+    tx.commit()?;
+    let tabs = list_tabs(conn, &input.connection_id)?;
+    tabs.into_iter()
+        .find(|tab| tab.id == id)
+        .ok_or_else(|| AppError::NotFound(format!("workspace tab '{id}'")))
+}
+
 pub fn delete_tab(conn: &Connection, id: &str) -> AppResult<()> {
     let n = conn.execute("DELETE FROM workspace_tabs WHERE id = ?1", params![id])?;
     if n == 0 {

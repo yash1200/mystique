@@ -135,6 +135,7 @@ async fn bad_sql_surfaces_postgres_message() {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect_err("invalid SQL should fail");

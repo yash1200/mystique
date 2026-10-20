@@ -74,6 +74,11 @@ impl PinnedSession for MongoPin {
             collection: batch.collection.clone(),
             database: batch.database.clone(),
             control: std::sync::Arc::clone(&batch.control),
+            params: batch
+                .statements
+                .first()
+                .map(|stmt| stmt.params.clone())
+                .unwrap_or_default(),
         };
         // The client session is the transaction. Editor commands on this tab
         // run through it when the driver call accepts `.session`.
@@ -102,6 +107,7 @@ impl PinnedSession for MongoPin {
                         multi_set: false,
                         txn_boundary: false,
                         explain_executes: false,
+                        params: Vec::new(),
                     });
                 Ok(QueryBatchResult {
                     results: vec![StatementResult::success(&stmt, 0, result, None, Vec::new())],

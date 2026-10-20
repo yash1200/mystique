@@ -4,6 +4,7 @@
 	 * Composes toolbar / editor / results; native paste via bind:value.
 	 */
 	import type {
+		CatalogColumnRow,
 		EngineCapabilities,
 		ExplainPlan,
 		QueryMode,
@@ -45,6 +46,7 @@
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
 	import type { QueryHistoryItem } from '../history-types'
+	import { scanQueryParams, type ParamSlot } from '../params'
 	import { queryLanguageFor, queryPlaceholder } from '../policy'
 	import {
 		editorEpoch,
@@ -61,6 +63,7 @@
 	} from '../statement-span'
 	import ExplainView from './ExplainView.svelte'
 	import QueryEditor from './QueryEditor.svelte'
+	import QueryParamsDialog from './QueryParamsDialog.svelte'
 	import { identStyleFor } from '#features/workspace/grid'
 	import QueryResultsPanel, {
 		type ResultExportAction,
@@ -114,8 +117,12 @@
 			? catalogColumnsCache.key(engineSessionId, database || null)
 			: '',
 	)
+	const noColumns: CatalogColumnRow[] = []
+	const noSlots: ParamSlot[] = []
 	const catalogColumns = $derived(
-		catalogColKey ? (catalogColumnsCache.byKey[catalogColKey] ?? []) : [],
+		catalogColKey
+			? (catalogColumnsCache.byKey[catalogColKey] ?? noColumns)
+			: noColumns,
 	)
 	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let editorSnap = $state({ doc: '', head: 0, anchor: 0 })
@@ -125,6 +132,10 @@
 	let transactionOpen = $state(false)
 	let analyze = $state(false)
 	let explainPlan = $state<ExplainPlan | null>(null)
+	let paramPrompt = $state<{ text: string; origin: number; slots: ParamSlot[] } | null>(
+		null,
+	)
+	let canvasTab = ''
 	const showTransactions = $derived(capabilities?.supportsTransactions === true)
 	const showExplain = $derived(capabilities?.supportsExplainPlan === true)
 
@@ -167,6 +178,28 @@
 	const lineCount = $derived.by(() => {
 		if (!localText) return 1
 		return localText.split('\n').length
+	})
+
+	// One canvas instance covers every query tab. Reset the bits `{#key}` used to drop.
+	$effect(() => {
+		const id = tabId
+		if (!canvasTab) {
+			canvasTab = id
+			return
+		}
+		if (id === canvasTab) return
+		canvasTab = id
+		explainPlan = null
+		analyze = false
+		collection = ''
+		manualCommit = false
+		transactionOpen = false
+		paramPrompt = null
+		editorSharePct = SPLIT_DEFAULT
+		const next = text ?? ''
+		localText = next
+		lastEmitted = next
+		editorSnap = { doc: next, head: 0, anchor: 0 }
 	})
 
 	// Sync parent draft (e.g. open from history) when not typing in the editor.
@@ -428,13 +461,30 @@
 		}
 	}
 
-	async function runQuery(body?: string, origin = 0) {
+	async function runQuery(body?: string, origin = 0, bound?: unknown[]) {
 		if (runState.status === 'running') return
-		explainPlan = null
 		const mode = effectiveMode
-		const start = performance.now()
 		const sqlText = (body ?? currentQueryText()).trim()
 		if (!sqlText) return
+		if (bound === undefined && language !== 'mql') {
+			const scanned = scanQueryParams(sqlText, splitDialectFor(engine))
+			if (scanned.error) {
+				persistRunCache({
+					status: 'error',
+					message: scanned.error,
+					mode,
+					elapsedMs: 0,
+				})
+				return
+			}
+			if (scanned.slots.length > 0) {
+				paramPrompt = { text: sqlText, origin, slots: scanned.slots }
+				return
+			}
+			bound = []
+		}
+		explainPlan = null
+		const start = performance.now()
 		const startedEpoch = editorEpoch(tabId)
 		persistRunCache({ status: 'running' }, 0, sqlText, 0, null, origin)
 
@@ -477,6 +527,7 @@
 				collection: language === 'mql' ? collection.trim() || null : null,
 				database: database?.trim() ? database.trim() : null,
 				executionId,
+				params: bound ?? [],
 			}
 			const onProgress = (event: { index: number; total: number }) => {
 				if (!tabStillOpen()) return
@@ -718,9 +769,11 @@
 			style="flex: 0 0 {editorSharePct}%; max-height: {SPLIT_MAX}%"
 		>
 			<QueryEditor
+				{tabId}
 				{connectionId}
 				{engine}
 				{placeholder}
+				draft={text ?? ''}
 				bind:localText
 				{lineCount}
 				{language}
@@ -801,4 +854,17 @@
 			{/if}
 		</div>
 	</div>
+	<QueryParamsDialog
+		open={paramPrompt != null}
+		slots={paramPrompt?.slots ?? noSlots}
+		oncancel={() => {
+			paramPrompt = null
+		}}
+		onconfirm={(values) => {
+			const pending = paramPrompt
+			paramPrompt = null
+			if (!pending) return
+			void runQuery(pending.text, pending.origin, values)
+		}}
+	/>
 </div>

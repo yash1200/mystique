@@ -22,6 +22,7 @@
 	import { ServerMetricsView } from '#features/workspace/metrics'
 	import {
 		prependHistoryItem,
+		pruneEditorStates,
 		QueryCanvas,
 		querySave,
 	} from '#features/workspace/query'
@@ -157,6 +158,10 @@
 	)
 
 	$effect(() => {
+		pruneEditorStates(workspaceSession.openTabs.map((tab) => tab.id))
+	})
+
+	$effect(() => {
 		const key = showTableLoading ? String(activeTabId ?? '') : ''
 		if (key && key !== tablePunKey) {
 			tablePun = randomLoadingPun()
@@ -284,26 +289,24 @@
 		{#if activeSession && activeTab?.kind === 'query'}
 			<div class="flex min-h-0 min-w-0 flex-1">
 				<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-					{#key activeTab.id}
-						<QueryCanvas
-							tabId={activeTab.id}
-							connectionId={activeSession.profile.id}
-							connectionName={activeSession.profile.name}
-							engine={String(activeSession.profile.engine)}
-							capabilities={activeSession.capabilities}
-							profileReadOnly={!!activeSession.profile.readOnly}
-							engineSessionId={activeSession.engineSessionId}
-							database={currentDatabaseName}
-							text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
-							dirty={!!activeTab.dirty}
-							saving={querysaving}
-							ontextchange={(v) =>
-								workspaceSession.setQueryDraft(activeTab.id, v)}
-							onhistory={prependHistoryItem}
-							onsave={() => void querySave.saveActive()}
-							onreconnect={reconnectActiveSession}
-						/>
-					{/key}
+					<QueryCanvas
+						tabId={activeTab.id}
+						connectionId={activeSession.profile.id}
+						connectionName={activeSession.profile.name}
+						engine={String(activeSession.profile.engine)}
+						capabilities={activeSession.capabilities}
+						profileReadOnly={!!activeSession.profile.readOnly}
+						engineSessionId={activeSession.engineSessionId}
+						database={currentDatabaseName}
+						text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
+						dirty={!!activeTab.dirty}
+						saving={querysaving}
+						ontextchange={(v) =>
+							workspaceSession.setQueryDraft(activeTab.id, v)}
+						onhistory={prependHistoryItem}
+						onsave={() => void querySave.saveActive()}
+						onreconnect={reconnectActiveSession}
+					/>
 				</div>
 				{#if appPrefs.agentChatOpen}
 					<div

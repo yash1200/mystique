@@ -381,10 +381,44 @@ async fn drain_sets(
     batch: &ValidatedBatch,
     stmt: &PlannedStatement,
 ) -> ConnectorResult<(Vec<StatementResult>, bool)> {
-    let mut qr = conn
-        .query_iter(stmt.sql.as_str())
-        .await
-        .map_err(|err| located_batch(batch, &stmt.sql, err))?;
+    let (mut sets, stopped, warnings) = if stmt.params.is_empty() {
+        let mut qr = conn
+            .query_iter(stmt.sql.as_str())
+            .await
+            .map_err(|err| located_batch(batch, &stmt.sql, err))?;
+        read_mysql_sets(&mut qr, batch, stmt).await?
+    } else {
+        let mut qr = conn
+            .exec_iter(stmt.sql.as_str(), super::edits::mysql_params(&stmt.params))
+            .await
+            .map_err(|err| located_batch(batch, &stmt.sql, err))?;
+        read_mysql_sets(&mut qr, batch, stmt).await?
+    };
+    if warnings > 0 {
+        let notes = show_warnings(conn).await;
+        if let Some(last) = sets.last_mut() {
+            last.notices = if notes.is_empty() {
+                vec![if warnings == 1 {
+                    "1 warning.".to_string()
+                } else {
+                    format!("{warnings} warnings.")
+                }]
+            } else {
+                notes
+            };
+        }
+    }
+    Ok((sets, stopped))
+}
+
+async fn read_mysql_sets<P>(
+    qr: &mut mysql_async::QueryResult<'_, '_, P>,
+    batch: &ValidatedBatch,
+    stmt: &PlannedStatement,
+) -> ConnectorResult<(Vec<StatementResult>, bool, u16)>
+where
+    P: mysql_async::prelude::Protocol,
+{
     let max_rows = batch.max_rows.max(1) as usize;
     let mut sets = Vec::new();
     let mut set_index: u32 = 0;
@@ -472,31 +506,17 @@ async fn drain_sets(
             Vec::new(),
         ));
         if truncated {
-            return Ok((sets, true));
+            return Ok((sets, true, max_warnings));
         }
         if qr.is_empty() {
             break;
         }
         set_index = set_index.saturating_add(1);
         if set_index >= 32 {
-            return Ok((sets, true));
+            return Ok((sets, true, max_warnings));
         }
     }
-    if max_warnings > 0 {
-        let notes = show_warnings(conn).await;
-        if let Some(last) = sets.last_mut() {
-            last.notices = if notes.is_empty() {
-                vec![if max_warnings == 1 {
-                    "1 warning.".to_string()
-                } else {
-                    format!("{max_warnings} warnings.")
-                }]
-            } else {
-                notes
-            };
-        }
-    }
-    Ok((sets, false))
+    Ok((sets, false, max_warnings))
 }
 
 async fn show_warnings(conn: &mut mysql_async::Conn) -> Vec<String> {

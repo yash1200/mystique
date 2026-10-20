@@ -5,7 +5,7 @@
 	 */
 	import type { CatalogColumnRow } from '#core/contracts'
 	import { Button, Icon, Input, Pill } from '#core/ui'
-	import { adapterFor, formatQuery } from '#engines'
+	import { adapterFor, catalogSignature, formatQuery } from '#engines'
 	import { showToast } from '#features/toast'
 	import { appPrefs } from '#lib/app'
 	import { autocompletion } from '@codemirror/autocomplete'
@@ -14,9 +14,10 @@
 	import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
 	import { setDiagnostics } from '@codemirror/lint'
 	import {
-		Compartment,
+		EditorState,
 		Prec,
 		RangeSetBuilder,
+		Transaction,
 		type Extension,
 	} from '@codemirror/state'
 	import {
@@ -30,6 +31,12 @@
 	import { onMount } from 'svelte'
 	import { mystiqueSearch } from '../cm-search-panel'
 	import {
+		editorCompartments,
+		holdEditorState,
+		peekEditorState,
+		switchEditorState,
+	} from '../editor-state'
+	import {
 		createMystiqueEditorTheme,
 		identPathHighlight,
 		mystiqueHighlight,
@@ -42,10 +49,13 @@
 	} from '../statement-span'
 
 	interface Props {
+		tabId: string
 		connectionId: string
 		/** Engine id for dialect-aware formatting (postgres, mysql, sqlite, mongodb, …). */
 		engine: string
 		placeholder: string
+		/** Draft for this tab when it has no EditorState yet. */
+		draft?: string
 		localText?: string
 		lineCount: number
 		language: string
@@ -91,9 +101,11 @@
 	}
 
 	let {
+		tabId,
 		connectionId,
 		engine,
 		placeholder,
+		draft = '',
 		localText = $bindable(''),
 		lineCount,
 		language,
@@ -128,10 +140,9 @@
 	let view: EditorView | null = null
 	let editorReady = $state(0)
 	let scrolledKey = ''
-	let langCompartment = new Compartment()
-	let placeholderCompartment = new Compartment()
-	let themeCompartment = new Compartment()
-	let runGutterCompartment = new Compartment()
+	let mountedTab = ''
+	let appliedLang = ''
+	let extensions: Extension[] = []
 
 	function themeIsDark(): boolean {
 		return appPrefs.resolvedTheme === 'dark'
@@ -302,13 +313,17 @@
 	function buildExtensions(lang: string, ph: string): Extension[] {
 		return [
 			basicSetup,
-			runGutterCompartment.of(showStatementGutter ? [statementGutter()] : []),
+			editorCompartments.runGutter.of(
+				showStatementGutter ? [statementGutter()] : [],
+			),
 			mystiqueSearch(),
-			themeCompartment.of(createMystiqueEditorTheme(themeIsDark())),
+			editorCompartments.theme.of(createMystiqueEditorTheme(themeIsDark())),
 			mystiqueHighlight,
 			identPathHighlight,
-			langCompartment.of(languageExtension(lang, engine, catalogColumns)),
-			placeholderCompartment.of(ph ? cmPlaceholder(ph) : []),
+			editorCompartments.lang.of(
+				languageExtension(lang, engine, catalogColumns),
+			),
+			editorCompartments.placeholder.of(ph ? cmPlaceholder(ph) : []),
 			autocompletion({ activateOnTyping: true, icons: true }),
 			// No linter source. An empty source replaces setDiagnostics after its idle delay.
 			EditorView.lineWrapping,
@@ -385,17 +400,37 @@
 	onMount(() => {
 		if (!hostEl) return
 
-		view = new EditorView({
-			doc: localText ?? '',
-			extensions: buildExtensions(language, placeholder),
-			parent: hostEl,
-		})
+		extensions = buildExtensions(language, placeholder)
+		const existing = peekEditorState(tabId)
+		if (existing) {
+			view = new EditorView({ state: existing.state, parent: hostEl })
+			view.scrollDOM.scrollTop = existing.scrollTop
+			view.scrollDOM.scrollLeft = existing.scrollLeft
+		} else {
+			view = new EditorView({
+				state: EditorState.create({
+					doc: localText ?? draft ?? '',
+					extensions,
+				}),
+				parent: hostEl,
+			})
+		}
+		mountedTab = tabId
 		editorReady += 1
 		publishActivity()
 
 		return () => {
+			if (view && mountedTab) {
+				holdEditorState(
+					mountedTab,
+					view.state,
+					view.scrollDOM.scrollTop,
+					view.scrollDOM.scrollLeft,
+				)
+			}
 			view?.destroy()
 			view = null
+			mountedTab = ''
 		}
 	})
 
@@ -404,9 +439,10 @@
 		const v = view
 		if (!v) return
 		v.dispatch({
-			effects: runGutterCompartment.reconfigure(
+			effects: editorCompartments.runGutter.reconfigure(
 				show ? [statementGutter()] : [],
 			),
+			annotations: Transaction.addToHistory.of(false),
 		})
 	})
 
@@ -415,21 +451,52 @@
 		const v = view
 		if (!v) return
 		v.dispatch({
-			effects: themeCompartment.reconfigure(createMystiqueEditorTheme(dark)),
+			effects: editorCompartments.theme.reconfigure(
+				createMystiqueEditorTheme(dark),
+			),
+			annotations: Transaction.addToHistory.of(false),
 		})
 	})
 
-	// Parent draft / history → editor (never while user is typing in the CM DOM).
+	// Tab switch restores that tab's EditorState before any document replace.
+	// A replace on the previous state would drop its undo stack.
 	$effect(() => {
+		const id = tabId
+		const seed = draft ?? ''
 		const next = localText ?? ''
 		const v = view
-		if (!v) return
-		const cur = v.state.doc.toString()
-		if (cur === next) return
+		void editorReady
+		if (!v || !id) return
+		if (id !== mountedTab) {
+			applyingExternal = true
+			switchEditorState(v, mountedTab, id, seed, extensions)
+			v.dispatch({
+				effects: [
+					editorCompartments.theme.reconfigure(
+						createMystiqueEditorTheme(themeIsDark()),
+					),
+					editorCompartments.runGutter.reconfigure(
+						showStatementGutter ? [statementGutter()] : [],
+					),
+				],
+				annotations: Transaction.addToHistory.of(false),
+			})
+			applyingExternal = false
+			mountedTab = id
+			appliedLang = ''
+			const shown = v.state.doc.toString()
+			if (shown !== next) {
+				localText = shown
+				callbacks.onchange?.(shown)
+			}
+			publishActivity()
+			return
+		}
+		if (v.state.doc.toString() === next) return
 		if (v.hasFocus) return
 		applyingExternal = true
 		v.dispatch({
-			changes: { from: 0, to: cur.length, insert: next },
+			changes: { from: 0, to: v.state.doc.length, insert: next },
 		})
 		applyingExternal = false
 	})
@@ -469,20 +536,29 @@
 		v.focus()
 	})
 
-	// Language / placeholder / catalog completions when engine or schema changes.
+	// Rebuild the SQL schema only when the catalog contents change.
 	$effect(() => {
 		const lang = language
 		const ph = placeholder
 		const eng = engine
 		const cols = catalogColumns
+		const id = tabId
+		const sig = `${lang}\0${eng}\0${ph}\0${catalogSignature(cols)}`
 		const v = view
-		if (!v) return
+		void editorReady
+		if (!v || id !== mountedTab) return
+		if (sig === appliedLang) return
+		appliedLang = sig
 		v.dispatch({
 			effects: [
-				langCompartment.reconfigure(languageExtension(lang, eng, cols)),
-				// CodeMirror treats empty string as no placeholder when extension is still present.
-				placeholderCompartment.reconfigure(ph ? cmPlaceholder(ph) : []),
+				editorCompartments.lang.reconfigure(
+					languageExtension(lang, eng, cols),
+				),
+				editorCompartments.placeholder.reconfigure(
+					ph ? cmPlaceholder(ph) : [],
+				),
 			],
+			annotations: Transaction.addToHistory.of(false),
 		})
 	})
 </script>

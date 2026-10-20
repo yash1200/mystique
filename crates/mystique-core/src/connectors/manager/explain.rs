@@ -51,6 +51,7 @@ impl ConnectionManager {
             collection: req.collection,
             database: req.database,
             control: Arc::clone(&control),
+            params: Vec::new(),
         };
         let result = self
             .drive_registered(

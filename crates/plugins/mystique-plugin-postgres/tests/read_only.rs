@@ -19,6 +19,7 @@ fn query(text: &str, mode: QueryMode) -> ValidatedQuery {
         collection: None,
         database: None,
         control: QueryControl::new(),
+        params: Vec::new(),
     }
 }
 

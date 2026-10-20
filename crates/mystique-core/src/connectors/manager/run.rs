@@ -292,6 +292,7 @@ mod tests {
             collection: None,
             database: None,
             execution_id: execution_id.map(str::to_string),
+            params: Vec::new(),
         }
     }
 

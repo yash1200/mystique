@@ -41,6 +41,7 @@ pub(super) async fn distinct_column_values(
             collection: None,
             database: input.database.clone(),
             control: QueryControl::new(),
+            params: Vec::new(),
         },
     )
     .await?;

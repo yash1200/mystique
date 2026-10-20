@@ -46,7 +46,8 @@ export const sqlite: EngineAdapter = {
 				dialect: SQLite,
 				kind: 'sqlite',
 			}),
-		sqlSchema: (rows) => sqlSchemaFromColumns(rows, { nestSchemas: false }),
+		sqlSchema: (rows) =>
+			sqlSchemaFromColumns(rows, { nestSchemas: false, quote: 'postgres' }),
 	},
 
 	defaultCapabilities: relationalCapabilities({

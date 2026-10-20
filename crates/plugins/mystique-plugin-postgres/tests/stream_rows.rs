@@ -22,6 +22,7 @@ fn query(text: &str, max_rows: u32) -> ValidatedQuery {
         collection: None,
         database: None,
         control: QueryControl::new(),
+        params: Vec::new(),
     }
 }
 

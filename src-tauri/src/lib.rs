@@ -147,6 +147,7 @@ pub fn run() {
             ipc::grid_layout::append_grid_edit_history,
             ipc::workspace_tabs::list_workspace_tabs,
             ipc::workspace_tabs::replace_workspace_tabs,
+            ipc::workspace_tabs::upsert_workspace_tab,
             ipc::workspace_tabs::delete_workspace_tab,
             // history
             ipc::history::append_query_history,

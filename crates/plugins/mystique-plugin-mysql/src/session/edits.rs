@@ -130,7 +130,7 @@ async fn count_rows(
     value_i64(row.as_ref(0).cloned().unwrap_or(Value::NULL))
 }
 
-fn mysql_params(params: &[JsonValue]) -> Vec<Value> {
+pub(super) fn mysql_params(params: &[JsonValue]) -> Vec<Value> {
     params.iter().map(mysql_value).collect()
 }
 

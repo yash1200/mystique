@@ -1,4 +1,4 @@
-use crate::domain::{ReplaceWorkspaceTabsInput, WorkspaceTabRecord};
+use crate::domain::{ReplaceWorkspaceTabsInput, SaveWorkspaceTabInput, WorkspaceTabRecord};
 use crate::error::AppResult;
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
@@ -19,6 +19,11 @@ impl WorkspaceTabsService<'_> {
     ) -> AppResult<Vec<WorkspaceTabRecord>> {
         self.db
             .with_conn(|c| repo::workspace_tabs::replace_tabs(c, input))
+    }
+
+    pub fn upsert_tab(&self, input: SaveWorkspaceTabInput) -> AppResult<WorkspaceTabRecord> {
+        self.db
+            .with_conn(|c| repo::workspace_tabs::upsert_one(c, input))
     }
 
     pub fn delete_tab(&self, id: &str) -> AppResult<()> {

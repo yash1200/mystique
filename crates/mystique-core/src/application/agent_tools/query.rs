@@ -46,6 +46,7 @@ impl AgentTools {
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
                 execution_id: None,
+                params: Vec::new(),
             })
             .await?;
         Ok(download_from_result(result, format, window))
@@ -104,6 +105,7 @@ impl AgentTools {
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
                 execution_id: None,
+                params: Vec::new(),
             })
             .await?;
         Ok(download_from_result(result, format, window))

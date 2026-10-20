@@ -325,6 +325,7 @@ async fn production_write_requires_unlock() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("blocked");
@@ -344,6 +345,7 @@ async fn production_write_requires_unlock() {
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     })
     .await
     .expect("write after unlock");
@@ -360,6 +362,7 @@ async fn production_write_requires_unlock() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("drop needs name");
@@ -377,6 +380,7 @@ async fn production_write_requires_unlock() {
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     })
     .await
     .expect("drop after type confirm");
@@ -417,6 +421,7 @@ async fn local_write_skips_unlock() {
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     })
     .await
     .expect("local write");
@@ -484,6 +489,7 @@ async fn live_read_only_ignores_a_client_write_flag() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("client write flag must not override the session");
@@ -505,6 +511,7 @@ async fn live_read_only_ignores_a_client_write_flag() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect("count");
@@ -580,6 +587,7 @@ async fn count_rows(mgr: &ConnectionManager, session_id: &str) -> i64 {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect("count");
@@ -779,6 +787,7 @@ async fn aggregate_out_on_production_prompts_once() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("aggregate $out prompts");
@@ -803,6 +812,7 @@ async fn aggregate_out_on_production_prompts_once() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("read-only bulkWrite");
@@ -829,6 +839,7 @@ async fn mongo_delete_many_on_production_prompts() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("deleteMany prompts");
@@ -853,6 +864,7 @@ async fn mongo_delete_many_on_production_prompts() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("shell deleteMany prompts");
@@ -876,6 +888,7 @@ async fn mongo_filter_delete_text_is_a_read() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect("filter value is not a write");
@@ -897,6 +910,7 @@ async fn mongo_filter_delete_text_is_a_read() {
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     })
     .await
     .expect("shell find stays a read");
@@ -919,6 +933,7 @@ async fn mongo_write_on_read_only_session_ignores_client_flag() {
             collection: None,
             database: None,
             execution_id: None,
+            params: Vec::new(),
         })
         .await
         .expect_err("live read-only blocks the write");
@@ -941,6 +956,7 @@ fn write_req(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQue
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     }
 }
 
@@ -960,6 +976,7 @@ fn batch_req(
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     }
 }
 
@@ -1916,5 +1933,113 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
     let _ = mgr.close_session("ui-hist").await;
     let _ = mgr.close_session("agent:1").await;
     let _ = mgr.close_session("mcp:1").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn bound_parameter_is_not_spliced_into_history() {
+    let path = temp_db("bind-hist");
+    let _ = std::fs::remove_file(&path);
+    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    db.with_conn(|c| {
+        c.execute(
+            "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
+             VALUES ('bind', 'sqlite', 'slate', 'local', 0, '{}', 'now', 'now')",
+            [],
+        )?;
+        Ok(())
+    })
+    .expect("profile");
+    let profile_id = "1".to_string();
+    let services =
+        crate::application::AppServices::with_connections(db, ConnectionManager::bootstrap());
+    let mgr = services.connections();
+    let mut open = sqlite_open(&path, "bind-hist", "local", false);
+    open.profile_id = Some(profile_id.clone());
+    mgr.open_session(open).await.expect("open");
+    mgr.execute_query(write_req(
+        "bind-hist",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t (id) VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+
+    let mut bound = batch_req(
+        "bind-hist",
+        "SELECT :marker",
+        mystique_connector_api::QueryMode::Read,
+    );
+    bound.params = vec![json!("secret-value-zz")];
+    let batch = mgr.execute_batch(bound, None).await.expect("bound select");
+    let cell = batch
+        .results
+        .first()
+        .and_then(|stmt| stmt.result.as_ref())
+        .and_then(|result| result.rows.first())
+        .and_then(|row| row.first().cloned())
+        .expect("cell");
+    assert_eq!(cell, json!("secret-value-zz"));
+
+    let mut smash = batch_req(
+        "bind-hist",
+        "SELECT :id",
+        mystique_connector_api::QueryMode::Read,
+    );
+    smash.params = vec![json!("1; DROP TABLE t")];
+    let smashed = mgr
+        .execute_batch(smash, None)
+        .await
+        .expect("a value is not a second statement");
+    assert_eq!(smashed.results.len(), 1);
+    assert!(smashed.stopped_at.is_none());
+    let smashed_cell = smashed
+        .results
+        .first()
+        .and_then(|stmt| stmt.result.as_ref())
+        .and_then(|result| result.rows.first())
+        .and_then(|row| row.first().cloned())
+        .expect("smashed cell");
+    assert_eq!(smashed_cell, json!("1; DROP TABLE t"));
+    assert_eq!(count_rows(&mgr, "bind-hist").await, 1);
+
+    let missing = mgr
+        .execute_batch(
+            batch_req(
+                "bind-hist",
+                "SELECT :missing",
+                mystique_connector_api::QueryMode::Read,
+            ),
+            None,
+        )
+        .await
+        .expect_err("missing value blocks the run");
+    assert!(missing.to_string().contains(":missing"), "{missing}");
+
+    let explained = mgr
+        .explain_query(explain_req("bind-hist", "SELECT :id", false))
+        .await
+        .expect_err("explain still requires the value");
+    assert!(explained.to_string().contains(":id"), "{explained}");
+
+    let page = services
+        .history()
+        .list_for_connection(&profile_id, 50)
+        .expect("list");
+    assert!(
+        page.iter()
+            .any(|row| row.body.contains(":marker") && !row.body.contains("secret-value-zz")),
+        "{page:?}"
+    );
+    assert!(
+        page.iter()
+            .all(|row| !row.body.contains("secret-value-zz") && !row.body.contains("DROP TABLE")),
+        "{page:?}"
+    );
+    assert!(
+        page.iter().any(|row| row.body.contains("SELECT :id")),
+        "{page:?}"
+    );
+
+    let _ = mgr.close_session("bind-hist").await;
     let _ = std::fs::remove_file(&path);
 }

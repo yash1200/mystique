@@ -15,8 +15,10 @@ import {
 	listWorkspaceTabs,
 	recordToWorkspaceTab,
 	replaceWorkspaceTabs,
+	upsertWorkspaceTab,
 	workspaceTabToSaveInput,
 } from './api'
+import { tabDraftUpsert } from './tab-persist'
 import { dropEditBuffer } from './edit-buffer'
 import { createPersistScheduler } from './persist-schedule'
 import type { SelectedRow, TableTabPreview, WorkspaceTab } from './types'
@@ -53,6 +55,10 @@ class WorkspaceSessionStore {
 	private persistScheduler = createPersistScheduler((connectionId) =>
 		this.persistNow(connectionId),
 	)
+	/** One timer per tab. A keystroke upserts that tab, not the whole list. */
+	private draftScheduler = createPersistScheduler((tabId) => {
+		void this.persistDraft(tabId)
+	})
 	private restoring = new Set<string>()
 
 	get activeSession(): ConnectedSession | null {
@@ -188,7 +194,54 @@ class WorkspaceSessionStore {
 	/** Persist open tabs for one connection (debounced). */
 	schedulePersist(connectionId: string) {
 		if (!isTauri() || this.restoring.has(connectionId)) return
+		this.cancelDrafts(connectionId)
 		this.persistScheduler.schedule(connectionId)
+	}
+
+	private cancelDrafts(connectionId: string) {
+		this.draftScheduler.cancelWhere((tabId) =>
+			this.openTabs.some(
+				(tab) => tab.id === tabId && tab.connectionId === connectionId,
+			),
+		)
+	}
+
+	private scheduleDraft(tabId: string) {
+		const tab = this.openTabs.find((item) => item.id === tabId)
+		if (!tab || !isTauri() || this.restoring.has(tab.connectionId)) return
+		if (this.persistScheduler.pending(tab.connectionId)) return
+		this.draftScheduler.schedule(tabId)
+	}
+
+	private activeTabFor(connectionId: string): string | null {
+		const tabs = this.openTabs.filter((tab) => tab.connectionId === connectionId)
+		const remembered = this.activeTabByConnection[connectionId]
+		if (remembered && tabs.some((tab) => tab.id === remembered)) return remembered
+		if (this.activeTabId && tabs.some((tab) => tab.id === this.activeTabId)) {
+			return this.activeTabId
+		}
+		return tabs[0]?.id ?? null
+	}
+
+	/** Keystroke path: one row, one body. */
+	private async persistDraft(tabId: string) {
+		const tab = this.openTabs.find((item) => item.id === tabId)
+		if (!tab || !isTauri() || this.restoring.has(tab.connectionId)) return
+		const tabs = this.openTabs.filter(
+			(item) => item.connectionId === tab.connectionId,
+		)
+		const input = tabDraftUpsert(
+			tabs,
+			tabId,
+			this.queryDrafts[tabId] ?? '',
+			this.activeTabFor(tab.connectionId),
+		)
+		if (!input) return
+		try {
+			await upsertWorkspaceTab(input)
+		} catch (e) {
+			console.warn('[mystique] persist query draft:', e)
+		}
 	}
 
 	async persistNow(connectionId: string) {
@@ -351,8 +404,9 @@ class WorkspaceSessionStore {
 
 	disconnect(id: string) {
 		// A pending timer would otherwise fire after the tab list is cleared
-		// and persist an empty set.
+		// and persist an empty set. Draft timers are tab-keyed, so cancel those too.
 		this.persistScheduler.cancel(id)
+		this.cancelDrafts(id)
 		void this.persistNow(id)
 
 		this.sessions = this.sessions.filter((s) => s.profile.id !== id)
@@ -653,7 +707,11 @@ class WorkspaceSessionStore {
 	}
 
 	setQueryDraft(tabId: string, text: string) {
-		this.queryDrafts = { ...this.queryDrafts, [tabId]: text }
+		if ((this.queryDrafts[tabId] ?? '') === text) {
+			if (this.queryDrafts[tabId] === undefined) this.queryDrafts[tabId] = text
+			return
+		}
+		this.queryDrafts[tabId] = text
 		const baseline = this.queryBaselines[tabId] ?? ''
 		const dirty = text !== baseline
 		const tab = this.openTabs.find((t) => t.id === tabId)
@@ -662,7 +720,7 @@ class WorkspaceSessionStore {
 				t.id === tabId ? { ...t, dirty } : t,
 			)
 		}
-		if (tab) this.schedulePersist(tab.connectionId)
+		if (tab) this.scheduleDraft(tabId)
 	}
 
 	/** After successful save: link savedQueryId, update title, clear dirty. */

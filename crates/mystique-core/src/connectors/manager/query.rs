@@ -90,6 +90,7 @@ impl ConnectionManager {
             collection: req.collection,
             database: req.database,
             control: Arc::clone(&control),
+            params: Vec::new(),
         };
         if let Some(tab) = tab_id.as_deref() {
             let batch = self

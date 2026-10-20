@@ -63,7 +63,8 @@ export const postgres: EngineAdapter = {
 				kind: 'postgresql',
 			}),
 		// Postgres always nests by schema, even with a single non-public schema.
-		sqlSchema: (rows) => sqlSchemaFromColumns(rows, { nestSchemas: true }),
+		sqlSchema: (rows) =>
+			sqlSchemaFromColumns(rows, { nestSchemas: true, quote: 'postgres' }),
 	},
 
 	defaultCapabilities: relationalCapabilities({

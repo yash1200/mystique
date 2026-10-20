@@ -115,6 +115,7 @@ mod tests {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         };
         if let Err(err) = session.execute_query(&seed).await {
             panic!("seed: {err}");

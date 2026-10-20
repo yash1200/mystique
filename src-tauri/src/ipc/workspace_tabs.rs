@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use mystique_core::{ReplaceWorkspaceTabsInput, WorkspaceTabRecord};
+use mystique_core::{ReplaceWorkspaceTabsInput, SaveWorkspaceTabInput, WorkspaceTabRecord};
 use tauri::State;
 
 use crate::AppState;
@@ -30,6 +30,21 @@ pub async fn replace_workspace_tabs(
         services
             .workspace_tabs()
             .replace_tabs(input)
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn upsert_workspace_tab(
+    state: State<'_, AppState>,
+    input: SaveWorkspaceTabInput,
+) -> Result<WorkspaceTabRecord, String> {
+    let services = Arc::clone(&state.services);
+    super::guard_blocking(move || {
+        services
+            .workspace_tabs()
+            .upsert_tab(input)
             .map_err(|e| e.to_string())
     })
     .await

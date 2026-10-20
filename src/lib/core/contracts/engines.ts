@@ -119,6 +119,8 @@ export interface ExecuteQueryRequest {
 	database?: string | null
 	/** Client id so Cancel / Esc / tab close can stop this run. */
 	executionId?: string | null
+	/** Bound values for `:name`, `?`, and `$n`. They are not spliced into `text`. */
+	params?: unknown[] | null
 }
 
 export interface ExplainQueryRequest {

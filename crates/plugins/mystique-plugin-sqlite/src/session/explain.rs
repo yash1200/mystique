@@ -171,6 +171,7 @@ mod tests {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         }
     }
 

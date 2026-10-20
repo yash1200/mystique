@@ -301,7 +301,8 @@ fn run_sqlite_statement(
                     .filter(|decl| !decl.is_empty()),
             })
             .collect();
-        let mut rows_iter = match prepared.query([]) {
+        let binds = super::edits::json_binds(&stmt.params);
+        let mut rows_iter = match prepared.query(rusqlite::params_from_iter(binds.iter())) {
             Ok(rows) => rows,
             Err(err) => return sqlite_statement_error(control, stmt, err),
         };
@@ -365,7 +366,8 @@ fn run_sqlite_statement(
         ));
     }
 
-    match conn.execute(&stmt.sql, []) {
+    let binds = super::edits::json_binds(&stmt.params);
+    match conn.execute(&stmt.sql, rusqlite::params_from_iter(binds.iter())) {
         Ok(changed) => {
             let affected = if stmt.returns_count {
                 Some(u64::try_from(changed).unwrap_or(u64::MAX))
@@ -445,6 +447,7 @@ mod tests {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         }
     }
 
@@ -593,6 +596,7 @@ mod tests {
             collection: None,
             database: None,
             control,
+            params: Vec::new(),
         };
         let canceller = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;

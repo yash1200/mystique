@@ -9,6 +9,7 @@ use mystique_connector_api::{
     ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
     QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
+use tokio_postgres::types::{IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
@@ -175,8 +176,9 @@ async fn run_planned(
     let started = Instant::now();
     let limit = row_limit(batch.max_rows);
     if stmt.returns_rows {
+        let bound = !stmt.params.is_empty();
         let mut opened = false;
-        if stmt.cursor && !*in_txn {
+        if stmt.cursor && !bound && !*in_txn {
             if let Err(err) = client.batch_execute("BEGIN").await {
                 // The failure is in the wrapper, not in the user's statement.
                 return postgres_statement_error(stmt, query_failed(err), &batch.control);
@@ -184,7 +186,9 @@ async fn run_planned(
             opened = true;
             *in_txn = true;
         }
-        let fetched = if stmt.cursor {
+        let fetched = if bound {
+            fetch_bound(client, &stmt.sql, &stmt.params, limit).await
+        } else if stmt.cursor {
             fetch_cursor(client, &stmt.sql, limit).await
         } else {
             fetch_utility(client, &stmt.sql, limit).await
@@ -242,6 +246,17 @@ async fn run_planned(
             affected,
             Vec::new(),
         ));
+    }
+
+    if !stmt.params.is_empty() {
+        let binds = q_binds(&stmt.params);
+        let refs: Vec<&(dyn ToSql + Sync)> = binds.iter().map(|bind| bind as _).collect();
+        return match client.execute(&stmt.sql, &refs).await {
+            Ok(count) => Ok(executed_statement(stmt, batch.mode, Some(count), started)),
+            Err(err) => {
+                postgres_statement_error(stmt, query_failed_at(&stmt.sql, err), &batch.control)
+            }
+        };
     }
 
     if stmt.returns_count {
@@ -537,6 +552,76 @@ async fn fetch_cursor(client: &Client, sql: &str, limit: usize) -> ConnectorResu
 async fn read_fetch(client: &Client, limit: usize, count: i32) -> ConnectorResult<Fetched> {
     let sql = format!("FETCH {count} FROM {ROW_CURSOR}");
     read_stream(client, &sql, limit, false).await
+}
+
+/// Parameterized reads skip the simple-protocol cursor. `$1` is not valid there.
+async fn fetch_bound(
+    client: &Client,
+    sql: &str,
+    params: &[serde_json::Value],
+    limit: usize,
+) -> ConnectorResult<Fetched> {
+    let binds = q_binds(params);
+    let refs: Vec<&(dyn ToSql + Sync)> = binds.iter().map(|bind| bind as _).collect();
+    let stream = client
+        .query_raw(sql, refs)
+        .await
+        .map_err(|err| query_failed_at(sql, err))?;
+    let mut stream = pin!(stream);
+    let capped = collect_capped(&mut stream, limit).await;
+    if !matches!(capped, Ok(ref got) if got.exhausted) {
+        if let Err(err) = finish_stream(&mut stream).await {
+            return Err(query_failed_at(
+                sql,
+                match capped {
+                    Err(fetch_err) => fetch_err,
+                    Ok(_) => err,
+                },
+            ));
+        }
+    }
+    capped
+        .map(rows_from)
+        .map_err(|err| query_failed_at(sql, err))
+}
+
+#[derive(Debug)]
+struct QBind(serde_json::Value);
+
+fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
+    params.iter().cloned().map(QBind).collect()
+}
+
+impl ToSql for QBind {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        if self.0.is_null() {
+            return Ok(IsNull::Yes);
+        }
+        match &self.0 {
+            serde_json::Value::Bool(flag) => flag.to_sql(ty, out),
+            serde_json::Value::Number(number) => {
+                if let Some(integer) = number.as_i64() {
+                    integer.to_sql(ty, out)
+                } else if let Some(real) = number.as_f64() {
+                    real.to_sql(ty, out)
+                } else {
+                    number.to_string().to_sql(ty, out)
+                }
+            }
+            serde_json::Value::String(text) => text.to_sql(ty, out),
+            other => other.to_string().to_sql(ty, out),
+        }
+    }
+
+    fn accepts(_ty: &Type) -> bool {
+        true
+    }
+
+    tokio_postgres::types::to_sql_checked!();
 }
 
 /// Small utility result. Not a cursor, so this is not how large SELECTs run.

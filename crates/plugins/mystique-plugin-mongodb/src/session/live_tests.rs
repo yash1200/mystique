@@ -36,6 +36,7 @@ async fn list_databases_and_find_users_on_mystique() {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("listDatabases");
@@ -55,6 +56,7 @@ async fn list_databases_and_find_users_on_mystique() {
             collection: None,
             database: Some("mystique".into()),
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("listCollections");
@@ -73,6 +75,7 @@ async fn list_databases_and_find_users_on_mystique() {
             collection: Some("users".into()),
             database: Some("mystique".into()),
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("find users");

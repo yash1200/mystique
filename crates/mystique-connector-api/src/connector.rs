@@ -173,6 +173,7 @@ pub trait ConnectorSession: Send + Sync {
                 collection: batch.collection.clone(),
                 database: batch.database.clone(),
                 control: Arc::clone(&batch.control),
+                params: stmt.params.clone(),
             };
             match self.execute_query(&one).await {
                 Ok(result) => {

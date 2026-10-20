@@ -61,7 +61,8 @@ export const mysql: EngineAdapter = {
 				kind: 'mysql',
 			}),
 		// MySQL databases are not schemas — keep the table list flat.
-		sqlSchema: (rows) => sqlSchemaFromColumns(rows, { nestSchemas: false }),
+		sqlSchema: (rows) =>
+			sqlSchemaFromColumns(rows, { nestSchemas: false, quote: 'mysql' }),
 	},
 
 	defaultCapabilities: relationalCapabilities({

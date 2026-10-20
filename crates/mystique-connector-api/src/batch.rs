@@ -59,6 +59,8 @@ pub struct PlannedStatement {
     pub multi_set: bool,
     pub txn_boundary: bool,
     pub explain_executes: bool,
+    /// Bound values for this statement, in driver order. Never interpolated.
+    pub params: Vec<serde_json::Value>,
 }
 
 /// SQL batch after the read-mode and transaction gates.
@@ -287,7 +289,7 @@ pub fn gate_sql_batch(
     dialect: SqlDialect,
     mode: QueryMode,
 ) -> ConnectorResult<SqlBatchPlan> {
-    gate_sql_batch_in(text, dialect, mode, false)
+    gate_sql_batch_in(text, dialect, mode, false, &[])
 }
 
 /// `allow_txn` is set only for a pinned tab. Auto-commit still refuses
@@ -297,15 +299,23 @@ pub fn gate_sql_batch_in(
     dialect: SqlDialect,
     mode: QueryMode,
     allow_txn: bool,
+    params: &[serde_json::Value],
 ) -> ConnectorResult<SqlBatchPlan> {
-    if let Some(fault) = mystique_sql::first_syntax_fault(text, dialect) {
+    let script = mystique_sql::ScriptParams::scan(text, dialect).map_err(ConnectorError::Query)?;
+    if let Err(message) = script.check_count(params.len()) {
+        return Err(ConnectorError::Query(message));
+    }
+    // Placeholders become a same-length literal so `:id` still parses as one
+    // statement. The value never enters this copy.
+    let masked = mystique_sql::mask_placeholders(text, dialect);
+    if let Some(fault) = mystique_sql::first_syntax_fault(&masked, dialect) {
         return Err(ConnectorError::query_at(
             fault.message,
             position_at(text, fault.offset),
             Some(fault.index),
         ));
     }
-    let planned = mystique_sql::plan_batch(text, dialect);
+    let planned = mystique_sql::plan_batch(&masked, dialect);
     if planned.is_empty() {
         return Err(ConnectorError::Policy("Query is empty.".into()));
     }
@@ -314,9 +324,22 @@ pub fn gate_sql_batch_in(
     let mut statements = Vec::with_capacity(planned.len());
     for stmt in planned {
         names.extend(stmt.destructive_names.iter().cloned());
+        let start = usize::try_from(stmt.start).unwrap_or(0);
+        let end = usize::try_from(stmt.end).unwrap_or(0);
+        let (sql, indexes) = script
+            .statement(text, start, end, dialect)
+            .map_err(ConnectorError::Query)?;
+        let mut bound = Vec::with_capacity(indexes.len());
+        for index in indexes {
+            let Some(value) = params.get(index) else {
+                return Err(ConnectorError::Query("Missing parameter value.".into()));
+            };
+            bound.push(value.clone());
+        }
         statements.push(PlannedStatement {
             index: stmt.index,
-            sql: stmt.sql,
+            sql,
+            params: bound,
             sql_range: SqlRange {
                 start: stmt.start,
                 end: stmt.end,

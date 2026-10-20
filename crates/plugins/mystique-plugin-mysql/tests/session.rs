@@ -41,6 +41,7 @@ async fn list_tables_and_preview_users() {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("list tables");
@@ -66,6 +67,7 @@ async fn list_tables_and_preview_users() {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("preview");
@@ -90,6 +92,7 @@ async fn information_schema_columns_and_fks() {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("columns");
@@ -104,6 +107,7 @@ async fn information_schema_columns_and_fks() {
             collection: None,
             database: None,
             control: QueryControl::new(),
+            params: Vec::new(),
         })
         .await
         .expect("fks");
