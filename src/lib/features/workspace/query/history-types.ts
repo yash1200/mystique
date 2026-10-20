@@ -1,3 +1,5 @@
+export type QueryHistorySource = 'ui' | 'agent' | 'mcp'
+
 export type QueryHistoryEntry = {
 	id: string
 	sql: string
@@ -10,6 +12,9 @@ export type QueryHistoryEntry = {
 	connectionName?: string
 	engine?: string
 	language?: string
+	database?: string
+	affectedRows?: number
+	source: QueryHistorySource
 }
 
 export interface QueryHistoryItem {
@@ -23,6 +28,9 @@ export interface QueryHistoryItem {
 	durationMs?: number | null
 	errorMessage?: string | null
 	ranAt: string
+	database?: string | null
+	affectedRows?: number | null
+	source?: QueryHistorySource | null
 }
 
 export interface AppendHistoryInput {
@@ -34,4 +42,7 @@ export interface AppendHistoryInput {
 	rowCount?: number | null
 	durationMs?: number | null
 	errorMessage?: string | null
+	database?: string | null
+	affectedRows?: number | null
+	source?: QueryHistorySource | null
 }

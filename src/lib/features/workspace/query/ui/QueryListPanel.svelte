@@ -26,6 +26,10 @@
 		onselect: (id: string) => void
 		onsavedaction?: (action: SavedQueryMenuAction, id: string) => void
 		onrefresh: () => void | Promise<void>
+		onhistorysearch?: (query: string) => void
+		onhistorymore?: () => void
+		historyHasMore?: boolean
+		historyLoadingMore?: boolean
 	}
 
 	let {
@@ -36,6 +40,10 @@
 		onselect,
 		onsavedaction,
 		onrefresh,
+		onhistorysearch,
+		onhistorymore,
+		historyHasMore = false,
+		historyLoadingMore = false,
 		loading = false,
 	}: Props = $props()
 
@@ -97,15 +105,21 @@
 		)
 	})
 
-	const filteredHistory = $derived.by(() => {
-		const q = query.trim().toLowerCase()
-		if (!q) return history
-		return history.filter(
-			(h) =>
-				h.sql.toLowerCase().includes(q) ||
-				(h.connectionName ?? '').toLowerCase().includes(q) ||
-				(h.error ?? '').toLowerCase().includes(q),
-		)
+	const filterId = $derived(
+		mode === 'history' ? 'history-search' : 'saved-query-filter',
+	)
+	const filterLabel = $derived(
+		mode === 'history' ? 'Search history' : 'Filter saved queries',
+	)
+	const filterPlaceholder = $derived(
+		mode === 'history' ? 'Search queries…' : 'Filter…',
+	)
+
+	$effect(() => {
+		if (mode !== 'history') return
+		const q = query
+		const handle = setTimeout(() => onhistorysearch?.(q), 250)
+		return () => clearTimeout(handle)
 	})
 
 	const sortItems = $derived.by((): ContextMenuItem[] =>
@@ -198,15 +212,15 @@
 		</div>
 		<div class="px-2 pb-2">
 			<div class="relative">
-				<label class="sr-only" for="saved-query-filter">Filter {title}</label>
+				<label class="sr-only" for={filterId}>{filterLabel}</label>
 				<Icon
 					name="search"
 					class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-fg-muted"
 				/>
 				<Input
-					id="saved-query-filter"
+					id={filterId}
 					type="search"
-					placeholder="Filter…"
+					placeholder={filterPlaceholder}
 					bind:value={query}
 					inputSize="sm"
 					inset={query.length > 0 ? 'both' : 'start'}
@@ -246,10 +260,13 @@
 			/>
 		{:else}
 			<HistoryQueryList
-				items={filteredHistory}
+				items={history}
 				{query}
 				{selectedId}
 				{onselect}
+				hasMore={historyHasMore}
+				loadingMore={historyLoadingMore}
+				onmore={() => onhistorymore?.()}
 			/>
 		{/if}
 	</div>

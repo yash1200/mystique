@@ -44,7 +44,6 @@
 	import { initialActiveIndex } from '../batch-view'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
-	import { appendQueryHistory } from '../history-api'
 	import type { QueryHistoryItem } from '../history-types'
 	import { queryLanguageFor, queryPlaceholder } from '../policy'
 	import {
@@ -355,37 +354,6 @@
 		return localText || text || ''
 	}
 
-	async function recordHistory(opts: {
-		success: boolean
-		durationMs: number
-		rowCount?: number | null
-		errorMessage?: string | null
-		body?: string
-	}): Promise<QueryHistoryItem | null> {
-		if (!isTauri()) return null
-		const body = (opts.body ?? currentQueryText()).trim()
-		if (!body) return null
-		try {
-			const item = await appendQueryHistory({
-				connectionId,
-				engine,
-				body,
-				language: language === 'mql' ? 'mql' : 'sql',
-				success: opts.success,
-				rowCount: opts.rowCount ?? null,
-				durationMs: opts.durationMs,
-				errorMessage: opts.errorMessage ?? null,
-			})
-			onhistory?.(item)
-			return item
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e)
-			console.warn('[mystique] failed to append query history:', msg)
-			onhistory?.(null)
-			return null
-		}
-	}
-
 	async function explainQuery() {
 		if (runState.status === 'running') return
 		const doc = editorSnap.doc || localText
@@ -494,12 +462,6 @@
 				mode,
 				elapsedMs,
 			})
-			await recordHistory({
-				success: false,
-				durationMs: elapsedMs,
-				errorMessage: 'No live engine session',
-				body: sqlText,
-			})
 			return
 		}
 
@@ -513,8 +475,7 @@
 				timeoutMs: 120_000,
 				profileReadOnly,
 				collection: language === 'mql' ? collection.trim() || null : null,
-				database:
-					language === 'mql' && database?.trim() ? database.trim() : null,
+				database: database?.trim() ? database.trim() : null,
 				executionId,
 			}
 			const onProgress = (event: { index: number; total: number }) => {
@@ -586,14 +547,7 @@
 				diagnostic,
 				origin,
 			)
-			const failed = batch.stoppedAt != null
-			await recordHistory({
-				success: !failed,
-				durationMs: active?.result?.durationMs ?? elapsedMs,
-				rowCount: active?.result?.rowCount,
-				errorMessage: failed ? (active?.error ?? 'Statement failed.') : null,
-				body: sqlText,
-			})
+			onhistory?.(null)
 		} catch (e) {
 			if (!tabStillOpen()) return
 			const fault = readQueryFault(e)
@@ -616,12 +570,7 @@
 				faultDiagnostic(shown, fault.position, origin, startedEpoch),
 				origin,
 			)
-			await recordHistory({
-				success: false,
-				durationMs: elapsedMs,
-				errorMessage: msg,
-				body: sqlText,
-			})
+			onhistory?.(null)
 		} finally {
 			finishTabRun(tabId, executionId)
 			if (manualCommit) void refreshPin()

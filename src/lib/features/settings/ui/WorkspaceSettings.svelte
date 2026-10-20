@@ -42,4 +42,9 @@
 			/>
 		</ControlRow>
 	</ControlGroup>
+	<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
+		Query history stores the SQL of each run, including agent and MCP runs.
+		Mystique keeps the latest 2,000 runs for each connection. Passwords and
+		connection-string userinfo are left out of those rows.
+	</p>
 </div>

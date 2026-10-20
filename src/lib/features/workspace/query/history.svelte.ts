@@ -1,14 +1,19 @@
-/** Query history list. */
+/** Query history list. The connection manager writes the rows. */
 import { isTauri } from '#core/ipc'
 import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 import {
 	historyItemToEntry,
 	listQueryHistory,
 	listRecentQueryHistory,
+	type QueryHistoryPage,
 } from './history-api'
 import type { QueryHistoryItem } from './history-types'
 
+/** One keyset page. The server keeps 2_000 runs per connection. */
+const HISTORY_PAGE = 100
+
 let historyFetchGen = 0
+let historySearch = ''
 
 function historyNameMap(): Map<string, string> {
 	return new Map(
@@ -39,9 +44,20 @@ export function selectHistory(id: string) {
 	openSqlInEditor(h.sql)
 }
 
+export function setHistorySearch(value: string) {
+	const next = value.trim()
+	if (next === historySearch) return
+	historySearch = next
+	void refreshHistory({ force: true })
+}
+
+export function clearHistorySearch() {
+	historySearch = ''
+}
+
 export function prependHistoryItem(item: QueryHistoryItem | null | undefined) {
 	if (!item?.id) {
-		void refreshHistory({ preferSelectLatest: true })
+		void refreshHistory({ preferSelectLatest: true, force: true })
 		return
 	}
 	const entry = entryFromItem(item)
@@ -76,24 +92,19 @@ export async function refreshHistory(opts?: {
 	}
 	if (!isTauri()) {
 		workspaceStudio.queryHistory = []
+		workspaceStudio.historyHasMore = false
 		workspaceStudio.historyFor = scope
 		return
 	}
 	const gen = ++historyFetchGen
 	workspaceStudio.historyLoading = true
 	try {
-		let items: QueryHistoryItem[] = []
-		if (activeId) {
-			items = await listQueryHistory(activeId, 150)
-			if (items.length === 0) {
-				const recent = await listRecentQueryHistory(150)
-				items = recent.filter((it) => it.connectionId === activeId)
-			}
-		} else {
-			items = await listRecentQueryHistory(150)
-		}
+		const page = await loadHistoryPage(activeId, {
+			search: historySearch,
+		})
 		if (gen !== historyFetchGen) return
-		workspaceStudio.queryHistory = items.map((it) => entryFromItem(it))
+		workspaceStudio.queryHistory = page.items.map((it) => entryFromItem(it))
+		workspaceStudio.historyHasMore = page.hasMore
 		workspaceStudio.historyFor = scope
 		workspaceStudio.historyError = null
 		if (
@@ -117,4 +128,48 @@ export async function refreshHistory(opts?: {
 	} finally {
 		if (gen === historyFetchGen) workspaceStudio.historyLoading = false
 	}
+}
+
+export async function loadOlderHistory() {
+	if (workspaceStudio.historyLoadingMore || !workspaceStudio.historyHasMore) return
+	const activeId = workspaceSession.activeConnectionId
+	const last = workspaceStudio.queryHistory.at(-1)
+	if (!last) return
+	const gen = historyFetchGen
+	workspaceStudio.historyLoadingMore = true
+	try {
+		const page = await loadHistoryPage(activeId, {
+			search: historySearch,
+			cursorRanAt: last.ranAt,
+			cursorId: last.id,
+		})
+		if (gen !== historyFetchGen) return
+		const seen = new Set(workspaceStudio.queryHistory.map((row) => row.id))
+		const older = page.items
+			.map((it) => entryFromItem(it))
+			.filter((row) => !seen.has(row.id))
+		workspaceStudio.queryHistory = [...workspaceStudio.queryHistory, ...older]
+		workspaceStudio.historyHasMore = page.hasMore
+	} catch (e) {
+		if (gen !== historyFetchGen) return
+		workspaceStudio.historyError = e instanceof Error ? e.message : String(e)
+	} finally {
+		if (gen === historyFetchGen) workspaceStudio.historyLoadingMore = false
+	}
+}
+
+async function loadHistoryPage(
+	activeId: string | null,
+	opts: { search?: string; cursorRanAt?: string; cursorId?: string },
+): Promise<QueryHistoryPage> {
+	if (activeId) {
+		const page = await listQueryHistory(activeId, HISTORY_PAGE, opts)
+		if (page.items.length === 0 && !opts.search && !opts.cursorRanAt) {
+			const recent = await listRecentQueryHistory(HISTORY_PAGE, opts)
+			const items = recent.items.filter((it) => it.connectionId === activeId)
+			if (items.length > 0) return { items, hasMore: recent.hasMore }
+		}
+		return page
+	}
+	return listRecentQueryHistory(HISTORY_PAGE, opts)
 }

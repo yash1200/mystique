@@ -58,7 +58,9 @@ impl AppServices {
         connections: ConnectionManager,
         secrets: SecretStore,
     ) -> Self {
+        let db = Arc::new(db);
         let connections = Arc::new(connections);
+        history::install_writer(&connections, Arc::clone(&db));
         let reaper = Arc::clone(&connections);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
@@ -69,7 +71,7 @@ impl AppServices {
             });
         }
         let svc = Self {
-            db: Arc::new(db),
+            db,
             connections,
             secrets: Arc::new(secrets),
         };

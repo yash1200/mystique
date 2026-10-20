@@ -270,6 +270,7 @@ mod tests {
                 read_only: false,
                 connection_name: "probe".into(),
                 origin: super::super::SessionOrigin::Ui,
+                profile_id: None,
                 last_used: std::sync::Mutex::new(std::time::Instant::now()),
             },
         );

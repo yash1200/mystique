@@ -14,12 +14,15 @@
 	} from '#features/workspace/explorer'
 	import { tablePreview } from '#features/workspace/grid'
 	import {
+		clearHistorySearch,
+		loadOlderHistory,
 		queryLibrary,
 		QueryListPanel,
 		refreshHistory,
 		refreshSavedQueries,
 		selectHistory,
 		selectSavedQuery,
+		setHistorySearch,
 	} from '#features/workspace/query'
 	import {
 		appPrefs,
@@ -27,7 +30,7 @@
 		EXPLORER_PANEL_WIDTH_MAX,
 		EXPLORER_PANEL_WIDTH_MIN,
 	} from '#lib/app'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import { resolveCapabilities } from '#engines'
 	import { liveStatusMark } from '../live-session'
 	import { catalogsFor, selectedDatabaseName } from '../lookup'
@@ -85,9 +88,15 @@
 
 	$effect(() => {
 		const mode = sideMode
-		if (mode === 'history' || activeId) {
-			void refreshHistory({ preferSelectLatest: mode === 'history' })
-		}
+		const id = activeId
+		untrack(() => {
+			if (mode === 'history') {
+				clearHistorySearch()
+				void refreshHistory({ preferSelectLatest: true, force: true })
+			} else if (id) {
+				void refreshHistory()
+			}
+		})
 	})
 </script>
 
@@ -118,6 +127,7 @@
 					onrefresh={() => void refreshSavedQueries(activeId, true)}
 				/>
 			{:else if sideMode === 'history'}
+				{#key activeId}
 				<QueryListPanel
 					mode="history"
 					{savedQueries}
@@ -125,8 +135,13 @@
 					selectedId={selectedHistoryId}
 					onselect={selectHistory}
 					onrefresh={() => void refreshHistory({ force: true })}
+					onhistorysearch={setHistorySearch}
+					onhistorymore={() => void loadOlderHistory()}
+					historyHasMore={workspaceStudio.historyHasMore}
+					historyLoadingMore={workspaceStudio.historyLoadingMore}
 					loading={workspaceStudio.historyLoading}
 				/>
+				{/key}
 			{:else if activeSession && explorerOk}
 				<ObjectExplorer
 					engine={String(activeSession.profile.engine)}

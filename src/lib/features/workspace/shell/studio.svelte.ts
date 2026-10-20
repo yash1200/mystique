@@ -51,6 +51,8 @@ class WorkspaceStudio {
 	selectedHistoryId = $state<string | null>(null)
 	queryHistory = $state<QueryHistoryEntry[]>([])
 	historyLoading = $state(false)
+	historyLoadingMore = $state(false)
+	historyHasMore = $state(false)
 	historyError = $state<string | null>(null)
 	/** Connection id the current history list belongs to. */
 	historyFor = $state<string | null>(null)

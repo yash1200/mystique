@@ -8,6 +8,7 @@ import type {
 	AppendHistoryInput,
 	QueryHistoryEntry,
 	QueryHistoryItem,
+	QueryHistorySource,
 } from './history-types'
 
 export function historyItemToEntry(
@@ -22,6 +23,9 @@ export function historyItemToEntry(
 		durationMs?: number | null
 		errorMessage?: string | null
 		ranAt: string
+		database?: string | null
+		affectedRows?: number | null
+		source?: QueryHistorySource | null
 	},
 	connectionName?: string,
 ): QueryHistoryEntry {
@@ -37,6 +41,9 @@ export function historyItemToEntry(
 		connectionName,
 		engine: item.engine ?? undefined,
 		language: item.language ?? undefined,
+		database: item.database?.trim() || undefined,
+		affectedRows: item.affectedRows ?? undefined,
+		source: historySource(item.source),
 	}
 }
 
@@ -66,7 +73,27 @@ export function normalizeHistoryItem(
 		errorMessage:
 			(g('errorMessage', 'error_message') as string | null | undefined) ?? null,
 		ranAt: String(g('ranAt', 'ran_at') ?? new Date().toISOString()),
+		database: (g('database', 'database') as string | null | undefined) ?? null,
+		affectedRows:
+			(g('affectedRows', 'affected_rows') as number | null | undefined) ?? null,
+		source: historySource(g('source', 'source')),
 	}
+}
+
+function historySource(value: unknown): QueryHistorySource {
+	if (value === 'agent' || value === 'mcp' || value === 'ui') return value
+	return 'ui'
+}
+
+export type QueryHistoryPage = {
+	items: QueryHistoryItem[]
+	hasMore: boolean
+}
+
+export type HistoryListOptions = {
+	search?: string
+	cursorRanAt?: string
+	cursorId?: string
 }
 
 function normalizeList(rows: unknown): QueryHistoryItem[] {
@@ -108,6 +135,7 @@ export function filterUserHistory(
 	return items.filter((it) => !isInternalAppHistoryBody(it.body))
 }
 
+/** Manual insert. Query runs are recorded by the connection manager. */
 export async function appendQueryHistory(
 	input: AppendHistoryInput,
 ): Promise<QueryHistoryItem> {
@@ -126,35 +154,64 @@ export async function appendQueryHistory(
 			rowCount: input.rowCount ?? null,
 			durationMs: input.durationMs ?? null,
 			errorMessage: input.errorMessage ?? null,
+			database: input.database ?? null,
+			affectedRows: input.affectedRows ?? null,
+			source: input.source ?? 'ui',
 		},
 	})
 	return normalizeHistoryItem(raw ?? {})
 }
 
+function normalizePage(raw: unknown): QueryHistoryPage {
+	if (Array.isArray(raw)) {
+		return { items: filterUserHistory(normalizeList(raw)), hasMore: false }
+	}
+	if (raw && typeof raw === 'object') {
+		const obj = raw as Record<string, unknown>
+		const items = obj.items ?? obj.Items
+		return {
+			items: filterUserHistory(normalizeList(items)),
+			hasMore: Boolean(obj.hasMore ?? obj.has_more),
+		}
+	}
+	return { items: [], hasMore: false }
+}
+
+function listArgs(
+	limit: number,
+	opts?: HistoryListOptions,
+): Record<string, unknown> {
+	const search = opts?.search?.trim() || null
+	return {
+		limit,
+		search,
+		cursorRanAt: opts?.cursorRanAt ?? null,
+		cursorId: opts?.cursorId ?? null,
+	}
+}
+
 export async function listQueryHistory(
 	connectionId: string,
 	limit = 100,
-): Promise<QueryHistoryItem[]> {
+	opts?: HistoryListOptions,
+): Promise<QueryHistoryPage> {
 	requireTauri()
 	const id = connectionId.trim()
-	if (!id) return listRecentQueryHistory(limit)
-	// Fetch extra rows so filtering internal previews still fills the UI limit.
-	const fetchLimit = Math.min(500, Math.max(limit * 3, limit + 50))
+	if (!id) return listRecentQueryHistory(limit, opts)
+	const args = listArgs(limit, opts)
 	try {
-		// Tauri default: JS camelCase → Rust snake_case args.
-		const rows = await invoke<unknown>('list_query_history', {
+		const raw = await invoke<unknown>('list_query_history', {
 			connectionId: id,
-			limit: fetchLimit,
+			...args,
 		})
-		return filterUserHistory(normalizeList(rows)).slice(0, limit)
+		return normalizePage(raw)
 	} catch (e1) {
-		// Fallback if arg rename differs on some builds.
 		try {
-			const rows = await invoke<unknown>('list_query_history', {
+			const raw = await invoke<unknown>('list_query_history', {
 				connection_id: id,
-				limit: fetchLimit,
+				...args,
 			})
-			return filterUserHistory(normalizeList(rows)).slice(0, limit)
+			return normalizePage(raw)
 		} catch (e2) {
 			const msg = e2 instanceof Error ? e2.message : String(e2 ?? e1)
 			throw new Error(`list_query_history failed: ${msg}`)
@@ -164,11 +221,9 @@ export async function listQueryHistory(
 
 export async function listRecentQueryHistory(
 	limit = 100,
-): Promise<QueryHistoryItem[]> {
+	opts?: HistoryListOptions,
+): Promise<QueryHistoryPage> {
 	requireTauri()
-	const fetchLimit = Math.min(500, Math.max(limit * 3, limit + 50))
-	const rows = await invoke<unknown>('list_recent_query_history', {
-		limit: fetchLimit,
-	})
-	return filterUserHistory(normalizeList(rows)).slice(0, limit)
+	const raw = await invoke<unknown>('list_recent_query_history', listArgs(limit, opts))
+	return normalizePage(raw)
 }

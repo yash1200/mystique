@@ -7,6 +7,6 @@ mod manager;
 mod registry;
 mod ssh;
 
-pub(crate) use manager::SessionOrigin;
 pub use manager::{ConnectionManager, OpenSessionRequest};
+pub(crate) use manager::{QueryHistoryWriter, SessionOrigin};
 pub use registry::ConnectorRegistry;

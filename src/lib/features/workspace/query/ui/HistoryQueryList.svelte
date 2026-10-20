@@ -8,10 +8,27 @@
 		items: QueryHistoryEntry[]
 		query: string
 		selectedId: string | null
+		hasMore?: boolean
+		loadingMore?: boolean
 		onselect: (id: string) => void
+		onmore?: () => void
 	}
 
-	let { items, query, selectedId, onselect }: Props = $props()
+	let {
+		items,
+		query,
+		selectedId,
+		hasMore = false,
+		loadingMore = false,
+		onselect,
+		onmore,
+	}: Props = $props()
+
+	function sourceLabel(source: QueryHistoryEntry['source']): string {
+		if (source === 'agent') return 'Agent'
+		if (source === 'mcp') return 'MCP'
+		return 'UI'
+	}
 </script>
 
 {#if items.length === 0}
@@ -72,10 +89,30 @@
 							<span>·</span>
 							<span>{item.durationMs}ms</span>
 						{/if}
+						{#if item.affectedRows != null}
+							<span>·</span>
+							<span>{item.affectedRows} affected</span>
+						{/if}
+						{#if item.database}
+							<span>·</span>
+							<span class="max-w-32 truncate">{item.database}</span>
+						{/if}
+						<span>·</span>
+						<span>{sourceLabel(item.source)}</span>
 					</span>
 				</span>
 			</button>
 		</li>
 	{/each}
 	</ul>
+{/if}
+{#if hasMore}
+	<button
+		type="button"
+		class="mx-2 mt-1 rounded-md border-none bg-transparent px-2 py-1.5 text-caption text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-45"
+		disabled={loadingMore}
+		onclick={() => onmore?.()}
+	>
+		{loadingMore ? 'Loading…' : 'Older runs'}
+	</button>
 {/if}

@@ -16,12 +16,15 @@ mod catalog;
 mod depth;
 mod explain;
 mod guard;
+mod history;
 mod metrics;
 mod pin;
 mod query;
 mod run;
 mod table;
 mod transfer;
+
+pub(crate) use history::QueryHistoryWriter;
 
 use super::ssh::{
     open_tunnel, pin_forwarded_mongo, rewrite_plugin_config_for_tunnel, ssh_target, SshTunnel,
@@ -106,6 +109,8 @@ struct LiveSession {
     read_only: bool,
     connection_name: String,
     origin: SessionOrigin,
+    /// Saved profile id. History is keyed by this, not the live session id.
+    profile_id: Option<String>,
     last_used: std::sync::Mutex<std::time::Instant>,
 }
 
@@ -123,6 +128,8 @@ pub struct ConnectionManager {
     pins: Mutex<HashMap<String, std::sync::Arc<pin::TabPin>>>,
     /// Per-id lock so `get_or_open` cannot build two pools.
     open_gates: Mutex<HashMap<String, std::sync::Arc<Mutex<()>>>>,
+    /// App SQLite history. Empty in unit tests that never open the app database.
+    history: std::sync::Mutex<Option<std::sync::Arc<dyn history::QueryHistoryWriter>>>,
 }
 
 impl ConnectionManager {
@@ -135,6 +142,7 @@ impl ConnectionManager {
             metadata: run::metadata_limiter(),
             pins: Mutex::new(HashMap::new()),
             open_gates: Mutex::new(HashMap::new()),
+            history: std::sync::Mutex::new(None),
         }
     }
 
@@ -295,6 +303,12 @@ impl ConnectionManager {
                 .unwrap_or(&info.display_name)
                 .to_string(),
             origin,
+            profile_id: req
+                .profile_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string),
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
         };
 

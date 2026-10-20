@@ -756,6 +756,7 @@ async fn insert_probe(
             read_only,
             connection_name: "Prod Mongo".into(),
             origin: super::SessionOrigin::Ui,
+            profile_id: None,
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
         },
     );
@@ -1805,4 +1806,115 @@ async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
         "{blocked}"
     );
     assert!(!read_only.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn query_history_records_ui_agent_and_mcp_without_secrets() {
+    let path = temp_db("history-v2");
+    let _ = std::fs::remove_file(&path);
+    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    db.with_conn(|c| {
+        c.execute(
+            "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
+             VALUES ('hist', 'sqlite', 'slate', 'local', 0, '{}', 'now', 'now')",
+            [],
+        )?;
+        Ok(())
+    })
+    .expect("profile");
+    let profile_id = "1".to_string();
+    let services =
+        crate::application::AppServices::with_connections(db, ConnectionManager::bootstrap());
+    let mgr = services.connections();
+    let open = |session_id: &str| {
+        let mut req = sqlite_open(&path, session_id, "local", false);
+        req.profile_id = Some(profile_id.clone());
+        req.password = Some("pw-should-not-land".into());
+        req
+    };
+    mgr.open_session(open("ui-hist")).await.expect("ui");
+    mgr.get_or_open(open("agent:1"), super::SessionOrigin::Agent)
+        .await
+        .expect("agent");
+    mgr.get_or_open(open("mcp:1"), super::SessionOrigin::Mcp)
+        .await
+        .expect("mcp");
+
+    mgr.execute_query(write_req(
+        "ui-hist",
+        "CREATE TABLE t (id INTEGER); INSERT INTO t (id) VALUES (1)",
+    ))
+    .await
+    .expect("dml");
+
+    let mut agent = batch_req(
+        "agent:1",
+        "SELECT 'agent-marker'",
+        mystique_connector_api::QueryMode::Read,
+    );
+    agent.database = Some("mongodb://alice:secret-token@127.0.0.1/app".into());
+    mgr.execute_query(agent).await.expect("agent query");
+
+    mgr.execute_query(batch_req(
+        "mcp:1",
+        "SELECT 'mcp-marker'",
+        mystique_connector_api::QueryMode::Read,
+    ))
+    .await
+    .expect("mcp query");
+
+    mgr.execute_query(batch_req(
+        "ui-hist",
+        "SELECT 'mongodb://alice:secret-token@127.0.0.1/app'",
+        mystique_connector_api::QueryMode::Read,
+    ))
+    .await
+    .expect("uri sql");
+
+    let page = services
+        .history()
+        .list_for_connection(&profile_id, 50)
+        .expect("list");
+    assert!(
+        page.iter().any(|row| {
+            row.source == crate::domain::QueryHistorySource::Ui
+                && row.affected_rows == Some(1)
+                && row.duration_ms.is_some()
+                && row.body.contains("INSERT")
+        }),
+        "{page:?}"
+    );
+    assert!(page.iter().any(|row| {
+        row.source == crate::domain::QueryHistorySource::Agent
+            && row.body.contains("agent-marker")
+            && row.database.is_none()
+            && row.duration_ms.is_some()
+    }));
+    assert!(page.iter().any(|row| {
+        row.source == crate::domain::QueryHistorySource::Mcp && row.body.contains("mcp-marker")
+    }));
+
+    let blob = services
+        .db
+        .with_conn(|c| {
+            let mut stmt = c.prepare(
+                "SELECT body || ' ' || ifnull(error_message,'') || ' ' || ifnull(\"database\",'') || ' ' || ifnull(engine,'') FROM query_history",
+            )?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            let mut out = String::new();
+            for row in rows {
+                out.push_str(&row?);
+                out.push('\n');
+            }
+            Ok(out)
+        })
+        .expect("blob");
+    assert!(!blob.contains("pw-should-not-land"), "{blob}");
+    assert!(!blob.contains("secret-token"), "{blob}");
+    assert!(blob.contains("alice:***@"), "{blob}");
+
+    let _ = mgr.close_session("ui-hist").await;
+    let _ = mgr.close_session("agent:1").await;
+    let _ = mgr.close_session("mcp:1").await;
+    let _ = std::fs::remove_file(&path);
 }

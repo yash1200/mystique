@@ -343,7 +343,36 @@ impl ConnectionManager {
 }
 
 impl ConnectionManager {
+    /// Run a batch and store one history row per statement.
+    ///
+    /// The canvas, the agent, and MCP share this path. The frontend does not
+    /// see MCP, so it cannot be the writer. A history failure leaves the query
+    /// result unchanged.
     pub(super) async fn execute_batch_in(
+        &self,
+        req: mystique_connector_api::ExecuteQueryRequest,
+        progress: Option<ProgressPump>,
+        tab_id: Option<String>,
+    ) -> ConnectorResult<QueryBatchResult> {
+        let started = std::time::Instant::now();
+        let ctx = self.history_context(&req.session_id).await;
+        let text = req.text.clone();
+        let database = req.database.clone();
+        let outcome = self.execute_batch_inner(req, progress, tab_id).await;
+        if let Some(ctx) = ctx {
+            let rows = super::history::rows_from_outcome(
+                &ctx,
+                &text,
+                database.as_deref(),
+                super::history::elapsed_ms(started),
+                &outcome,
+            );
+            self.persist_history(rows).await;
+        }
+        outcome
+    }
+
+    async fn execute_batch_inner(
         &self,
         req: mystique_connector_api::ExecuteQueryRequest,
         progress: Option<ProgressPump>,
