@@ -54,13 +54,14 @@ async fn fetch_text(client: &deadpool_postgres::Object, sql: &str) -> ConnectorR
             continue;
         };
         let mut cells = Vec::new();
-        let mut index = 0;
-        loop {
-            let Some(cell) = row.get(index) else {
-                break;
-            };
-            cells.push(cell.to_string());
-            index += 1;
+        // `get` panics past the last column. `None` is SQL NULL, not the end.
+        // EXPLAIN (FORMAT JSON) is one column, so the old loop died on column 1.
+        for index in 0..row.len() {
+            match row.try_get(index) {
+                Ok(Some(cell)) => cells.push(cell.to_string()),
+                Ok(None) => cells.push(String::new()),
+                Err(err) => return Err(query_failed(err)),
+            }
         }
         if !cells.is_empty() {
             lines.push(cells.join("\t"));
@@ -226,6 +227,33 @@ mod tests {
             .any(|field| field.label == "filter" && field.value.contains("a = 1")));
         assert_eq!(plan.raw_format, "json");
         assert!(plan.raw.contains("Seq Scan"));
+    }
+
+    #[test]
+    fn analyze_keeps_the_measured_rows_and_time() {
+        let raw = r#"[{
+            "Plan": {
+                "Node Type": "Seq Scan",
+                "Relation Name": "authors",
+                "Schema": "content",
+                "Alias": "authors",
+                "Plan Rows": 1,
+                "Actual Rows": 12,
+                "Actual Total Time": 0.42,
+                "Total Cost": 1.50
+            }
+        }]"#;
+        let plan = match parse_postgres_explain(raw) {
+            Ok(plan) => plan,
+            Err(err) => panic!("{err}"),
+        };
+        assert_eq!(plan.root.name, "Seq Scan on authors");
+        assert_eq!(plan.root.rows, Some(12.0));
+        assert!(plan
+            .root
+            .fields
+            .iter()
+            .any(|field| { field.label == "actual time ms" && field.value == "0.42" }));
     }
 
     #[test]
