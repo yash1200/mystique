@@ -3,9 +3,10 @@ use std::sync::Arc;
 use mystique_connector_api::{
     BatchEvent, BatchPhase, ConnectorError, ConnectorResult, ExecuteQueryRequest, ProgressPump,
     QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementKind, StatementResult,
-    ValidatedQuery,
+    ValidatedQuery, WriteAction,
 };
 
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -53,15 +54,14 @@ impl ConnectionManager {
         } else {
             policy.classify(&req.text)
         };
-        let preview = mystique_connector_api::mongo_op_preview(&req.text);
-        self.enforce_write_guard(
-            &req.session_id,
-            risk,
-            &preview,
-            None,
-            req.confirm_object_name.as_deref(),
-            read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: mystique_connector_api::mongo_op_preview(&req.text),
+            statements: vec![req.text.clone()],
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: read_only,
+            pinned: tab_id.is_some(),
+            ..WriteCheck::new(&req.session_id, WriteAction::Query, risk)
+        })
         .await?;
 
         let kind = match risk {

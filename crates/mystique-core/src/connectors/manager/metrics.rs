@@ -1,9 +1,10 @@
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, FetchServerMetricsRequest, ServerMetricsSnapshot,
-    TerminateSessionRequest, TerminateSessionResult, WriteRisk,
+    TerminateSessionRequest, TerminateSessionResult, WriteAction, WriteRisk,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -29,14 +30,11 @@ impl ConnectionManager {
     ) -> ConnectorResult<TerminateSessionResult> {
         let meta = self.session_meta(&req.session_id).await?;
         reject_beyond_depth(&meta.caps, DepthFeature::Terminate)?;
-        self.enforce_write_guard(
-            &req.session_id,
-            WriteRisk::Write,
-            &format!("Terminate backend session {}", req.backend_session_id),
-            None,
-            None,
-            req.profile_read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: format!("Terminate backend session {}", req.backend_session_id),
+            profile_read_only: req.profile_read_only,
+            ..WriteCheck::new(&req.session_id, WriteAction::Terminate, WriteRisk::Write)
+        })
         .await?;
         if req.session_id.trim().is_empty() {
             return Err(ConnectorError::InvalidConfig(

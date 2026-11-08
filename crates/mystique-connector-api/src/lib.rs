@@ -35,6 +35,7 @@ mod table;
 mod tls;
 mod types;
 mod write_guard;
+mod write_policy;
 
 pub use batch::*;
 pub use cancel::*;
@@ -69,7 +70,8 @@ pub use query::*;
 pub use table::*;
 pub use tls::{SslMode, TlsSettings};
 pub use types::*;
-pub use write_guard::{
-    environment_needs_type_confirm, environment_needs_unlock, WriteGuardPrompt, WriteRisk,
-    WRITE_GUARD_CODE,
+pub use write_guard::{WriteGuardPrompt, WriteRisk, WRITE_GUARD_CODE};
+pub use write_policy::{
+    confirmation_for, confirmation_unlocks, Confirmation, Environment, WriteAction, WriteState,
+    READ_ONLY_MESSAGE,
 };

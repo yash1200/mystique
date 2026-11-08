@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, ExportObjectRequest, ExportObjectResult, ImportObjectRequest,
-    ImportObjectResult, PreviewImportRequest, PreviewImportResult, WriteRisk,
+    ImportObjectResult, PreviewImportRequest, PreviewImportResult, WriteAction, WriteRisk,
 };
 
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -99,15 +100,11 @@ impl ConnectionManager {
         }
         // Upsert is still a write. The live session's read-only bit wins inside
         // the guard; the client flag can only make the call stricter.
-        let preview = format!("Import into {}", req.name.trim());
-        self.enforce_write_guard(
-            &req.session_id,
-            WriteRisk::Write,
-            &preview,
-            None,
-            None,
-            req.profile_read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: format!("Import into {}", req.name.trim()),
+            profile_read_only: req.profile_read_only,
+            ..WriteCheck::new(&req.session_id, WriteAction::Import, WriteRisk::Write)
+        })
         .await?;
         session.import_object(&req.into_input()).await
     }
