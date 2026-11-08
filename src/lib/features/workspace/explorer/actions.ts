@@ -3,11 +3,7 @@ import type { TableAdminOp, TableMeta } from '#core/contracts'
 import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
 import { refreshCurrentTables } from '#features/workspace/catalog'
 import { openModelDiagram } from '#features/workspace/er'
-import {
-	beginExport,
-	beginImport,
-	tablePreview,
-} from '#features/workspace/grid'
+import { tablePreview } from '#features/workspace/grid'
 import { openSqlInEditor } from '#features/workspace/query'
 import {
 	askWriteGuard,
@@ -21,6 +17,7 @@ import {
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
+import { beginExport, beginImport } from '#features/workspace/transfer'
 import { menuDangerPrompt } from './danger'
 import { openObjectStructure } from './structure-live'
 import type { TableExplorerAction } from './ui/ObjectExplorer.svelte'

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { resolveImportGate } from '../../src/lib/features/workspace/grid/import-gate.ts'
+import { resolveImportGate } from '../../src/lib/features/workspace/transfer/import-gate.ts'
 import {
 	closeStep,
 	hasPendingLoss,

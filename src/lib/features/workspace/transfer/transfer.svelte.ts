@@ -1,4 +1,4 @@
-/** Import / export a table. Owned by the grid. */
+/** Import / export a table. */
 import type { ImportEncoding, ImportFormat, TableMeta } from '#core/contracts'
 import {
 	errorMessage,
@@ -92,7 +92,7 @@ async function discardTabEdits(table: TableMeta, tabId: string) {
 	dropEditBuffer(tabId)
 	workspaceSession.setTabDirty(tabId, false)
 	workspaceStudio.baselineEpoch += 1
-	const { tablePreview } = await import('./tab-preview.svelte')
+	const { tablePreview } = await import('#features/workspace/grid')
 	await tablePreview.open(table)
 }
 
@@ -184,7 +184,7 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 			// Import already changed the server page. Drop local edits so the
 			// reload is allowed to replace them.
 			dropEditBuffer(tabId)
-			const { tablePreview } = await import('./tab-preview.svelte')
+			const { tablePreview } = await import('#features/workspace/grid')
 			void tablePreview.open(table)
 		}
 	} catch (e) {

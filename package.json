@@ -76,6 +76,7 @@
 		"#features/workspace/quick-open": "./src/lib/features/workspace/quick-open/index.js",
 		"#features/workspace/session": "./src/lib/features/workspace/session/index.js",
 		"#features/workspace/shell": "./src/lib/features/workspace/shell/index.js",
+		"#features/workspace/transfer": "./src/lib/features/workspace/transfer/index.js",
 		"#lib/app": "./src/lib/app/index.js",
 		"#lib/*": "./src/lib/*",
 		"#core/*": "./src/lib/core/*",

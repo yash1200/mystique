@@ -34,7 +34,7 @@
 		ensureCatalogForActiveSession,
 		ensureLiveCatalog,
 	} from '#features/workspace/catalog'
-	import { GridTransferHost, tablePreview } from '#features/workspace/grid'
+	import { tablePreview } from '#features/workspace/grid'
 	import {
 		querySave,
 		QuerySaveHost,
@@ -54,6 +54,7 @@
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
+	import { TransferHost } from '#features/workspace/transfer'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import OpenTransactionModal from './OpenTransactionModal.svelte'
 	import type { SideNavMode } from './SessionsRail.svelte'
@@ -516,7 +517,7 @@
 		onclosemany={enqueueCloseTabs}
 	/>
 
-	<GridTransferHost />
+	<TransferHost />
 	<QuerySaveHost />
 
 	{#if pickerOpen}

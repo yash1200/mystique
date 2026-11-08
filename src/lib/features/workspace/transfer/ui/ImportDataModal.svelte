@@ -9,7 +9,7 @@
 	import { isTauri } from '#core/ipc'
 	import { Button, Field, Input, Modal, Select } from '#core/ui'
 	import { cn, inferFormatFromPath, pickDataFile } from '#core/util'
-	import type { SelectOption } from '../column-editor'
+	import type { SelectOption } from '#features/workspace/grid'
 	import { importDialogCopy } from '../import-dialog'
 
 	export type ImportFileSpec = {
