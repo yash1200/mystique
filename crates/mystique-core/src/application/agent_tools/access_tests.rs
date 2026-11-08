@@ -358,3 +358,103 @@ async fn mcp_save_query_updates_its_own_row() {
         .unwrap();
     assert_eq!(updated["body"], "SELECT 2");
 }
+
+fn save_sqlite(app: &AppServices, path: &std::path::Path) -> crate::domain::ConnectionProfile {
+    app.profiles()
+        .save(SaveConnectionInput {
+            id: None,
+            name: "s1-sqlite".into(),
+            engine: "sqlite".into(),
+            color_id: "teal".into(),
+            environment: "local".into(),
+            read_only: false,
+            notes: None,
+            plugin_config: json!({"path": path.to_string_lossy()}),
+            password: None,
+            secret_ref: None,
+            clear_secret: false,
+            copy_secret_from: None,
+            favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
+            tls_key_passphrase: None,
+        })
+        .unwrap()
+}
+
+#[tokio::test]
+async fn cell_paging_never_runs_a_write_again() {
+    let path = std::env::temp_dir().join(format!(
+        "mystique-s1-paging-{}-{}.sqlite",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let app = app();
+    app.settings()
+        .set(SETTING_MCP_POLICY, "high_risk_write")
+        .unwrap();
+    let profile = save_sqlite(&app, &path);
+    let tools = app.agent_tools();
+    let run = |query: String, offset: u64| {
+        let tools = tools.clone();
+        let id = profile.id.clone();
+        async move {
+            tools
+                .execute_query(
+                    &id,
+                    &query,
+                    None,
+                    None,
+                    None,
+                    "json",
+                    types::AgentCellWindow::from_options(Some(offset), Some(10)),
+                    ToolCaller::Agent,
+                )
+                .await
+        }
+    };
+    let count = || async {
+        let rows = tools
+            .execute_readonly_query(
+                &profile.id,
+                "SELECT count(*) FROM s1_page",
+                None,
+                None,
+                None,
+                "json",
+                types::AgentCellWindow::default(),
+                ToolCaller::Agent,
+            )
+            .await
+            .unwrap()
+            .rows
+            .unwrap();
+        rows[0][0].as_i64().unwrap()
+    };
+    run("CREATE TABLE s1_page (v TEXT)".into(), 0)
+        .await
+        .unwrap();
+
+    let insert = format!(
+        "INSERT INTO s1_page (v) VALUES ('{}') RETURNING v",
+        "abcdefghij".repeat(3)
+    );
+    let first = run(insert.clone(), 0).await.unwrap();
+    assert_eq!(first.rows.unwrap()[0][0]["next_offset"], json!(10));
+    let second = run(insert.clone(), 10).await.unwrap();
+    assert_eq!(second.rows.unwrap()[0][0]["text"], json!("abcdefghij"));
+    assert_eq!(count().await, 1, "paging inserted again");
+
+    // A write with no cached result is refused, not run.
+    let other = "INSERT INTO s1_page (v) VALUES ('zzzzzzzzzzzzzzz') RETURNING v".to_string();
+    let err = run(other, 10).await.unwrap_err();
+    assert!(err.to_string().contains("cell_char_offset"), "{err}");
+    assert_eq!(count().await, 1);
+
+    let _ = app
+        .connections()
+        .close_session(&format!("agent:{}", profile.id))
+        .await;
+    let _ = std::fs::remove_file(&path);
+}

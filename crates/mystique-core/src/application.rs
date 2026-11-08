@@ -42,6 +42,8 @@ pub struct AppServices {
     pub db: Arc<AppDatabase>,
     pub connections: Arc<ConnectionManager>,
     pub secrets: Arc<SecretStore>,
+    /// Last tool results, so cell paging never re-runs a statement.
+    tool_results: Arc<agent_tools::ToolResultCache>,
 }
 
 impl AppServices {
@@ -74,6 +76,7 @@ impl AppServices {
             db,
             connections,
             secrets: Arc::new(secrets),
+            tool_results: Arc::new(agent_tools::ToolResultCache::default()),
         }
     }
 
@@ -91,6 +94,7 @@ impl AppServices {
             Arc::clone(&self.connections),
             Arc::clone(&self.secrets),
         )
+        .with_result_cache(Arc::clone(&self.tool_results))
     }
 
     pub fn profiles(&self) -> ProfileService<'_> {

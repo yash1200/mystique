@@ -9,6 +9,7 @@ mod catalog;
 mod download;
 mod policy;
 mod query;
+mod results;
 mod specs;
 mod types;
 
@@ -26,6 +27,8 @@ use crate::storage::AppDatabase;
 
 use self::args::{opt_str, req_str};
 
+pub(crate) use results::ToolResultCache;
+
 pub use policy::{
     parse_allowlist, AgentWritePolicy, ToolCaller, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
 };
@@ -41,6 +44,7 @@ pub struct AgentTools {
     db: Arc<AppDatabase>,
     connections: Arc<ConnectionManager>,
     secrets: Arc<SecretStore>,
+    results: Arc<ToolResultCache>,
 }
 
 impl AgentTools {
@@ -53,7 +57,14 @@ impl AgentTools {
             db,
             connections,
             secrets,
+            results: Arc::new(ToolResultCache::default()),
         }
+    }
+
+    /// Share one result cache across tool calls (`AppServices` owns it).
+    pub(crate) fn with_result_cache(mut self, results: Arc<ToolResultCache>) -> Self {
+        self.results = results;
+        self
     }
 
     pub fn specs() -> Vec<AgentToolSpec> {
