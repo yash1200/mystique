@@ -21,11 +21,10 @@
 	import {
 		distinctColumnValues,
 		loadColumnLayout,
-		loadRollbackSql,
+		loadLatestSaveId,
 		persistTableEdits,
 		rollbackTableEdits,
 		saveColumnLayout,
-		storeRollbackSql,
 	} from '../api'
 	import {
 		columnCompletions,
@@ -217,7 +216,8 @@
 	let refreshArmed = $state(false)
 	let saving = $state(false)
 	let columnLayout = $state<GridColumnLayout>({ ...EMPTY_COLUMN_LAYOUT })
-	let rollbackSql = $state<string[]>([])
+	/** Backend id of the save the Rollback button undoes. */
+	let lastSaveId = $state<string | null>(null)
 	let undoStack = $state<GridEditSnapshot[]>([])
 	let redoStack = $state<GridEditSnapshot[]>([])
 	let savePreview = $state<string[] | null>(null)
@@ -2436,13 +2436,10 @@
 					'Delete did not apply. Restart Mystique and try the delete again.',
 				)
 			}
-			rollbackSql = result.rollbackSql ?? []
+			lastSaveId = result.saveId ?? null
 			undoStack = []
 			redoStack = []
 			savePreview = null
-			if (connectionId && rollbackSql.length > 0) {
-				void storeRollbackSql(connectionId, table.id, rollbackSql).catch(() => {})
-			}
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
@@ -2522,26 +2519,34 @@
 				columnLayout = layout
 			})
 			.catch(() => {})
-		void loadRollbackSql(id, tableId)
-			.then((sql) => {
-				if (loadedLayoutKey !== key) return
-				rollbackSql = sql
-			})
-			.catch(() => {})
+		lastSaveId = null
+		refreshLatestSave(key)
 	})
 
+	function refreshLatestSave(key = loadedLayoutKey) {
+		const id = connectionId
+		if (!id) return
+		void loadLatestSaveId(id, table)
+			.then((saveId) => {
+				if (loadedLayoutKey !== key) return
+				lastSaveId = saveId
+			})
+			.catch(() => {})
+	}
+
 	async function rollbackLastSave() {
-		if (saving || rollbackSql.length === 0) return
+		const saveId = lastSaveId
+		if (saving || !saveId) return
 		if (!assertWritable()) return
 		saving = true
 		try {
 			await rollbackTableEdits({
 				sessionId: await liveSessionId(),
-				table: table.name,
-				statements: rollbackSql,
+				saveId,
 				profileReadOnly,
 			})
-			rollbackSql = []
+			lastSaveId = null
+			refreshLatestSave()
 			undoStack = []
 			redoStack = []
 			if (onreload) {
@@ -2553,6 +2558,8 @@
 			onbaselinechange?.()
 		} catch (err) {
 			reportGridError(err)
+			// A stale or used save is gone on the backend; offer the next one.
+			refreshLatestSave()
 		} finally {
 			saving = false
 		}
@@ -2800,7 +2807,7 @@
 		{selectionLabel}
 		canUndo={undoStack.length > 0}
 		canRedo={redoStack.length > 0}
-		canRollback={rollbackSql.length > 0 && !profileReadOnly}
+		canRollback={lastSaveId != null && !profileReadOnly}
 		onUndo={undoPending}
 		onRedo={redoPending}
 		onRollback={() => void rollbackLastSave()}

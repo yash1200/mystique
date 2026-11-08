@@ -21,6 +21,7 @@ pub use agent_tools::{
     SETTING_MCP_POLICY,
 };
 pub use ai_secrets::AiSecretsService;
+pub(crate) use grid_layout::DbGridSaveStore;
 pub use grid_layout::GridLayoutService;
 pub use history::HistoryService;
 pub use profiles::ProfileService;
@@ -61,6 +62,9 @@ impl AppServices {
         let db = Arc::new(db);
         let connections = Arc::new(connections);
         history::install_writer(&connections, Arc::clone(&db));
+        connections.set_grid_save_store(Arc::new(DbGridSaveStore {
+            db: Arc::clone(&db),
+        }));
         let reaper = Arc::clone(&connections);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {

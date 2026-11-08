@@ -111,7 +111,7 @@ export async function persistTableEdits(input: {
 	}
 
 	if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
-		return { updated: 0, inserted: 0, deleted: 0, statements: [], rollbackSql: [] }
+		return { updated: 0, inserted: 0, deleted: 0, statements: [] }
 	}
 
 	const request = {
@@ -149,16 +149,14 @@ export async function persistTableEdits(input: {
 
 export async function rollbackTableEdits(input: {
 	sessionId: string
-	table: string
-	statements: string[]
+	saveId: string
 	profileReadOnly: boolean
 }): Promise<void> {
 	try {
 		await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
 			rollbackEngineTableEdits({
 				sessionId: input.sessionId,
-				table: input.table,
-				statements: input.statements,
+				saveId: input.saveId,
 				profileReadOnly: input.profileReadOnly,
 				confirmObjectName: confirmObjectName ?? null,
 			}),
@@ -219,25 +217,17 @@ export async function saveColumnLayout(
 	})
 }
 
-export async function loadRollbackSql(
+/** Latest save on this table that can still be rolled back. */
+export async function loadLatestSaveId(
 	connectionId: string,
-	tableId: string,
-): Promise<string[]> {
-	if (!isTauri()) return []
-	const row = await invoke<{ rollbackSql?: string[] } | null>('latest_grid_edit_history', {
+	table: TableMeta,
+): Promise<string | null> {
+	if (!isTauri()) return null
+	const row = await invoke<{ saveId?: string } | null>('latest_grid_save', {
 		connectionId,
-		tableId,
+		database: table.database || null,
+		schema: table.schema || null,
+		table: table.name,
 	})
-	return row?.rollbackSql ?? []
-}
-
-export async function storeRollbackSql(
-	connectionId: string,
-	tableId: string,
-	rollbackSql: string[],
-): Promise<void> {
-	if (!isTauri() || rollbackSql.length === 0) return
-	await invoke('append_grid_edit_history', {
-		input: { connectionId, tableId, rollbackSql },
-	})
+	return row?.saveId ?? null
 }

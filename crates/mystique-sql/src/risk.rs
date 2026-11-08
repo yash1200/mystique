@@ -49,22 +49,6 @@ pub fn is_safe_dml(sql: &str, dialect: SqlDialect) -> bool {
     stmts.iter().all(|s| one_is_safe_dml(s, dialect))
 }
 
-/// One parsed INSERT, UPDATE, or DELETE. Parse failure and every other statement are false.
-///
-/// Rollback SQL is sent back by the client, so an unparsed string must not count as a write.
-pub fn is_single_row_dml(sql: &str, dialect: SqlDialect) -> bool {
-    let Ok(parsed) = parse_result(sql, dialect) else {
-        return false;
-    };
-    if parsed.len() != 1 {
-        return false;
-    }
-    match parsed.first() {
-        Some(Statement::Insert(_) | Statement::Update { .. } | Statement::Delete(_)) => true,
-        _ => false,
-    }
-}
-
 /// Statement text to wrap in `EXPLAIN`. A leading `EXPLAIN` is peeled off
 /// so the button does not plan `EXPLAIN EXPLAIN …`.
 pub fn explain_subject(sql: &str, dialect: SqlDialect) -> Result<String, String> {
@@ -1086,29 +1070,6 @@ mod tests {
             SqlDialect::Sqlite
         ));
         assert!(!explain_executes("SELECT 1", SqlDialect::Postgres));
-    }
-
-    #[test]
-    fn rollback_accepts_one_dml_statement() {
-        assert!(is_single_row_dml(
-            "UPDATE \"docs\" SET \"n\" = 10 WHERE \"id\" = 1",
-            SqlDialect::Postgres
-        ));
-        assert!(is_single_row_dml(
-            "DELETE FROM `docs` WHERE `id` = 1",
-            SqlDialect::Mysql
-        ));
-        assert!(is_single_row_dml(
-            "INSERT INTO docs (id, n) VALUES (1, 10)",
-            SqlDialect::Sqlite
-        ));
-        assert!(!is_single_row_dml("DROP TABLE docs", SqlDialect::Postgres));
-        assert!(!is_single_row_dml(
-            "DELETE FROM docs; DROP TABLE docs",
-            SqlDialect::Postgres
-        ));
-        assert!(!is_single_row_dml("SELECT 1", SqlDialect::Postgres));
-        assert!(!is_single_row_dml("not sql", SqlDialect::Generic));
     }
 
     #[test]

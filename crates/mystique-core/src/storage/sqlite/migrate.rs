@@ -9,12 +9,13 @@ const V3_SQL: &str = include_str!("../../../migrations/003_connection_favorite.s
 const V4_SQL: &str = include_str!("../../../migrations/004_ssh_tunnel.sql");
 const V5_SQL: &str = include_str!("../../../migrations/005_grid_layout.sql");
 const V6_SQL: &str = include_str!("../../../migrations/006_query_history.sql");
+const V7_SQL: &str = include_str!("../../../migrations/007_grid_saves.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -110,6 +111,11 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         stamp(conn, 6)?;
     }
 
+    if current < 7 {
+        conn.execute_batch(V7_SQL)?;
+        stamp(conn, 7)?;
+    }
+
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
@@ -180,7 +186,9 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
+        assert!(table_exists(&conn, "grid_saves").unwrap());
+        assert!(!table_exists(&conn, "grid_edit_history").unwrap());
         assert!(column_exists(&conn, "query_history", "source").unwrap());
         assert!(column_exists(&conn, "query_history", "database").unwrap());
         assert!(column_exists(&conn, "query_history", "affected_rows").unwrap());
@@ -250,11 +258,11 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 6);
+        assert_eq!(n, 7);
     }
 
     #[test]
@@ -300,7 +308,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -336,7 +344,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -382,6 +390,6 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 }

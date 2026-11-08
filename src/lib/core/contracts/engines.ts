@@ -293,13 +293,14 @@ export interface ApplyTableEditsResult {
 	inserted: number
 	deleted?: number
 	statements?: string[]
-	rollbackSql?: string[]
+	/** Backend id for rolling back this save. Absent when it cannot be undone. */
+	saveId?: string | null
 }
 
+/** Rollback takes only the backend `saveId`; the backend owns the inverse SQL. */
 export interface RollbackTableEditsRequest {
 	sessionId: string
-	table: string
-	statements: string[]
+	saveId: string
 	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 }
