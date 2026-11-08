@@ -33,8 +33,6 @@ pub struct ApplyTableEditsRequest {
     #[serde(default)]
     pub deletes: Vec<TableRowDelete>,
     #[serde(default)]
-    pub profile_read_only: bool,
-    #[serde(default)]
     pub confirm_object_name: Option<String>,
     /// Compile the statements and do not write.
     #[serde(default)]
@@ -185,8 +183,6 @@ impl From<DistinctColumnValuesRequest> for DistinctColumnValuesInput {
 pub struct RollbackTableEditsRequest {
     pub session_id: String,
     pub save_id: String,
-    #[serde(default)]
-    pub profile_read_only: bool,
     #[serde(default)]
     pub confirm_object_name: Option<String>,
 }

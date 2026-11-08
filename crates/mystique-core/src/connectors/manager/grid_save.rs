@@ -103,7 +103,6 @@ impl ConnectionManager {
             preview: "Roll back a grid save".into(),
             statements: save.undo.inverse.clone(),
             confirm_object_name: req.confirm_object_name.as_deref(),
-            profile_read_only: req.profile_read_only,
             ..WriteCheck::new(&req.session_id, WriteAction::GridSave, WriteRisk::Write)
         })
         .await?;
@@ -231,7 +230,6 @@ mod tests {
                 }],
                 inserts: Vec::new(),
                 deletes: Vec::new(),
-                profile_read_only: false,
                 confirm_object_name: None,
                 dry_run: false,
             })
@@ -245,7 +243,6 @@ mod tests {
         RollbackTableEditsRequest {
             session_id: session_id.into(),
             save_id: save_id.into(),
-            profile_read_only: false,
             confirm_object_name: None,
         }
     }

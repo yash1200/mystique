@@ -135,7 +135,6 @@
 						applyEngineDdl({
 							sessionId,
 							draft: snapshot,
-							profileReadOnly: readOnly,
 							confirmObjectName: confirmObjectName ?? null,
 						}),
 					),

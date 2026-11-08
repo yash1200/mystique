@@ -29,9 +29,6 @@ pub struct ExecuteQueryRequest {
     pub max_rows: Option<u32>,
     #[serde(default)]
     pub timeout_ms: Option<u64>,
-    /// When true, force Read regardless of `mode`.
-    #[serde(default)]
-    pub profile_read_only: bool,
     /// Typed object name after a DROP/TRUNCATE confirm prompt.
     #[serde(default)]
     pub confirm_object_name: Option<String>,

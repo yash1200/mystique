@@ -325,7 +325,6 @@ mod tests {
             mode: QueryMode::Read,
             max_rows: Some(1),
             timeout_ms,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,

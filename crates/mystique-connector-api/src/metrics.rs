@@ -290,8 +290,6 @@ pub struct TerminateSessionRequest {
     pub session_id: String,
     /// Engine-native id from [`ActiveBackendSession::id`].
     pub backend_session_id: String,
-    #[serde(default)]
-    pub profile_read_only: bool,
 }
 
 /// Validated payload handed to the plugin.

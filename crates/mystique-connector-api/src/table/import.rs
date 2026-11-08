@@ -100,8 +100,6 @@ pub struct ImportObjectRequest {
     pub mapping: Vec<ImportColumnMap>,
     #[serde(default)]
     pub on_duplicate: ImportOnDuplicate,
-    #[serde(default)]
-    pub profile_read_only: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -109,8 +109,6 @@ pub struct ApplyDdlRequest {
     pub session_id: String,
     pub draft: TableDefinition,
     #[serde(default)]
-    pub profile_read_only: bool,
-    #[serde(default)]
     pub confirm_object_name: Option<String>,
 }
 
@@ -132,8 +130,6 @@ pub struct ApplySchemaDiffRequest {
     pub target: Vec<TableDefinition>,
     #[serde(default)]
     pub renames: Vec<RenamePair>,
-    #[serde(default)]
-    pub profile_read_only: bool,
     #[serde(default)]
     pub confirm_object_name: Option<String>,
 }

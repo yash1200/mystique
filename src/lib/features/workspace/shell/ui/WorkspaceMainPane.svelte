@@ -267,7 +267,7 @@
 						connectionName={activeSession.profile.name}
 						engine={String(activeSession.profile.engine)}
 						capabilities={activeSession.capabilities}
-						profileReadOnly={!!activeSession.profile.readOnly}
+						readOnly={!!activeSession.profile.readOnly}
 						engineSessionId={activeSession.engineSessionId}
 						database={currentDatabaseName}
 						text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
@@ -354,7 +354,7 @@
 				<ServerMetricsView
 					engine={String(activeSession.profile.engine)}
 					engineSessionId={activeSession.engineSessionId ?? null}
-					profileReadOnly={!!activeSession.profile.readOnly}
+					readOnly={!!activeSession.profile.readOnly}
 					capabilities={activeSession.capabilities}
 					production={activeSession.profile.environment === 'production'}
 				/>
@@ -416,7 +416,7 @@
 								activeSession.capabilities,
 							).supportsDistinctValues !== false}
 							sessionId={activeSession.engineSessionId}
-							profileReadOnly={!!activeSession.profile.readOnly}
+							readOnly={!!activeSession.profile.readOnly}
 							production={activeSession.profile.environment === 'production'}
 							connectionName={activeSession.profile.name}
 							onreload={(opts) => tablePreview.reload(opts)}

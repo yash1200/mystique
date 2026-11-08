@@ -27,7 +27,16 @@ pub async fn save_profile(
     input: SaveConnectionInput,
 ) -> Result<ConnectionProfile, IpcError> {
     let services = Arc::clone(&state.services);
-    super::guard_blocking(move || services.profiles().save(input).map_err(IpcError::from)).await
+    let saved =
+        super::guard_blocking(move || services.profiles().save(input).map_err(IpcError::from))
+            .await?;
+    // Open sessions follow the stored read-only bit; requests carry none.
+    state
+        .services
+        .connections()
+        .apply_profile_read_only(&saved.id, saved.read_only)
+        .await;
+    Ok(saved)
 }
 
 #[tauri::command]

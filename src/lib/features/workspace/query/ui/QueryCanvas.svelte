@@ -80,7 +80,7 @@
 		connectionId: string
 		connectionName: string
 		engine: string
-		profileReadOnly: boolean
+		readOnly: boolean
 		engineSessionId?: string | null
 		database?: string | null
 		text?: string
@@ -99,7 +99,7 @@
 		connectionId,
 		connectionName,
 		engine,
-		profileReadOnly,
+		readOnly,
 		engineSessionId = null,
 		database = null,
 		text = '',
@@ -177,7 +177,7 @@
 		void catalogColumnsCache.load(sid, db || null)
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
-	const effectiveMode = $derived<QueryMode>(profileReadOnly ? 'read' : 'write')
+	const effectiveMode = $derived<QueryMode>(readOnly ? 'read' : 'write')
 	// Profile, then the app setting, then 120 s. 0 is sent as "no timeout".
 	const timeoutMs = $derived(
 		resolveQueryTimeoutMs(
@@ -438,7 +438,6 @@
 					analyze,
 					mode,
 					timeoutMs,
-					profileReadOnly,
 					confirmObjectName: confirmObjectName ?? null,
 					collection: language === 'mql' ? collection.trim() || null : null,
 					database:
@@ -532,7 +531,6 @@
 				mode,
 				maxRows: QUERY_FETCH_MAX_ROWS,
 				timeoutMs,
-				profileReadOnly,
 				collection: language === 'mql' ? collection.trim() || null : null,
 				database: database?.trim() ? database.trim() : null,
 				executionId,

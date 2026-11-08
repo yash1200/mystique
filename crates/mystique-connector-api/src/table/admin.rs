@@ -56,8 +56,6 @@ pub struct TableAdminRequest {
     #[serde(default)]
     pub new_name: Option<String>,
     #[serde(default)]
-    pub profile_read_only: bool,
-    #[serde(default)]
     pub confirm_object_name: Option<String>,
 }
 

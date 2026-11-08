@@ -129,7 +129,7 @@
 		originals?: Record<string, unknown>[]
 		engine?: string
 		sessionId?: string | null
-		profileReadOnly?: boolean
+		readOnly?: boolean
 		/** Reload live rows from the engine (Refresh, pager, save). */
 		onreload?: (opts?: {
 			offset?: number
@@ -176,7 +176,7 @@
 		originals = $bindable<Record<string, unknown>[]>([]),
 		engine = '',
 		sessionId = null,
-		profileReadOnly = false,
+		readOnly = false,
 		onreload,
 		onreconnect,
 		seedFilters = null,
@@ -702,7 +702,7 @@
 	}
 
 	function addNewRow() {
-		if (profileReadOnly) {
+		if (readOnly) {
 			flashStatus('Connection is read-only')
 			return
 		}
@@ -738,7 +738,7 @@
 	}
 
 	function assertWritable(): boolean {
-		if (!profileReadOnly) return true
+		if (!readOnly) return true
 		flashStatus('Connection is read-only')
 		return false
 	}
@@ -798,7 +798,7 @@
 	}
 
 	function setCellsNull(cells: { row: number; col: string }[]) {
-		if (profileReadOnly) {
+		if (readOnly) {
 			flashStatus('Connection is read-only')
 			return
 		}
@@ -1077,7 +1077,7 @@
 	}
 
 	async function cloneRows(indices: number[]) {
-		if (profileReadOnly) {
+		if (readOnly) {
 			flashStatus('Connection is read-only')
 			return
 		}
@@ -1209,7 +1209,7 @@
 	}
 
 	function deleteRow(index: number, quiet = false) {
-		if (profileReadOnly) {
+		if (readOnly) {
 			if (!quiet) flashStatus('Connection is read-only')
 			return
 		}
@@ -1241,7 +1241,7 @@
 	}
 
 	const rowMenuItems = $derived.by((): ContextMenuItem[] => {
-		const ro = profileReadOnly
+		const ro = readOnly
 		const primary = rowMenu?.row
 		const targets =
 			primary != null && selectedRows.has(primary) && selectedRows.size > 1
@@ -1348,7 +1348,7 @@
 	const cellMenuItems = $derived.by((): ContextMenuItem[] => {
 		const ctx = cellMenu
 		if (!ctx) return []
-		const ro = profileReadOnly
+		const ro = readOnly
 		const targets = targetRows(ctx.row)
 		const many = targets.length > 1
 		const pending = deletedIndices.has(ctx.row)
@@ -1458,7 +1458,7 @@
 			return
 		}
 		if (id === 'paste') {
-			if (profileReadOnly) {
+			if (readOnly) {
 				flashStatus('Connection is read-only')
 				return
 			}
@@ -2364,7 +2364,6 @@
 			newRowIndices,
 			deletedIndices,
 			dirtyKeys,
-			profileReadOnly,
 			dryRun,
 		}
 	}
@@ -2579,7 +2578,7 @@
 		try {
 			const sid = await liveSessionId()
 			const outcome = await undoSave(
-				() => rollbackTableEdits({ sessionId: sid, saveId, profileReadOnly }),
+				() => rollbackTableEdits({ sessionId: sid, saveId }),
 				isWriteCancelled,
 			)
 			// A stale or used save is gone on the backend; offer the next one.
@@ -2758,7 +2757,7 @@
 			columnType={cellModal.type}
 			rowIndex={cellModal.row}
 			initialText={cellModal.text}
-			readonly={profileReadOnly}
+			readonly={readOnly}
 			unfetchable={cellModal.unfetchable || (!!locator && !sessionId)}
 			fetchChunk={locator && sessionId
 				? (offset) => fetchEngineLargeValue({ sessionId, locator, offset })
@@ -2808,7 +2807,7 @@
 		{totalPages}
 		{refreshing}
 		{saving}
-		readOnly={profileReadOnly}
+		readOnly={readOnly}
 		onOpenStructure={onopenstructure}
 		onPrev={goPrev}
 		onNext={goNext}
@@ -2819,7 +2818,7 @@
 		{selectionLabel}
 		canUndo={undoStack.length > 0}
 		canRedo={redoStack.length > 0}
-		canRollback={lastSaveId != null && !profileReadOnly}
+		canRollback={lastSaveId != null && !readOnly}
 		onUndo={undoPending}
 		onRedo={redoPending}
 		onRollback={() => {

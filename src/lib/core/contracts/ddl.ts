@@ -121,7 +121,6 @@ export interface PlanDdlRequest {
 export interface ApplyDdlRequest {
 	sessionId: string
 	draft: TableDefinition
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 }
 
@@ -137,6 +136,5 @@ export interface ApplySchemaDiffRequest {
 	source: TableDefinition[]
 	target: TableDefinition[]
 	renames?: RenamePair[]
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 }

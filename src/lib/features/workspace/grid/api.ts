@@ -43,7 +43,6 @@ export async function persistTableEdits(input: {
 	newRowIndices: Set<number>
 	deletedIndices: Set<number>
 	dirtyKeys: Set<string>
-	profileReadOnly: boolean
 	dryRun?: boolean
 }): Promise<PersistResult> {
 	if (!input.sessionId) {
@@ -120,7 +119,6 @@ export async function persistTableEdits(input: {
 		updates,
 		inserts,
 		deletes,
-		profileReadOnly: input.profileReadOnly,
 	}
 
 	if (input.dryRun) {
@@ -141,13 +139,11 @@ export async function persistTableEdits(input: {
 export async function rollbackTableEdits(input: {
 	sessionId: string
 	saveId: string
-	profileReadOnly: boolean
 }): Promise<void> {
 	await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
 		rollbackEngineTableEdits({
 			sessionId: input.sessionId,
 			saveId: input.saveId,
-			profileReadOnly: input.profileReadOnly,
 			confirmObjectName: confirmObjectName ?? null,
 		}),
 	)

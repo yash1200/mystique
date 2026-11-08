@@ -121,7 +121,6 @@ export interface ExecuteQueryRequest {
 	mode?: QueryMode
 	maxRows?: number
 	timeoutMs?: number
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 	/** MongoDB collection name */
 	collection?: string | null
@@ -139,7 +138,6 @@ export interface ExplainQueryRequest {
 	analyze?: boolean
 	mode?: QueryMode
 	timeoutMs?: number
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 	collection?: string | null
 	database?: string | null
@@ -292,7 +290,6 @@ export interface ApplyTableEditsRequest {
 	updates: TableRowUpdate[]
 	inserts: TableRowInsert[]
 	deletes?: TableRowDelete[]
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 	/** Compile the statements and do not write. */
 	dryRun?: boolean
@@ -311,7 +308,6 @@ export interface ApplyTableEditsResult {
 export interface RollbackTableEditsRequest {
 	sessionId: string
 	saveId: string
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 }
 
@@ -468,7 +464,6 @@ export interface TableAdminRequest {
 	database?: string | null
 	kind?: string | null
 	newName?: string | null
-	profileReadOnly?: boolean
 	confirmObjectName?: string | null
 }
 
@@ -556,7 +551,6 @@ export interface ImportObjectRequest {
 	encoding?: ImportEncoding
 	mapping: ImportColumnMap[]
 	onDuplicate: ImportOnDuplicate
-	profileReadOnly?: boolean
 }
 
 export interface ImportObjectResult {
@@ -673,7 +667,6 @@ export interface FetchServerMetricsRequest {
 export interface TerminateSessionRequest {
 	sessionId: string
 	backendSessionId: string
-	profileReadOnly?: boolean
 }
 
 export interface TerminateSessionResult {

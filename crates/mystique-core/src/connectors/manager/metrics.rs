@@ -32,7 +32,6 @@ impl ConnectionManager {
         reject_beyond_depth(&meta.caps, DepthFeature::Terminate)?;
         self.enforce_write_guard(WriteCheck {
             preview: format!("Terminate backend session {}", req.backend_session_id),
-            profile_read_only: req.profile_read_only,
             ..WriteCheck::new(&req.session_id, WriteAction::Terminate, WriteRisk::Write)
         })
         .await?;

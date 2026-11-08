@@ -69,8 +69,6 @@ pub struct ExplainQueryRequest {
     #[serde(default)]
     pub timeout_ms: Option<u64>,
     #[serde(default)]
-    pub profile_read_only: bool,
-    #[serde(default)]
     pub confirm_object_name: Option<String>,
     #[serde(default)]
     pub collection: Option<String>,

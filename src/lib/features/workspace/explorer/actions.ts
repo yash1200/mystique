@@ -100,7 +100,6 @@ export async function onTableExplorerAction(
 							database: table.database || currentDatabaseName(),
 							kind: table.kind,
 							newName,
-							profileReadOnly: !!session.profile.readOnly,
 							confirmObjectName: confirmObjectName ?? null,
 						}),
 					{ confirmObjectName: confirmed },

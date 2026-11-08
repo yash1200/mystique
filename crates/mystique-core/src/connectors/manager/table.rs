@@ -35,7 +35,6 @@ impl ConnectionManager {
                 req.table
             ),
             confirm_object_name: req.confirm_object_name.as_deref(),
-            profile_read_only: req.profile_read_only,
             ..WriteCheck::new(&session_id, WriteAction::GridSave, WriteRisk::Write)
         };
         let prompt = if req.dry_run {
@@ -146,14 +145,9 @@ impl ConnectionManager {
                 preview: admin_preview(req.op, &req.name, req.new_name.as_deref()),
                 object_name: Some(req.name.as_str()),
                 confirm_object_name: req.confirm_object_name.as_deref(),
-                profile_read_only: req.profile_read_only,
                 ..WriteCheck::new(&req.session_id, WriteAction::ObjectAdmin, risk)
             })
             .await?;
-        } else if req.profile_read_only && req.op != TableAdminOp::CreateStatement {
-            return Err(ConnectorError::Policy(
-                "This connection is read-only. Disable read-only to change objects.".into(),
-            ));
         }
         let needs_name = matches!(req.op, TableAdminOp::Rename | TableAdminOp::Duplicate);
         if needs_name
@@ -249,7 +243,6 @@ impl ConnectionManager {
             statements: plan.statements.clone(),
             object_name: Some(req.draft.name.as_str()),
             confirm_object_name: req.confirm_object_name.as_deref(),
-            profile_read_only: req.profile_read_only,
             ..WriteCheck::new(
                 &req.session_id,
                 WriteAction::Structure,
@@ -330,7 +323,6 @@ impl ConnectionManager {
                 .collect(),
             object_name: Some(object),
             confirm_object_name: req.confirm_object_name.as_deref(),
-            profile_read_only: req.profile_read_only,
             ..WriteCheck::new(&req.session_id, WriteAction::Structure, risk)
         })
         .await?;

@@ -77,8 +77,9 @@ pub struct OpenSessionRequest {
     /// Connection display name for write-guard prompts.
     #[serde(default)]
     pub connection_name: Option<String>,
-    /// Profile `read_only`. Filled from the profile at attach.
-    #[serde(default)]
+    /// Profile `read_only`, filled from the stored profile at attach. Never
+    /// read from the client: every write path checks the live session's bit.
+    #[serde(skip)]
     pub profile_read_only: bool,
     /// When false, an omitted `ssh` stays omitted. The test form sets this
     /// from the SSH checkbox so an unticked box does not reuse the saved tunnel.
@@ -407,6 +408,28 @@ impl ConnectionManager {
         Ok(())
     }
 
+    /// A saved profile's read-only bit reaches its open sessions (desktop,
+    /// agent, MCP) now, not at the next connect. Requests carry no read-only
+    /// flag, so this is how an edit made while connected takes effect.
+    /// Returns how many sessions were updated.
+    pub async fn apply_profile_read_only(&self, profile_id: &str, read_only: bool) -> usize {
+        let id = profile_id.trim();
+        if id.is_empty() {
+            return 0;
+        }
+        let mut guard = self.sessions.write().await;
+        let mut updated = 0;
+        for (session_id, live) in guard.iter_mut() {
+            // The desktop keys its session by profile id; agent and MCP
+            // sessions carry the profile id.
+            if session_id == id || live.profile_id.as_deref() == Some(id) {
+                live.read_only = read_only;
+                updated += 1;
+            }
+        }
+        updated
+    }
+
     pub async fn pool_status(&self, session_id: &str) -> ConnectorResult<Option<PoolStatus>> {
         let guard = self.sessions.read().await;
         let live = guard.get(session_id).ok_or_else(|| {
@@ -474,7 +497,8 @@ impl ConnectionManager {
 
     /// The session plus the profile read-only bit stored at open.
     ///
-    /// Callers must use this bit, not a client-sent `profile_read_only: false`,
+    /// Requests carry no read-only flag. Callers use this bit (filled from the
+    /// stored profile at open, kept current by `apply_profile_read_only`)
     /// to decide whether a query is allowed to write.
     pub(super) async fn session_and_read_only(
         &self,

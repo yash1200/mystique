@@ -98,11 +98,9 @@ impl ConnectionManager {
                 "this engine does not import {format} files"
             )));
         }
-        // Upsert is still a write. The live session's read-only bit wins inside
-        // the guard; the client flag can only make the call stricter.
+        // Upsert is still a write. The guard reads the live session's read-only bit.
         self.enforce_write_guard(WriteCheck {
             preview: format!("Import into {}", req.name.trim()),
-            profile_read_only: req.profile_read_only,
             ..WriteCheck::new(&req.session_id, WriteAction::Import, WriteRisk::Write)
         })
         .await?;

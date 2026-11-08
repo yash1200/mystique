@@ -23,7 +23,7 @@
 	interface Props {
 		engine: string
 		engineSessionId: string | null
-		profileReadOnly: boolean
+		readOnly: boolean
 		capabilities?: EngineCapabilities | null
 		production?: boolean
 	}
@@ -31,14 +31,14 @@
 	let {
 		engine,
 		engineSessionId,
-		profileReadOnly,
+		readOnly,
 		capabilities = null,
 		production = false,
 	}: Props = $props()
 
 	const caps = $derived(resolveCapabilities(engine, capabilities))
 	const canTerminate = $derived(
-		!!caps.supportsTerminateSession && !profileReadOnly,
+		!!caps.supportsTerminateSession && !readOnly,
 	)
 
 	let pane = $state<MetricsPane>('overview')
@@ -93,7 +93,6 @@
 			const result = await terminateBackendSession({
 				sessionId: engineSessionId,
 				backendSessionId: row.id,
-				profileReadOnly,
 			})
 			if (result.ok) {
 				showToast('success', result.message || `Ended session ${row.id}.`)

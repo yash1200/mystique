@@ -455,7 +455,7 @@ impl ConnectionManager {
     ) -> ConnectorResult<QueryBatchResult> {
         let (session, live_read_only) = self.session_and_read_only(&req.session_id).await?;
         let engine = session.engine_id().to_string();
-        let read_only = live_read_only || req.profile_read_only;
+        let read_only = live_read_only;
         let mode = if read_only { QueryMode::Read } else { req.mode };
         let max_rows = req
             .max_rows

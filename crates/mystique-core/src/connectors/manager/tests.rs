@@ -322,7 +322,6 @@ async fn production_write_requires_unlock() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -342,7 +341,6 @@ async fn production_write_requires_unlock() {
         mode: mystique_connector_api::QueryMode::Write,
         max_rows: None,
         timeout_ms: None,
-        profile_read_only: false,
         confirm_object_name: None,
         collection: None,
         database: None,
@@ -359,7 +357,6 @@ async fn production_write_requires_unlock() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -377,7 +374,6 @@ async fn production_write_requires_unlock() {
         mode: mystique_connector_api::QueryMode::Write,
         max_rows: None,
         timeout_ms: None,
-        profile_read_only: false,
         confirm_object_name: Some("t".into()),
         collection: None,
         database: None,
@@ -418,7 +414,6 @@ async fn local_write_skips_unlock() {
         mode: mystique_connector_api::QueryMode::Write,
         max_rows: None,
         timeout_ms: None,
-        profile_read_only: false,
         confirm_object_name: None,
         collection: None,
         database: None,
@@ -486,7 +481,6 @@ async fn live_read_only_ignores_a_client_write_flag() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -508,7 +502,6 @@ async fn live_read_only_ignores_a_client_write_flag() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -556,11 +549,7 @@ fn temp_db(label: &str) -> std::path::PathBuf {
     ))
 }
 
-fn import_req(
-    session_id: &str,
-    path: &str,
-    read_only: bool,
-) -> mystique_connector_api::ImportObjectRequest {
+fn import_req(session_id: &str, path: &str) -> mystique_connector_api::ImportObjectRequest {
     mystique_connector_api::ImportObjectRequest {
         session_id: session_id.into(),
         name: "t".into(),
@@ -572,7 +561,6 @@ fn import_req(
         encoding: mystique_connector_api::ImportEncoding::Utf8,
         mapping: Vec::new(),
         on_duplicate: mystique_connector_api::ImportOnDuplicate::UpdateOnDuplicate,
-        profile_read_only: read_only,
     }
 }
 
@@ -584,7 +572,6 @@ async fn count_rows(mgr: &ConnectionManager, session_id: &str) -> i64 {
             mode: mystique_connector_api::QueryMode::Read,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -617,7 +604,7 @@ async fn import_into_production_needs_no_extra_prompt() {
     mgr.open_session(sqlite_open(&db_path, "prod", "production", false))
         .await
         .expect("open prod");
-    mgr.import_object(import_req("prod", &csv_path.to_string_lossy(), false))
+    mgr.import_object(import_req("prod", &csv_path.to_string_lossy()))
         .await
         .expect("import");
     assert_eq!(count_rows(&mgr, "prod").await, 1);
@@ -792,7 +779,6 @@ async fn production_grid_save_prompt_shows_the_save_sql() {
                 .collect(),
         }],
         deletes: Vec::new(),
-        profile_read_only: false,
         confirm_object_name: None,
         dry_run: false,
     };
@@ -842,7 +828,7 @@ async fn import_into_read_only_session_ignores_client_flag() {
         .await
         .expect("open read-only");
     let err = mgr
-        .import_object(import_req("ro", &csv_path.to_string_lossy(), false))
+        .import_object(import_req("ro", &csv_path.to_string_lossy()))
         .await
         .expect_err("client flag must not override the session");
     assert!(
@@ -966,7 +952,6 @@ async fn aggregate_out_on_production_prompts_once() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -991,7 +976,6 @@ async fn aggregate_out_on_production_prompts_once() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -1018,7 +1002,6 @@ async fn mongo_delete_many_on_production_prompts() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -1043,7 +1026,6 @@ async fn mongo_delete_many_on_production_prompts() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -1067,7 +1049,6 @@ async fn mongo_filter_delete_text_is_a_read() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -1089,7 +1070,6 @@ async fn mongo_filter_delete_text_is_a_read() {
         mode: mystique_connector_api::QueryMode::Write,
         max_rows: None,
         timeout_ms: None,
-        profile_read_only: false,
         confirm_object_name: None,
         collection: None,
         database: None,
@@ -1112,7 +1092,6 @@ async fn mongo_write_on_read_only_session_ignores_client_flag() {
             mode: mystique_connector_api::QueryMode::Write,
             max_rows: None,
             timeout_ms: None,
-            profile_read_only: false,
             confirm_object_name: None,
             collection: None,
             database: None,
@@ -1135,7 +1114,6 @@ fn write_req(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQue
         mode: mystique_connector_api::QueryMode::Write,
         max_rows: None,
         timeout_ms: None,
-        profile_read_only: false,
         confirm_object_name: None,
         collection: None,
         database: None,
@@ -1155,7 +1133,6 @@ fn batch_req(
         mode,
         max_rows: Some(50),
         timeout_ms: Some(5_000),
-        profile_read_only: false,
         confirm_object_name: None,
         collection: None,
         database: None,
@@ -1509,7 +1486,6 @@ fn explain_req(
         analyze,
         mode: mystique_connector_api::QueryMode::Write,
         timeout_ms: Some(5_000),
-        profile_read_only: false,
         confirm_object_name: None,
         collection: None,
         database: None,
@@ -2021,7 +1997,6 @@ async fn a_structure_plan_with_warnings_never_runs() {
         .apply_ddl(mystique_connector_api::ApplyDdlRequest {
             session_id: "ddl-warn".into(),
             draft,
-            profile_read_only: false,
             confirm_object_name: None,
         })
         .await
@@ -2050,7 +2025,6 @@ async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
         .apply_ddl(mystique_connector_api::ApplyDdlRequest {
             session_id: "ddl-prod".into(),
             draft: mongo_collection("orders", vec![index.clone()]),
-            profile_read_only: false,
             confirm_object_name: None,
         })
         .await
@@ -2063,7 +2037,6 @@ async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
         .apply_ddl(mystique_connector_api::ApplyDdlRequest {
             session_id: "ddl-ro".into(),
             draft: mongo_collection("orders", vec![index]),
-            profile_read_only: false,
             confirm_object_name: None,
         })
         .await
@@ -2543,4 +2516,106 @@ async fn a_transaction_the_server_dropped_is_reported_and_commit_refuses() {
     mgr.rollback_open_tab("tab-drop").await.expect("rollback");
     assert!(!mgr.pin_status("tab-drop").await.rolled_back);
     let _ = mgr.rollback_tab("tab-drop").await;
+}
+
+/// #196: requests carry no read-only flag. Every write path reads the live
+/// session's bit, which follows the stored profile.
+#[tokio::test]
+async fn read_only_session_blocks_grid_save_and_object_admin() {
+    let path = temp_db("ro-paths");
+    let mgr = seeded(&path, "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER)").await;
+    mgr.open_session(sqlite_open(&path, "ro", "local", true))
+        .await
+        .expect("open read-only");
+
+    let save = mystique_connector_api::ApplyTableEditsRequest {
+        session_id: "ro".into(),
+        table: "t".into(),
+        schema: None,
+        database: None,
+        columns: vec![mystique_connector_api::TableEditColumn {
+            name: "id".into(),
+            data_type: "integer".into(),
+            nullable: false,
+            pk: true,
+        }],
+        updates: Vec::new(),
+        inserts: vec![mystique_connector_api::TableRowInsert {
+            values: [("id".into(), json!(1))].into_iter().collect(),
+        }],
+        deletes: Vec::new(),
+        confirm_object_name: None,
+        dry_run: false,
+    };
+    let err = mgr.apply_table_edits(save).await.expect_err("grid save");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("read-only"),
+        "{err}"
+    );
+
+    let drop = mystique_connector_api::TableAdminRequest {
+        session_id: "ro".into(),
+        op: mystique_connector_api::TableAdminOp::Drop,
+        name: "t".into(),
+        schema: None,
+        database: None,
+        kind: None,
+        new_name: None,
+        confirm_object_name: Some("t".into()),
+    };
+    let err = mgr.apply_table_admin(drop).await.expect_err("drop");
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("read-only"),
+        "{err}"
+    );
+    assert_eq!(count_rows(&mgr, "ro").await, 0);
+
+    let _ = mgr.close_session("ro").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn a_profile_edit_reaches_the_open_session() {
+    let path = temp_db("ro-edit");
+    let mgr = seeded(&path, "CREATE TABLE t (id INTEGER PRIMARY KEY)").await;
+    let mut open = sqlite_open(&path, "p1", "local", false);
+    open.profile_id = Some("p1".into());
+    mgr.open_session(open).await.expect("open");
+    mgr.execute_query(write_req("p1", "INSERT INTO t VALUES (1)"))
+        .await
+        .expect("writes before the edit");
+
+    assert_eq!(mgr.apply_profile_read_only("p1", true).await, 1);
+    let err = mgr
+        .execute_query(write_req("p1", "INSERT INTO t VALUES (2)"))
+        .await
+        .expect_err("read-only after the edit");
+    let msg = err.to_string().to_ascii_lowercase();
+    assert!(
+        msg.contains("read-only") || msg.contains("nothing ran"),
+        "{err}"
+    );
+    assert_eq!(count_rows(&mgr, "p1").await, 1);
+
+    assert_eq!(mgr.apply_profile_read_only("other", true).await, 0);
+    assert_eq!(mgr.apply_profile_read_only("p1", false).await, 1);
+    mgr.execute_query(write_req("p1", "INSERT INTO t VALUES (3)"))
+        .await
+        .expect("writes again");
+    assert_eq!(count_rows(&mgr, "p1").await, 2);
+
+    let _ = mgr.close_session("p1").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_client_cannot_send_the_read_only_bit() {
+    let req: OpenSessionRequest = serde_json::from_value(json!({
+        "engine": "sqlite",
+        "pluginConfig": {},
+        "profileReadOnly": true,
+    }))
+    .expect("parse");
+    // Skipped on the wire: only the stored profile fills it.
+    assert!(!req.profile_read_only);
 }

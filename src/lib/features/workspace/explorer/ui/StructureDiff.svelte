@@ -169,7 +169,6 @@
 	async function apply() {
 		if (!targetSession || !canApply) return
 		const id = targetSession.profile.id
-		const readOnly = targetSession.profile.readOnly
 		const sourceNow = $state.snapshot(source)
 		const targetNow = $state.snapshot(target)
 		const renamesNow = $state.snapshot(renames)
@@ -187,7 +186,6 @@
 							source: sourceNow,
 							target: targetNow,
 							renames: renamesNow,
-							profileReadOnly: readOnly,
 							confirmObjectName: confirmObjectName ?? null,
 						}),
 					)

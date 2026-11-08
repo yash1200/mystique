@@ -173,7 +173,6 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 					encoding: spec.encoding,
 					mapping: spec.mapping,
 					onDuplicate: spec.onDuplicate,
-					profileReadOnly: !!active.session.profile.readOnly,
 				}),
 			{ replay: false },
 		)
