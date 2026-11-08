@@ -1,3 +1,7 @@
+import type { ConnectionProfile as ConnectionProfileRow, SshAuth } from '../ipc/bindings.gen'
+
+export type { SaveConnectionInput, SshAuth, SshConfig } from '../ipc/bindings.gen'
+
 export type EngineId = 'postgres' | 'sqlite' | 'mysql' | 'mongodb' | string
 
 export type ConnectionColorId =
@@ -22,77 +26,16 @@ export type Environment = 'local' | 'staging' | 'production'
 export type PluginConfig = Record<string, unknown>
 
 /**
- * Connection profile — matches mystique-core `ConnectionProfile` (camelCase).
- * `status` is UI-only (not persisted).
- *
- * List/get never include a password. `passwordSet` means one lives in the OS keychain.
+ * The stored profile (`mystique-core` `ConnectionProfile`, generated) with the
+ * string fields the UI switches on narrowed to their known values, plus the
+ * UI-only `status` overlay (never persisted).
  */
-export interface ConnectionProfile {
-	id: string
-	name: string
+export type ConnectionProfile = Omit<ConnectionProfileRow, 'engine' | 'colorId' | 'environment'> & {
 	engine: EngineId
 	colorId: ConnectionColorId
 	environment: Environment
-	readOnly: boolean
-	notes?: string | null
-	pluginConfig: PluginConfig
-	passwordSet: boolean
-	/** False: the password is asked once per app session, never saved. Missing means true. */
-	savePassword?: boolean
-	/** Write-only on save. Never populated by list/get. */
-	password?: string | null
-	favorite: boolean
-	/** Seconds. Null or missing uses the app setting; 0 means no timeout. */
-	queryTimeoutSecs?: number | null
-	lastConnectedAt: string | null
-	createdAt: string
-	updatedAt: string
 	/** Ephemeral UI state; defaults to disconnected. */
 	status?: ConnectionStatus
-	/** SSH bastion (transport). Missing on old profiles. */
-	ssh?: SshConfig
-	sshPasswordSet?: boolean
-}
-
-export type SshAuth = 'password' | 'key' | 'agent'
-
-export interface SshConfig {
-	enabled: boolean
-	host: string
-	port: number
-	user: string
-	auth: SshAuth
-	privateKeyPath: string
-}
-
-/** Payload for create/update — matches backend `SaveConnectionInput`. */
-export interface SaveConnectionInput {
-	id?: string | null
-	name: string
-	engine: string
-	colorId: string
-	environment: string
-	readOnly: boolean
-	notes?: string | null
-	pluginConfig: PluginConfig
-	/** Plaintext password to store. Blank on edit keeps the existing secret. */
-	password?: string | null
-	/** When true, clear the stored password. */
-	clearSecret?: boolean
-	/** Copy the keychain secret from this profile (duplicate). */
-	copySecretFrom?: string | null
-	/** @deprecated Prefer `password`. Kept for IPC compatibility. */
-	secretRef?: string | null
-	/** Omit on update to leave the stored flag unchanged. */
-	favorite?: boolean
-	sshConfig?: SshConfig
-	sshPassword?: string | null
-	clearSshSecret?: boolean
-	tlsKeyPassphrase?: string | null
-	/** Saved as sent on update too. Null uses the app setting; 0 means none. */
-	queryTimeoutSecs?: number | null
-	/** False deletes any saved password. Omit on update to keep the stored flag. */
-	savePassword?: boolean
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */

@@ -84,6 +84,9 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
 		createdAt: existing?.createdAt ?? ts,
 		updatedAt: ts,
 		status: existing?.status ?? 'disconnected',
+		ssh: input.sshConfig ?? existing?.ssh ?? {},
+		sshPasswordSet: existing?.sshPasswordSet ?? false,
+		queryTimeoutSecs: input.queryTimeoutSecs ?? null,
 	}
 
 	const next = existing

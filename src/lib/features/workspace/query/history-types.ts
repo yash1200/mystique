@@ -1,4 +1,6 @@
-export type QueryHistorySource = 'ui' | 'agent' | 'mcp'
+import type { QueryHistorySource } from '#core/contracts'
+
+export type { AppendHistoryInput, QueryHistoryItem, QueryHistorySource } from '#core/contracts'
 
 export type QueryHistoryEntry = {
 	id: string
@@ -17,32 +19,3 @@ export type QueryHistoryEntry = {
 	source: QueryHistorySource
 }
 
-export interface QueryHistoryItem {
-	id: string
-	connectionId?: string | null
-	engine?: string | null
-	body: string
-	language?: string | null
-	success: boolean
-	rowCount?: number | null
-	durationMs?: number | null
-	errorMessage?: string | null
-	ranAt: string
-	database?: string | null
-	affectedRows?: number | null
-	source?: QueryHistorySource | null
-}
-
-export interface AppendHistoryInput {
-	connectionId?: string | null
-	engine?: string | null
-	body: string
-	language?: string | null
-	success: boolean
-	rowCount?: number | null
-	durationMs?: number | null
-	errorMessage?: string | null
-	database?: string | null
-	affectedRows?: number | null
-	source?: QueryHistorySource | null
-}

@@ -1,31 +1,8 @@
-export interface McpStatus {
-	enabled: boolean
-	running: boolean
-	port?: number | null
-	url?: string | null
-	token?: string | null
-}
+import type { McpAccess as McpAccessRow } from '#core/contracts'
 
-export interface McpHarness {
-	id: string
-	label: string
-	mark: string
-	hint: string
-	configPath: string
-	installed: boolean
-	stale: boolean
-}
+export type { McpAllowlistConnection, McpHarness, McpStatus } from '#core/contracts'
 
 export type McpWritePolicy = 'read-only' | 'safe_write' | 'high_risk_write'
 
-export interface McpAllowlistConnection {
-	id: string
-	name: string
-	engine: string
-}
-
-export interface McpAccess {
-	policy: McpWritePolicy
-	allowlist: string[]
-	connections: McpAllowlistConnection[]
-}
+/** `McpAccess` (generated) with `policy` narrowed to the values the backend writes. */
+export type McpAccess = Omit<McpAccessRow, 'policy'> & { policy: McpWritePolicy }

@@ -1,3 +1,16 @@
+import type {
+	AgentProviderInfo as AgentProviderInfoRow,
+	AiKeyStatus as AiKeyStatusRow,
+	AiSettingsView as AiSettingsViewRow,
+} from '#core/contracts'
+
+export type {
+	AgentChat,
+	AgentMessage,
+	AgentModelInfo,
+	SendAgentResult,
+} from '#core/contracts'
+
 export type AgentProviderId =
 	| 'openai'
 	| 'anthropic'
@@ -13,53 +26,13 @@ export type AgentProviderId =
 	| 'xai'
 	| 'ollama'
 
-export interface AgentProviderInfo {
-	id: AgentProviderId
-	label: string
-	needsKey: boolean
-	defaultModel: string
-}
+/** `AgentProviderInfo` (generated) with `id` narrowed to the known providers. */
+export type AgentProviderInfo = Omit<AgentProviderInfoRow, 'id'> & { id: AgentProviderId }
 
-export interface AgentModelInfo {
-	id: string
-	label: string
-}
+/** `AiKeyStatus` (generated) with `provider` narrowed. */
+export type AiKeyStatus = Omit<AiKeyStatusRow, 'provider'> & { provider: AgentProviderId }
 
-export interface AiKeyStatus {
-	provider: AgentProviderId
-	hasKey: boolean
-}
-
-export interface AiSettingsView {
-	enabled: boolean
-	ollamaBaseUrl: string
-	ollamaConfigured: boolean
+export type AiSettingsView = Omit<AiSettingsViewRow, 'keys' | 'providers'> & {
 	keys: AiKeyStatus[]
 	providers: AgentProviderInfo[]
-}
-
-export interface AgentChat {
-	id: string
-	connectionId: string
-	title: string
-	provider: string
-	model: string
-	createdAt: string
-	updatedAt: string
-}
-
-export interface AgentMessage {
-	id: string
-	chatId: string
-	role: 'user' | 'assistant' | 'tool' | string
-	content: string
-	toolName?: string | null
-	draftBody?: string | null
-	createdAt: string
-}
-
-export interface SendAgentResult {
-	chat: AgentChat
-	user: AgentMessage
-	assistant: AgentMessage
 }

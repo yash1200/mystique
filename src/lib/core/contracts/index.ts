@@ -1,103 +1,19 @@
 /**
- * DTOs shared with the Rust side. These mirror `mystique-connector-api` and the
- * app-DB rows — they are not ours to reshape. Everything else lives next to the
- * feature that owns it.
+ * DTOs shared with the Rust side, generated into `core/ipc/bindings.gen.ts`
+ * (`pnpm gen:ipc`) and re-exported here so feature code imports one surface.
+ * The files in this folder keep only frontend shapes (catalog view models,
+ * form drafts) and a few narrowings of generated types (`ConnectionProfile`,
+ * `WriteGuardPrompt`), each documented where it is declared.
  *
  * Name clashes resolved here:
  * - `EngineFamily` is the plugin capability enum (`RELATIONAL` | …).
  *   The picker label type is `ConnectionFamily` (`relational` | `document`).
- * - `ColumnReference` is the catalog FK target; the engines IPC clone is not
- *   re-exported.
  */
 export type * from './catalog'
 export type * from './connection'
 export type * from './engine-caps'
-export type {
-	ActiveBackendSession,
-	ApplyTableEditsRequest,
-	ApplyTableEditsResult,
-	BatchEvent,
-	BatchPhase,
-	CatalogColumnRow,
-	CatalogDatabase,
-	CatalogObject,
-	CatalogRelationship,
-	ColumnInfo,
-	DescribeTableRequest,
-	EngineDescriptor,
-	ExecuteQueryRequest,
-	ExplainPlan,
-	ExplainQueryRequest,
-	ExportFormat,
-	ExportObjectRequest,
-	ExportObjectResult,
-	FetchLargeValueRequest,
-	FetchLargeValueResult,
-	FetchServerMetricsRequest,
-	FetchTablePreviewRequest,
-	FetchTablePreviewStatsRequest,
-	FormatConnectionUrlRequest,
-	FormattedConnectionUrl,
-	ImportColumnMap,
-	ImportEncoding,
-	ImportFormat,
-	ImportObjectRequest,
-	ImportObjectResult,
-	ImportOnDuplicate,
-	ImportTableColumn,
-	LargeCellKey,
-	LargeCellLocator,
-	ListCatalogColumnsRequest,
-	ListCatalogRequest,
-	ListRelationshipsRequest,
-	MetricKind,
-	MetricValue,
-	ObjectStructure,
-	ObjectStructureRequest,
-	OpenSessionRequest,
-	ParseConnectionUrlRequest,
-	ParsedConnectionUrl,
-	PlanField,
-	PlanNode,
-	PoolConfig,
-	PoolStatus,
-	PreviewImportRequest,
-	PreviewImportResult,
-	QueryBatchResult,
-	QueryColumn,
-	QueryMode,
-	QueryResult,
-	ServerMetricsCapabilities,
-	ServerMetricsSnapshot,
-	ServerOverview,
-	SessionInfo,
-	SlowQuery,
-	SourcePosition,
-	SqlRange,
-	SshHostKeyPrompt,
-	SshTunnelRequest,
-	StatementKind,
-	StatementResult,
-	StructureSection,
-	TableAdminOp,
-	TableAdminRequest,
-	TableAdminResult,
-	TableEditColumn,
-	TableFileFormat,
-	TablePreviewColumnRef,
-	TablePreviewFilter,
-	TablePreviewResult,
-	TablePreviewSort,
-	TablePreviewSortDir,
-	TablePreviewStats,
-	TableRowDelete,
-	TableRowInsert,
-	TableRowUpdate,
-	TerminateSessionRequest,
-	TerminateSessionResult,
-	TestResult,
-	WriteGuardPrompt,
-} from './engines'
+export type * from './engines'
 export type * from './session'
 export type * from './ddl'
 export type * from './ipc'
+export type * from './app'

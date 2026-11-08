@@ -2,6 +2,7 @@
  * Query history API (local app SQLite via Tauri IPC).
  * Used by every engine (Postgres / MySQL / Mongo / SQLite).
  */
+import type { QueryHistoryPage } from '#core/contracts'
 import { errorMessage, invoke, isTauri } from '#core/ipc'
 import type {
 	AppendHistoryInput,
@@ -84,10 +85,7 @@ function historySource(value: unknown): QueryHistorySource {
 	return 'ui'
 }
 
-export type QueryHistoryPage = {
-	items: QueryHistoryItem[]
-	hasMore: boolean
-}
+export type { QueryHistoryPage }
 
 export type HistoryListOptions = {
 	search?: string

@@ -1,42 +1,11 @@
 /**
  * Persisted open workspace tabs (query / table / model) per connection.
  */
+import type { SaveWorkspaceTabInput, WorkspaceTabRecord } from '#core/contracts'
 import { invoke, isTauri } from '#core/ipc'
 import type { WorkspaceTab, WorkspaceTabKind } from './types'
 
-export type WorkspaceTabRecord = {
-	id: string
-	connectionId: string
-	kind: string
-	title: string
-	sortOrder: number
-	isActive: boolean
-	savedQueryId?: string | null
-	body?: string | null
-	language?: string | null
-	writeEnabled: boolean
-	tableId?: string | null
-	modelDatabase?: string | null
-	isDirty: boolean
-	createdAt: string
-	updatedAt: string
-}
-
-export type SaveWorkspaceTabInput = {
-	id: string
-	connectionId: string
-	kind: string
-	title: string
-	sortOrder?: number
-	isActive?: boolean
-	savedQueryId?: string | null
-	body?: string | null
-	language?: string | null
-	writeEnabled?: boolean
-	tableId?: string | null
-	modelDatabase?: string | null
-	isDirty?: boolean
-}
+export type { SaveWorkspaceTabInput, WorkspaceTabRecord }
 
 export type ReplaceWorkspaceTabsInput = {
 	connectionId: string

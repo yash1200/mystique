@@ -24,7 +24,13 @@
 	} from '../api'
 	import McpHarnesses from './McpHarnesses.svelte'
 
-	let mcp = $state<McpStatus>({ enabled: false, running: false })
+	let mcp = $state<McpStatus>({
+		enabled: false,
+		running: false,
+		port: null,
+		url: null,
+		token: null,
+	})
 	let access = $state<McpAccess>({
 		policy: 'read-only',
 		allowlist: [],

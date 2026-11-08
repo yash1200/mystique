@@ -333,6 +333,8 @@
 			chatId: agentChat.chatId ?? '',
 			role: 'user',
 			content: text,
+			toolName: null,
+			draftBody: null,
 			createdAt: sentAt,
 		}
 		agentChat.messages = [...agentChat.messages, optimistic]

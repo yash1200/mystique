@@ -1,3 +1,4 @@
+import type { PurgeReport, VaultStatus as VaultStatusRow } from '#core/contracts'
 import { invoke, isTauri } from '#core/ipc'
 import type { McpAccess, McpHarness, McpStatus, McpWritePolicy } from './mcp-types'
 export type { McpAccess, McpHarness, McpStatus, McpWritePolicy }
@@ -67,22 +68,15 @@ export function mcpClientSnippet(status: McpStatus): string {
 	)
 }
 
-/** The one vault key that seals saved passwords. */
-export interface VaultStatus {
+/** The one vault key that seals saved passwords (`VaultStatus`, generated, narrowed). */
+export type VaultStatus = Omit<VaultStatusRow, 'source' | 'state'> & {
 	/** `keychain` in release builds, `file` in development builds. */
 	source: 'keychain' | 'file' | 'memory'
 	/** `idle` until the first saved password is needed. */
 	state: 'idle' | 'unlocked' | 'denied'
-	message?: string
 }
 
-export interface KeychainCleanup {
-	/** False when this build does not use the keychain. */
-	supported: boolean
-	deleted: number
-	/** Items that would have needed a keychain prompt to delete. */
-	skipped: number
-}
+export type KeychainCleanup = PurgeReport
 
 /** Never unlocks: safe to call when the pane opens. */
 export async function getVaultStatus(): Promise<VaultStatus> {

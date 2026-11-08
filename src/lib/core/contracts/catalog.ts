@@ -1,12 +1,8 @@
 /** Catalog shapes the explorer, grid and tabs all read. */
+import type { ColumnReference } from '../ipc/bindings.gen'
 
 /** Plugin-owned FK (or equivalent) target for grid jump-to-row. */
-export type ColumnReference = {
-	database?: string | null
-	schema?: string | null
-	table: string
-	column: string
-}
+export type { ColumnReference }
 
 export type ColumnDef = {
 	name: string
