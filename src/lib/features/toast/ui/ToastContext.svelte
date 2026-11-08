@@ -14,7 +14,14 @@
 
 {@render children()}
 {#if toast}
-	{#key toast.kind + toast.message}
-		<Toast message={toast.message} tone={toast.kind} />
+	{#key toast.id}
+		<Toast
+			message={toast.message}
+			tone={toast.kind}
+			action={toast.action}
+			sticky={toast.sticky}
+			onaction={() => void appToast.runAction()}
+			ondismiss={appToast.dismiss}
+		/>
 	{/key}
 {/if}
