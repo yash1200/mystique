@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, Wry,
 };
 
@@ -27,6 +27,8 @@ pub struct NativeMenuState {
     pub has_session: bool,
     #[serde(default)]
     pub has_tab: bool,
+    #[serde(default)]
+    pub has_closed_tab: bool,
 }
 
 pub fn apply_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<()> {
@@ -157,6 +159,13 @@ fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Resul
         tab,
         Some("CmdOrCtrl+W"),
     )?;
+    let reopen_tab = item(
+        app,
+        "workspace_reopen_tab",
+        "Reopen Closed Tab",
+        state.has_closed_tab,
+        Some("Shift+CmdOrCtrl+T"),
+    )?;
     let close_window = close_window_item(app)?;
 
     #[cfg(target_os = "macos")]
@@ -169,6 +178,7 @@ fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Resul
                 &new_query,
                 &save_query,
                 &close_tab,
+                &reopen_tab,
                 &PredefinedMenuItem::separator(app)?,
                 &close_window,
             ],
@@ -186,6 +196,7 @@ fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Resul
                 &new_query,
                 &save_query,
                 &close_tab,
+                &reopen_tab,
                 &PredefinedMenuItem::separator(app)?,
                 &settings,
                 &PredefinedMenuItem::separator(app)?,
@@ -403,7 +414,7 @@ fn window_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
 fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>> {
     let shortcuts = item(app, "help_shortcuts", "Keyboard Shortcuts", true, None)?;
     if include_about {
-        let about = item(app, "app_about", "About Mystique", true, None)?;
+        let about = about_item(app)?;
         Submenu::with_items(
             app,
             "Help",
@@ -415,9 +426,35 @@ fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>
     }
 }
 
+/// The OS About panel, filled from the bundle config.
+fn about_item(app: &AppHandle) -> tauri::Result<PredefinedMenuItem<Wry>> {
+    let mut metadata = about_metadata(
+        &app.package_info().version.to_string(),
+        app.config().bundle.copyright.as_deref(),
+    );
+    metadata.icon = app.default_window_icon().cloned();
+    PredefinedMenuItem::about(
+        app,
+        Some(&format!("About {APP_DISPLAY_NAME}")),
+        Some(metadata),
+    )
+}
+
+fn about_metadata(version: &str, copyright: Option<&str>) -> AboutMetadata<'static> {
+    AboutMetadata {
+        name: Some(APP_DISPLAY_NAME.to_string()),
+        version: Some(version.to_string()),
+        copyright: copyright
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string),
+        ..Default::default()
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
-    let about = item(app, "app_about", "About Mystique", true, None)?;
+    let about = about_item(app)?;
     let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
     Submenu::with_items(
@@ -446,7 +483,6 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) {
         "window_close" => close_focused_window(app),
         "app_settings" => emit_to_webviews(app, "app-open-settings"),
         "app_shortcuts" | "help_shortcuts" => emit_to_webviews(app, "app-open-shortcuts"),
-        "app_about" => emit_to_webviews(app, "app-open-about"),
         "home_new_connection" => emit_to_webviews(app, "home-new-connection"),
         "home_import_url" => emit_to_webviews(app, "home-import-url"),
         "home_connect" => emit_to_webviews(app, "home-connect"),
@@ -456,6 +492,7 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) {
         "home_delete" => emit_to_webviews(app, "home-delete"),
         "home_refresh" => emit_to_webviews(app, "home-refresh"),
         "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
+        "workspace_reopen_tab" => emit_to_webviews(app, "workspace-reopen-tab"),
         "workspace_new_query" => emit_to_webviews(app, "workspace-new-query"),
         "workspace_save_query" => emit_to_webviews(app, "workspace-save-query"),
         "workspace_open_connection" => emit_to_webviews(app, "workspace-open-connection"),
@@ -474,10 +511,9 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
+/// `AppHandle::emit` already reaches every webview. Emitting per window too
+/// delivered each menu command more than once.
 fn emit_to_webviews(app: &AppHandle, event: &str) {
-    for (_label, window) in app.webview_windows() {
-        let _ = window.emit(event, ());
-    }
     let _ = app.emit(event, ());
 }
 
@@ -492,5 +528,20 @@ fn close_focused_window(app: &AppHandle) {
     }
     if let Some((_label, win)) = app.webview_windows().into_iter().next() {
         let _ = win.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_metadata_uses_the_bundle_values() {
+        let about = about_metadata("1.2.3", Some(" (c) Mystique "));
+        assert_eq!(about.name.as_deref(), Some(APP_DISPLAY_NAME));
+        assert_eq!(about.version.as_deref(), Some("1.2.3"));
+        assert_eq!(about.copyright.as_deref(), Some("(c) Mystique"));
+        assert_eq!(about_metadata("1.2.3", Some("  ")).copyright, None);
+        assert_eq!(about_metadata("1.2.3", None).copyright, None);
     }
 }
