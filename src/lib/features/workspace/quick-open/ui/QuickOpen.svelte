@@ -2,6 +2,7 @@
 	import { pushDialog } from '#core/ui'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
+	import { catalogStore } from '#features/workspace/catalog'
 	import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 	import { tick } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
@@ -56,7 +57,7 @@
 			if (!session) continue
 			const profile =
 				profiles.find((row) => row.id === id) ?? toProfile(session.profile)
-			const databases = workspaceStudio.catalogs[id] ?? []
+			const databases = catalogStore.databases(id)
 			catalogs.push({
 				connectionId: id,
 				name: profile.name,

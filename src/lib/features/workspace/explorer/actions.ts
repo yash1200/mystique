@@ -1,13 +1,16 @@
 /** Explorer context-menu actions. */
 import type { TableAdminOp, TableMeta } from '#core/contracts'
 import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
-import { refreshCurrentTables } from '#features/workspace/catalog'
+import {
+	catalogStore,
+	currentDatabaseName,
+	refreshCurrentTables,
+} from '#features/workspace/catalog'
 import { openModelDiagram } from '#features/workspace/er'
 import { tablePreview } from '#features/workspace/grid'
 import { openSqlInEditor } from '#features/workspace/query'
 import {
 	askWriteGuard,
-	currentDatabaseName,
 	isWriteCancelled,
 	requireActiveConnection,
 	structureCacheKey,
@@ -52,9 +55,7 @@ export async function onTableExplorerAction(
 		return
 	}
 	if (!isTauri()) {
-		workspaceStudio.setCatalogError(
-			'Live catalog actions require the desktop app.',
-		)
+		catalogStore.setError(id, 'Live catalog actions require the desktop app.')
 		return
 	}
 
@@ -82,7 +83,7 @@ export async function onTableExplorerAction(
 	}
 
 	try {
-		workspaceStudio.setCatalogError(null)
+		catalogStore.setError(id, null)
 		const result = await withLiveSession(
 			id,
 			(sid) =>
@@ -107,9 +108,7 @@ export async function onTableExplorerAction(
 		if (action === 'create') {
 			const sql = (result.statement ?? '').trim()
 			if (!sql) {
-				workspaceStudio.setCatalogError(
-					'Engine returned an empty create statement.',
-				)
+				catalogStore.setError(id, 'Engine returned an empty create statement.')
 				return
 			}
 			openSqlInEditor(
@@ -141,8 +140,6 @@ export async function onTableExplorerAction(
 		await refreshCurrentTables()
 	} catch (e) {
 		if (isWriteCancelled(e)) return
-		workspaceStudio.setCatalogError(
-			errorMessage(e),
-		)
+		catalogStore.setError(id, errorMessage(e))
 	}
 }

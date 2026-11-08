@@ -4,6 +4,7 @@
 	import { familyFromCaps, resolveCapabilities } from '#engines'
 	import { colorHex } from '#features/connections'
 	import { AgentChatPane } from '#features/workspace/agent'
+	import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 	import {
 		ErWorkspace,
 		hydrateActiveModel,
@@ -31,10 +32,8 @@
 	import { onMount } from 'svelte'
 	import {
 		reconnectActiveSession,
-		catalogsFor,
 		findCatalogTable,
 		objectKindById as kindsFromCatalog,
-		selectedDatabaseName,
 		structureCacheKey,
 		modelCacheKey,
 		workspaceSession,
@@ -60,10 +59,8 @@
 	const openTabs = $derived(workspaceSession.openTabs)
 	const selectedRow = $derived(workspaceSession.selectedRow)
 
-	const databases = $derived(catalogsFor(workspaceStudio.catalogs, activeId))
-	const currentDatabaseName = $derived(
-		selectedDatabaseName(workspaceStudio.selectedDb, activeId, databases),
-	)
+	const databases = $derived(catalogStore.databases(activeId))
+	const currentDatabaseName = $derived(databaseNameFor(activeId))
 	const connectionTabs = $derived(
 		activeId ? openTabs.filter((t) => t.connectionId === activeId) : [],
 	)
@@ -72,12 +69,12 @@
 	const gridTable = $derived(
 		activeTab?.kind === 'table'
 			? findCatalogTable(
-					catalogsFor(workspaceStudio.catalogs, activeTab.connectionId),
+					catalogStore.databases(activeTab.connectionId),
 					activeTab.tableId,
 				)
 			: null,
 	)
-	const tableLoading = $derived(workspaceStudio.loadingTabId === activeTabId)
+	const tableLoading = $derived(tablePreview.loadingTabId === activeTabId)
 	const rowSelectionIndex = $derived.by(() => {
 		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
 		if (
@@ -136,7 +133,7 @@
 			: null,
 	)
 
-	const catalogError = $derived(workspaceStudio.catalogError)
+	const catalogError = $derived(catalogStore.statusOf(activeId).error)
 	// A restored tab renders before hydrate starts. The catalog leaf has no
 	// columns yet. Mounting the grid then stores an empty edit buffer and the
 	// real preview is ignored on remount. Wait until the fetch settles.
@@ -211,10 +208,10 @@
 			...cmd.cancelLoad,
 			// An open context menu takes Esc first.
 			when: () =>
-				workspaceStudio.loadingTabId != null &&
+				tablePreview.loadingTabId != null &&
 				!document.querySelector('[role="menu"]'),
 			run: () => {
-				const loading = workspaceStudio.loadingTabId
+				const loading = tablePreview.loadingTabId
 				if (loading) void cancelTabRun(loading, 'preview')
 			},
 		}),

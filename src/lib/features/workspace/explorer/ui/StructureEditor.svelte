@@ -8,9 +8,11 @@
 	import { Alert, Button, EmptyState } from '#core/ui'
 	import { latestRun } from '#core/util'
 	import { showToast } from '#features/toast'
-	import { refreshCurrentTables } from '#features/workspace/catalog'
 	import {
 		currentDatabaseName,
+		refreshCurrentTables,
+	} from '#features/workspace/catalog'
+	import {
 		isWriteCancelled,
 		runWithWriteGuard,
 		withLiveSession,

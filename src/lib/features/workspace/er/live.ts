@@ -3,7 +3,11 @@ import type { TableMeta } from '#core/contracts'
 import { errorMessage, isTauri } from '#core/ipc'
 import { modelTabTitle, resolveCapabilities } from '#engines'
 import {
+	catalogStore,
 	currentDatabaseName,
+} from '#features/workspace/catalog'
+import {
+	findCatalogTable,
 	isSessionMissingError,
 	modelCacheKey,
 	reopenEngineSession,
@@ -157,10 +161,5 @@ export function hydrateActiveModel() {
 }
 
 function findTable(connectionId: string, tableId: string): TableMeta | null {
-	const cat = workspaceStudio.catalogs[connectionId] ?? []
-	for (const d of cat) {
-		const t = d.tables.find((x) => x.id === tableId)
-		if (t) return t
-	}
-	return null
+	return findCatalogTable(catalogStore.databases(connectionId), tableId)
 }

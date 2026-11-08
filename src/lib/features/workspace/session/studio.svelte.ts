@@ -4,13 +4,11 @@
  * of passing it as props.
  */
 import type {
-	DatabaseMeta,
 	ImportFormat,
 	ObjectStructure,
 	PreviewImportResult,
 	TableMeta,
 } from '#core/contracts'
-import { showToast } from '#features/toast'
 import type { ErDiagramState } from '#features/workspace/er'
 import type {
 	QueryHistoryEntry,
@@ -27,25 +25,6 @@ export type LiveModel = {
 }
 
 class WorkspaceStudio {
-	catalogs = $state<Record<string, DatabaseMeta[]>>({})
-	selectedDb = $state<Record<string, string>>({})
-	refreshing = $state(false)
-	refreshingTables = $state(false)
-	createBusy = $state(false)
-	/** Tab whose preview is in flight. Per-tab so a stale finish cannot hide another open. */
-	loadingTabId = $state<string | null>(null)
-	catalogError = $state<string | null>(null)
-
-	/** Set or clear the catalog/table error. Non-null values also toast. */
-	setCatalogError(message: string | null) {
-		this.catalogError = message
-		if (message) showToast('danger', message)
-	}
-
-	/** connectionId → last engineSessionId we loaded a live catalog for */
-	liveCatalogKey = $state<Record<string, string>>({})
-	catalogLoadInFlight = $state<Record<string, boolean>>({})
-
 	sideMode = $state<StudioSideMode>('explorer')
 	selectedQueryId = $state<string | null>(null)
 	selectedHistoryId = $state<string | null>(null)

@@ -2,7 +2,11 @@
 import type { TableMeta } from '#core/contracts'
 import { errorMessage, describeEngineObjectStructure, isTauri } from '#core/ipc'
 import {
+	catalogStore,
 	currentDatabaseName,
+} from '#features/workspace/catalog'
+import {
+	findCatalogTable,
 	requireActiveConnection,
 	structureCacheKey,
 	withLiveSession,
@@ -76,10 +80,5 @@ function findStructureTable(
 	connectionId: string,
 	tableId: string,
 ): TableMeta | null {
-	const cat = workspaceStudio.catalogs[connectionId] ?? []
-	for (const d of cat) {
-		const t = d.tables.find((x) => x.id === tableId)
-		if (t) return t
-	}
-	return null
+	return findCatalogTable(catalogStore.databases(connectionId), tableId)
 }

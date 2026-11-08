@@ -10,8 +10,8 @@ import {
 	previewEngineImport,
 	startTabRun,
 } from '#core/ipc'
+import { currentDatabaseName } from '#features/workspace/catalog'
 import {
-	currentDatabaseName,
 	dropEditBuffer,
 	requireActiveConnection,
 	saveTableTab,

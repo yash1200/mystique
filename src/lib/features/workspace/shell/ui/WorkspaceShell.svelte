@@ -31,6 +31,7 @@
 	import { appChrome, cmd } from '#lib/app'
 	import {
 		catalogColumnsCache,
+		catalogStore,
 		ensureCatalogForActiveSession,
 		ensureLiveCatalog,
 	} from '#features/workspace/catalog'
@@ -51,6 +52,7 @@
 		saveThenClose,
 		dropEditBuffer,
 		saveTableTab,
+		selectedDatabases,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
@@ -232,7 +234,7 @@
 				const session = workspaceSession.sessions.find(
 					(s) => s.profile.id === tab.connectionId,
 				)
-				const cat = workspaceStudio.catalogs[tab.connectionId]
+				const cat = catalogStore.catalogs[tab.connectionId]
 				let table: TableMeta | null = null
 				if (cat) {
 					for (const d of cat) {
@@ -350,10 +352,7 @@
 		const engine = String(session.profile.engine)
 		const preferred = sessionDatabase(id, session.profile)
 		if (!isTauri()) return
-		workspaceStudio.liveCatalogKey = {
-			...workspaceStudio.liveCatalogKey,
-			[id]: '',
-		}
+		catalogStore.invalidate(id)
 		const sid = await reopenEngineSession(session.profile, preferred)
 		await ensureLiveCatalog(id, engine, sid, preferred, true, true)
 	}
@@ -367,14 +366,8 @@
 		const session = sessions.find((s) => s.profile.id === id)
 		const sid = session?.engineSessionId
 		workspaceSession.disconnect(id)
-		const { [id]: _c, ...restCat } = workspaceStudio.catalogs
-		const { [id]: _d, ...restDb } = workspaceStudio.selectedDb
-		const { [id]: _k, ...restKey } = workspaceStudio.liveCatalogKey
-		const { [id]: _f, ...restFlight } = workspaceStudio.catalogLoadInFlight
-		workspaceStudio.catalogs = restCat
-		workspaceStudio.selectedDb = restDb
-		workspaceStudio.liveCatalogKey = restKey
-		workspaceStudio.catalogLoadInFlight = restFlight
+		catalogStore.forget(id)
+		selectedDatabases.forget(id)
 		const nextModels: typeof workspaceStudio.liveModels = {}
 		for (const [k, v] of Object.entries(workspaceStudio.liveModels)) {
 			if (!k.startsWith(`${id}::`)) nextModels[k] = v
