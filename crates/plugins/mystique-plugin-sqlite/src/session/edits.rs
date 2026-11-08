@@ -239,7 +239,6 @@ fn query_failed_plain(err: rusqlite::Error) -> ConnectorError {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use mystique_connector_api::{
         ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
@@ -251,14 +250,7 @@ mod tests {
     use super::*;
 
     fn temp_path() -> std::path::PathBuf {
-        let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(duration) => duration.as_nanos(),
-            Err(_) => 0,
-        };
-        std::env::temp_dir().join(format!(
-            "mystique-save-{}-{nanos}.sqlite",
-            std::process::id()
-        ))
+        crate::temp_db_path("save")
     }
 
     async fn session_at(

@@ -151,7 +151,6 @@ fn single_root(name: &str, mut nodes: Vec<PlanNode>) -> PlanNode {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use mystique_connector_api::{
         ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
@@ -176,14 +175,7 @@ mod tests {
     }
 
     fn temp_path() -> std::path::PathBuf {
-        let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(duration) => duration.as_nanos(),
-            Err(_) => 0,
-        };
-        std::env::temp_dir().join(format!(
-            "mystique-explain-{}-{nanos}.sqlite",
-            std::process::id()
-        ))
+        crate::temp_db_path("explain")
     }
 
     #[test]

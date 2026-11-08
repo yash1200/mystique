@@ -57,7 +57,6 @@ pub(super) async fn fetch_large_value(
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use mystique_connector_api::{
         clip_table_preview, ConnectionConfig, DatabaseConnector, FetchLargeValueInput,
@@ -69,14 +68,7 @@ mod tests {
     use crate::SqliteConnector;
 
     fn temp_path() -> std::path::PathBuf {
-        let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(duration) => duration.as_nanos(),
-            Err(_) => 0,
-        };
-        std::env::temp_dir().join(format!(
-            "mystique-large-{}-{nanos}.sqlite",
-            std::process::id()
-        ))
+        crate::temp_db_path("large")
     }
 
     #[tokio::test]

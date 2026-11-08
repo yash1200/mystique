@@ -448,7 +448,6 @@ fn ensure_still_read_only(conn: &Connection) -> ConnectorResult<()> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use mystique_connector_api::{
         ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
@@ -471,11 +470,7 @@ mod tests {
     }
 
     fn temp_path() -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        std::env::temp_dir().join(format!("mystique-ro-{}-{nanos}.sqlite", std::process::id()))
+        crate::temp_db_path("ro")
     }
 
     #[tokio::test]
