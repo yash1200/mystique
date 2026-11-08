@@ -4,11 +4,16 @@
 		applyPreferredUiScale,
 		applyUiScale,
 		blockHistoryBackspace,
+		isMacPlatform,
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
 	import { appSettingsUi } from '#features/settings'
-	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
+	import {
+		appKeyCommand,
+		appShortcutsUi,
+		KeyboardShortcutsModal,
+	} from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
 	import { mountAppChords, QuickOpen } from '#features/workspace/quick-open'
 	import { ResetConfirmModal, resetGuard } from '#features/workspace/shell'
@@ -39,31 +44,20 @@
 		applyPreferredUiScale()
 		void setAppTitle()
 
+		const keyContext = { mac: isMacPlatform(), nativeMenu: isTauri() }
 		const onKey = (e: KeyboardEvent) => {
-			if (!(e.ctrlKey || e.metaKey) || e.altKey) return
-			if (e.shiftKey && e.code === 'KeyR') {
-				e.preventDefault()
+			const command = appKeyCommand(e, keyContext)
+			if (!command) return
+			e.preventDefault()
+			if (command === 'reset') {
 				e.stopImmediatePropagation()
 				resetGuard.request()
-				return
-			}
-			if (!e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
-				e.preventDefault()
+			} else if (command === 'settings') {
 				e.stopImmediatePropagation()
 				appSettingsUi.show()
-				return
-			}
-			if (e.shiftKey) return
-			if (e.key === '=' || e.key === '+') {
-				e.preventDefault()
-				zoomBy(0.1)
-			} else if (e.key === '-' || e.key === '_') {
-				e.preventDefault()
-				zoomBy(-0.1)
-			} else if (e.key === '0') {
-				e.preventDefault()
-				zoomReset()
-			}
+			} else if (command === 'zoom-in') zoomBy(0.1)
+			else if (command === 'zoom-out') zoomBy(-0.1)
+			else zoomReset()
 		}
 		window.addEventListener('keydown', onKey, true)
 		window.addEventListener('keydown', blockHistoryBackspace, true)

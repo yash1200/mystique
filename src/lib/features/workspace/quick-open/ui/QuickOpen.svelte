@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pushDialog } from '#core/ui'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
 	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
@@ -19,6 +20,11 @@
 	let active = $state(0)
 	let listEl = $state<HTMLDivElement | null>(null)
 	let inputEl = $state<HTMLInputElement | null>(null)
+
+	$effect(() => {
+		if (!quickOpen.open) return
+		return pushDialog({ close: () => quickOpen.hide(true), dismissible: () => true })
+	})
 
 	const source = $derived.by((): QuickOpenSource => {
 		if (!quickOpen.open) {

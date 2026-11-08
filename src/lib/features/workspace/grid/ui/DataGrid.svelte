@@ -48,6 +48,7 @@
 		moveColumn,
 		toggleFrozen,
 		toggleHidden,
+		withColumnWidth,
 		type GridColumnLayout,
 	} from '../column-layout'
 	import {
@@ -98,7 +99,6 @@
 		rulesToCode,
 		valuesEqual,
 	} from '../filters'
-	import { gridTrackPx } from '../virtual'
 	import type { FilterMode, FilterOp, FilterRule } from '../types'
 	import CellValueModal from './CellValueModal.svelte'
 	import GridFilterBar from './GridFilterBar.svelte'
@@ -210,6 +210,7 @@
 	let draft = $state('')
 	let inputEl = $state<HTMLInputElement | HTMLSelectElement | null>(null)
 	let gridShellEl = $state<HTMLDivElement | null>(null)
+	let gridTable = $state<ReturnType<typeof GridTable> | null>(null)
 	let cellModal = $state<{
 		row: number
 		col: string
@@ -1709,9 +1710,6 @@
 		if (!scroller) return
 		const colIdx = visible.names.indexOf(col)
 		const rowH = appPrefs.gridRowHeightPx
-		const root =
-			parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-		const { indexW, colW } = gridTrackPx(root)
 		const headerH =
 			scroller.querySelector('[data-grid-head]')?.getBoundingClientRect()
 				.height ?? 36
@@ -1731,9 +1729,12 @@
 			pinScrollToRowGutter()
 			return
 		}
-		const pinnedW = indexW + visible.frozen * colW
-		const left = indexW + colIdx * colW
-		const right = left + colW
+		// Columns have their own widths, so ask the table where this one sits.
+		const box = gridTable?.columnBox(col)
+		if (!box || box.frozen) return
+		const pinnedW = box.pinned
+		const left = box.left
+		const right = left + box.width
 		const viewLeft = scroller.scrollLeft
 		const viewRight = viewLeft + scroller.clientWidth
 		if (left < viewLeft + pinnedW) scroller.scrollLeft = Math.max(0, left - pinnedW)
@@ -2514,8 +2515,9 @@
 		redoStack = []
 		void loadColumnLayout(id, tableId)
 			.then((layout) => {
-				if (loadedLayoutKey !== key || !layout) return
-				columnLayout = layout
+				if (loadedLayoutKey !== key) return
+				// No stored layout: start clean, not with the last table's widths.
+				columnLayout = layout ?? { ...EMPTY_COLUMN_LAYOUT, widths: {} }
 			})
 			.catch(() => {})
 		lastSaveId = null
@@ -2697,6 +2699,7 @@
 		onpaste={onGridPaste}
 	>
 		<GridTable
+			bind:this={gridTable}
 			{table}
 			{pageEntries}
 			selectedRowIndex={selKind === 'rows'
@@ -2730,6 +2733,8 @@
 			onColumnMenu={(column, event) => {
 				columnMenu = { column, x: event.clientX, y: event.clientY }
 			}}
+			onColumnWidth={(column, width) =>
+				changeLayout(withColumnWidth(columnLayout, column, width))}
 		/>
 	</div>
 

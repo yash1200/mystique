@@ -12,7 +12,12 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { runWithWriteGuard } from '#features/workspace/shell'
 import { identityCell } from './identity-cell'
-import type { GridColumnLayout } from './column-layout'
+import {
+	layoutToStored,
+	storedToLayout,
+	type GridColumnLayout,
+	type StoredColumnLayout,
+} from './column-layout'
 import { DISTINCT_LIMIT } from './column-complete'
 export type PersistResult = ApplyTableEditsResult
 export { identityCell } from './identity-cell'
@@ -188,11 +193,6 @@ export async function distinctColumnValues(input: {
 	return out
 }
 
-export type StoredColumnLayout = GridColumnLayout & {
-	connectionId: string
-	tableId: string
-}
-
 export async function loadColumnLayout(
 	connectionId: string,
 	tableId: string,
@@ -202,8 +202,7 @@ export async function loadColumnLayout(
 		connectionId,
 		tableId,
 	})
-	if (!row) return null
-	return { order: row.order ?? [], hidden: row.hidden ?? [], frozen: row.frozen ?? [] }
+	return row ? storedToLayout(row) : null
 }
 
 export async function saveColumnLayout(
@@ -213,7 +212,7 @@ export async function saveColumnLayout(
 ): Promise<void> {
 	if (!isTauri()) return
 	await invoke('save_grid_column_layout', {
-		layout: { connectionId, tableId, ...layout },
+		layout: layoutToStored(connectionId, tableId, layout),
 	})
 }
 

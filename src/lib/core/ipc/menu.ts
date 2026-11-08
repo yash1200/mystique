@@ -9,6 +9,7 @@ export type NativeMenuState = {
 	hasSelection?: boolean
 	hasSession?: boolean
 	hasTab?: boolean
+	hasClosedTab?: boolean
 }
 
 export function setNativeMenu(state: NativeMenuState): void {

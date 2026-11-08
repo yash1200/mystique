@@ -1,15 +1,60 @@
-/** Per-table column freeze, hide, and order. Stored outside the user database. */
+/** Per-table column freeze, hide, order, and width. Stored outside the user database. */
 
 export type GridColumnLayout = {
 	order: string[]
 	hidden: string[]
 	frozen: string[]
+	/** Widths the user set, by column name, in unscaled px. Others are automatic. */
+	widths?: Record<string, number>
 }
 
 export const EMPTY_COLUMN_LAYOUT: GridColumnLayout = {
 	order: [],
 	hidden: [],
 	frozen: [],
+	widths: {},
+}
+
+/** IPC shape of `GridColumnLayoutRecord` (mystique-core). */
+export type StoredColumnLayout = GridColumnLayout & {
+	connectionId: string
+	tableId: string
+}
+
+export function layoutToStored(
+	connectionId: string,
+	tableId: string,
+	layout: GridColumnLayout,
+): StoredColumnLayout {
+	return {
+		connectionId,
+		tableId,
+		order: [...layout.order],
+		hidden: [...layout.hidden],
+		frozen: [...layout.frozen],
+		widths: { ...(layout.widths ?? {}) },
+	}
+}
+
+export function storedToLayout(row: Partial<StoredColumnLayout>): GridColumnLayout {
+	return {
+		order: row.order ?? [],
+		hidden: row.hidden ?? [],
+		frozen: row.frozen ?? [],
+		widths: row.widths ?? {},
+	}
+}
+
+/** Set a user width, or clear it with `null` so the column is automatic again. */
+export function withColumnWidth(
+	layout: GridColumnLayout,
+	name: string,
+	width: number | null,
+): GridColumnLayout {
+	const widths = { ...(layout.widths ?? {}) }
+	if (width == null) delete widths[name]
+	else widths[name] = Math.round(width)
+	return { ...layout, widths }
 }
 
 export function layoutColumns<T extends { name: string }>(

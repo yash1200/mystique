@@ -136,29 +136,51 @@ describe('quick open chords', () => {
 		code: 'KeyK',
 	}
 
-	it('opens on cmd/ctrl K or P', () => {
-		expect(appChord(base)?.type).toBe('quick-open')
-		expect(appChord({ ...base, metaKey: false, ctrlKey: true, code: 'KeyP' })?.type).toBe(
-			'quick-open',
+	const mac = { mac: true }
+	const other = { mac: false }
+	const ctrl = { ...base, metaKey: false, ctrlKey: true }
+
+	it('opens on cmd K (ctrl K off the Mac) and leaves P alone', () => {
+		expect(appChord(base, mac)?.type).toBe('quick-open')
+		expect(appChord(ctrl, other)?.type).toBe('quick-open')
+		expect(appChord({ ...base, code: 'KeyP' }, mac)).toBeNull()
+		expect(appChord({ ...ctrl, code: 'KeyP' }, other)).toBeNull()
+	})
+
+	it('does not treat ctrl as cmd on the Mac', () => {
+		expect(appChord(ctrl, mac)).toBeNull()
+		expect(appChord({ ...ctrl, code: 'KeyL' }, mac)).toBeNull()
+		expect(appChord({ ...base, ctrlKey: true }, mac)).toBeNull()
+		// The Windows key is not the command key.
+		expect(appChord(base, other)).toBeNull()
+	})
+
+	it('leaves cmd L to the editor', () => {
+		const l = { ...base, code: 'KeyL' }
+		expect(appChord(l, { mac: true, inEditor: true })).toBeNull()
+		expect(appChord(l, { mac: true, inEditor: false })?.type).toBe(
+			'focus-explorer-filter',
 		)
 	})
 
 	it('toggles the sidebar and focuses a tab', () => {
-		expect(appChord({ ...base, code: 'KeyB' })?.type).toBe('toggle-sidebar')
-		expect(appChord({ ...base, code: 'KeyL' })?.type).toBe('focus-explorer-filter')
-		expect(appChord({ ...base, code: 'Digit1' })).toEqual({
+		expect(appChord({ ...base, code: 'KeyB' }, mac)?.type).toBe('toggle-sidebar')
+		expect(appChord({ ...base, code: 'KeyL' }, mac)?.type).toBe(
+			'focus-explorer-filter',
+		)
+		expect(appChord({ ...base, code: 'Digit1' }, mac)).toEqual({
 			type: 'focus-tab',
 			index: 0,
 		})
-		expect(appChord({ ...base, shiftKey: true, code: 'BracketRight' })).toEqual({
+		expect(appChord({ ...base, shiftKey: true, code: 'BracketRight' }, mac)).toEqual({
 			type: 'cycle-connection',
 			delta: 1,
 		})
 	})
 
 	it('ignores repeats and zoom reset', () => {
-		expect(appChord({ ...base, repeat: true })).toBeNull()
-		expect(appChord({ ...base, code: 'Digit0' })).toBeNull()
+		expect(appChord({ ...base, repeat: true }, mac)).toBeNull()
+		expect(appChord({ ...base, code: 'Digit0' }, mac)).toBeNull()
 	})
 })
 

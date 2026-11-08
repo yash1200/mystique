@@ -19,6 +19,14 @@ import {
 	workspaceTabToSaveInput,
 } from './api'
 import type { TabTxn } from './close-guard'
+import {
+	closedTabEntry,
+	forgetConnection,
+	rememberClosed,
+	reopenTab,
+	takeClosed,
+	type ClosedTab,
+} from './closed-tabs'
 import { tabDraftUpsert } from './tab-persist'
 import { dropEditBuffer } from './edit-buffer'
 import { createPersistScheduler } from './persist-schedule'
@@ -56,6 +64,8 @@ class WorkspaceSessionStore {
 	 * tab switch reads the right state before the async status returns.
 	 */
 	tabTxn = $state<Record<string, TabTxn>>({})
+	/** Recently closed tabs for ⌘⇧T. In memory only. */
+	closedTabs = $state<ClosedTab[]>([])
 
 	/** Debounced persist handles per connection. */
 	private persistScheduler = createPersistScheduler((connectionId) =>
@@ -429,6 +439,7 @@ class WorkspaceSessionStore {
 			void cancelTabRun(tid)
 		}
 		this.dropTabTxn(removedTabIds)
+		this.closedTabs = forgetConnection(this.closedTabs, id)
 		this.queryRunVersion += 1
 		this.queryDrafts = drafts
 		this.queryBaselines = baselines
@@ -560,13 +571,23 @@ class WorkspaceSessionStore {
 		this.schedulePersist(connectionId)
 	}
 
-	closeTab(tabId: string) {
+	/** `remember: false` keeps it out of ⌘⇧T (its saved query is gone). */
+	closeTab(tabId: string, opts: { remember?: boolean } = {}) {
 		void cancelTabRun(tabId)
 		const tab = this.openTabs.find((t) => t.id === tabId)
 		if (isTauri() && tab?.kind === 'query') {
 			void unpinQueryTab(tabId).catch(() => {})
 		}
 		if (!tab) return
+		if (opts.remember !== false) {
+			const entry = closedTabEntry(
+				tab,
+				this.openTabs.indexOf(tab),
+				this.queryDrafts,
+				this.queryBaselines,
+			)
+			this.closedTabs = rememberClosed(this.closedTabs, entry)
+		}
 		const connectionId = tab.connectionId
 		const siblingIdx = this.openTabs
 			.filter((t) => t.connectionId === connectionId)
@@ -617,6 +638,30 @@ class WorkspaceSessionStore {
 			}
 		}
 		this.schedulePersist(connectionId)
+	}
+
+	/** ⌘⇧T: bring back the last closed tab with its kind, target and text. */
+	reopenClosedTab(): boolean {
+		const { entry, rest } = takeClosed(
+			this.closedTabs,
+			(id) => this.sessions.some((s) => s.profile.id === id),
+			(id) => this.openTabs.some((t) => t.id === id),
+		)
+		this.closedTabs = rest
+		if (!entry) return false
+		const { tab, openTabs } = reopenTab(this.openTabs, entry)
+		this.openTabs = openTabs
+		if (tab.kind === 'query') {
+			this.queryDrafts = { ...this.queryDrafts, [tab.id]: entry.text ?? '' }
+			this.queryBaselines = {
+				...this.queryBaselines,
+				[tab.id]: entry.baseline ?? '',
+			}
+		}
+		this.focusConnectionTab(tab.connectionId, tab.id)
+		this.selectedRow = null
+		this.schedulePersist(tab.connectionId)
+		return true
 	}
 
 	tabTxnOf(tabId: string): TabTxn | undefined {
@@ -798,7 +843,10 @@ class WorkspaceSessionStore {
 		const ids = this.openTabs
 			.filter((t) => t.kind === 'query' && t.savedQueryId === savedQueryId)
 			.map((t) => t.id)
-		for (const id of ids) this.closeTab(id)
+		for (const id of ids) this.closeTab(id, { remember: false })
+		this.closedTabs = this.closedTabs.filter(
+			(item) => item.tab.savedQueryId !== savedQueryId,
+		)
 	}
 
 	/** Discard query draft back to last saved baseline and clear dirty. */

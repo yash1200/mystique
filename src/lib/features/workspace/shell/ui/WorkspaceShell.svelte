@@ -16,6 +16,7 @@
 		setNativeMenu,
 		testEngineConnection,
 	} from '#core/ipc'
+	import { closeTopDialog } from '#core/ui'
 	import { setAppTitle } from '#core/util'
 	import {
 		acceptSshHostKey,
@@ -403,6 +404,8 @@
 	}
 
 	function shortcutCloseTab() {
+		// ⌘W closes the top dialog first.
+		if (closeTopDialog()) return
 		const id = workspaceSession.activeTabId
 		if (!id) return
 		requestCloseTab(id)
@@ -425,6 +428,7 @@
 			page: 'workspace',
 			hasSession: !!activeId,
 			hasTab: !!workspaceSession.activeTabId,
+			hasClosedTab: workspaceSession.closedTabs.length > 0,
 		})
 	})
 
@@ -434,10 +438,13 @@
 			pickerOpen = true
 		}
 		const unsubKeys = mountWorkspaceShortcuts({
-			onNewQuery: shortcutNewQuery,
-			onCloseTab: shortcutCloseTab,
-			onSaveQuery: shortcutSave,
-			onOpenConnection: openPicker,
+			commands: {
+				'new-query': shortcutNewQuery,
+				'close-tab': shortcutCloseTab,
+				'reopen-tab': () => void workspaceSession.reopenClosedTab(),
+				save: shortcutSave,
+				'open-connection': openPicker,
+			},
 			isTauri: isTauri(),
 		})
 		let unsubMenu = () => {}

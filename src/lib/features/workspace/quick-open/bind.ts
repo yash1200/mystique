@@ -1,12 +1,17 @@
 import { appChrome } from '#lib/app'
+import { isMacPlatform, isWritableField } from '#core/util'
 import { cycleConnection, focusExplorerFilter, focusTabIndex } from './actions'
 import { quickOpen } from './chrome.svelte'
 import { appChord } from './keys'
 
 /** Capture-phase chords for Quick Open and the §8.1 shortcuts it owns. */
 export function mountAppChords(): () => void {
+	const mac = isMacPlatform()
 	const onKey = (event: KeyboardEvent) => {
-		const chord = appChord(event)
+		const chord = appChord(event, {
+			mac,
+			inEditor: isWritableField(event.target),
+		})
 		if (!chord) return
 		if (quickOpen.open && chord.type !== 'quick-open') return
 		event.preventDefault()
