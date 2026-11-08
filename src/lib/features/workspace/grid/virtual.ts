@@ -230,6 +230,18 @@ const COL_OVERSCAN_LEAD = 0.75
 const COL_OVERSCAN_TRAIL = 0.35
 const COL_HYSTERESIS_VIEWPORTS = 0.45
 
+/** First index whose offset is greater than `x` (offsets ascend). */
+function upperIndex(offsets: readonly number[], x: number): number {
+	let lo = 0
+	let hi = offsets.length
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1
+		if ((offsets[mid] ?? 0) <= x) lo = mid + 1
+		else hi = mid
+	}
+	return lo
+}
+
 /**
  * Visible data-column window. Same hysteresis as {@link computeResultWindow}:
  * keep the current slice until the viewport nears the leading edge.
@@ -240,6 +252,8 @@ export function computeColumnWindow(opts: {
 	scrollLeft: number
 	viewportW: number
 	colW: number
+	/** Per-column widths of the scrolling columns. Uniform `colW` when absent. */
+	widths?: readonly number[]
 	frozenW: number
 	scrollDir: 1 | -1
 	current?: ResultWindow | null
@@ -253,13 +267,25 @@ export function computeColumnWindow(opts: {
 		opts.viewportW > frozen ? opts.viewportW - frozen : opts.viewportW,
 		colW,
 	)
-	const first = Math.max(
-		0,
-		Math.min(n - 1, Math.floor(Math.max(0, opts.scrollLeft) / colW)),
-	)
-	const visibleCount = Math.ceil(usable / colW) + 1
+	const left = Math.max(0, opts.scrollLeft)
+	let first: number
+	let visibleCount: number
+	let totalW: number
+	const widths = opts.widths
+	if (widths && widths.length >= n) {
+		const offsets = [0]
+		for (let i = 0; i < n; i++) offsets.push((offsets[i] ?? 0) + Math.max(1, widths[i] ?? colW))
+		totalW = offsets[n] ?? 0
+		first = Math.max(0, Math.min(n - 1, upperIndex(offsets, left) - 1))
+		const lastEdge = Math.min(n, upperIndex(offsets, left + usable))
+		visibleCount = Math.max(1, lastEdge - first) + 1
+	} else {
+		totalW = n * colW
+		first = Math.max(0, Math.min(n - 1, Math.floor(left / colW)))
+		visibleCount = Math.ceil(usable / colW) + 1
+	}
 	const last = Math.min(n, first + visibleCount)
-	if (frozen + n * colW <= opts.viewportW) return { start: 0, end: n }
+	if (frozen + totalW <= opts.viewportW) return { start: 0, end: n }
 
 	const lead = Math.max(
 		COL_OVERSCAN_MIN,

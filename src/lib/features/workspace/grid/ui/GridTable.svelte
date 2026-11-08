@@ -27,6 +27,15 @@
 	import { isLargeCell, largeCellHint } from '../large-cell'
 	import { layoutColumns, type GridColumnLayout } from '../column-layout'
 	import {
+		autoColumnWidths,
+		COL_W_MAX,
+		COL_W_MIN,
+		columnOffsets,
+		columnWidth,
+		dragWidth,
+		fitColumnWidth,
+	} from '../column-widths'
+	import {
 		cellDisplay,
 		computeColumnWindow,
 		computeResultWindow,
@@ -72,6 +81,8 @@
 		onSort?: (column: string) => void
 		columnLayout?: GridColumnLayout | null
 		onColumnMenu?: (column: string, event: MouseEvent) => void
+		/** User resized (or auto-fit) a column. Width is unscaled px. */
+		onColumnWidth?: (column: string, width: number) => void
 	}
 
 	let {
@@ -103,6 +114,7 @@
 		onSort,
 		columnLayout = null,
 		onColumnMenu,
+		onColumnWidth,
 	}: Props = $props()
 
 	let scrollEl = $state<HTMLDivElement | null>(null)
@@ -120,8 +132,13 @@
 	let viewH = $state(640)
 	let viewW = $state(1100)
 	let indexW = $state(40)
+	/** Nominal column width; the scroll-direction unit only. */
 	let colW = $state(128)
+	/** UI scale: root font size / 16. Stored widths are unscaled. */
+	let scale = $state(1)
 	let headerH = $state(36)
+	/** Live width while a header edge is dragged. */
+	let resizing = $state<{ name: string; width: number } | null>(null)
 
 	const rowH = $derived(appPrefs.gridRowHeightPx)
 	const placedColumns = $derived(layoutColumns(table.columns, columnLayout))
@@ -129,17 +146,48 @@
 	const scrollColumns = $derived(placedColumns.scroll)
 	const totalCols = $derived(scrollColumns.length)
 	const totalRows = $derived(pageEntries.length)
-	const totalW = $derived(indexW + (frozenColumns.length + totalCols) * colW)
+
+	// Automatic widths are measured once per table and column set, and again
+	// when the first rows arrive. Paging and edits do not move the columns.
+	let autoCache = { key: '', widths: {} as Record<string, number> }
+	const autoWidths = $derived.by(() => {
+		const key = [
+			table.id,
+			table.columns.map((column) => `${column.name}:${column.type}`).join('\u0001'),
+			totalRows > 0,
+		].join('\u0000')
+		if (autoCache.key === key) return autoCache.widths
+		const widths = untrack(() =>
+			autoColumnWidths(
+				table.columns,
+				pageEntries.map((entry) => entry.row),
+			),
+		)
+		autoCache = { key, widths }
+		return widths
+	})
+
+	function baseWidth(name: string): number {
+		if (resizing?.name === name) return resizing.width
+		return columnWidth(name, columnLayout?.widths, autoWidths)
+	}
+
+	const frozenWidths = $derived(frozenColumns.map((c) => baseWidth(c.name) * scale))
+	const scrollWidths = $derived(scrollColumns.map((c) => baseWidth(c.name) * scale))
+	const frozenOffsets = $derived(columnOffsets(frozenWidths))
+	const scrollOffsets = $derived(columnOffsets(scrollWidths))
+	const frozenW = $derived(frozenOffsets[frozenOffsets.length - 1] ?? 0)
+	const scrollW = $derived(scrollOffsets[scrollOffsets.length - 1] ?? 0)
+	const totalW = $derived(indexW + frozenW + scrollW)
 	const canvasW = $derived(Math.max(totalW, viewW))
 	const bodyH = $derived(totalRows * rowH)
 	const rowY = $derived(winStart * rowH)
-	const leadW = $derived(colStart * colW)
-	const tailW = $derived(Math.max(0, (totalCols - colEnd) * colW))
+	const leadW = $derived(scrollOffsets[Math.min(colStart, totalCols)] ?? 0)
+	const tailW = $derived(
+		Math.max(0, scrollW - (scrollOffsets[Math.min(colEnd, totalCols)] ?? scrollW)),
+	)
 	const rowsShown = $derived(
 		pageEntries.slice(winStart, Math.min(winEnd, totalRows)),
-	)
-	const colsShown = $derived(
-		scrollColumns.slice(colStart, Math.min(colEnd, totalCols)),
 	)
 	const columnParts = $derived.by(() => {
 		const parts: Array<
@@ -147,6 +195,7 @@
 			| {
 					key: string
 					column: (typeof table.columns)[number]
+					width: number
 					left: number | null
 			  }
 		> = []
@@ -154,16 +203,96 @@
 			parts.push({
 				key: `frozen:${column.name}`,
 				column,
-				left: indexW + index * colW,
+				width: frozenWidths[index] ?? colW,
+				left: indexW + (frozenOffsets[index] ?? 0),
 			})
 		})
 		if (leadW > 0) parts.push({ key: 'lead', spacer: leadW })
-		for (const column of colsShown) {
-			parts.push({ key: column.name, column, left: null })
+		const end = Math.min(colEnd, totalCols)
+		for (let index = colStart; index < end; index++) {
+			const column = scrollColumns[index]
+			if (!column) continue
+			parts.push({
+				key: column.name,
+				column,
+				width: scrollWidths[index] ?? colW,
+				left: null,
+			})
 		}
 		if (tailW > 0) parts.push({ key: 'tail', spacer: tailW })
 		return parts
 	})
+
+	/** Where a column sits in the canvas, for scroll-into-view. Screen px. */
+	export function columnBox(
+		name: string,
+	): { left: number; width: number; pinned: number; frozen: boolean } | null {
+		const pinned = indexW + frozenW
+		const f = frozenColumns.findIndex((column) => column.name === name)
+		if (f >= 0) {
+			return {
+				left: indexW + (frozenOffsets[f] ?? 0),
+				width: frozenWidths[f] ?? colW,
+				pinned,
+				frozen: true,
+			}
+		}
+		const s = scrollColumns.findIndex((column) => column.name === name)
+		if (s < 0) return null
+		return {
+			left: pinned + (scrollOffsets[s] ?? 0),
+			width: scrollWidths[s] ?? colW,
+			pinned,
+			frozen: false,
+		}
+	}
+
+	function startResize(event: PointerEvent, name: string) {
+		if (event.button !== 0 || !onColumnWidth) return
+		event.preventDefault()
+		event.stopPropagation()
+		const handle = event.currentTarget as HTMLElement
+		const start = baseWidth(name)
+		const x0 = event.clientX
+		let moved = false
+		resizing = { name, width: start }
+		handle.setPointerCapture?.(event.pointerId)
+		const move = (e: PointerEvent) => {
+			if (Math.abs(e.clientX - x0) > 1) moved = true
+			resizing = { name, width: dragWidth(start, e.clientX - x0, scale) }
+		}
+		const end = () => {
+			handle.removeEventListener('pointermove', move)
+			handle.removeEventListener('pointerup', end)
+			handle.removeEventListener('pointercancel', end)
+			const done = resizing
+			if (moved && done) onColumnWidth?.(name, done.width)
+			resizing = null
+		}
+		handle.addEventListener('pointermove', move)
+		handle.addEventListener('pointerup', end)
+		handle.addEventListener('pointercancel', end)
+	}
+
+	function fitColumn(event: MouseEvent, column: (typeof table.columns)[number]) {
+		event.preventDefault()
+		event.stopPropagation()
+		onColumnWidth?.(
+			column.name,
+			fitColumnWidth(
+				column,
+				pageEntries.map((entry) => entry.row),
+			),
+		)
+	}
+
+	function resizeByKey(event: KeyboardEvent, name: string) {
+		const step = event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0
+		if (!step || !onColumnWidth) return
+		event.preventDefault()
+		event.stopPropagation()
+		onColumnWidth(name, dragWidth(baseWidth(name), step))
+	}
 
 	function sortLabel(name: string): string {
 		if (sortColumn === name && sortDir === 'asc') return `Sort ${name} descending`
@@ -191,7 +320,8 @@
 			scrollLeft,
 			viewportW: viewW,
 			colW,
-			frozenW: indexW + frozenColumns.length * colW,
+			widths: scrollWidths,
+			frozenW: indexW + frozenW,
 			scrollDir: scrollDirX,
 			current: { start: colStart, end: colEnd },
 		})
@@ -240,6 +370,7 @@
 		const tracks = gridTrackPx(root)
 		indexW = tracks.indexW
 		colW = tracks.colW
+		scale = root / 16
 		const head = el.querySelector('[data-grid-head]')
 		if (head instanceof HTMLElement && head.offsetHeight > 0) {
 			headerH = head.offsetHeight
@@ -267,6 +398,8 @@
 		void totalRows
 		void totalCols
 		void rowH
+		void scrollWidths
+		void frozenW
 		untrack(() => {
 			const el = scrollEl
 			applyWindows(el?.scrollTop ?? 0, el?.scrollLeft ?? 0)
@@ -298,9 +431,9 @@
 						<th
 							class={cn(
 								'border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary',
-								part.left != null && 'sticky z-20 bg-elevated',
+								part.left != null ? 'sticky z-20 bg-elevated' : 'relative',
 							)}
-							style="width: {colW}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
+							style="width: {part.width}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
 							title={col.type}
 							aria-sort={ariaSort(col.name)}
 							oncontextmenu={(e) => {
@@ -342,6 +475,24 @@
 									</button>
 								{/if}
 							</div>
+							{#if onColumnWidth}
+								<div
+									class={cn(
+										'gt-resize',
+										resizing?.name === col.name && 'gt-resize-active',
+									)}
+									role="slider"
+									tabindex="-1"
+									aria-label="Width of {col.name}"
+									aria-valuemin={COL_W_MIN}
+									aria-valuemax={COL_W_MAX}
+									aria-valuenow={Math.round(part.width / scale)}
+									title="Drag to resize. Double-click to fit."
+									onpointerdown={(e) => startResize(e, col.name)}
+									ondblclick={(e) => fitColumn(e, col)}
+									onkeydown={(e) => resizeByKey(e, col.name)}
+								></div>
+							{/if}
 						</th>
 						{/if}
 					{/each}
@@ -466,7 +617,7 @@
 											!cellSelected &&
 											'hover:bg-hover',
 									)}
-									style="width: {colW}px; max-width: {colW}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
+									style="width: {part.width}px; max-width: {part.width}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
 									title={isEditing
 										? undefined
 										: dirty
@@ -618,5 +769,38 @@
 
 	.gt-idx {
 		box-sizing: border-box;
+	}
+
+	/* Header edge handle: wider than it looks, drawn as a 2px line on hover. */
+	.gt-resize {
+		position: absolute;
+		top: 0;
+		right: -4px;
+		bottom: 0;
+		z-index: 1;
+		width: 8px;
+		cursor: col-resize;
+		touch-action: none;
+	}
+
+	.gt-resize::after {
+		content: '';
+		position: absolute;
+		top: 20%;
+		bottom: 20%;
+		left: 3px;
+		width: 2px;
+		border-radius: 1px;
+		background: transparent;
+	}
+
+	.gt-resize:hover::after,
+	.gt-resize:focus-visible::after,
+	.gt-resize-active::after {
+		background: var(--color-accent);
+	}
+
+	.gt-resize:focus-visible {
+		outline: none;
 	}
 </style>
