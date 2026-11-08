@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { commands } from '#core/commands'
 	import { EmptyState, Icon } from '#core/ui'
 	import { familyFromCaps, resolveCapabilities } from '#engines'
 	import { colorHex } from '#features/connections'
@@ -26,7 +27,7 @@
 		querySave,
 	} from '#features/workspace/query'
 	import { cancelTabRun } from '#core/ipc'
-	import { appPrefs } from '#lib/app'
+	import { appPrefs, cmd } from '#lib/app'
 	import { onMount } from 'svelte'
 	import {
 		reconnectActiveSession,
@@ -205,28 +206,16 @@
 		tablePreview.hydrateActive()
 	})
 
-	onMount(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key !== 'Escape' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
-				return
-			const target = e.target
-			if (target instanceof HTMLElement) {
-				if (
-					target.closest(
-						'[role="dialog"], input, textarea, [contenteditable="true"]',
-					)
-				) {
-					return
-				}
-			}
-			const loading = workspaceStudio.loadingTabId
-			if (!loading) return
-			e.preventDefault()
-			void cancelTabRun(loading, 'preview')
-		}
-		window.addEventListener('keydown', onKey, true)
-		return () => window.removeEventListener('keydown', onKey, true)
-	})
+	onMount(() =>
+		commands.register({
+			...cmd.cancelLoad,
+			when: () => workspaceStudio.loadingTabId != null,
+			run: () => {
+				const loading = workspaceStudio.loadingTabId
+				if (loading) void cancelTabRun(loading, 'preview')
+			},
+		}),
+	)
 
 	$effect(() => {
 		void activeTabId

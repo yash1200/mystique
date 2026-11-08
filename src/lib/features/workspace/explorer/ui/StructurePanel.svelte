@@ -3,6 +3,7 @@
 	 * Object structure — columns, indexes, relations, and engine metadata.
 	 * Plugin-owned data; this panel only renders sections.
 	 */
+	import { commands } from '#core/commands'
 	import type { ObjectStructure, StructureSection, TableMeta } from '#core/contracts'
 	import {
 		Alert,
@@ -22,6 +23,8 @@
 	import type { CatalogIconName } from '#features/workspace/catalog'
 	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
 	import type { IconName } from '#icons'
+	import { cmd } from '#lib/app'
+	import { onMount } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import ExplorerSearch from './ExplorerSearch.svelte'
 	import StructureDiff from './StructureDiff.svelte'
@@ -238,20 +241,14 @@
 		}
 	}
 
-	function onFindKeydown(e: KeyboardEvent) {
-		const find =
-			e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f')
-		if (!find) return
-		const t = e.target
-		if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
-			return
-		}
-		e.preventDefault()
-		document.getElementById('structure-filter')?.focus()
-	}
+	// ⌘F or / outside a text field focuses the filter.
+	onMount(() =>
+		commands.register({
+			...cmd.structureFind,
+			run: () => document.getElementById('structure-filter')?.focus(),
+		}),
+	)
 </script>
-
-<svelte:window onkeydown={onFindKeydown} />
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 	{#if comparing && table && connectionId}

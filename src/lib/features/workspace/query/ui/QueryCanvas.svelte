@@ -24,6 +24,7 @@
 		unpinQueryTab,
 		type PinStatus,
 	} from '#core/ipc'
+	import { commands, type CommandContext } from '#core/commands'
 	import { Resizable } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
 	import { connectionProfiles } from '#features/connections'
@@ -44,7 +45,7 @@
 		tabTxnView,
 		workspaceSession,
 	} from '#features/workspace/session'
-	import { appPrefs, resolveQueryTimeoutMs } from '#lib/app'
+	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { initialActiveIndex } from '../batch-view'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
@@ -738,53 +739,33 @@
 		return Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(pct * 10) / 10))
 	}
 
+	/** ⌘Enter / ⌘⇧Enter with focus in the tab but outside the editor. */
+	function runFromKeys(all: boolean) {
+		const doc = editorSnap.doc || currentQueryText()
+		const dialect = splitDialectFor(engine)
+		const text = textToRun(doc, dialect, editorSnap.head, editorSnap.anchor, all)
+		if (!text) return
+		void runQuery(
+			text,
+			submissionStart(doc, dialect, editorSnap.head, editorSnap.anchor, all),
+		)
+	}
+
 	onMount(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && runState.status === 'running') {
-				const t = e.target
-				if (t instanceof HTMLElement) {
-					if (t.closest('[role="dialog"]')) return
-					if (t.closest('.cm-mystique-search')) return
-				}
-				e.preventDefault()
-				e.stopPropagation()
-				cancelRun()
-				return
-			}
-			if (!(e.metaKey || e.ctrlKey) || e.altKey) return
-			if (e.key !== 'Enter' && e.code !== 'NumpadEnter') return
-			const t = e.target
-			if (t instanceof HTMLElement) {
-				if (t.closest('[role="dialog"]')) return
-				// The editor keymap owns this chord so it can see the caret.
-				if (t.closest('.cm-editor')) return
-				if (t.closest('textarea')) return
-			}
-			e.preventDefault()
-			e.stopImmediatePropagation()
-			const doc = editorSnap.doc || currentQueryText()
-			const dialect = splitDialectFor(engine)
-			const text = textToRun(
-				doc,
-				dialect,
-				editorSnap.head,
-				editorSnap.anchor,
-				e.shiftKey,
-			)
-			if (!text) return
-			void runQuery(
-				text,
-				submissionStart(
-					doc,
-					dialect,
-					editorSnap.head,
-					editorSnap.anchor,
-					e.shiftKey,
-				),
-			)
-		}
-		window.addEventListener('keydown', onKey, true)
-		return () => window.removeEventListener('keydown', onKey, true)
+		// The editor keymap owns ⌘Enter inside the editor so it can see the caret.
+		const notInTextarea = ({ focus }: CommandContext) =>
+			!focus?.target?.closest('textarea')
+		return commands.register([
+			{
+				...cmd.cancelRun,
+				when: ({ focus }) =>
+					runState.status === 'running' &&
+					!focus?.target?.closest('.cm-mystique-search'),
+				run: () => cancelRun(),
+			},
+			{ ...cmd.run, when: notInTextarea, run: () => runFromKeys(false) },
+			{ ...cmd.runAll, when: notInTextarea, run: () => runFromKeys(true) },
+		])
 	})
 </script>
 

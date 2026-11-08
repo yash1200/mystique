@@ -2,10 +2,12 @@
 	/**
 	 * Live ER viewer — catalog schema, rearrange-only.
 	 */
+	import { commands } from '#core/commands'
 	import type { DataFamily } from '#core/contracts'
 	import { ContextMenu } from '#core/ui'
 	import { currentUiScale, exportPng, onUiScaleChange } from '#core/util'
 	import { showStatus, showToast } from '#features/toast'
+	import { cmd } from '#lib/app'
 	import { onMount, tick } from 'svelte'
 	import {
 		ER_HEADER_H_BASE,
@@ -551,44 +553,21 @@
 		if (id === 'download-png') void downloadPng()
 	}
 
+	// While the diagram is open its zoom chords win over the app's UI scale.
+	onMount(() =>
+		commands.register([
+			{ ...cmd.erLayout, run: () => autoLayout() },
+			{ ...cmd.erExportPng, run: () => void downloadPng() },
+			{ ...cmd.erZoomIn, run: () => zoomIn() },
+			{ ...cmd.erZoomOut, run: () => zoomOut() },
+			{ ...cmd.erZoomReset, run: () => resetZoom() },
+			{ ...cmd.erSelectAll, run: () => selectAllTables() },
+		]),
+	)
+
+	/** Esc clears the selection; the chords above are registry commands. */
 	function onKeyDown(e: KeyboardEvent) {
 		if (isEditableTarget(e.target)) return
-		const mod = e.ctrlKey || e.metaKey
-		const key = e.key.toLowerCase()
-
-		if (mod && e.shiftKey && key === 'l') {
-			e.preventDefault()
-			autoLayout()
-			return
-		}
-		if (mod && e.shiftKey && key === 'e') {
-			e.preventDefault()
-			void downloadPng()
-			return
-		}
-		if (mod && (key === '=' || key === '+' || e.code === 'NumpadAdd')) {
-			e.preventDefault()
-			zoomIn()
-			return
-		}
-		if (
-			mod &&
-			(key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')
-		) {
-			e.preventDefault()
-			zoomOut()
-			return
-		}
-		if (mod && key === '0') {
-			e.preventDefault()
-			resetZoom()
-			return
-		}
-		if (mod && key === 'a') {
-			e.preventDefault()
-			selectAllTables()
-			return
-		}
 		if (e.key === 'Escape') {
 			ctxMenu = null
 			selectedTableIds = []
