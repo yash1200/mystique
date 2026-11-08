@@ -5,6 +5,7 @@
 mod connector;
 mod preview_filter;
 mod session;
+mod shell;
 mod shell_filter;
 mod shell_query;
 
