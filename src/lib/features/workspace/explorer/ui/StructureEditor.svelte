@@ -9,7 +9,7 @@
 	import { latestRun } from '#core/util'
 	import { showToast } from '#features/toast'
 	import {
-		currentDatabaseName,
+		databaseNameFor,
 		refreshCurrentTables,
 	} from '#features/workspace/catalog'
 	import {
@@ -83,7 +83,7 @@
 					sessionId,
 					table: table.name,
 					schema: table.schema || null,
-					database: table.database || currentDatabaseName() || null,
+					database: table.database || databaseNameFor(connectionId) || null,
 					kind: table.kind,
 				}),
 			)
