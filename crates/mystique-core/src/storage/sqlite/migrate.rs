@@ -19,7 +19,7 @@ const V11_SQL: &str = include_str!("../../../migrations/011_save_password.sql");
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-const SCHEMA_VERSION: i32 = 11;
+pub const SCHEMA_VERSION: i32 = 11;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -72,6 +72,7 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         [],
         |row| row.get(0),
     )?;
+    let found = current;
 
     if current == 0 {
         conn.execute_batch(SCHEMA_SQL)?;
@@ -159,7 +160,23 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
+    if found != SCHEMA_VERSION {
+        tracing::info!(from = found, to = SCHEMA_VERSION, "app database migrated");
+    }
     Ok(())
+}
+
+/// The newest version stamped in `schema_migrations`, 0 on an empty database.
+pub fn applied_version(conn: &Connection) -> AppResult<i32> {
+    let exists = table_exists(conn, "schema_migrations")?;
+    if !exists {
+        return Ok(0);
+    }
+    Ok(conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        [],
+        |row| row.get(0),
+    )?)
 }
 
 /// Run 009 with foreign keys off, so dropping the old table does not cascade

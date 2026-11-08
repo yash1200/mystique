@@ -95,6 +95,7 @@ impl McpController {
             .local_addr()
             .map_err(|e| AppError::Internal(e.to_string()))?
             .port();
+        tracing::info!(port = actual, "mcp server listening on 127.0.0.1");
 
         let app = router(HttpState {
             tools,
@@ -130,6 +131,7 @@ impl McpController {
             if let Some(tx) = running.shutdown.take() {
                 let _ = tx.send(());
             }
+            tracing::info!(port = running.port, "mcp server stopped");
         }
     }
 }

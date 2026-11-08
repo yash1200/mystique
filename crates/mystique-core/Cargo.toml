@@ -28,6 +28,10 @@ russh = { version = "0.63.3", default-features = false, features = ["aws-lc-rs"]
 aes-gcm = "0.10"
 base64 = "0.22"
 rand = "0.8"
+tracing = { workspace = true }
+# Diagnostics bundle (.tar.gz).
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
 
 # Attribute-only keychain listing and deletes with user interaction off.
 [target.'cfg(target_os = "macos")'.dependencies]

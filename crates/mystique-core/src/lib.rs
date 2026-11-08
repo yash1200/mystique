@@ -14,8 +14,10 @@
 
 pub mod application;
 pub mod connectors;
+pub mod diagnostics;
 pub mod domain;
 pub mod error;
+pub mod redact;
 pub mod secrets;
 pub mod storage;
 

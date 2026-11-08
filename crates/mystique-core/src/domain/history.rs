@@ -97,56 +97,7 @@ pub struct HistoryList {
 /// SQL text is kept. Connection-string userinfo is not. Bind parameters are
 /// not a history column; only the statement text is stored.
 pub fn redact_history_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(sep) = rest.find("://") {
-        let scheme = &rest[..sep];
-        let scheme_start = scheme
-            .rfind(|c: char| !is_scheme_char(c))
-            .map(|i| {
-                i + scheme[i..]
-                    .chars()
-                    .next()
-                    .map(|c| c.len_utf8())
-                    .unwrap_or(1)
-            })
-            .unwrap_or(0);
-        if scheme_start == sep {
-            let next = sep + 1;
-            out.push_str(&rest[..next]);
-            rest = &rest[next..];
-            continue;
-        }
-        out.push_str(&rest[..sep]);
-        out.push_str("://");
-        let after = &rest[sep + 3..];
-        if let Some(at) = userinfo_at(after) {
-            let userinfo = &after[..at];
-            let host = &after[at + 1..];
-            if let Some((user, pass)) = userinfo.split_once(':') {
-                if !pass.is_empty() {
-                    out.push_str(user);
-                    out.push_str(":***@");
-                    rest = host;
-                    continue;
-                }
-            }
-        }
-        rest = after;
-    }
-    out.push_str(rest);
-    out
-}
-
-fn is_scheme_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.'
-}
-
-fn userinfo_at(after: &str) -> Option<usize> {
-    let end = after
-        .find(['/', '?', '#', ' ', '\n', '\r', '\t', '"', '\''])
-        .unwrap_or(after.len());
-    after[..end].rfind('@')
+    crate::redact::redact_uri_passwords(text)
 }
 
 #[cfg(test)]

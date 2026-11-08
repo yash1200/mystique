@@ -74,6 +74,7 @@ async fn mcp_post(
     let token = match state.token.get().await {
         Ok(token) => token,
         Err(message) => {
+            tracing::warn!("mcp request refused: token unavailable");
             return cors(
                 StatusCode::SERVICE_UNAVAILABLE,
                 json_rpc_error(None, -32001, &message).to_string(),
@@ -81,6 +82,7 @@ async fn mcp_post(
         }
     };
     if !authorized(&headers, &query, &token) {
+        tracing::warn!("mcp request refused: bad or missing token");
         return cors(StatusCode::UNAUTHORIZED, "unauthorized");
     }
     let text = String::from_utf8_lossy(&body);
@@ -99,7 +101,28 @@ async fn mcp_post(
         return cors(StatusCode::ACCEPTED, "");
     }
     let params = msg.get("params").cloned().unwrap_or(JsonValue::Null);
+    // Method and tool name only: arguments can hold SQL.
+    let tool = (method == "tools/call")
+        .then(|| {
+            params
+                .get("name")
+                .and_then(|n| n.as_str())
+                .map(str::to_owned)
+        })
+        .flatten();
+    let started = std::time::Instant::now();
     let result = handle_method(&state.tools, method, params).await;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match &result {
+        Ok(_) => tracing::info!(method, tool = tool.as_deref(), elapsed_ms, "mcp request"),
+        Err((code, _)) => tracing::info!(
+            method,
+            tool = tool.as_deref(),
+            code,
+            elapsed_ms,
+            "mcp request failed"
+        ),
+    }
     let body = match result {
         Ok(value) => json!({ "jsonrpc": "2.0", "id": id, "result": value }),
         Err((code, message)) => json_rpc_error(id, code, &message),

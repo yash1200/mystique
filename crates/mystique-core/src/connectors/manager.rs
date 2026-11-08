@@ -242,6 +242,14 @@ impl ConnectionManager {
             Err(e) => Ok(test_fail(&req.engine, start, e)),
         };
         close_tunnel(tunneled.tunnel.take()).await;
+        if let Ok(result) = &outcome {
+            tracing::info!(
+                engine = %req.engine,
+                ok = result.ok,
+                latency_ms = result.latency_ms,
+                "connection test"
+            );
+        }
         outcome
     }
 
@@ -262,13 +270,24 @@ impl ConnectionManager {
             .map(|p| p.id.to_string())
             .unwrap_or_else(|| req.engine.trim().to_string());
 
-        let tunneled = prepare_plugin_config(&req).await?;
+        let started = std::time::Instant::now();
+        let tunneled = prepare_plugin_config(&req).await.inspect_err(|err| {
+            tracing::warn!(engine = %req.engine, error = err.kind(), "session open failed: tunnel");
+        })?;
+        let ssh = tunneled.tunnel.is_some();
         let config = connection_config(&req.engine, connector.id(), tunneled.config, &req);
 
         let session = match connector.connect(&config).await {
             Ok(session) => session,
             Err(err) => {
                 close_tunnel(tunneled.tunnel).await;
+                tracing::warn!(
+                    engine = %req.engine,
+                    ssh,
+                    error = err.kind(),
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "session open failed"
+                );
                 return Err(err);
             }
         };
@@ -333,6 +352,14 @@ impl ConnectionManager {
         if let Some(prev) = prev {
             let _ = shutdown_live(prev).await;
         }
+        tracing::info!(
+            session_id = %info.session_id,
+            engine = %info.engine,
+            origin = ?origin,
+            ssh,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "session opened"
+        );
         Ok(info)
     }
 
@@ -345,6 +372,7 @@ impl ConnectionManager {
         };
         if let Some(live) = live {
             self.write_unlocks.lock().await.remove(session_id);
+            tracing::info!(session_id, engine = %live.product_id, busy, "session closed");
             if busy {
                 tokio::spawn(async move {
                     let _ = shutdown_live(live).await;

@@ -130,9 +130,17 @@ impl Vault {
         if let Some(done) = state.as_ref() {
             return done.clone().map(|key| (key, false));
         }
+        let source = self.source.name();
         match self.source.load(prompt) {
-            Err(VaultError::Locked) => Err(VaultError::Locked),
+            Err(VaultError::Locked) => {
+                tracing::debug!(source, "vault locked: a prompt was not allowed");
+                Err(VaultError::Locked)
+            }
             done => {
+                match &done {
+                    Ok(_) => tracing::info!(source, "vault unlocked"),
+                    Err(err) => tracing::warn!(source, error = ?err, "vault unlock denied"),
+                }
                 *state = Some(done.clone());
                 done.map(|key| (key, true))
             }
@@ -241,17 +249,18 @@ impl KeySource for CachedKeySource {
             Ok(false) => {
                 let cached = read_key_file_retrying(&self.path).map_err(file_err)?;
                 if cached != key {
-                    eprintln!(
-                        "mystique: {} differs from the keychain vault key; using the file",
-                        self.path.display()
+                    tracing::warn!(
+                        path = %self.path.display(),
+                        "vault key file differs from the keychain key; using the file"
                     );
                 }
                 Ok(cached)
             }
             Err(e) => {
-                eprintln!(
-                    "mystique: could not cache the vault key at {}: {e}",
-                    self.path.display()
+                tracing::warn!(
+                    path = %self.path.display(),
+                    error = %e,
+                    "could not cache the vault key"
                 );
                 Ok(key)
             }

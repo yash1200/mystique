@@ -420,6 +420,8 @@ impl ConnectionManager {
             .begin_run(&req.session_id, req.execution_id.take())
             .await;
         let started = std::time::Instant::now();
+        let req_session = req.session_id.clone();
+        tracing::debug!(session_id = %req_session, pinned = tab_id.is_some(), "query run started");
         let ctx = self.history_context(&req.session_id).await;
         let text = req.text.clone();
         let database = req.database.clone();
@@ -430,6 +432,7 @@ impl ConnectionManager {
                 .await
         };
         self.finish_run(&run_id).await;
+        log_run(&req_session, started, &outcome);
         if let Some(ctx) = ctx {
             let rows = super::history::rows_from_outcome(
                 &ctx,
@@ -521,5 +524,40 @@ impl ConnectionManager {
             );
         }
         result
+    }
+}
+
+/// One line per run: timing and counts, never the SQL text or its parameters.
+fn log_run(
+    session_id: &str,
+    started: std::time::Instant,
+    outcome: &ConnectorResult<QueryBatchResult>,
+) {
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match outcome {
+        Ok(batch) => {
+            let rows: u64 = batch
+                .results
+                .iter()
+                .filter_map(|r| r.result.as_ref().map(|q| q.row_count))
+                .sum();
+            let affected: u64 = batch.results.iter().filter_map(|r| r.affected_rows).sum();
+            let failed = batch.results.iter().filter(|r| r.error.is_some()).count();
+            tracing::info!(
+                session_id,
+                statements = batch.results.len(),
+                rows,
+                affected,
+                failed,
+                elapsed_ms,
+                "query run finished"
+            );
+        }
+        Err(err) => tracing::info!(
+            session_id,
+            error = err.kind(),
+            elapsed_ms,
+            "query run failed"
+        ),
     }
 }

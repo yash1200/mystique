@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use crate::error::AppResult;
 
 pub use connection::{db_file_name, open_path};
-pub use migrate::migrate;
+pub use migrate::{applied_version, migrate, SCHEMA_VERSION};
 
 /// Process-wide handle to the local app database.
 pub struct AppDatabase {
@@ -40,6 +40,11 @@ impl AppDatabase {
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// The schema version this database is at.
+    pub fn schema_version(&self) -> AppResult<i32> {
+        self.with_conn(applied_version)
     }
 
     /// A panic inside `f` poisons the lock. The next caller takes the
