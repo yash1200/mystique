@@ -1,94 +1,86 @@
 /**
- * Workspace tab shortcuts:
- * - ⌘/Ctrl+W → close active tab
- * - ⌘/Ctrl+T → new query tab
- * - ⌘/Ctrl+S → save active query or table tab
- * Keydown (capture) + optional Tauri menu events (deduped).
+ * Workspace tab commands: ⌘T new query, ⌘S save, ⌘W close, ⌘⇧T reopen
+ * closed tab, ⌘O open connection.
+ *
+ * In the desktop app the native menu accelerator is the only source, so each
+ * chord runs once. The browser preview has no menu and uses keydown instead.
  */
+import { isMacPlatform, isModChord } from '#core/util'
+
+export type WorkspaceCommand =
+	| 'new-query'
+	| 'save'
+	| 'close-tab'
+	| 'reopen-tab'
+	| 'open-connection'
+
+/** Event the native menu emits for each command (menu.rs). */
+export const WORKSPACE_MENU_EVENTS: Record<WorkspaceCommand, string> = {
+	'new-query': 'workspace-new-query',
+	save: 'workspace-save-query',
+	'close-tab': 'workspace-close-tab',
+	'reopen-tab': 'workspace-reopen-tab',
+	'open-connection': 'workspace-open-connection',
+}
+
+type ChordKey = {
+	metaKey: boolean
+	ctrlKey: boolean
+	altKey: boolean
+	shiftKey: boolean
+	code: string
+	repeat?: boolean
+}
+
+/** Keydown → command. Used only where there is no native menu. */
+export function workspaceChord(event: ChordKey, mac: boolean): WorkspaceCommand | null {
+	if (event.altKey || event.repeat) return null
+	if (!isModChord(event, mac)) return null
+	if (event.shiftKey) return event.code === 'KeyT' ? 'reopen-tab' : null
+	if (event.code === 'KeyT') return 'new-query'
+	if (event.code === 'KeyS') return 'save'
+	if (event.code === 'KeyW') return 'close-tab'
+	if (event.code === 'KeyO') return 'open-connection'
+	return null
+}
+
 export function mountWorkspaceShortcuts(opts: {
-	onNewQuery: () => void
-	onCloseTab: () => void
-	onSaveQuery?: () => void
-	onOpenConnection?: () => void
+	commands: Partial<Record<WorkspaceCommand, () => void>>
 	isTauri: boolean
+	mac?: boolean
 }): () => void {
-	let lastAt = 0
-	const runOnce = (fn: () => void) => {
-		const now = Date.now()
-		if (now - lastAt < 150) return
-		lastAt = now
-		fn()
+	const { commands } = opts
+	if (!opts.isTauri) {
+		const mac = opts.mac ?? isMacPlatform()
+		const onKey = (event: KeyboardEvent) => {
+			const command = workspaceChord(event, mac)
+			const run = command ? commands[command] : undefined
+			if (!run) return
+			event.preventDefault()
+			event.stopImmediatePropagation()
+			run()
+		}
+		window.addEventListener('keydown', onKey, true)
+		return () => window.removeEventListener('keydown', onKey, true)
 	}
-
-	const onKey = (e: KeyboardEvent) => {
-		if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
-		const code = e.code
-		if (code === 'KeyW') {
-			e.preventDefault()
-			e.stopImmediatePropagation()
-			runOnce(opts.onCloseTab)
-			return
-		}
-		if (code === 'KeyT') {
-			e.preventDefault()
-			e.stopImmediatePropagation()
-			runOnce(opts.onNewQuery)
-			return
-		}
-		if (code === 'KeyS' && opts.onSaveQuery) {
-			e.preventDefault()
-			e.stopImmediatePropagation()
-			runOnce(opts.onSaveQuery)
-			return
-		}
-		if (code === 'KeyO' && opts.onOpenConnection) {
-			e.preventDefault()
-			e.stopImmediatePropagation()
-			runOnce(opts.onOpenConnection)
-		}
-	}
-
-	window.addEventListener('keydown', onKey, true)
-	document.addEventListener('keydown', onKey, true)
 
 	const unsubs: Array<() => void> = []
 	let cancelled = false
-	if (opts.isTauri) {
-		void import('@tauri-apps/api/event')
-			.then(async ({ listen }) => {
-				if (cancelled) return
-				const pairs: [string, () => void][] = [
-					['workspace-close-tab', opts.onCloseTab],
-					['workspace-new-query', opts.onNewQuery],
-					['workspace://close-tab', opts.onCloseTab],
-					['workspace://new-query', opts.onNewQuery],
-				]
-				if (opts.onSaveQuery) {
-					pairs.push(
-						['workspace-save-query', opts.onSaveQuery],
-						['workspace://save-query', opts.onSaveQuery],
-					)
-				}
-				if (opts.onOpenConnection) {
-					pairs.push(
-						['workspace-open-connection', opts.onOpenConnection],
-						['workspace://open-connection', opts.onOpenConnection],
-					)
-				}
-				for (const [name, fn] of pairs) {
-					if (cancelled) return
-					unsubs.push(await listen(name, () => runOnce(fn)))
-				}
-			})
-			.catch(() => {
-				/* optional */
-			})
-	}
-
+	void import('@tauri-apps/api/event')
+		.then(async ({ listen }) => {
+			for (const [command, event] of Object.entries(WORKSPACE_MENU_EVENTS)) {
+				const run = commands[command as WorkspaceCommand]
+				if (!run || cancelled) continue
+				const unlisten = await listen(event, () => run())
+				if (cancelled) unlisten()
+				else unsubs.push(unlisten)
+			}
+		})
+		.catch(() => {
+			/* optional */
+		})
 	return () => {
 		cancelled = true
-		window.removeEventListener('keydown', onKey, true)
-		document.removeEventListener('keydown', onKey, true)
 		for (const u of unsubs) u()
 	}
 }

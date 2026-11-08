@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { cn, modalPanel, overlayFade } from '#core/util'
 	import type { Snippet } from 'svelte'
+	import { pushDialog } from './dialog-stack'
 	import Icon from './Icon.svelte'
 	import IconButton from './IconButton.svelte'
 
@@ -73,6 +74,11 @@
 		md: 'max-h-modal-md',
 		lg: 'max-h-modal-lg',
 	}
+
+	$effect(() => {
+		if (!open) return
+		return pushDialog({ close: () => onclose(), dismissible: () => dismissible })
+	})
 
 	function onWindowKey(e: KeyboardEvent) {
 		if (!open || !dismissible) return

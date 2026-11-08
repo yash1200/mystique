@@ -77,11 +77,16 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		id: 'workspace',
 		title: 'Workspace',
 		items: [
-			{ id: 'quick-open', label: 'Quick open', keys: ['mod', 'K'], orKeys: ['mod', 'P'] },
+			{ id: 'quick-open', label: 'Quick open', keys: ['mod', 'K'] },
 			{ id: 'new-query', label: 'New query tab', keys: ['mod', 'T'] },
-			{ id: 'close-tab', label: 'Close tab', keys: ['mod', 'W'] },
+			{ id: 'close-tab', label: 'Close dialog, or tab if none is open', keys: ['mod', 'W'] },
+			{ id: 'reopen-tab', label: 'Reopen closed tab', keys: ['mod', 'shift', 'T'] },
 			{ id: 'toggle-rail', label: 'Toggle session rail', keys: ['mod', 'B'] },
-			{ id: 'focus-filter', label: 'Focus object filter', keys: ['mod', 'L'] },
+			{
+				id: 'focus-filter',
+				label: 'Focus object filter (outside the editor)',
+				keys: ['mod', 'L'],
+			},
 			{ id: 'focus-tab', label: 'Focus workspace tab 1–9', keys: ['mod', '1'] },
 			{ id: 'prev-connection', label: 'Previous connection', keys: ['mod', 'shift', '['] },
 			{ id: 'next-connection', label: 'Next connection', keys: ['mod', 'shift', ']'] },
@@ -118,6 +123,11 @@ export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
 		title: 'Table',
 		items: [
 			{ id: 'save-grid', label: 'Save changes', keys: ['mod', 'S'] },
+			{
+				id: 'refresh',
+				label: 'Reload this page of rows (press twice to discard edits)',
+				keys: ['mod', 'R'],
+			},
 			{ id: 'new-row', label: 'New row', keys: ['mod', 'N'] },
 			{ id: 'dup-row', label: 'Duplicate row', keys: ['mod', 'D'] },
 			{ id: 'del-row', label: 'Delete row', keys: ['mod', 'delete'] },
