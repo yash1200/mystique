@@ -22,6 +22,7 @@
 		rollbackPinnedTab,
 		startTabRun,
 		unpinQueryTab,
+		type PinStatus,
 	} from '#core/ipc'
 	import { Resizable } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
@@ -161,7 +162,7 @@
 		const enabled = showTransactions
 		if (!enabled || !isTauri()) return
 		void pinnedTabStatus(tab)
-			.then((status) => workspaceSession.setTabTxn(tab, status))
+			.then((status) => applyPinStatus(tab, status))
 			.catch(() => {})
 	})
 
@@ -634,10 +635,27 @@
 		if (!showTransactions || !isTauri()) return
 		try {
 			const status = await pinnedTabStatus(tabId)
-			workspaceSession.setTabTxn(tabId, status)
+			applyPinStatus(tabId, status)
 		} catch {
 			/* The toolbar keeps the last status. */
 		}
+	}
+
+	/** Tabs already told that the backend dropped their transaction. */
+	const rollbackNoticed = new Set<string>()
+
+	function applyPinStatus(tab: string, status: PinStatus) {
+		workspaceSession.setTabTxn(tab, status)
+		if (!status.rolledBack) {
+			rollbackNoticed.delete(tab)
+			return
+		}
+		if (rollbackNoticed.has(tab)) return
+		rollbackNoticed.add(tab)
+		showToast(
+			'warning',
+			'The open transaction was rolled back (idle timeout or lost connection). Nothing in it was committed.',
+		)
 	}
 
 	async function setManualCommit(manual: boolean) {
@@ -645,7 +663,6 @@
 			showToast('danger', 'Connect before changing auto-commit.')
 			return
 		}
-		const wasOpen = transactionOpen
 		const tab = tabId
 		try {
 			const status = manual
@@ -655,7 +672,7 @@
 				pinned: manual ? status.pinned : false,
 				inTransaction: status.inTransaction,
 			})
-			if (!manual && wasOpen) showToast('info', 'Open transaction rolled back.')
+			if (!manual && status.rolledBack) showToast('info', 'Open transaction rolled back.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
 		}

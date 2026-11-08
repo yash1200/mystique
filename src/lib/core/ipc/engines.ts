@@ -161,6 +161,8 @@ export async function executeEngineQuery(
 export interface PinStatus {
 	pinned: boolean
 	inTransaction: boolean
+	/** An open transaction was discarded (unpin, idle timeout, disconnect). */
+	rolledBack?: boolean
 }
 
 export async function pinQueryTab(

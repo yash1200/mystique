@@ -91,3 +91,26 @@ async fn read_mode_runs_selects_and_refuses_every_write() {
     write(session, &format!("DROP TABLE {TABLE}")).await;
     session.close().await.ok();
 }
+
+#[tokio::test]
+#[ignore = "needs local MySQL"]
+async fn a_read_mode_set_does_not_reach_the_next_query() {
+    let session = connect().await;
+    let session = session.as_ref();
+    let batch = run_batch(
+        session,
+        "SET time_zone = '+05:00'; SELECT @@session.time_zone",
+        QueryMode::Read,
+        100,
+    )
+    .await;
+    assert!(batch.stopped_at.is_none(), "{:?}", batch.results);
+    let next = run(session, "SELECT @@session.time_zone", QueryMode::Read)
+        .await
+        .expect("next query");
+    assert_ne!(
+        next.rows[0][0].to_string().trim_matches('"'),
+        "+05:00",
+        "session SET leaked to the next checkout"
+    );
+}
