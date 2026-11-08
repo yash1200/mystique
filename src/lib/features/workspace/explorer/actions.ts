@@ -17,9 +17,9 @@ import {
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
+import { openObjectStructure } from '#features/workspace/structure'
 import { beginExport, beginImport } from '#features/workspace/transfer'
 import { menuDangerPrompt } from './danger'
-import { openObjectStructure } from './structure-live'
 import type { TableExplorerAction } from './ui/ObjectExplorer.svelte'
 
 export async function onTableExplorerAction(

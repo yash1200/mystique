@@ -1,6 +1,5 @@
 /** Object explorer and the structure panel. */
 export * from './actions'
-export * from './structure-live'
 export {
 	default as ObjectExplorer,
 	type TableExplorerAction,

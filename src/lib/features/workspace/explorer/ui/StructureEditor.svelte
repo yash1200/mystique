@@ -16,7 +16,7 @@
 		withLiveSession,
 	} from '#features/workspace/session'
 	import { onMount } from 'svelte'
-	import { openObjectStructure } from '../structure-live'
+	import { openObjectStructure } from '#features/workspace/structure'
 	import {
 		addColumn,
 		addForeignKey,

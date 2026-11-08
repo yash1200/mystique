@@ -9,17 +9,17 @@
 		hydrateActiveModel,
 		openModelDiagram,
 	} from '#features/workspace/er'
-	import {
-		hydrateActiveStructure,
-		openObjectStructure,
-		StructurePanel,
-	} from '#features/workspace/explorer'
+	import { StructurePanel } from '#features/workspace/explorer'
 	import {
 		DataGrid,
 		RowInspector,
 		tablePreview,
 	} from '#features/workspace/grid'
 	import { ServerMetricsView } from '#features/workspace/metrics'
+	import {
+		hydrateActiveStructure,
+		openObjectStructure,
+	} from '#features/workspace/structure'
 	import {
 		prependHistoryItem,
 		pruneEditorStates,
