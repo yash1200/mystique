@@ -90,6 +90,7 @@
 			notes,
 			readOnly,
 			queryTimeout,
+			savePassword,
 			sshEnabled,
 			sshHost,
 			sshPort,
@@ -109,6 +110,7 @@
 			notes,
 			readOnly,
 			queryTimeout,
+			savePassword,
 			sshEnabled,
 			sshHost,
 			sshPort,
@@ -259,11 +261,13 @@
 			<EngineFields
 				bind:draft
 				{isEdit}
-				passwordSet={!!initial?.passwordSet && !draft.clearStoredPassword}
+				passwordSet={!!initial?.passwordSet &&
+					!draft.clearStoredPassword &&
+					draft.savePassword}
 				sshPasswordSet={!!initial?.sshPasswordSet && !draft.clearStoredSshPassword}
 				disabled={saving || testing}
 			/>
-			{#if isEdit && initial?.passwordSet && !draft.clearStoredPassword && !draft.password}
+			{#if isEdit && initial?.passwordSet && draft.savePassword && !draft.clearStoredPassword && !draft.password}
 				<button
 					type="button"
 					class="text-caption text-fg-muted hover:text-danger hover:underline"

@@ -8,6 +8,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
+	import { PasswordPromptModal } from '#features/connections'
 	import { appSettingsUi } from '#features/settings'
 	import {
 		appKeyCommand,
@@ -97,6 +98,7 @@
 	{@render children()}
 	<QuickOpen />
 	<ResetConfirmModal />
+	<PasswordPromptModal />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}

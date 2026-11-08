@@ -2,9 +2,11 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import type { ConnectionProfile } from '#core/contracts'
-	import { ensureEngineSession, isTauri } from '#core/ipc'
+	import { isTauri } from '#core/ipc'
 	import {
 		connectionProfiles,
+		ensureSessionWithPassword,
+		isConnectCancelled,
 		pluginConfigForSession,
 	} from '#features/connections'
 	import { onMount } from 'svelte'
@@ -37,13 +39,16 @@
 			if (isTauri() && !existing.engineSessionId) {
 				try {
 					const pluginConfig = pluginConfigForSession(existing.profile)
-					const session = await ensureEngineSession({
-						engine: String(existing.profile.engine),
-						pluginConfig,
-						pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
-						sessionId: existing.profile.id,
-						profileId: existing.profile.id,
-					})
+					const session = await ensureSessionWithPassword(
+						{
+							engine: String(existing.profile.engine),
+							pluginConfig,
+							pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+							sessionId: existing.profile.id,
+							profileId: existing.profile.id,
+						},
+						existing.profile.name,
+					)
 					workspaceSession.connect(
 						existing.profile,
 						session.sessionId,
@@ -73,16 +78,21 @@
 			if (isTauri()) {
 				try {
 					const pluginConfig = pluginConfigForSession(profile)
-					const session = await ensureEngineSession({
-						engine: String(profile.engine),
-						pluginConfig,
-						pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
-						sessionId: profile.id,
-						profileId: profile.id,
-					})
+					const session = await ensureSessionWithPassword(
+						{
+							engine: String(profile.engine),
+							pluginConfig,
+							pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+							sessionId: profile.id,
+							profileId: profile.id,
+						},
+						profile.name,
+					)
 					engineSessionId = session.sessionId
 					capabilities = session.capabilities
 				} catch (e) {
+					// Prompt closed: no error page, the boot falls back to home.
+					if (isConnectCancelled(e)) return
 					bootError =
 						e instanceof Error
 							? `Could not open engine session: ${e.message}`

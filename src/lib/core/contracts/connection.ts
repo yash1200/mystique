@@ -37,6 +37,8 @@ export interface ConnectionProfile {
 	notes?: string | null
 	pluginConfig: PluginConfig
 	passwordSet: boolean
+	/** False: the password is asked once per app session, never saved. Missing means true. */
+	savePassword?: boolean
 	/** Write-only on save. Never populated by list/get. */
 	password?: string | null
 	favorite: boolean
@@ -89,6 +91,8 @@ export interface SaveConnectionInput {
 	tlsKeyPassphrase?: string | null
 	/** Saved as sent on update too. Null uses the app setting; 0 means none. */
 	queryTimeoutSecs?: number | null
+	/** False deletes any saved password. Omit on update to keep the stored flag. */
+	savePassword?: boolean
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */
@@ -107,6 +111,8 @@ export interface ConnectionFormDraft {
 	password: string
 	/** Edit-only: wipe the stored keychain secret on save. */
 	clearStoredPassword?: boolean
+	/** Off: ask once per app session instead of saving the password. */
+	savePassword: boolean
 	ssl: boolean
 	sslMode?: 'disable' | 'prefer' | 'require' | 'verify-ca' | 'verify-full'
 	caCertPath?: string

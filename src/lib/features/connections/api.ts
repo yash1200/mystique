@@ -16,6 +16,7 @@ export function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
 		notes: raw.notes ?? null,
 		password: null,
 		passwordSet: Boolean(raw.passwordSet),
+		savePassword: raw.savePassword !== false,
 		favorite: Boolean(raw.favorite),
 		lastConnectedAt: raw.lastConnectedAt ?? null,
 		status: raw.status ?? 'disconnected',
@@ -56,8 +57,9 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
 
 	const existing = rows.find((r) => r.id === id)
 
+	const savePassword = input.savePassword ?? existing?.savePassword ?? true
 	let passwordSet = existing?.passwordSet ?? false
-	if (input.clearSecret) {
+	if (input.clearSecret || !savePassword) {
 		passwordSet = false
 	} else if (input.password != null && String(input.password).length > 0) {
 		passwordSet = true
@@ -76,6 +78,7 @@ function localSave(input: SaveConnectionInput): ConnectionProfile {
 		notes: input.notes ?? null,
 		pluginConfig: input.pluginConfig ?? {},
 		passwordSet,
+		savePassword,
 		password: null,
 		favorite: input.favorite ?? existing?.favorite ?? false,
 		lastConnectedAt: existing?.lastConnectedAt ?? null,

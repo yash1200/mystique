@@ -2,6 +2,7 @@
 import type { DatabaseMeta, TableMeta } from '#core/contracts'
 import { applyEngineTableAdmin, isTauri } from '#core/ipc'
 import { resolveCapabilities } from '#engines'
+import { isConnectCancelled } from '#features/connections'
 import {
 	engineBindsSessionToDatabase,
 	isSessionMissingError,
@@ -25,6 +26,8 @@ import { catalogColumnsCache } from './columns.svelte'
 import { clearCatalogFailure, recordCatalogFailure } from './failure'
 
 function reportCatalogError(connectionId: string, err: unknown) {
+	// The user closed the password prompt.
+	if (isConnectCancelled(err)) return
 	const message = err instanceof Error ? err.message : String(err)
 	const first = recordCatalogFailure(connectionId, message)
 	if (first) {

@@ -51,6 +51,9 @@ export function invokeErrorMessage(err: unknown): string {
 
 export function prettifyConnectError(message: string): string {
 	const lower = message.toLowerCase()
+	if (lower.includes('password_required')) {
+		return 'Enter the password. This connection does not save it.'
+	}
 	if (
 		lower.includes('password missing') ||
 		lower.includes('stored password is missing')

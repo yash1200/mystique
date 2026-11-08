@@ -37,6 +37,7 @@ export const mongodb: EngineAdapter = {
 			environment: 'local',
 			notes: '',
 			queryTimeout: '',
+			savePassword: true,
 		}),
 		toPluginConfig: (draft) => {
 			const uri = draft.uri.trim()

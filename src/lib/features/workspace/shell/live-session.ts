@@ -3,14 +3,13 @@
  * Not UI — WorkspaceShell only mounts chrome around these.
  */
 import type { ConnectionProfile, SessionLiveStatus } from '#core/contracts'
-import {
-	ensureEngineSession,
-	getEngineSession,
-	isTauri,
-	openEngineSession,
-} from '#core/ipc'
+import { getEngineSession, isTauri } from '#core/ipc'
 import { resolveCapabilities } from '#engines'
-import { pluginConfigForSession } from '#features/connections'
+import {
+	ensureSessionWithPassword,
+	openSessionWithPassword,
+	pluginConfigForSession,
+} from '#features/connections'
 import { isSessionMissingError, preferredDbForProfile } from './session-utils'
 import { workspaceSession } from './session.svelte'
 import { workspaceStudio } from './studio.svelte'
@@ -92,9 +91,10 @@ export async function reopenEngineSession(
 		sessionId: profile.id,
 		profileId: profile.id,
 	}
+	// A profile that does not save its password is asked once per session.
 	const session = db
-		? await openEngineSession(request)
-		: await ensureEngineSession(request)
+		? await openSessionWithPassword(request, profile.name)
+		: await ensureSessionWithPassword(request, profile.name)
 	workspaceSession.connect(profile, session.sessionId, session.capabilities)
 	return session.sessionId
 }

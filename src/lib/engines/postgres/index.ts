@@ -33,6 +33,7 @@ export const postgres: EngineAdapter = {
 			environment: 'local',
 			notes: '',
 			queryTimeout: '',
+			savePassword: true,
 		}),
 		toPluginConfig: (draft) => ({
 			host: draft.host.trim() || '127.0.0.1',

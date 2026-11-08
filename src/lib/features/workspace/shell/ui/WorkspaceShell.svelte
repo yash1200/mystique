@@ -9,12 +9,10 @@
 	import {
 		closeEngineSession,
 		commitPinnedTab,
-		ensureEngineSession,
 		isTauri,
 		listenNativeMenu,
 		rollbackPinnedTab,
 		setNativeMenu,
-		testEngineConnection,
 	} from '#core/ipc'
 	import { closeTopDialog } from '#core/ui'
 	import { setAppTitle } from '#core/util'
@@ -22,9 +20,12 @@
 		acceptSshHostKey,
 		colorHex,
 		connectionProfiles,
+		ensureSessionWithPassword,
+		isConnectCancelled,
 		parseSshHostKey,
 		pluginConfigForSession,
 		SshHostKeyModal,
+		testSessionWithPassword,
 	} from '#features/connections'
 	import { appChrome } from '#lib/app'
 	import {
@@ -290,12 +291,15 @@
 				return
 			}
 			const pluginConfig = pluginConfigForSession(profile)
-			const result = await testEngineConnection({
-				engine: String(profile.engine),
-				pluginConfig,
-				profileId: profile.id,
-				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
-			})
+			const result = await testSessionWithPassword(
+				{
+					engine: String(profile.engine),
+					pluginConfig,
+					profileId: profile.id,
+					pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
+				},
+				profile.name,
+			)
 			if (result.sshHostKey) {
 				sshHostKey = result.sshHostKey
 				sshHostKeyRetry = () => connectAdditional(profile)
@@ -306,13 +310,16 @@
 				return
 			}
 			const updated = await connectionProfiles.touchConnected(profile.id)
-			const session = await ensureEngineSession({
-				engine: String(profile.engine),
-				pluginConfig,
-				profileId: profile.id,
-				pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
-				sessionId: profile.id,
-			})
+			const session = await ensureSessionWithPassword(
+				{
+					engine: String(profile.engine),
+					pluginConfig,
+					profileId: profile.id,
+					pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+					sessionId: profile.id,
+				},
+				profile.name,
+			)
 			workspaceSession.connect(
 				{ ...updated, status: 'connected' },
 				session.sessionId,
@@ -321,6 +328,7 @@
 			workspaceStudio.sideMode = 'explorer'
 			pickerOpen = false
 		} catch (e) {
+			if (isConnectCancelled(e)) return
 			const prompt = parseSshHostKey(e)
 			if (prompt) {
 				sshHostKey = prompt

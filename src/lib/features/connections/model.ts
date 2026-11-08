@@ -137,6 +137,7 @@ export function draftFromProfile(
 		username: configStr(c, 'username'),
 		password: '',
 		clearStoredPassword: false,
+		savePassword: profile.savePassword !== false,
 		ssl:
 			configBool(c, 'ssl', false) ||
 			sslModeFromConfig(false, configStr(c, 'sslMode')) !== 'disable',
@@ -210,7 +211,11 @@ export function saveInputFromDraft(
 	}
 
 	const typedPassword = (draft.password ?? '').trim()
-	if (
+	// Off: no password is sent; the backend deletes any saved one.
+	input.savePassword = draft.savePassword !== false
+	if (!input.savePassword) {
+		input.clearSecret = true
+	} else if (
 		(options?.clearPassword || draft.clearStoredPassword) &&
 		typedPassword.length === 0
 	) {

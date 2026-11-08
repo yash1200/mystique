@@ -32,13 +32,15 @@
 			: `postgresql://user:pass@host:${port}/dbname?sslmode=require`,
 	)
 	const passwordPlaceholder = $derived(
-		isEdit && passwordSet
-			? '••••••••'
-			: runtime === 'mysql'
-				? '123'
-				: runtime === 'postgres'
-					? 'postgres'
-					: 'Optional',
+		!draft.savePassword
+			? 'Optional'
+			: isEdit && passwordSet
+				? '••••••••'
+				: runtime === 'mysql'
+					? '123'
+					: runtime === 'postgres'
+						? 'postgres'
+						: 'Optional',
 	)
 
 	function applyParsed(parsed: ParsedConnectionUrl) {
@@ -88,5 +90,16 @@
 
 	<div class="mt-3 flex flex-wrap gap-4">
 		<Checkbox bind:checked={draft.readOnly} label="Read-only" {disabled} />
+		<Checkbox
+			bind:checked={draft.savePassword}
+			label="Save password"
+			{disabled}
+		/>
 	</div>
+	{#if !draft.savePassword}
+		<p class="m-0 mt-2 text-caption text-fg-muted">
+			Mystique asks for the password once per session and keeps it in memory
+			until you quit.
+		</p>
+	{/if}
 </Card>

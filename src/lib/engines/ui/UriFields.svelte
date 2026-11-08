@@ -22,7 +22,18 @@
 			{disabled}
 		/>
 	</Field>
-	<div class="mt-3">
+	<div class="mt-3 flex flex-wrap gap-4">
 		<Checkbox bind:checked={draft.readOnly} label="Read-only" {disabled} />
+		<Checkbox
+			bind:checked={draft.savePassword}
+			label="Save password"
+			{disabled}
+		/>
 	</div>
+	{#if !draft.savePassword}
+		<p class="m-0 mt-2 text-caption text-fg-muted">
+			Mystique asks for the password once per session and keeps it in memory
+			until you quit.
+		</p>
+	{/if}
 </Card>
