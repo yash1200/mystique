@@ -15,6 +15,9 @@ use super::ConnectionManager;
 pub(super) const PIN_IDLE: Duration = Duration::from_secs(5 * 60);
 pub(super) const MCP_IDLE: Duration = Duration::from_secs(10 * 60);
 
+const ROLLED_BACK: &str = "This tab's open transaction was rolled back after it sat idle or \
+     its connection closed. Nothing in it was committed.";
+
 pub(super) struct TabPin {
     session_id: String,
     pin: AsyncMutex<Box<dyn PinnedSession + Send>>,
@@ -98,10 +101,7 @@ impl ConnectionManager {
             if existing.session_id == session_id {
                 existing.touch();
                 let pin = existing.pin.lock().await;
-                return Ok(PinStatus {
-                    pinned: true,
-                    in_transaction: pin.in_transaction(),
-                });
+                return Ok(PinStatus::pinned(pin.in_transaction()));
             }
         }
         drop(_hold);
@@ -121,21 +121,18 @@ impl ConnectionManager {
             .await
             .insert(tab_id.to_string(), Arc::clone(&tab_pin));
         let pin = tab_pin.pin.lock().await;
-        Ok(PinStatus {
-            pinned: true,
-            in_transaction: pin.in_transaction(),
-        })
+        Ok(PinStatus::pinned(pin.in_transaction()))
     }
 
     pub async fn pin_status(&self, tab_id: &str) -> PinStatus {
         let Some(tab) = self.pins.lock().await.get(tab_id).cloned() else {
-            return PinStatus::idle();
+            return PinStatus {
+                rolled_back: self.rolled_back.lock().await.contains(tab_id),
+                ..PinStatus::idle()
+            };
         };
         let pin = tab.pin.lock().await;
-        PinStatus {
-            pinned: true,
-            in_transaction: pin.in_transaction(),
-        }
+        PinStatus::pinned(pin.in_transaction())
     }
 
     pub async fn commit_tab(&self, tab_id: &str) -> ConnectorResult<PinStatus> {
@@ -147,17 +144,46 @@ impl ConnectionManager {
         self.end_tab(tab_id, false).await
     }
 
+    /// Unpin. `rolled_back` says whether an open transaction was discarded.
     pub async fn rollback_tab(&self, tab_id: &str) -> ConnectorResult<PinStatus> {
+        self.rolled_back.lock().await.remove(tab_id);
         let Some(tab) = self.pins.lock().await.remove(tab_id) else {
             return Ok(PinStatus::idle());
         };
         let mut pin = tab.pin.lock().await;
+        let open = pin.in_transaction();
         pin.rollback().await?;
-        Ok(PinStatus::idle())
+        Ok(PinStatus {
+            rolled_back: open,
+            ..PinStatus::idle()
+        })
+    }
+
+    /// Unpin without the user asking. A discarded transaction is remembered
+    /// so the tab's next commit or run says so instead of starting fresh.
+    async fn drop_tab(&self, tab_id: &str) {
+        let discarded = !matches!(
+            self.rollback_tab(tab_id).await,
+            Ok(PinStatus {
+                rolled_back: false,
+                ..
+            })
+        );
+        if discarded {
+            self.rolled_back.lock().await.insert(tab_id.to_string());
+        }
+    }
+
+    /// Whether `drop_tab` discarded this tab's transaction. Reported once.
+    async fn take_rolled_back(&self, tab_id: &str) -> bool {
+        self.rolled_back.lock().await.remove(tab_id)
     }
 
     async fn end_tab(&self, tab_id: &str, commit: bool) -> ConnectorResult<PinStatus> {
         let Some(tab) = self.pins.lock().await.get(tab_id).cloned() else {
+            if commit && self.take_rolled_back(tab_id).await {
+                return Err(ConnectorError::Query(ROLLED_BACK.into()));
+            }
             return Ok(PinStatus::idle());
         };
         tab.touch();
@@ -167,10 +193,7 @@ impl ConnectionManager {
         } else {
             pin.rollback().await?;
         }
-        Ok(PinStatus {
-            pinned: true,
-            in_transaction: pin.in_transaction(),
-        })
+        Ok(PinStatus::pinned(pin.in_transaction()))
     }
 
     pub async fn rollback_all_pins(&self) {
@@ -190,7 +213,7 @@ impl ConnectionManager {
             .map(|(tab, _)| tab.clone())
             .collect();
         for tab in tabs {
-            let _ = self.rollback_tab(&tab).await;
+            self.drop_tab(&tab).await;
         }
     }
 
@@ -204,7 +227,7 @@ impl ConnectionManager {
             .map(|(tab, _)| tab.clone())
             .collect();
         for tab in stale {
-            let _ = self.rollback_tab(&tab).await;
+            self.drop_tab(&tab).await;
         }
         self.reap_mcp_sessions().await;
     }
@@ -281,12 +304,15 @@ impl ConnectionManager {
                 if pin.session_id == session_id {
                     pin.touch();
                     let guard = pin.pin.lock().await;
-                    return Ok(PinStatus {
-                        pinned: true,
-                        in_transaction: guard.in_transaction(),
-                    });
+                    return Ok(PinStatus::pinned(guard.in_transaction()));
                 }
             }
+        }
+        // A fresh pin would run these statements outside the lost transaction.
+        if self.take_rolled_back(tab_id).await {
+            return Err(ConnectorError::Query(format!(
+                "{ROLLED_BACK} Nothing ran. Run again to continue without it."
+            )));
         }
         self.pin_tab(session_id, tab_id).await
     }
@@ -458,7 +484,11 @@ impl ConnectionManager {
                 .await
         };
         if let Ok(batch_result) = result.as_mut() {
-            super::query::place_error_positions(&req.text, batch_result);
+            mystique_connector_api::place_error_positions(
+                &req.text,
+                SqlDialect::from_engine(&engine),
+                batch_result,
+            );
         }
         result
     }

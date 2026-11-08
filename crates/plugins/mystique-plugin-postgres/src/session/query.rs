@@ -5,11 +5,13 @@ use std::time::Instant;
 
 use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
-    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes, BatchPhase,
-    ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
-    QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
+    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes,
+    sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
+    QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect, StatementResult,
+    ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
-use tokio_postgres::types::{IsNull, ToSql, Type};
+use tokio_postgres::error::SqlState;
+use tokio_postgres::types::{Format, IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
@@ -93,7 +95,7 @@ pub(super) async fn execute_batch(
         {
             return end_read_only_txn(client, Err(query_failed(err))).await;
         }
-        let result = run_planned_batch(&client, batch, true).await;
+        let result = run_planned_batch(&client, batch, true, true).await;
         end_read_only_txn(client, result).await
     } else {
         execute_held(session, &client, batch).await
@@ -111,19 +113,22 @@ pub(super) async fn execute_held(
     let _ = client
         .batch_execute(&format!("SET statement_timeout = {timeout}"))
         .await;
-    let result = run_planned_batch(client, batch, false).await;
+    let result = run_planned_batch(client, batch, false, false).await;
     let _ = client.batch_execute("RESET statement_timeout").await;
     result
 }
 
+/// `in_txn` is whether a transaction block is already open. A cursor SELECT
+/// is wrapped in its own BEGIN … COMMIT only when none is.
 pub(super) async fn run_planned_batch(
     client: &Client,
     batch: &ValidatedBatch,
     locked: bool,
+    in_txn: bool,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
-    let mut in_txn = locked;
+    let mut in_txn = locked || in_txn;
     for stmt in &batch.statements {
         if batch.control.is_cancelled() {
             return Err(ConnectorError::Query("Query cancelled.".into()));
@@ -131,6 +136,12 @@ pub(super) async fn run_planned_batch(
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
         let outcome = run_planned(client, batch, stmt, &mut in_txn).await?;
         let failed = outcome.error.is_some();
+        if stmt.txn_boundary && !locked && !failed {
+            in_txn = match transaction_state(client).await {
+                Some(state) => state != TxnState::Idle,
+                None => txn_mark(&stmt.sql) == Some(TxnMark::Begin),
+            };
+        }
         let index = outcome.index;
         results.push(outcome);
         emit_progress(&batch.progress, index, total, BatchPhase::Finished);
@@ -322,11 +333,20 @@ fn postgres_statement_error(
     }
 }
 
+/// Session advisory locks outlive ROLLBACK. A read that took one (the
+/// classifier missed it) would leave it on the pooled connection.
 pub(super) async fn end_read_only_txn<T>(
     client: deadpool_postgres::Object,
     result: ConnectorResult<T>,
 ) -> ConnectorResult<T> {
-    match client.batch_execute("ROLLBACK").await {
+    let mut ended = client
+        .batch_execute("ROLLBACK; SELECT pg_advisory_unlock_all()")
+        .await;
+    if ended.is_err() {
+        // A server without advisory locks fails the unlock, not the ROLLBACK.
+        ended = client.batch_execute("ROLLBACK").await;
+    }
+    match ended {
         Ok(()) => result,
         Err(err) => {
             // A failed ROLLBACK would hand the next checkout an open transaction.
@@ -361,13 +381,16 @@ async fn run_batch(
             in_txn = mark == TxnMark::Begin;
             executed_message(query.mode, batch_n, i)
         } else if is_select_like(&lower) {
+            // Same rule as the planner: only a proven read is a cursor. A
+            // data-modifying WITH cannot be declared.
+            let cursor = is_cursor_source(&lower) && sql_is_proven_read(sql, SqlDialect::Postgres);
             let mut opened = false;
-            if is_cursor_source(&lower) && !in_txn {
+            if cursor && !in_txn {
                 client.batch_execute("BEGIN").await.map_err(query_failed)?;
                 opened = true;
                 in_txn = true;
             }
-            let fetched = if is_cursor_source(&lower) {
+            let fetched = if cursor {
                 fetch_cursor(client, sql, limit).await
             } else {
                 // EXPLAIN / SHOW are utility statements. DECLARE would fail and
@@ -482,6 +505,39 @@ fn txn_mark(sql: &str) -> Option<TxnMark> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TxnState {
+    Idle,
+    Open,
+    /// A statement failed. Only ROLLBACK is accepted; COMMIT also rolls back.
+    Failed,
+}
+
+/// Whether the session is inside a transaction block.
+///
+/// tokio-postgres drops the ReadyForQuery status byte. Outside a block the
+/// probe runs in its own implicit transaction, so its start time equals the
+/// statement's (one simple-protocol message). After BEGIN the transaction
+/// started at BEGIN, at least one round trip earlier. An aborted block
+/// refuses the probe. `None` when the probe could not run.
+pub(super) async fn transaction_state(client: &Client) -> Option<TxnState> {
+    let probe = "SELECT transaction_timestamp() <> statement_timestamp()";
+    match client.simple_query(probe).await {
+        Ok(messages) => messages.iter().find_map(|message| match message {
+            SimpleQueryMessage::Row(row) => match row.get(0) {
+                Some("t") => Some(TxnState::Open),
+                Some(_) => Some(TxnState::Idle),
+                None => None,
+            },
+            _ => None,
+        }),
+        Err(err) if err.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION) => {
+            Some(TxnState::Failed)
+        }
+        Err(_) => None,
+    }
+}
+
 fn is_select_like(lower: &str) -> bool {
     lower.starts_with("select")
         || lower.starts_with("with")
@@ -592,33 +648,32 @@ fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
     params.iter().cloned().map(QBind).collect()
 }
 
+/// Sent in text format. The server parses it with the input function of the
+/// type it inferred for `$n` (int4, uuid, timestamptz, numeric, an enum, a
+/// domain), the same as a quoted literal. Binary would need an encoder per type.
 impl ToSql for QBind {
     fn to_sql(
         &self,
-        ty: &Type,
+        _ty: &Type,
         out: &mut bytes::BytesMut,
     ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
-        if self.0.is_null() {
-            return Ok(IsNull::Yes);
-        }
         match &self.0 {
-            serde_json::Value::Bool(flag) => flag.to_sql(ty, out),
-            serde_json::Value::Number(number) => {
-                if let Some(integer) = number.as_i64() {
-                    integer.to_sql(ty, out)
-                } else if let Some(real) = number.as_f64() {
-                    real.to_sql(ty, out)
-                } else {
-                    number.to_string().to_sql(ty, out)
-                }
+            serde_json::Value::Null => return Ok(IsNull::Yes),
+            serde_json::Value::String(text) => out.extend_from_slice(text.as_bytes()),
+            serde_json::Value::Bool(flag) => {
+                out.extend_from_slice(if *flag { b"true" } else { b"false" })
             }
-            serde_json::Value::String(text) => text.to_sql(ty, out),
-            other => other.to_string().to_sql(ty, out),
+            other => out.extend_from_slice(other.to_string().as_bytes()),
         }
+        Ok(IsNull::No)
     }
 
     fn accepts(_ty: &Type) -> bool {
         true
+    }
+
+    fn encode_format(&self, _ty: &Type) -> Format {
+        Format::Text
     }
 
     tokio_postgres::types::to_sql_checked!();

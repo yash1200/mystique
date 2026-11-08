@@ -1,6 +1,8 @@
 //! Placeholders in user SQL. Values stay out of the text.
 //!
 //! `:name`, `?`, and `$n` are recognised outside strings and comments.
+//! Postgres has no `?` marker (`?`, `?|`, `?&` are jsonb operators), and a
+//! `:` inside an array subscript is a slice (`arr[lo:hi]`).
 //! The statement sent to the driver uses that dialect's marker. History
 //! keeps the text the user typed.
 
@@ -173,14 +175,52 @@ impl ScriptParams {
         end: usize,
         dialect: SqlDialect,
     ) -> Result<(String, Vec<usize>), String> {
+        self.rewrite(sql, start, end, dialect)
+            .map(|rewritten| (rewritten.sql, rewritten.bound))
+    }
+
+    /// Map a byte offset in the driver SQL for `start..end` back to the user's
+    /// text. Both offsets are relative to `start`. An offset inside a rewritten
+    /// marker lands on the start of the marker the user typed.
+    pub fn source_offset(
+        &self,
+        sql: &str,
+        start: usize,
+        end: usize,
+        dialect: SqlDialect,
+        offset: usize,
+    ) -> usize {
+        let Ok(rewritten) = self.rewrite(sql, start, end, dialect) else {
+            return offset;
+        };
+        let (mut out_end, mut source_end) = (0usize, 0usize);
+        for mark in &rewritten.marks {
+            if offset < mark.out_start {
+                break;
+            }
+            if offset < mark.out_end {
+                return mark.source_start.saturating_sub(start);
+            }
+            out_end = mark.out_end;
+            source_end = mark.source_end.saturating_sub(start);
+        }
+        source_end + (offset - out_end)
+    }
+
+    fn rewrite(
+        &self,
+        sql: &str,
+        start: usize,
+        end: usize,
+        dialect: SqlDialect,
+    ) -> Result<Rewritten, String> {
         let uses: Vec<&Use> = self
             .uses
             .iter()
             .filter(|use_| use_.start >= start && use_.end <= end)
             .collect();
         if uses.is_empty() {
-            let slice = slice_sql(sql, start, end);
-            return Ok((slice, Vec::new()));
+            return Ok(Rewritten::unchanged(slice_sql(sql, start, end), Vec::new()));
         }
         match dialect {
             SqlDialect::Postgres => rewrite_dollar(sql, start, end, &uses),
@@ -194,20 +234,42 @@ impl ScriptParams {
                     }
                     bound.push(use_.slot);
                 }
-                Ok((slice, bound))
+                Ok(Rewritten::unchanged(slice, bound))
             }
         }
     }
 }
 
-fn rewrite_dollar(
-    sql: &str,
-    start: usize,
-    end: usize,
-    uses: &[&Use],
-) -> Result<(String, Vec<usize>), String> {
+/// Driver SQL, bind order, and where each marker went.
+struct Rewritten {
+    sql: String,
+    bound: Vec<usize>,
+    marks: Vec<Mark>,
+}
+
+impl Rewritten {
+    fn unchanged(sql: String, bound: Vec<usize>) -> Self {
+        Self {
+            sql,
+            bound,
+            marks: Vec::new(),
+        }
+    }
+}
+
+/// One rewritten marker. Source offsets are absolute, output offsets are
+/// relative to the statement start.
+struct Mark {
+    source_start: usize,
+    source_end: usize,
+    out_start: usize,
+    out_end: usize,
+}
+
+fn rewrite_dollar(sql: &str, start: usize, end: usize, uses: &[&Use]) -> Result<Rewritten, String> {
     let mut local_of: Vec<Option<usize>> = Vec::new();
     let mut bound = Vec::new();
+    let mut marks = Vec::with_capacity(uses.len());
     let mut out = String::new();
     let mut cursor = start;
     for use_ in uses {
@@ -215,6 +277,7 @@ fn rewrite_dollar(
             return Err("Parameter marker is outside the statement.".into());
         }
         out.push_str(&sql[cursor..use_.start]);
+        let out_start = out.len();
         let local = if let Some(index) = local_of.get(use_.slot).copied().flatten() {
             index
         } else {
@@ -230,12 +293,22 @@ fn rewrite_dollar(
         };
         out.push('$');
         out.push_str(&local.to_string());
+        marks.push(Mark {
+            source_start: use_.start,
+            source_end: use_.end,
+            out_start,
+            out_end: out.len(),
+        });
         cursor = use_.end;
     }
     if cursor < end {
         out.push_str(&sql[cursor..end]);
     }
-    Ok((out, bound))
+    Ok(Rewritten {
+        sql: out,
+        bound,
+        marks,
+    })
 }
 
 fn rewrite_question(
@@ -243,15 +316,22 @@ fn rewrite_question(
     start: usize,
     end: usize,
     uses: &[&Use],
-) -> Result<(String, Vec<usize>), String> {
+) -> Result<Rewritten, String> {
     let mut out = String::new();
     let mut bound = Vec::new();
+    let mut marks = Vec::with_capacity(uses.len());
     let mut cursor = start;
     for use_ in uses {
         if use_.start < cursor || use_.end > end {
             return Err("Parameter marker is outside the statement.".into());
         }
         out.push_str(&sql[cursor..use_.start]);
+        marks.push(Mark {
+            source_start: use_.start,
+            source_end: use_.end,
+            out_start: out.len(),
+            out_end: out.len() + 1,
+        });
         out.push('?');
         bound.push(use_.slot);
         cursor = use_.end;
@@ -259,7 +339,11 @@ fn rewrite_question(
     if cursor < end {
         out.push_str(&sql[cursor..end]);
     }
-    Ok((out, bound))
+    Ok(Rewritten {
+        sql: out,
+        bound,
+        marks,
+    })
 }
 
 fn slice_sql(sql: &str, start: usize, end: usize) -> String {
@@ -282,8 +366,20 @@ enum RawKind {
     Dollar(u32),
 }
 
+/// An open `(` or `[` on Postgres.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Nest {
+    Paren,
+    /// `expr[…]`: a `:` here separates slice bounds.
+    Subscript,
+    /// `ARRAY[…]`, or a type's `[]`.
+    Bracket,
+}
+
 fn scan_placeholders(sql: &str, dialect: SqlDialect) -> Vec<RawPlace> {
     let bytes = sql.as_bytes();
+    let postgres = dialect == SqlDialect::Postgres;
+    let mut nests: Vec<Nest> = Vec::new();
     let mut index = 0usize;
     let mut found = Vec::new();
     while index < bytes.len() {
@@ -326,7 +422,24 @@ fn scan_placeholders(sql: &str, dialect: SqlDialect) -> Vec<RawPlace> {
                 continue;
             }
         }
-        if bytes[index] == b'?' && !question_operator(bytes, index) {
+        if postgres {
+            match bytes[index] {
+                b'(' => nests.push(Nest::Paren),
+                b'[' if opens_subscript(bytes, index) => nests.push(Nest::Subscript),
+                b'[' => nests.push(Nest::Bracket),
+                b')' | b']' => {
+                    nests.pop();
+                }
+                b':' if bytes.get(index + 1) != Some(&b':')
+                    && nests.last() == Some(&Nest::Subscript) =>
+                {
+                    index += 1;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        if bytes[index] == b'?' && !postgres && !question_operator(bytes, index) {
             found.push(RawPlace {
                 start: index,
                 end: index + 1,
@@ -441,6 +554,28 @@ fn dollar_number(bytes: &[u8], start: usize) -> Option<(usize, u32)> {
     Some((index, number))
 }
 
+/// `[` right after an expression (`arr[`, `f(x)[`, `"col"[`), not `ARRAY[`.
+fn opens_subscript(bytes: &[u8], index: usize) -> bool {
+    let mut end = index;
+    while end > 0 && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    let Some(&prev) = end.checked_sub(1).and_then(|at| bytes.get(at)) else {
+        return false;
+    };
+    if matches!(prev, b')' | b']' | b'"') {
+        return true;
+    }
+    if !is_ident_byte(prev) {
+        return false;
+    }
+    let mut word = end - 1;
+    while word > 0 && is_ident_byte(bytes[word - 1]) {
+        word -= 1;
+    }
+    !bytes[word..end].eq_ignore_ascii_case(b"array")
+}
+
 fn question_operator(bytes: &[u8], index: usize) -> bool {
     matches!(bytes.get(index + 1), Some(b'|' | b'&'))
 }
@@ -552,5 +687,86 @@ mod tests {
             .expect("rewrite");
         assert!(!sql.contains("DROP"));
         assert_eq!(sql, "SELECT $1");
+    }
+
+    fn labels(sql: &str, dialect: SqlDialect) -> Vec<String> {
+        ScriptParams::scan(sql, dialect)
+            .expect("scan")
+            .slots()
+            .iter()
+            .map(|slot| slot.label.clone())
+            .collect()
+    }
+
+    #[test]
+    fn postgres_question_marks_are_jsonb_operators() {
+        let sql = "SELECT d ? 'a', d ?| array['a'], d ?& array['b'], d @? '$.a' FROM t";
+        assert!(labels(sql, SqlDialect::Postgres).is_empty());
+        assert_eq!(ScriptParams::mask(sql, SqlDialect::Postgres), sql);
+        // No params at all: the agent and MCP send none.
+        let script = ScriptParams::scan(sql, SqlDialect::Postgres).expect("scan");
+        assert!(script.check_count(0).is_ok());
+    }
+
+    #[test]
+    fn mysql_sqlite_and_generic_keep_question_mark_placeholders() {
+        for dialect in [SqlDialect::Mysql, SqlDialect::Sqlite, SqlDialect::Generic] {
+            assert_eq!(
+                labels("SELECT ? , :name", dialect),
+                vec!["?".to_string(), ":name".to_string()],
+                "{dialect:?}"
+            );
+        }
+        let script = ScriptParams::scan("SELECT ?", SqlDialect::Sqlite).expect("scan");
+        let (sql, bound) = script
+            .statement("SELECT ?", 0, "SELECT ?".len(), SqlDialect::Sqlite)
+            .expect("rewrite");
+        assert_eq!((sql.as_str(), bound), ("SELECT ?", vec![0]));
+    }
+
+    #[test]
+    fn postgres_slice_colons_are_not_parameters() {
+        let sql = "SELECT arr[lo:hi], arr[:hi], arr[lo:], (f(x))[a:b], \"c\"[1:n], \
+                   arr [ lo : hi ], m[1:2][lo:hi], arr[lo::int:hi] FROM t";
+        assert!(labels(sql, SqlDialect::Postgres).is_empty());
+        assert_eq!(ScriptParams::mask(sql, SqlDialect::Postgres), sql);
+    }
+
+    #[test]
+    fn postgres_binds_inside_array_constructors_and_subscript_subqueries() {
+        assert_eq!(
+            labels(
+                "SELECT ARRAY[:a, :b]::int[], x[(SELECT :i)], :after",
+                SqlDialect::Postgres
+            ),
+            vec![":a", ":b", ":i", ":after"]
+        );
+        assert_eq!(
+            labels("SELECT arr[$1:$2]", SqlDialect::Postgres),
+            vec!["$1", "$2"]
+        );
+    }
+
+    /// The user's text at the offset the driver reported for `needle`.
+    fn mapped<'a>(text: &'a str, dialect: SqlDialect, needle: &str) -> &'a str {
+        let script = ScriptParams::scan(text, dialect).expect("scan");
+        let start = text.rfind("SELECT").expect("statement");
+        let (sql, _) = script
+            .statement(text, start, text.len(), dialect)
+            .expect("rewrite");
+        let local = sql.find(needle).expect("needle in driver sql");
+        let offset = start + script.source_offset(text, start, text.len(), dialect, local);
+        text.get(offset..).unwrap_or("")
+    }
+
+    #[test]
+    fn driver_error_offsets_map_back_to_the_typed_text() {
+        let pg = "SELECT 1;\nSELECT :long_name, :b, :long_name, nosuchcol";
+        assert!(mapped(pg, SqlDialect::Postgres, "nosuchcol").starts_with("nosuchcol"));
+        assert!(mapped(pg, SqlDialect::Postgres, "$2").starts_with(":b"));
+        let my = "SELECT 1;\nSELECT :long_name, :b, nosuchcol";
+        assert!(mapped(my, SqlDialect::Mysql, "nosuchcol").starts_with("nosuchcol"));
+        let plain = "SELECT nosuchcol";
+        assert!(mapped(plain, SqlDialect::Postgres, "nosuchcol").starts_with("nosuchcol"));
     }
 }

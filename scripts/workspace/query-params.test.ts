@@ -45,6 +45,30 @@ test('names, questions, and dollar slots follow the server', () => {
 	assert.equal(scanQueryParams('# :id\nSELECT 1', 'mysql').slots.length, 0)
 })
 
+test('postgres jsonb ? operators and array slices are not parameters', () => {
+	const labels = (sql: string, dialect: 'postgres' | 'mysql' | 'sqlite') =>
+		scanQueryParams(sql, dialect).slots.map((slot) => slot.label)
+	assert.deepEqual(
+		labels("SELECT d ? 'a', d ?| array['a'], d ?& array['b'] FROM t", 'postgres'),
+		[],
+	)
+	assert.deepEqual(
+		labels(
+			'SELECT arr[lo:hi], arr[:hi], arr[lo:], (f(x))[a:b], "c"[1:n], arr[lo::int:hi] FROM t',
+			'postgres',
+		),
+		[],
+	)
+	assert.deepEqual(labels('SELECT ARRAY[:a, :b], x[(SELECT :i)], :after', 'postgres'), [
+		':a',
+		':b',
+		':i',
+		':after',
+	])
+	assert.deepEqual(labels('SELECT ?, :name', 'mysql'), ['?', ':name'])
+	assert.deepEqual(labels('SELECT ?, :name', 'sqlite'), ['?', ':name'])
+})
+
 test('untouched text is missing and null is a value', () => {
 	assert.equal(encodeParam('text', '', false), undefined)
 	assert.equal(encodeParam('text', '', true), '')

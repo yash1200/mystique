@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    position_at, BatchEvent, BatchPhase, ConnectorError, ConnectorResult, ExecuteQueryRequest,
-    ProgressPump, QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementKind,
-    StatementResult, ValidatedQuery,
+    BatchEvent, BatchPhase, ConnectorError, ConnectorResult, ExecuteQueryRequest, ProgressPump,
+    QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementKind, StatementResult,
+    ValidatedQuery,
 };
 
 use super::ConnectionManager;
@@ -157,14 +157,6 @@ impl ConnectionManager {
 }
 
 /// Last successful statement, or the error that stopped the batch.
-pub(super) fn place_error_positions(text: &str, batch: &mut QueryBatchResult) {
-    for stmt in &mut batch.results {
-        if let Some(position) = stmt.error_position.as_mut() {
-            *position = position_at(text, position.offset);
-        }
-    }
-}
-
 fn fold_batch(batch: QueryBatchResult) -> ConnectorResult<QueryResult> {
     if let Some(index) = batch.stopped_at {
         let message = batch

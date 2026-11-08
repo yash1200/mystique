@@ -126,6 +126,8 @@ pub struct ConnectionManager {
     metadata: Semaphore,
     /// Query-tab id → pinned connection.
     pins: Mutex<HashMap<String, std::sync::Arc<pin::TabPin>>>,
+    /// Tabs whose open transaction was rolled back without the user asking.
+    rolled_back: Mutex<HashSet<String>>,
     /// Per-id lock so `get_or_open` cannot build two pools.
     open_gates: Mutex<HashMap<String, std::sync::Arc<Mutex<()>>>>,
     /// App SQLite history. Empty in unit tests that never open the app database.
@@ -141,6 +143,7 @@ impl ConnectionManager {
             running: Mutex::new(HashMap::new()),
             metadata: run::metadata_limiter(),
             pins: Mutex::new(HashMap::new()),
+            rolled_back: Mutex::new(HashSet::new()),
             open_gates: Mutex::new(HashMap::new()),
             history: std::sync::Mutex::new(None),
         }
