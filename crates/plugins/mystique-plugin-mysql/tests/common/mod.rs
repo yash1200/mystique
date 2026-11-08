@@ -2,9 +2,10 @@
 
 use mystique_connector_api::{
     gate_sql_batch_in, ConnectionConfig, ConnectorSession, DatabaseConnector, PoolConfig,
-    QueryBatchResult, QueryControl, QueryMode, SqlDialect, ValidatedBatch, ValidatedQuery,
+    QueryBatchResult, QueryControl, QueryMode, ValidatedBatch, ValidatedQuery,
 };
 use mystique_plugin_mysql::MysqlConnector;
+use mystique_sql::SqlDialect;
 use serde_json::json;
 
 pub fn local_config() -> ConnectionConfig {

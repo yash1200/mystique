@@ -4,9 +4,9 @@ use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
     large_cell_select, page_cell, ConnectorError, ConnectorResult, FetchLargeValueInput,
-    FetchLargeValueResult, InterruptGuard, SqlIdentStyle, SqlPlaceholder, SqlTextCast,
-    FETCH_TIMEOUT_MS,
+    FetchLargeValueResult, InterruptGuard, SqlTextCast, FETCH_TIMEOUT_MS,
 };
+use mystique_sql::{SqlDialect, SqlPlaceholder};
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};
 use super::encode::value_json;
@@ -19,7 +19,7 @@ pub(super) async fn fetch_large_value(
 ) -> ConnectorResult<FetchLargeValueResult> {
     session.ensure_open()?;
     let select = large_cell_select(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         SqlPlaceholder::Question,
         SqlTextCast::Char,
         &input.locator,

@@ -2,8 +2,9 @@
 
 use mystique_connector_api::{
     large_cell_select, page_cell, ConnectorResult, FetchLargeValueInput, FetchLargeValueResult,
-    SqlIdentStyle, SqlPlaceholder, SqlTextCast,
+    SqlTextCast,
 };
+use mystique_sql::{SqlDialect, SqlPlaceholder};
 use tokio_postgres::types::ToSql;
 
 use super::encode::cell_json;
@@ -16,7 +17,7 @@ pub(super) async fn fetch_large_value(
 ) -> ConnectorResult<FetchLargeValueResult> {
     session.ensure_open()?;
     let select = large_cell_select(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Postgres,
         SqlPlaceholder::Dollar,
         SqlTextCast::Text,
         &input.locator,

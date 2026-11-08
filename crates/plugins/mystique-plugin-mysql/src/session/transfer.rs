@@ -5,8 +5,9 @@ use mystique_connector_api::{
     export_object_with_preview, import_chunk_sql, import_object_from_file,
     preview_import_with_describe, ConnectorResult, ExportObjectInput, ExportObjectResult,
     ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, PreviewImportInput,
-    PreviewImportResult, SqlIdentStyle,
+    PreviewImportResult,
 };
+use mystique_sql::SqlDialect;
 
 use super::query_failed;
 use super::MysqlSession;
@@ -16,7 +17,7 @@ pub(super) async fn export_object(
     input: &ExportObjectInput,
 ) -> ConnectorResult<ExportObjectResult> {
     session.ensure_open()?;
-    export_object_with_preview(session, input, Some(SqlIdentStyle::Mysql)).await
+    export_object_with_preview(session, input, Some(SqlDialect::Mysql)).await
 }
 
 pub(super) async fn preview_import(
@@ -40,7 +41,7 @@ pub(super) async fn import_chunk(
     input: &ImportChunkInput,
 ) -> ConnectorResult<ImportChunkResult> {
     session.ensure_open()?;
-    let (statements, counts) = import_chunk_sql(SqlIdentStyle::Mysql, input)?;
+    let (statements, counts) = import_chunk_sql(SqlDialect::Mysql, input)?;
     if statements.is_empty() {
         return Ok(counts);
     }

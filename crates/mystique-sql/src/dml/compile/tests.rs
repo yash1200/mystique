@@ -51,3 +51,37 @@ fn numeric_identity_keeps_the_fraction() {
     let sql = update_sql("12345678901234567890.25", "numeric");
     assert!(sql.contains("\"id\" = 12345678901234567890.25"), "{sql}");
 }
+
+/// SQLite used to pass the Postgres ident style. Its statements must not change.
+#[test]
+fn sqlite_statements_match_the_old_postgres_style() {
+    use crate::dml::{compile_upsert, TableRowInsert};
+    let input = ApplyTableEditsInput {
+        table: "t\"x".into(),
+        schema: Some("main".into()),
+        database: None,
+        columns: vec![
+            column("id", "integer", true),
+            column("ok", "boolean", false),
+        ],
+        updates: vec![],
+        inserts: vec![],
+        deletes: vec![],
+        dry_run: false,
+    };
+    let insert = TableRowInsert {
+        values: BTreeMap::from([
+            ("id".into(), json!("7")),
+            ("ok".into(), json!(true)),
+            ("note".into(), json!("it's")),
+        ]),
+    };
+    let sqlite = compile_upsert(SqlDialect::Sqlite, &input, &insert).expect("sqlite");
+    let postgres = compile_upsert(SqlDialect::Postgres, &input, &insert).expect("postgres");
+    assert_eq!(sqlite, postgres);
+    assert_eq!(
+        sqlite,
+        "INSERT INTO \"main\".\"t\"\"x\" (\"id\", \"note\", \"ok\") VALUES (7, 'it''s', TRUE) \
+         ON CONFLICT (\"id\") DO UPDATE SET \"note\" = EXCLUDED.\"note\", \"ok\" = EXCLUDED.\"ok\""
+    );
+}

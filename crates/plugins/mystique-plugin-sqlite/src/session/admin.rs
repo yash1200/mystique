@@ -1,9 +1,10 @@
 //! CREATE / rename / drop / truncate / duplicate.
 
 use mystique_connector_api::{
-    quote_ident, ConnectorError, ConnectorResult, SqlIdentStyle, TableAdminInput, TableAdminOp,
-    TableAdminResult, TableObjectKind,
+    ConnectorError, ConnectorResult, TableAdminInput, TableAdminOp, TableAdminResult,
+    TableObjectKind,
 };
+use mystique_sql::{quote_ident, SqlDialect};
 use rusqlite::OptionalExtension;
 
 use super::query_failed;
@@ -24,7 +25,7 @@ pub(super) async fn apply_table_admin(
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
-            let qname = quote_ident(SqlIdentStyle::Postgres, &name);
+            let qname = quote_ident(SqlDialect::Sqlite, &name);
             match op {
                 TableAdminOp::CreateStatement => {
                     let typ = if is_view { "view" } else { "table" };
@@ -61,10 +62,8 @@ pub(super) async fn apply_table_admin(
                     ))
                 }
                 TableAdminOp::Rename => {
-                    let dest = quote_ident(
-                        SqlIdentStyle::Postgres,
-                        new_name.as_deref().unwrap_or("").trim(),
-                    );
+                    let dest =
+                        quote_ident(SqlDialect::Sqlite, new_name.as_deref().unwrap_or("").trim());
                     conn.execute(&format!("ALTER TABLE {qname} RENAME TO {dest}"), [])
                         .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(
@@ -97,10 +96,8 @@ pub(super) async fn apply_table_admin(
                             "Duplicate is not supported for views.".into(),
                         ));
                     }
-                    let dest = quote_ident(
-                        SqlIdentStyle::Postgres,
-                        new_name.as_deref().unwrap_or("").trim(),
-                    );
+                    let dest =
+                        quote_ident(SqlDialect::Sqlite, new_name.as_deref().unwrap_or("").trim());
                     conn.execute(&format!("CREATE TABLE {dest} AS SELECT * FROM {qname}"), [])
                         .map_err(query_failed)?;
                     Ok(TableAdminResult::executed(

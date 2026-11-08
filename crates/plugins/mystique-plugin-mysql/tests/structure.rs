@@ -3,7 +3,8 @@
 mod common;
 
 use common::{connect, run, write};
-use mystique_connector_api::{plan_table_alter, ConnectorSession, DdlDialect, QueryMode};
+use mystique_connector_api::{ConnectorSession, QueryMode};
+use mystique_sql::ddl::{plan_table_alter, DdlTarget};
 
 async fn create_sql(session: &dyn ConnectorSession) -> String {
     let shown = run(session, "SHOW CREATE TABLE s4_modify", QueryMode::Write)
@@ -43,7 +44,7 @@ async fn modify_one_attribute_keeps_the_others() {
             _ => {}
         }
     }
-    let plan = plan_table_alter(DdlDialect::Mysql, &draft);
+    let plan = plan_table_alter(DdlTarget::MYSQL, &draft);
     assert!(plan.applyable(), "{:?}", plan.warnings);
     session.apply_ddl(&plan, &draft).await.expect("apply");
 

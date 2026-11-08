@@ -2,9 +2,10 @@
 
 use mysql_async::prelude::*;
 use mystique_connector_api::{
-    qualify_table, ConnectorError, ConnectorResult, SqlIdentStyle, TableAdminInput, TableAdminOp,
-    TableAdminResult, TableObjectKind,
+    ConnectorError, ConnectorResult, TableAdminInput, TableAdminOp, TableAdminResult,
+    TableObjectKind,
 };
+use mystique_sql::{qualify_table, SqlDialect};
 
 use super::query_failed;
 use super::MysqlSession;
@@ -16,7 +17,7 @@ pub(super) async fn apply_table_admin(
     session.ensure_open()?;
     let mut conn = session.conn().await?;
     let qname = qualify_table(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         input.database.as_deref(),
         input.schema.as_deref(),
         &input.name,
@@ -64,7 +65,7 @@ pub(super) async fn apply_table_admin(
         TableAdminOp::Rename => {
             let new_name = input.new_name.as_deref().unwrap_or("").trim();
             let dest = qualify_table(
-                SqlIdentStyle::Mysql,
+                SqlDialect::Mysql,
                 input.database.as_deref(),
                 input.schema.as_deref(),
                 new_name,
@@ -106,7 +107,7 @@ pub(super) async fn apply_table_admin(
             }
             let new_name = input.new_name.as_deref().unwrap_or("").trim();
             let dest = qualify_table(
-                SqlIdentStyle::Mysql,
+                SqlDialect::Mysql,
                 input.database.as_deref(),
                 input.schema.as_deref(),
                 new_name,

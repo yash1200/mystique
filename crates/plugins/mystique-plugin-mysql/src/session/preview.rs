@@ -5,10 +5,11 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    preview_sort_sql, qualify_table, quote_ident, sql_preview_where, ConnectorResult,
-    FetchTablePreviewInput, SqlIdentStyle, TablePreviewColumnRef, TablePreviewResult,
-    TablePreviewStats,
+    preview_sort_sql, ConnectorResult, FetchTablePreviewInput, TablePreviewColumnRef,
+    TablePreviewResult, TablePreviewStats,
 };
+use mystique_sql::filters::sql_preview_where;
+use mystique_sql::{qualify_table, quote_ident, SqlDialect};
 use serde_json::Value as JsonValue;
 
 use mystique_connector_api::{InterruptGuard, FETCH_TIMEOUT_MS};
@@ -33,13 +34,13 @@ pub(super) async fn fetch_table_preview(
     )
     .await?;
     let target = qualify_table(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         input.database.as_deref(),
         input.schema.as_deref(),
         &input.table,
     );
     let order = preview_sort_sql(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         &columns,
         input.sort_column.as_deref(),
         input.sort_dir.as_deref(),
@@ -48,15 +49,12 @@ pub(super) async fn fetch_table_preview(
         let pks: Vec<String> = columns
             .iter()
             .filter(|c| c.pk)
-            .map(|c| quote_ident(SqlIdentStyle::Mysql, &c.name))
+            .map(|c| quote_ident(SqlDialect::Mysql, &c.name))
             .collect();
         if !pks.is_empty() {
             format!(" ORDER BY {}", pks.join(", "))
         } else if let Some(first) = columns.first() {
-            format!(
-                " ORDER BY {}",
-                quote_ident(SqlIdentStyle::Mysql, &first.name)
-            )
+            format!(" ORDER BY {}", quote_ident(SqlDialect::Mysql, &first.name))
         } else {
             String::new()
         }
@@ -67,13 +65,13 @@ pub(super) async fn fetch_table_preview(
     } else {
         columns
             .iter()
-            .map(|c| quote_ident(SqlIdentStyle::Mysql, &c.name))
+            .map(|c| quote_ident(SqlDialect::Mysql, &c.name))
             .collect::<Vec<_>>()
             .join(", ")
     };
     let offset = input.offset;
     let where_sql = sql_preview_where(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         &input.filters,
         input.code_filter.as_deref(),
     )?;
@@ -163,13 +161,13 @@ pub(super) async fn fetch_table_preview_stats(
 ) -> ConnectorResult<TablePreviewStats> {
     session.ensure_open()?;
     let target = qualify_table(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         input.database.as_deref(),
         input.schema.as_deref(),
         &input.table,
     );
     let where_sql = sql_preview_where(
-        SqlIdentStyle::Mysql,
+        SqlDialect::Mysql,
         &input.filters,
         input.code_filter.as_deref(),
     )?;

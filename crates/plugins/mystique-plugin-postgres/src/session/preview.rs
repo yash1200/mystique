@@ -3,9 +3,11 @@
 use std::time::Instant;
 
 use mystique_connector_api::{
-    preview_sort_sql, qualify_table, sql_preview_where, ConnectorResult, FetchTablePreviewInput,
-    SqlIdentStyle, TablePreviewColumnRef, TablePreviewResult, TablePreviewStats,
+    preview_sort_sql, ConnectorResult, FetchTablePreviewInput, TablePreviewColumnRef,
+    TablePreviewResult, TablePreviewStats,
 };
+use mystique_sql::filters::sql_preview_where;
+use mystique_sql::{qualify_table, SqlDialect};
 
 use super::catalog;
 use super::encode::{cell_json, preview_order_sql, preview_select_list};
@@ -26,23 +28,23 @@ pub(super) async fn fetch_table_preview(
     )
     .await?;
     let target = qualify_table(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Postgres,
         input.database.as_deref(),
         input.schema.as_deref(),
         &input.table,
     );
     let order = preview_sort_sql(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Postgres,
         &columns,
         input.sort_column.as_deref(),
         input.sort_dir.as_deref(),
     )
-    .unwrap_or_else(|| preview_order_sql(SqlIdentStyle::Postgres, &columns));
+    .unwrap_or_else(|| preview_order_sql(SqlDialect::Postgres, &columns));
     let limit = input.max_rows as i64;
-    let select_list = preview_select_list(SqlIdentStyle::Postgres, &columns);
+    let select_list = preview_select_list(SqlDialect::Postgres, &columns);
     let offset = input.offset;
     let where_sql = sql_preview_where(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Postgres,
         &input.filters,
         input.code_filter.as_deref(),
     )?;
@@ -86,13 +88,13 @@ pub(super) async fn fetch_table_preview_stats(
 ) -> ConnectorResult<TablePreviewStats> {
     session.ensure_open()?;
     let target = qualify_table(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Postgres,
         input.database.as_deref(),
         input.schema.as_deref(),
         &input.table,
     );
     let where_sql = sql_preview_where(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Postgres,
         &input.filters,
         input.code_filter.as_deref(),
     )?;

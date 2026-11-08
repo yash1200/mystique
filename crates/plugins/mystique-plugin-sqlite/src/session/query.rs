@@ -6,9 +6,10 @@ use std::time::Instant;
 use mystique_connector_api::{
     affected_message, emit_progress, opens_transaction, split_sql_statements_for,
     sql_explain_executes, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
-    ProgressPump, QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult, SqlDialect,
+    ProgressPump, QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult,
     StatementResult, ValidatedBatch, ValidatedQuery, NO_TIMEOUT,
 };
+use mystique_sql::SqlDialect;
 use rusqlite::Connection;
 
 use super::encode::value_ref_json;

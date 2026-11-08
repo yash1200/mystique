@@ -231,7 +231,7 @@ fn apply_on(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mystique_connector_api::{plan_table_alter, DdlDialect};
+    use mystique_sql::ddl::{plan_table_alter, DdlTarget};
 
     #[test]
     fn add_nullable_text_column_matches_the_preview() {
@@ -254,7 +254,7 @@ mod tests {
             original: None,
             drop: false,
         });
-        let plan = plan_table_alter(DdlDialect::Sqlite, &draft);
+        let plan = plan_table_alter(DdlTarget::SQLITE, &draft);
         assert!(plan.applyable(), "{:?}", plan.warnings);
         let preview = plan.statements.clone();
         let applied = match apply_on(&conn, &plan, &draft) {
@@ -328,7 +328,7 @@ mod tests {
                 column.data_type = "INTEGER".into();
             }
         }
-        let refused = plan_table_alter(DdlDialect::Sqlite, &typed);
+        let refused = plan_table_alter(DdlTarget::SQLITE, &typed);
         assert!(!refused.applyable(), "{refused:?}");
         assert!(
             refused
@@ -358,7 +358,7 @@ mod tests {
             drop: false,
         });
         draft.rename_to = Some("t2".into());
-        let plan = plan_table_alter(DdlDialect::Sqlite, &draft);
+        let plan = plan_table_alter(DdlTarget::SQLITE, &draft);
         assert!(plan.applyable(), "{:?}", plan.warnings);
         let applied = match apply_on(&conn, &plan, &draft) {
             Ok(result) => result,

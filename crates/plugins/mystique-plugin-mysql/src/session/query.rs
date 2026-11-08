@@ -8,8 +8,9 @@ use mystique_connector_api::{
     affected_message, emit_progress, idle_result, inactivity_limit, opens_transaction,
     poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase, ConnectorError,
     ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
-    QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery,
+    QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
 };
+use mystique_sql::SqlDialect;
 use serde_json::Value as JsonValue;
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};

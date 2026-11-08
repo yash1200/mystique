@@ -1,9 +1,10 @@
 //! CREATE / rename / drop / truncate / duplicate.
 
 use mystique_connector_api::{
-    qualify_table, quote_ident, ConnectorError, ConnectorResult, SqlIdentStyle, TableAdminInput,
-    TableAdminOp, TableAdminResult, TableObjectKind,
+    ConnectorError, ConnectorResult, TableAdminInput, TableAdminOp, TableAdminResult,
+    TableObjectKind,
 };
+use mystique_sql::{qualify_table, quote_ident, SqlDialect};
 
 use super::PostgresSession;
 use super::{pg_col, pg_u32_col, query_failed};
@@ -20,7 +21,7 @@ pub(super) async fn apply_table_admin(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("public");
-    let qname = qualify_table(SqlIdentStyle::Postgres, None, Some(schema), &input.name);
+    let qname = qualify_table(SqlDialect::Postgres, None, Some(schema), &input.name);
     let is_view = input.kind == TableObjectKind::View;
 
     match input.op {
@@ -29,7 +30,7 @@ pub(super) async fn apply_table_admin(
             Ok(TableAdminResult::statement(input.op, sql))
         }
         TableAdminOp::CreateGroup => {
-            let qschema = quote_ident(SqlIdentStyle::Postgres, input.name.trim());
+            let qschema = quote_ident(SqlDialect::Postgres, input.name.trim());
             let sql = format!("CREATE SCHEMA {qschema}");
             client.batch_execute(&sql).await.map_err(query_failed)?;
             Ok(TableAdminResult::executed(
@@ -48,7 +49,7 @@ pub(super) async fn apply_table_admin(
         }
         TableAdminOp::Rename => {
             let new_name = input.new_name.as_deref().unwrap_or("").trim();
-            let dest = quote_ident(SqlIdentStyle::Postgres, new_name);
+            let dest = quote_ident(SqlDialect::Postgres, new_name);
             let kw = if is_view { "VIEW" } else { "TABLE" };
             let sql = format!("ALTER {kw} {qname} RENAME TO {dest}");
             client.batch_execute(&sql).await.map_err(query_failed)?;
@@ -86,7 +87,7 @@ pub(super) async fn apply_table_admin(
                 ));
             }
             let new_name = input.new_name.as_deref().unwrap_or("").trim();
-            let dest = qualify_table(SqlIdentStyle::Postgres, None, Some(schema), new_name);
+            let dest = qualify_table(SqlDialect::Postgres, None, Some(schema), new_name);
             let sql = format!(
                 "CREATE TABLE {dest} (LIKE {qname} INCLUDING ALL); INSERT INTO {dest} SELECT * FROM {qname}"
             );
@@ -125,7 +126,7 @@ async fn pg_create_statement(
     let oid = pg_u32_col(&row, 0)?;
     let relkind: String = pg_col(&row, 1)?;
     let is_view = prefer_view || relkind == "v" || relkind == "m";
-    let qname = qualify_table(SqlIdentStyle::Postgres, None, Some(schema), name);
+    let qname = qualify_table(SqlDialect::Postgres, None, Some(schema), name);
 
     if is_view {
         let def_row = client
@@ -163,7 +164,7 @@ async fn pg_create_statement(
         let nn = if not_null { " NOT NULL" } else { "" };
         lines.push(format!(
             "  {} {typ}{nn}",
-            quote_ident(SqlIdentStyle::Postgres, &col)
+            quote_ident(SqlDialect::Postgres, &col)
         ));
     }
     let pk = client

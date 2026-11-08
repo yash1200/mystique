@@ -3,9 +3,8 @@
 use std::error::Error;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use mystique_connector_api::{
-    json_decimal, json_f64, json_i64, quote_ident, ColumnInfo, SqlIdentStyle,
-};
+use mystique_connector_api::{json_decimal, json_f64, json_i64, ColumnInfo};
+use mystique_sql::{quote_ident, SqlDialect};
 use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::{FromSql, Kind, Type};
 use tokio_postgres::Row;
@@ -605,7 +604,7 @@ pub(super) fn encode_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub(super) fn preview_select_list(style: SqlIdentStyle, columns: &[ColumnInfo]) -> String {
+pub(super) fn preview_select_list(style: SqlDialect, columns: &[ColumnInfo]) -> String {
     if columns.is_empty() {
         return "*".into();
     }
@@ -616,7 +615,7 @@ pub(super) fn preview_select_list(style: SqlIdentStyle, columns: &[ColumnInfo]) 
         .join(", ")
 }
 
-pub(super) fn preview_order_sql(style: SqlIdentStyle, columns: &[ColumnInfo]) -> String {
+pub(super) fn preview_order_sql(style: SqlDialect, columns: &[ColumnInfo]) -> String {
     let pks: Vec<String> = columns
         .iter()
         .filter(|c| c.pk)

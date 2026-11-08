@@ -1,9 +1,10 @@
 //! Databases, tables, columns, and foreign-key relationships.
 
 use mystique_connector_api::{
-    quote_ident, CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
-    ColumnReference, ConnectorError, ConnectorResult, SqlIdentStyle,
+    CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
+    ColumnReference, ConnectorError, ConnectorResult,
 };
+use mystique_sql::{quote_ident, SqlDialect};
 
 use super::query_failed;
 use super::SqliteSession;
@@ -245,7 +246,7 @@ pub(super) fn sqlite_pragma_invoke(pragma: &str, name: &str) -> ConnectorResult<
     }
     Ok(format!(
         "PRAGMA {pragma}({})",
-        quote_ident(SqlIdentStyle::Postgres, name)
+        quote_ident(SqlDialect::Sqlite, name)
     ))
 }
 

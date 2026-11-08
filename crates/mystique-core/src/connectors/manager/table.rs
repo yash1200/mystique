@@ -3,7 +3,7 @@ use std::sync::Arc;
 use mystique_connector_api::{
     plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
-    ConnectorResult, DdlDialect, DescribeTableDefinitionRequest, DistinctColumnValuesRequest,
+    ConnectorResult, DdlTarget, DescribeTableDefinitionRequest, DistinctColumnValuesRequest,
     FetchLargeValueRequest, FetchLargeValueResult, FetchTablePreviewRequest,
     FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
     PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
@@ -356,13 +356,13 @@ impl ConnectionManager {
     }
 }
 
-fn dialect_of(meta: &super::SessionMeta) -> DdlDialect {
+fn dialect_of(meta: &super::SessionMeta) -> DdlTarget {
     let engine = if meta.session.engine_id() == "mongodb" {
         "mongodb"
     } else {
         meta.product_id.as_str()
     };
-    DdlDialect::from_engine(engine, &meta.caps.sql_dialect)
+    DdlTarget::from_engine(engine, &meta.caps.sql_dialect)
 }
 
 /// What the guard dialog says for a menu action.

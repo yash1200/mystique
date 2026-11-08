@@ -7,9 +7,10 @@
 
 use mystique_connector_api::{
     gate_sql_batch_in, ConnectionConfig, ConnectorSession, DatabaseConnector, PoolConfig,
-    QueryBatchResult, QueryControl, QueryMode, SqlDialect, ValidatedBatch,
+    QueryBatchResult, QueryControl, QueryMode, ValidatedBatch,
 };
 use mystique_plugin_postgres::PostgresConnector;
+use mystique_sql::SqlDialect;
 use serde_json::{json, Value};
 
 async fn connect(max_size: u32) -> Box<dyn ConnectorSession> {

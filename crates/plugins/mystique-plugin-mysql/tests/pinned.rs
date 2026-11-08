@@ -8,9 +8,9 @@ mod common;
 
 use common::{connect, count, write};
 use mystique_connector_api::{
-    gate_sql_batch_in, PinnedSession, QueryBatchResult, QueryControl, QueryMode, SqlDialect,
-    ValidatedBatch,
+    gate_sql_batch_in, PinnedSession, QueryBatchResult, QueryControl, QueryMode, ValidatedBatch,
 };
+use mystique_sql::SqlDialect;
 
 fn batch(sql: &str, timeout_ms: u64) -> ValidatedBatch {
     let plan =

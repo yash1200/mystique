@@ -3,9 +3,11 @@
 use std::time::Instant;
 
 use mystique_connector_api::{
-    preview_sort_sql, quote_ident, sql_preview_where, ConnectorError, ConnectorResult,
-    FetchTablePreviewInput, SqlIdentStyle, TablePreviewResult, TablePreviewStats,
+    preview_sort_sql, ConnectorError, ConnectorResult, FetchTablePreviewInput, TablePreviewResult,
+    TablePreviewStats,
 };
+use mystique_sql::filters::sql_preview_where;
+use mystique_sql::{quote_ident, SqlDialect};
 use serde_json::Value as JsonValue;
 
 use std::sync::Arc;
@@ -29,9 +31,9 @@ pub(super) async fn fetch_table_preview(
         &input.table,
     )
     .await?;
-    let target = quote_ident(SqlIdentStyle::Postgres, &input.table);
+    let target = quote_ident(SqlDialect::Sqlite, &input.table);
     let order = preview_sort_sql(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Sqlite,
         &columns,
         input.sort_column.as_deref(),
         input.sort_dir.as_deref(),
@@ -40,7 +42,7 @@ pub(super) async fn fetch_table_preview(
         let pks: Vec<String> = columns
             .iter()
             .filter(|c| c.pk)
-            .map(|c| quote_ident(SqlIdentStyle::Postgres, &c.name))
+            .map(|c| quote_ident(SqlDialect::Sqlite, &c.name))
             .collect();
         if !pks.is_empty() {
             format!(" ORDER BY {}", pks.join(", "))
@@ -54,13 +56,13 @@ pub(super) async fn fetch_table_preview(
     } else {
         columns
             .iter()
-            .map(|c| quote_ident(SqlIdentStyle::Postgres, &c.name))
+            .map(|c| quote_ident(SqlDialect::Sqlite, &c.name))
             .collect::<Vec<_>>()
             .join(", ")
     };
     let offset = input.offset;
     let where_sql = sql_preview_where(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Sqlite,
         &input.filters,
         input.code_filter.as_deref(),
     )?;
@@ -121,9 +123,9 @@ pub(super) async fn fetch_table_preview_stats(
     input: &FetchTablePreviewInput,
 ) -> ConnectorResult<TablePreviewStats> {
     session.ensure_open()?;
-    let target = quote_ident(SqlIdentStyle::Postgres, &input.table);
+    let target = quote_ident(SqlDialect::Sqlite, &input.table);
     let where_sql = sql_preview_where(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Sqlite,
         &input.filters,
         input.code_filter.as_deref(),
     )?;

@@ -1,10 +1,11 @@
 //! Grid insert / update / delete. One transaction, one statement per row.
 
 use mystique_connector_api::{
-    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, rollback_stale,
-    rows_hash, ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult,
-    GridUndo, SqlIdentStyle, SqlPlaceholder,
+    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, rollback_stale, rows_hash,
+    ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult, GridUndo,
 };
+use mystique_sql::dml::plan_table_edits;
+use mystique_sql::{SqlDialect, SqlPlaceholder};
 use rusqlite::types::{ToSql, ToSqlOutput, Value as SqlValue};
 use serde_json::Value as JsonValue;
 
@@ -27,7 +28,7 @@ pub(super) async fn apply_table_edits(
     .await?;
     let mut owned = edits.clone();
     overlay_catalog_pk(&mut owned.columns, &described);
-    let plan = plan_table_edits(SqlIdentStyle::Postgres, SqlPlaceholder::Question, &owned)?;
+    let plan = plan_table_edits(SqlDialect::Sqlite, SqlPlaceholder::Question, &owned)?;
     let previews = plan.previews();
     if edits.dry_run {
         return Ok(ApplyTableEditsResult {

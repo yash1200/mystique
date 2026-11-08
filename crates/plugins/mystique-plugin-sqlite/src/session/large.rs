@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use mystique_connector_api::{
     large_cell_select, page_cell, ConnectorError, ConnectorResult, FetchLargeValueInput,
-    FetchLargeValueResult, SqlIdentStyle, SqlPlaceholder, SqlTextCast,
+    FetchLargeValueResult, SqlTextCast,
 };
+use mystique_sql::{SqlDialect, SqlPlaceholder};
 use rusqlite::OptionalExtension;
 
 use super::encode::value_ref_json;
@@ -18,7 +19,7 @@ pub(super) async fn fetch_large_value(
 ) -> ConnectorResult<FetchLargeValueResult> {
     session.ensure_open()?;
     let select = large_cell_select(
-        SqlIdentStyle::Postgres,
+        SqlDialect::Sqlite,
         SqlPlaceholder::Question,
         SqlTextCast::Text,
         &input.locator,

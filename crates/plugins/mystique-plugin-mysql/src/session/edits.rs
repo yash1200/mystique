@@ -3,10 +3,11 @@
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, rollback_stale,
-    rows_hash, ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult,
-    EditPlan, GridUndo, SqlIdentStyle, SqlPlaceholder,
+    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, rollback_stale, rows_hash,
+    ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult, GridUndo,
 };
+use mystique_sql::dml::{plan_table_edits, EditPlan};
+use mystique_sql::{SqlDialect, SqlPlaceholder};
 use serde_json::Value as JsonValue;
 
 use super::catalog;
@@ -28,7 +29,7 @@ pub(super) async fn apply_table_edits(
     .await?;
     let mut owned = edits.clone();
     overlay_catalog_pk(&mut owned.columns, &described);
-    let plan = plan_table_edits(SqlIdentStyle::Mysql, SqlPlaceholder::Question, &owned)?;
+    let plan = plan_table_edits(SqlDialect::Mysql, SqlPlaceholder::Question, &owned)?;
     let previews = plan.previews();
     if edits.dry_run {
         return Ok(ApplyTableEditsResult {

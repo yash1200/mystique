@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use mysql_async::prelude::Queryable;
 use mystique_connector_api::{
-    qualify_table, ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, DdlPlan,
-    ForeignKeyDraft, IndexDraft, SqlIdentStyle, TableDefinition,
+    ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, DdlPlan, ForeignKeyDraft,
+    IndexDraft, TableDefinition,
 };
+use mystique_sql::{qualify_table, SqlDialect};
 
 use super::query_failed;
 use super::MysqlSession;
@@ -218,7 +219,7 @@ async fn column_definitions(
     database: &str,
     table: &str,
 ) -> ConnectorResult<HashMap<String, String>> {
-    let name = qualify_table(SqlIdentStyle::Mysql, Some(database), None, table);
+    let name = qualify_table(SqlDialect::Mysql, Some(database), None, table);
     let row = crate::rows::query_first_opt::<(String, String)>(
         conn,
         &format!("SHOW CREATE TABLE {name}"),

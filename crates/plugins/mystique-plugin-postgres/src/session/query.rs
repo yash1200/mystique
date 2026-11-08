@@ -7,9 +7,10 @@ use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
     affected_message, emit_progress, opens_transaction, split_sql_statements_for,
     sql_explain_executes, sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult,
-    PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect,
-    StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
+    PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, StatementResult,
+    ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
+use mystique_sql::SqlDialect;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Format, IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
