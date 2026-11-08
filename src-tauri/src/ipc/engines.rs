@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use mystique_core::{
-    AppServices, EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl,
-    PoolStatus, SessionInfo, SshHostKeyPrompt, TestResult,
+    EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl, PoolStatus,
+    SessionInfo, SshHostKeyPrompt, TestResult,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -65,19 +65,6 @@ pub async fn format_engine_connection_url(
     .await
 }
 
-/// OS keychain plus the known-hosts row. Finished before the dial `.await`.
-async fn with_resolved_password(
-    services: Arc<AppServices>,
-    request: OpenSessionRequest,
-) -> Result<OpenSessionRequest, String> {
-    super::blocking(move || {
-        services
-            .attach_session_secrets(request)
-            .map_err(|e| e.to_string())
-    })
-    .await
-}
-
 #[tauri::command]
 pub async fn trust_ssh_host_key(
     state: State<'_, AppState>,
@@ -99,10 +86,8 @@ pub async fn test_engine_connection(
 ) -> Result<TestResult, String> {
     super::guard(async move {
         let services = Arc::clone(&state.services);
-        let request = with_resolved_password(Arc::clone(&services), request).await?;
         services
-            .connections()
-            .test_connection(&request)
+            .test_connection(request)
             .await
             .map_err(|e| e.to_string())
     })

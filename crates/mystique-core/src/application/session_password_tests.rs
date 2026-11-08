@@ -226,6 +226,27 @@ async fn a_typed_password_is_kept_and_the_next_open_reads_nothing() {
     assert_eq!(items.total_reads(), 0);
 }
 
+#[tokio::test]
+async fn a_passing_test_keeps_the_typed_password_like_a_connect() {
+    let (app, _, _) = counted();
+    let file = TempFile::new("tested");
+    let mut input = pg("lite", None, Some(false));
+    input.engine = "sqlite".into();
+    input.plugin_config = json!({"path": file.0.to_string_lossy()});
+    let saved = app.profiles().save(input).unwrap();
+
+    let err = app.test_connection(open_req(&saved)).await.unwrap_err();
+    assert!(matches!(err, AppError::PasswordRequired), "{err}");
+
+    let mut typed = open_req(&saved);
+    typed.password = Some("typed-pw".into());
+    assert!(app.test_connection(typed).await.unwrap().ok);
+    assert_eq!(
+        app.secrets.session().get(&saved.id).as_deref(),
+        Some("typed-pw")
+    );
+}
+
 #[test]
 fn a_password_typed_for_another_host_is_not_kept() {
     let (app, _, _) = counted();

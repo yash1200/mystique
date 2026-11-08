@@ -34,7 +34,7 @@ pub use workspace_tabs::WorkspaceTabsService;
 use std::path::Path;
 use std::sync::Arc;
 
-use mystique_connector_api::SessionInfo;
+use mystique_connector_api::{SessionInfo, TestResult};
 
 use crate::connectors::{ConnectionManager, OpenSessionRequest};
 use crate::error::AppResult;
@@ -179,16 +179,35 @@ impl AppServices {
     /// profile that does not save it is kept for the app session once the
     /// dial works.
     pub async fn open_session(&self, req: OpenSessionRequest) -> AppResult<SessionInfo> {
-        let (db, secrets) = (Arc::clone(&self.db), Arc::clone(&self.secrets));
-        // The vault key may load here: off the async workers.
-        let (req, session) = tokio::task::spawn_blocking(move || {
-            bind_with_session(&db, &secrets, req, Prompt::Allowed)
-        })
-        .await
-        .map_err(|e| crate::error::AppError::Internal(format!("secret binding: {e}")))??;
+        let (req, session) = self.bind_off_thread(req).await?;
         let result = self.connections.open_session(req).await;
         settle_session_password(&self.secrets, session, &result);
         Ok(result?)
+    }
+
+    /// Bind secrets and test. A typed password that passes is kept, as for
+    /// a connect.
+    pub async fn test_connection(&self, req: OpenSessionRequest) -> AppResult<TestResult> {
+        let (req, session) = self.bind_off_thread(req).await?;
+        let result = self.connections.test_connection(&req).await;
+        let outcome = match &result {
+            Ok(test) if test.ok => Ok(()),
+            Ok(test) => Err(test.message.clone()),
+            Err(e) => Err(e.to_string()),
+        };
+        settle_session_password(&self.secrets, session, &outcome);
+        Ok(result?)
+    }
+
+    /// The vault key may load here: off the async workers.
+    async fn bind_off_thread(
+        &self,
+        req: OpenSessionRequest,
+    ) -> AppResult<(OpenSessionRequest, SessionUse)> {
+        let (db, secrets) = (Arc::clone(&self.db), Arc::clone(&self.secrets));
+        tokio::task::spawn_blocking(move || bind_with_session(&db, &secrets, req, Prompt::Allowed))
+            .await
+            .map_err(|e| crate::error::AppError::Internal(format!("secret binding: {e}")))?
     }
 
     /// Drop every session password. The app calls this on quit.
