@@ -1,14 +1,15 @@
 //! Probe corpus for the statement classifier and the Read-mode gate.
 //!
 //! One row per probe. Add a row when a new bypass is found. See
-//! docs/PHASED_PLAN_V3.md R-04, R-09 … R-15, R-17 and B11.
+//! docs/PHASED_PLAN_V3.md R-04, R-09 … R-14 and B11. The Mongo probes
+//! (R-15, R-17) live with the Mongo shell parser in
+//! `mystique-plugin-mongodb/src/shell/tests.rs`.
 
 use mystique_connector_api::StatementKind::{
     Destructive as X, Read as R, Session as S, Write as W,
 };
 use mystique_connector_api::{
-    gate_sql_batch, mongo_is_safe_dml, sql_is_safe_dml_for, EngineQueryPolicy, MongoQueryPolicy,
-    QueryMode, SqlDialect, StatementKind, WriteRisk,
+    gate_sql_batch, sql_is_safe_dml_for, QueryMode, SqlDialect, StatementKind,
 };
 
 const PG: SqlDialect = SqlDialect::Postgres;
@@ -234,76 +235,6 @@ fn sql_corpus() {
                 "{sql:?} ({dialect:?}): safe_write {}, want {safe}",
                 !safe
             ));
-        }
-    }
-    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
-}
-
-/// (text, risk, Read mode, `safe_write`)
-#[rustfmt::skip]
-const MONGO: &[(&str, WriteRisk, bool, bool)] = &[
-    // R-15: an `op` key inside a filter never overrides the method.
-    (r#"db.t.deleteMany({op: "find"})"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.t.deleteMany({"op": "find"})"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.t.deleteMany({op: "insertOne"})"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.t.deleteOne({op: "updateOne"})"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.t.drop({op: "find"})"#, WriteRisk::Destructive, DENY, UNSAFE),
-    (r#"db.t.find({op: "deleteMany"})"#, WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"db.t.insertOne({op: "find"})"#, WriteRisk::Write, DENY, SAFE),
-    (r#"{"op":"find","op":"deleteMany"}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":"insertOne","op":"deleteMany"}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":5}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":"find","filter":{"op":"deleteMany"}}"#, WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"{"op":"deleteMany","filter":{"op":"find"}}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":"insertOne","doc":{"op":"deleteMany"}}"#, WriteRisk::Write, DENY, SAFE),
-    (r#"{"op":"deleteMany"}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{ op: "deleteMany", filter: { note: "delete" } }"#, WriteRisk::Write, DENY, UNSAFE),
-
-    // R-17: `$out` / `$merge` stage keys, quoted or not, are writes.
-    (r#"db.c.aggregate([{"$out": "t"}])"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.c.aggregate([{'$merge': {into: "t"}}])"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.c.aggregate([{`$out`: "t"}])"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.c.aggregate([{$match: {}}, {"$merge": "t"}])"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.c.aggregate([{$out: "t"}])"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":"aggregate","pipeline":[{"$out":"t"}]}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":"aggregate","pipeline":[{"$out":"t"}]}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"{"op":"find","pipeline":[{"$merge":"t"}]}"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"[{"$match":{"a":1}},{"$merge":"t"}]"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.c.aggregate([{$match: {note: "$out"}}])"#, WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"db.c.aggregate([{$match: {"note": "$merge"}}])"#, WriteRisk::Read, ALLOW, UNSAFE),
-
-    // Ordinary calls.
-    (r#"db.t.find({name: "please delete this"})"#, WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"db.orders.aggregate([{ $match: {} }, { $limit: 5 }])"#, WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"{"name":"please delete this"}"#, WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"{"op":"countDocuments","filter":{"a":1}}"#, WriteRisk::Read, ALLOW, UNSAFE),
-    ("listDatabases", WriteRisk::Read, ALLOW, UNSAFE),
-    (r#"db.t.insertOne({a: 1})"#, WriteRisk::Write, DENY, SAFE),
-    (r#"db.t.updateOne({a: 1}, {$set: {b: 2}})"#, WriteRisk::Write, DENY, SAFE),
-    (r#"{"op":"insertOne","doc":{"note":"please delete this"}}"#, WriteRisk::Write, DENY, SAFE),
-    (r#"db.t.deleteOne({a: 1})"#, WriteRisk::Write, DENY, UNSAFE),
-    (r#"db.t.bulkWrite([{insertOne: {document: {a: 1}}}])"#, WriteRisk::Write, DENY, UNSAFE),
-    ("db.t.drop()", WriteRisk::Destructive, DENY, UNSAFE),
-];
-
-#[test]
-fn mongo_corpus() {
-    let policy = MongoQueryPolicy;
-    let mut failures = Vec::new();
-    for &(text, risk, read_ok, safe) in MONGO {
-        let got = policy.classify(text);
-        if got != risk {
-            failures.push(format!("{text}: risk {got:?}, want {risk:?}"));
-        }
-        let read = policy.validate(text, QueryMode::Read);
-        if read.is_ok() != read_ok {
-            failures.push(format!(
-                "{text}: Read mode ok={}, want {read_ok}",
-                read.is_ok()
-            ));
-        }
-        if mongo_is_safe_dml(text) != safe {
-            failures.push(format!("{text}: safe_write {}, want {safe}", !safe));
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));

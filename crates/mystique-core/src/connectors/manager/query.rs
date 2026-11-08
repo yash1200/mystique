@@ -55,7 +55,7 @@ impl ConnectionManager {
             policy.classify(&req.text)
         };
         self.enforce_write_guard(WriteCheck {
-            preview: mystique_connector_api::mongo_op_preview(&req.text),
+            preview: policy.op_preview(&req.text),
             statements: vec![req.text.clone()],
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,

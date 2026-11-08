@@ -1,15 +1,15 @@
 //! Per-engine query policy SPI.
 //!
 //! Core orchestrates validate → execute. Each engine owns its own implementation.
+//! The MongoDB policy lives in its plugin, next to the shell parser the
+//! executor uses (`mystique_plugin_mongodb::query_policy`).
 
-mod mongo;
 mod sql;
 
 use crate::error::ConnectorResult;
 use crate::query::QueryMode;
 use crate::WriteRisk;
 
-pub use mongo::{mongo_is_safe_dml, mongo_is_write_command, mongo_op_preview, MongoQueryPolicy};
 pub use sql::{
     classify_sql_statement, classify_sql_statement_for, split_sql_statements,
     split_sql_statements_for, sql_analyze_guard_risk, sql_destructive_object_name,

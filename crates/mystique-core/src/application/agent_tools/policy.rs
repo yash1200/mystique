@@ -5,9 +5,7 @@
 
 use std::collections::HashSet;
 
-use mystique_connector_api::{
-    mongo_is_safe_dml, runtime_id, sql_is_safe_dml_for, SqlDialect, WriteRisk,
-};
+use mystique_connector_api::WriteRisk;
 
 use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repo;
@@ -59,7 +57,7 @@ impl AgentWritePolicy {
         !matches!(self, Self::ReadOnly)
     }
 
-    /// `safe_dml` is INSERT/UPDATE (see [`sql_is_safe_dml`] / [`mongo_is_safe_dml`]).
+    /// `safe_dml` is INSERT/UPDATE (the engine policy's `is_safe_dml`).
     pub fn allows(self, risk: WriteRisk, safe_dml: bool) -> bool {
         match self {
             Self::ReadOnly => risk == WriteRisk::Read,
@@ -92,13 +90,6 @@ pub fn parse_allowlist(raw: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
-}
-
-pub fn is_safe_dml(engine: &str, text: &str) -> bool {
-    match runtime_id(engine).unwrap_or(engine.trim()) {
-        "mongodb" => mongo_is_safe_dml(text),
-        other => sql_is_safe_dml_for(text, SqlDialect::from_engine(other)),
-    }
 }
 
 impl AgentTools {
@@ -139,6 +130,14 @@ impl AgentTools {
             .policy(engine)
             .map(|p| p.classify(text))
             .unwrap_or(WriteRisk::Write)
+    }
+
+    /// INSERT / UPDATE only, per the engine's policy. No policy: not safe.
+    pub(super) fn is_safe_dml(&self, engine: &str, text: &str) -> bool {
+        self.connections
+            .registry()
+            .policy(engine)
+            .is_some_and(|p| p.is_safe_dml(text))
     }
 
     pub(super) fn enforce_write_policy(&self, risk: WriteRisk, safe_dml: bool) -> AppResult<()> {

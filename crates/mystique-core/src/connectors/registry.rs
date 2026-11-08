@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    product, runtime_id, DatabaseConnector, EngineDescriptor, EngineQueryPolicy, MongoQueryPolicy,
-    SqlQueryPolicy,
+    product, runtime_id, DatabaseConnector, EngineDescriptor, EngineQueryPolicy, SqlQueryPolicy,
 };
 
 /// Plugin catalog. Adding a DB = implement a plugin + policy + register both.
@@ -46,7 +45,8 @@ impl ConnectorRegistry {
         reg.register_policy(Arc::new(SqlQueryPolicy::new("postgres")));
         reg.register_policy(Arc::new(SqlQueryPolicy::new("sqlite")));
         reg.register_policy(Arc::new(SqlQueryPolicy::new("mysql")));
-        reg.register_policy(Arc::new(MongoQueryPolicy));
+        // Mongo's policy reads the same shell parse its executor runs.
+        reg.register_policy(mystique_plugin_mongodb::query_policy());
         reg
     }
 

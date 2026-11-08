@@ -5,7 +5,7 @@ use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repo;
 
 use super::download::download_from_result;
-use super::policy::{is_safe_dml, ToolCaller};
+use super::policy::ToolCaller;
 use super::results::ResultKey;
 use super::types::{clamp_agent_max_rows, AgentCellWindow, AgentQueryDownload};
 use super::{tool_session_id, AgentTools};
@@ -78,7 +78,7 @@ impl AgentTools {
             .db
             .with_conn(|c| repo::connections::get_by_id(c, connection_id.trim()))?;
         let risk = self.classify_text(&profile.engine, text);
-        let safe_dml = is_safe_dml(&profile.engine, text);
+        let safe_dml = self.is_safe_dml(&profile.engine, text);
         self.enforce_write_policy(risk, safe_dml)?;
         if profile.read_only && risk != WriteRisk::Read {
             return Err(AppError::Invalid(
