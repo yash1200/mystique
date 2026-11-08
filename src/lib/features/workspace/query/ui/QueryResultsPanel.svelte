@@ -13,6 +13,7 @@
 	} from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
+	import { StatusNote } from '#features/toast'
 	import { statementChipLabel, statementChipTitle } from '../batch-view'
 	import type { RunState } from '../run-types'
 	import QueryResultsGrid from './QueryResultsGrid.svelte'
@@ -400,6 +401,7 @@
 					>{runState.message}</span
 				>
 			{/if}
+			<StatusNote />
 		{/snippet}
 		{#snippet center()}
 			<Pager
