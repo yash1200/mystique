@@ -5,6 +5,8 @@
 		tabTitle: string
 		tabKind: 'query' | 'table' | 'model' | 'structure' | 'metrics'
 		busy?: boolean
+		/** Last save failure. The tab stays open. */
+		error?: string | null
 		onsave: () => void
 		ondiscard: () => void
 		oncancel: () => void
@@ -15,6 +17,7 @@
 		tabTitle,
 		tabKind,
 		busy = false,
+		error = null,
 		onsave,
 		ondiscard,
 		oncancel,
@@ -38,6 +41,9 @@
 	description="“{tabTitle}” has unsaved {kindLabel} changes. Save them before closing, discard them, or keep the tab open."
 	dismissible={!busy}
 >
+	{#if error}
+		<p class="text-caption text-danger" role="alert">{error}</p>
+	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" disabled={busy} onclick={oncancel}>
 			Cancel

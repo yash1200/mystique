@@ -11,7 +11,7 @@
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
 	import { mountAppChords, QuickOpen } from '#features/workspace/quick-open'
-	import { resetAppToHome } from '#features/workspace/shell'
+	import { ResetConfirmModal, resetGuard } from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount } from 'svelte'
 	import '../app.css'
@@ -44,7 +44,7 @@
 			if (e.shiftKey && e.code === 'KeyR') {
 				e.preventDefault()
 				e.stopImmediatePropagation()
-				void resetAppToHome()
+				resetGuard.request()
 				return
 			}
 			if (!e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
@@ -104,6 +104,7 @@
 	{@render children()}
 	<AboutModal />
 	<QuickOpen />
+	<ResetConfirmModal />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}

@@ -18,6 +18,7 @@ import {
 	upsertWorkspaceTab,
 	workspaceTabToSaveInput,
 } from './api'
+import type { TabTxn } from './close-guard'
 import { tabDraftUpsert } from './tab-persist'
 import { dropEditBuffer } from './edit-buffer'
 import { createPersistScheduler } from './persist-schedule'
@@ -50,6 +51,11 @@ class WorkspaceSessionStore {
 	 */
 	private queryRunCache = new Map<string, QueryRunCache>()
 	private queryRunVersion = $state(0)
+	/**
+	 * Manual-commit state per query tab. Kept here, not in the canvas, so a
+	 * tab switch reads the right state before the async status returns.
+	 */
+	tabTxn = $state<Record<string, TabTxn>>({})
 
 	/** Debounced persist handles per connection. */
 	private persistScheduler = createPersistScheduler((connectionId) =>
@@ -422,6 +428,7 @@ class WorkspaceSessionStore {
 			this.queryRunCache.delete(tid)
 			void cancelTabRun(tid)
 		}
+		this.dropTabTxn(removedTabIds)
 		this.queryRunVersion += 1
 		this.queryDrafts = drafts
 		this.queryBaselines = baselines
@@ -567,6 +574,7 @@ class WorkspaceSessionStore {
 		const wasActive = this.activeTabId === tabId
 		this.openTabs = this.openTabs.filter((t) => t.id !== tabId)
 		if (tab.kind === 'table') dropEditBuffer(tabId)
+		this.dropTabTxn([tabId])
 
 		if (tab.kind === 'query') {
 			const drafts = { ...this.queryDrafts }
@@ -609,6 +617,31 @@ class WorkspaceSessionStore {
 			}
 		}
 		this.schedulePersist(connectionId)
+	}
+
+	tabTxnOf(tabId: string): TabTxn | undefined {
+		return this.tabTxn[tabId]
+	}
+
+	setTabTxn(tabId: string, status: TabTxn) {
+		const prev = this.tabTxn[tabId]
+		if (
+			prev?.pinned === status.pinned &&
+			prev?.inTransaction === status.inTransaction
+		) {
+			return
+		}
+		this.tabTxn = {
+			...this.tabTxn,
+			[tabId]: { pinned: status.pinned, inTransaction: status.inTransaction },
+		}
+	}
+
+	private dropTabTxn(tabIds: string[]) {
+		if (!tabIds.some((id) => id in this.tabTxn)) return
+		const next = { ...this.tabTxn }
+		for (const id of tabIds) delete next[id]
+		this.tabTxn = next
 	}
 
 	setActiveTab(tabId: string) {

@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { resolveCapabilities } from '#engines'
+	import { Button, Modal } from '#core/ui'
 	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
 	import {
+		answerImportGate,
 		cancelActiveExport,
 		closeImport,
 		confirmExport,
 		confirmImportFile,
 		confirmImportRun,
+		importGate,
 		loadImportPreview,
 	} from '../transfer.svelte'
 	import ExportDataModal from './ExportDataModal.svelte'
@@ -31,6 +34,28 @@
 				: 'table',
 	)
 </script>
+
+<Modal
+	open={!!importGate.table && !importGate.saving}
+	onclose={() => void answerImportGate('cancel')}
+	title="Unsaved edits"
+	description="“{importGate.table?.name ?? ''}” has edits that are not saved. Import reloads the table. Save them first, discard them, or cancel the import."
+>
+	{#if importGate.error}
+		<p class="text-caption text-danger" role="alert">{importGate.error}</p>
+	{/if}
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => void answerImportGate('cancel')}>
+			Cancel
+		</Button>
+		<Button variant="ghost" size="sm" onclick={() => void answerImportGate('discard')}>
+			Discard edits
+		</Button>
+		<Button variant="primary" size="sm" onclick={() => void answerImportGate('save')}>
+			Save first
+		</Button>
+	{/snippet}
+</Modal>
 
 <ImportDataModal
 	open={!!workspaceStudio.importTable && !workspaceStudio.importPreview}

@@ -8,9 +8,11 @@
 	} from '#core/contracts'
 	import {
 		closeEngineSession,
+		commitPinnedTab,
 		ensureEngineSession,
 		isTauri,
 		listenNativeMenu,
+		rollbackPinnedTab,
 		setNativeMenu,
 		testEngineConnection,
 	} from '#core/ipc'
@@ -43,11 +45,14 @@
 		sessionDatabase,
 		startSessionHealthWatch,
 	} from '../live-session'
+	import { closeStep, saveThenClose } from '../close-guard'
 	import { dropEditBuffer } from '../edit-buffer'
+	import { saveTableTab } from '../tab-save'
 	import { workspaceSession } from '../session.svelte'
 	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import { workspaceStudio } from '../studio.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
+	import OpenTransactionModal from './OpenTransactionModal.svelte'
 	import type { SideNavMode } from './SessionsRail.svelte'
 	import SessionsRail from './SessionsRail.svelte'
 	import UnsavedCloseModal from './UnsavedCloseModal.svelte'
@@ -84,11 +89,19 @@
 
 	let pendingCloseTabId = $state<string | null>(null)
 	let closePromptBusy = $state(false)
+	/** The grid's own save dialogs are up; hide the close prompt meanwhile. */
+	let closeTableSaving = $state(false)
+	let closeError = $state<string | null>(null)
 	let closeQueue = $state<string[]>([])
 	const pendingCloseTab = $derived(
 		pendingCloseTabId
 			? (workspaceSession.openTabs.find((t) => t.id === pendingCloseTabId) ??
 					null)
+			: null,
+	)
+	const pendingCloseStep = $derived(
+		pendingCloseTab
+			? closeStep(pendingCloseTab, workspaceSession.tabTxn[pendingCloseTab.id])
 			: null,
 	)
 
@@ -114,8 +127,9 @@
 				closeQueue = closeQueue.slice(1)
 				continue
 			}
-			if (tab.dirty) {
+			if (closeStep(tab, workspaceSession.tabTxnOf(id)) !== 'close') {
 				workspaceSession.setActiveTab(id)
+				closeError = null
 				pendingCloseTabId = id
 				return
 			}
@@ -126,6 +140,7 @@
 
 	function finishQueuedClose(tabId: string) {
 		pendingCloseTabId = null
+		closeError = null
 		closeQueue = closeQueue.filter((id) => id !== tabId)
 		drainCloseQueue()
 	}
@@ -133,7 +148,39 @@
 	function cancelCloseTab() {
 		if (closePromptBusy) return
 		pendingCloseTabId = null
+		closeError = null
 		closeQueue = []
+	}
+
+	function closeNow(tabId: string) {
+		if (workspaceSession.openTabs.some((t) => t.id === tabId)) {
+			workspaceSession.closeTab(tabId)
+		}
+		finishQueuedClose(tabId)
+	}
+
+	async function resolveTransaction(action: 'commit' | 'rollback') {
+		const tab = pendingCloseTab
+		if (!tab) return
+		closePromptBusy = true
+		closeError = null
+		try {
+			const status =
+				action === 'commit'
+					? await commitPinnedTab(tab.id)
+					: await rollbackPinnedTab(tab.id)
+			workspaceSession.setTabTxn(tab.id, status)
+			if (status.inTransaction) {
+				closeError = 'The transaction is still open.'
+				return
+			}
+			// Unsaved query text is asked about next; otherwise close.
+			if (closeStep(tab, status) === 'close') closeNow(tab.id)
+		} catch (e) {
+			closeError = e instanceof Error ? e.message : String(e)
+		} finally {
+			closePromptBusy = false
+		}
 	}
 
 	async function confirmSaveAndClose() {
@@ -148,12 +195,24 @@
 					workspaceSession.closeTab(tab.id)
 				}
 				finishQueuedClose(tab.id)
+			} else if (tab.kind === 'table') {
+				// The grid runs its own save (preview, write guard). Close only
+				// once it committed; a failure keeps the tab and shows why.
+				closeError = null
+				closeTableSaving = true
+				const outcome = await saveThenClose(
+					() => saveTableTab(tab.id),
+					() => closeNow(tab.id),
+				)
+				closeTableSaving = false
+				if (!outcome.ok) closeError = outcome.error
 			} else {
 				workspaceSession.setTabDirty(tab.id, false)
 				workspaceSession.closeTab(tab.id)
 				finishQueuedClose(tab.id)
 			}
 		} finally {
+			closeTableSaving = false
 			closePromptBusy = false
 		}
 	}
@@ -479,10 +538,23 @@
 
 	<WriteGuardModal />
 
+	<OpenTransactionModal
+		open={pendingCloseStep === 'transaction'}
+		tabTitle={pendingCloseTab?.title ?? 'Tab'}
+		busy={closePromptBusy}
+		error={closeError}
+		oncommit={() => void resolveTransaction('commit')}
+		onrollback={() => void resolveTransaction('rollback')}
+		oncancel={cancelCloseTab}
+	/>
+
 	<UnsavedCloseModal
-		open={!!pendingCloseTab && !querySave.modalOpen}
+		open={pendingCloseStep === 'unsaved' &&
+			!querySave.modalOpen &&
+			!closeTableSaving}
 		tabTitle={pendingCloseTab?.title ?? 'Tab'}
 		tabKind={pendingCloseTab?.kind ?? 'query'}
+		error={closeError}
 		busy={closePromptBusy || workspaceStudio.querySaving}
 		onsave={() => void confirmSaveAndClose()}
 		ondiscard={() => void confirmDiscardAndClose()}

@@ -12,9 +12,11 @@
 	import {
 		adoptServerRows,
 		getEditBuffer,
+		registerTabSaver,
 		rememberEditBuffer,
 		shouldRestoreEditBuffer,
 		tabEditsAreDirty,
+		type SaveOutcome,
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount, tick, untrack } from 'svelte'
@@ -2382,11 +2384,39 @@
 		return sid ?? ''
 	}
 
+	/** Waiting close/import prompt. Settled when the save commits, fails, or is cancelled. */
+	let saveWaiter: ((outcome: SaveOutcome) => void) | null = null
+
+	function settleSave(outcome: SaveOutcome) {
+		const waiter = saveWaiter
+		saveWaiter = null
+		waiter?.(outcome)
+	}
+
+	function saveForPrompt(): Promise<SaveOutcome> {
+		settleSave({ ok: false, error: null })
+		return new Promise((resolve) => {
+			saveWaiter = resolve
+			void saveChanges()
+		})
+	}
+
+	function failSave(err: unknown) {
+		reportGridError(err)
+		settleSave({ ok: false, error: err instanceof Error ? err.message : String(err) })
+	}
+
 	async function saveChanges() {
 		if (saving || savePreview) return
-		if (!assertWritable()) return
+		if (!assertWritable()) {
+			settleSave({ ok: false, error: 'Connection is read-only' })
+			return
+		}
 		if (editing) commitEdit()
-		if (dirtyCount === 0) return
+		if (dirtyCount === 0) {
+			settleSave({ ok: true })
+			return
+		}
 		saving = true
 		try {
 			const preview = await persistTableEdits({
@@ -2395,19 +2425,28 @@
 			const statements = preview.statements ?? []
 			if (statements.length === 0) {
 				showToast('info', 'Nothing to save')
+				settleSave({ ok: true })
 				return
 			}
 			savePreview = statements
 		} catch (err) {
-			reportGridError(err)
+			failSave(err)
 		} finally {
 			saving = false
 		}
 	}
 
+	function cancelSavePreview() {
+		savePreview = null
+		settleSave({ ok: false, error: null })
+	}
+
 	async function confirmSave() {
 		if (saving || !savePreview) return
-		if (!assertWritable()) return
+		if (!assertWritable()) {
+			settleSave({ ok: false, error: 'Connection is read-only' })
+			return
+		}
 		saving = true
 		try {
 			const pendingDbDeletes = [...deletedIndices].filter(
@@ -2450,8 +2489,9 @@
 				bits.length > 0 ? `Saved (${bits.join(', ')})` : 'Saved',
 			)
 			onbaselinechange?.()
+			settleSave({ ok: true })
 		} catch (err) {
-			reportGridError(err)
+			failSave(err)
 		} finally {
 			saving = false
 		}
@@ -2615,9 +2655,12 @@
 		}
 		window.addEventListener('keydown', onKey, true)
 		window.addEventListener('mystique:save-table', onMenuSave)
+		const unregisterSaver = tabId ? registerTabSaver(tabId, saveForPrompt) : null
 		return () => {
 			window.removeEventListener('keydown', onKey, true)
 			window.removeEventListener('mystique:save-table', onMenuSave)
+			unregisterSaver?.()
+			settleSave({ ok: false, error: null })
 		}
 	})
 
@@ -2720,7 +2763,7 @@
 		statements={savePreview ?? []}
 		busy={saving}
 		onconfirm={() => void confirmSave()}
-		oncancel={() => (savePreview = null)}
+		oncancel={cancelSavePreview}
 	/>
 
 	{#if cellModal}
