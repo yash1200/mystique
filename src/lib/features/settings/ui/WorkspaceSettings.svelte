@@ -6,10 +6,15 @@
 		Switch,
 		type SegmentedOption,
 	} from '#core/ui'
-	import { appPrefs } from '#lib/app'
+	import { appPrefs, parseReviewBeforeSaving } from '#lib/app'
 	const densityOptions: SegmentedOption[] = [
 		{ value: 'compact', label: 'Compact' },
 		{ value: 'comfortable', label: 'Comfortable' },
+	]
+	const reviewOptions: SegmentedOption[] = [
+		{ value: 'never', label: 'Never' },
+		{ value: 'production', label: 'Production' },
+		{ value: 'always', label: 'Always' },
 	]
 
 	function onDensity(v: string) {
@@ -39,6 +44,18 @@
 				checked={appPrefs.openTableOnSingleClick}
 				ariaLabel="Open tables on single click"
 				onchange={(on) => appPrefs.setOpenTableOnSingleClick(on)}
+			/>
+		</ControlRow>
+		<ControlRow
+			label="Review before saving"
+			description="Show the SQL before a grid save. Production always asks once per session."
+		>
+			<Segmented
+				label="Review before saving"
+				value={appPrefs.reviewBeforeSaving}
+				options={reviewOptions}
+				onchange={(v) =>
+					appPrefs.setReviewBeforeSaving(parseReviewBeforeSaving(v))}
 			/>
 		</ControlRow>
 	</ControlGroup>

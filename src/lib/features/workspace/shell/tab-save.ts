@@ -40,7 +40,7 @@ export function tabSaver(tabId: string, timeoutMs = 10_000): Promise<TabSaver | 
 	})
 }
 
-/** Runs the grid's own save (preview and write guard included). */
+/** Runs the grid's own save (write guard included). */
 export async function saveTableTab(tabId: string, timeoutMs?: number): Promise<SaveOutcome> {
 	const saver = await tabSaver(tabId, timeoutMs)
 	if (!saver) return { ok: false, error: TAB_NOT_OPEN }
