@@ -8,10 +8,10 @@
  *     └ mystique-mcp, mystique-agent        adapters over core
  *         └ mystique-core                   app services, storage, connection manager
  *             └ mystique-plugin-*           engine drivers (never each other, never core)
- *                 └ mystique-transfer       import/export (leaf-ish, planned)
- *                 └ mystique-connector-api  plugin SPI
- *                     └ mystique-tls        TLS helpers (leaf-ish, planned)
- *                     └ mystique-sql        pure SQL; no workspace deps
+ *                 └ mystique-connector-api  plugin SPI (re-exports the three below)
+ *                     └ mystique-transfer   import parsers, export writers
+ *                     └ mystique-tls        TLS settings; no workspace deps
+ *                     └ mystique-sql        pure SQL builders; no workspace deps
  *
  * Every workspace crate must match a rule. Normal, build and dev dependencies
  * are all checked. Non-workspace crates (crates.io) are not.
@@ -32,9 +32,9 @@ const PLUGINS = 'mystique-plugin-*'
  */
 const RULES = [
 	['mystique-sql', []],
-	['mystique-tls', ['mystique-sql']],
-	['mystique-connector-api', ['mystique-sql', 'mystique-tls']],
-	['mystique-transfer', ['mystique-sql', 'mystique-connector-api']],
+	['mystique-tls', []],
+	['mystique-transfer', ['mystique-sql']],
+	['mystique-connector-api', ['mystique-sql', 'mystique-tls', 'mystique-transfer']],
 	[PLUGINS, ['mystique-sql', 'mystique-connector-api', 'mystique-tls', 'mystique-transfer']],
 	[
 		'mystique-core',
