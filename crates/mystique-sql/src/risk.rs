@@ -1,9 +1,10 @@
 //! AST write-risk for a SQL statement. Parse failure is Write (fail closed).
 
+use std::ops::ControlFlow;
+
 use sqlparser::ast::{
-    AlterTableOperation, ContextModifier, Expr, Function, FunctionArg, FunctionArgExpr,
-    FunctionArguments, JoinConstraint, JoinOperator, MergeAction, ObjectName, Query, Select,
-    SelectItem, Set, SetExpr, Statement, TableFactor,
+    AlterTableOperation, ContextModifier, Expr, MergeAction, ObjectName, Query, Set, SetExpr,
+    Statement, TableFactor, UtilityOption, Visit, Visitor,
 };
 use sqlparser::parser::{Parser, ParserError};
 
@@ -100,41 +101,39 @@ pub fn explain_executes(sql: &str, dialect: SqlDialect) -> bool {
 
 fn looks_like_explain_analyze(sql: &str) -> bool {
     let lower = sql.trim_start().to_ascii_lowercase();
-    lower.starts_with("explain") && lower.contains("analyze")
+    lower.starts_with("explain") && (lower.contains("analyze") || lower.contains("analyse"))
 }
 
 fn ast_explain_executes(stmt: &Statement) -> bool {
     let Statement::Explain {
-        analyze,
-        query_plan,
-        options,
-        ..
+        analyze, options, ..
     } = stmt
     else {
         return false;
     };
-    if *query_plan && !*analyze && !options_enable_analyze(options) {
-        return false;
-    }
-    *analyze || options_enable_analyze(options)
+    *analyze || options_may_execute(options)
 }
 
-fn options_enable_analyze(options: &Option<Vec<sqlparser::ast::UtilityOption>>) -> bool {
+/// Postgres accepts `ANALYZE` and `ANALYSE`. Any option we do not know
+/// counts as executing, so a new spelling cannot hide a DELETE.
+fn options_may_execute(options: &Option<Vec<UtilityOption>>) -> bool {
     let Some(options) = options else {
         return false;
     };
     options.iter().any(|opt| {
-        if !opt.name.value.eq_ignore_ascii_case("analyze") {
-            return false;
-        }
-        match &opt.arg {
-            None => true,
-            Some(expr) => {
-                let text = expr.to_string().to_ascii_lowercase();
-                !matches!(text.as_str(), "false" | "off" | "0" | "no")
-            }
+        let name = opt.name.value.to_ascii_lowercase();
+        match name.as_str() {
+            "analyze" | "analyse" => !opt.arg.as_ref().is_some_and(is_false_literal),
+            "verbose" | "costs" | "settings" | "generic_plan" | "buffers" | "wal" | "timing"
+            | "summary" | "memory" | "serialize" | "format" => false,
+            _ => true,
         }
     })
+}
+
+fn is_false_literal(expr: &Expr) -> bool {
+    let text = expr.to_string().to_ascii_lowercase();
+    matches!(text.as_str(), "false" | "off" | "0" | "no")
 }
 
 /// Every destructive target in the batch, in source order, joined for type-to-confirm.
@@ -175,6 +174,76 @@ fn parse_result(sql: &str, dialect: SqlDialect) -> Result<Vec<Statement>, Parser
             }
         }
     }
+}
+
+/// A `SET` that Read mode may run: session scope, a harmless setting, and a
+/// value that calls nothing. Role, read-only, timeout and lexer settings
+/// (`sql_mode`, `standard_conforming_strings`) are not on the list.
+pub fn is_read_safe_set(sql: &str, dialect: SqlDialect) -> bool {
+    if set_text_is_privileged(sql) {
+        return false;
+    }
+    let Some(parsed) = parse(sql, dialect) else {
+        return false;
+    };
+    !parsed.is_empty()
+        && parsed.iter().all(|stmt| match stmt {
+            Statement::Set(set) => set_is_read_safe(set) && deep_risk(stmt) == StatementRisk::Read,
+            _ => false,
+        })
+}
+
+fn set_is_read_safe(set: &Set) -> bool {
+    match set {
+        Set::SetTimeZone { .. } | Set::SetNames { .. } | Set::SetNamesDefault {} => true,
+        Set::SingleAssignment {
+            scope, variable, ..
+        } => scope_is_session(scope) && variable_is_read_safe(variable),
+        Set::MultipleAssignments { assignments } => assignments.iter().all(|assignment| {
+            scope_is_session(&assignment.scope) && variable_is_read_safe(&assignment.name)
+        }),
+        _ => false,
+    }
+}
+
+fn scope_is_session(scope: &Option<ContextModifier>) -> bool {
+    !matches!(scope, Some(ContextModifier::Global))
+}
+
+fn variable_is_read_safe(name: &ObjectName) -> bool {
+    let text = name.to_string().to_ascii_lowercase();
+    let name = match text.strip_prefix("@@") {
+        Some(rest) => rest
+            .strip_prefix("session.")
+            .or_else(|| rest.strip_prefix("local."))
+            .unwrap_or(rest),
+        // MySQL user variable.
+        None if text.starts_with('@') => return !text[1..].contains('@'),
+        None => text.as_str(),
+    };
+    matches!(
+        name,
+        "search_path"
+            | "timezone"
+            | "time_zone"
+            | "datestyle"
+            | "intervalstyle"
+            | "client_encoding"
+            | "application_name"
+            | "extra_float_digits"
+            | "bytea_output"
+            | "client_min_messages"
+            | "lc_messages"
+            | "lc_monetary"
+            | "lc_numeric"
+            | "lc_time"
+            | "lc_time_names"
+            | "default_text_search_config"
+            | "character_set_client"
+            | "character_set_connection"
+            | "character_set_results"
+            | "collation_connection"
+    )
 }
 
 /// A statement the planner still accepts when sqlparser cannot read it.
@@ -317,7 +386,11 @@ pub(crate) fn route_text(sql: &str, dialect: SqlDialect) -> TextRoute {
         if looks_like_pragma_read(sql) {
             return TextRoute::read_grid(false);
         }
-        return TextRoute::opaque(StatementRisk::Write);
+        // Opaque write. Write mode sends it to the engine, so transaction
+        // control we cannot parse must still be refused on auto-commit.
+        let mut route = TextRoute::opaque(StatementRisk::Write);
+        route.txn_boundary = looks_like_txn_control(sql);
+        return route;
     };
     let mut iter = parsed.iter();
     let Some(first) = iter.next() else {
@@ -417,29 +490,59 @@ fn route_ast(stmt: &Statement, raw_sql: &str) -> TextRoute {
     route
 }
 
+/// Any `/*!`, `/*M!` or `/*T!`, even inside a string.
+///
+/// MySQL's lexer is not ours: `\'`, `#`, `--` without a space and `sql_mode`
+/// all change what counts as quoted. Matching the bytes fails closed.
 fn has_versioned_comment(sql: &str) -> bool {
-    let bytes = sql.as_bytes();
-    let mut i = 0;
-    let mut in_single = false;
-    while i + 1 < bytes.len() {
-        if bytes[i] == b'\'' {
-            in_single = !in_single;
-            i += 1;
-            continue;
+    let mut rest = sql;
+    while let Some(at) = rest.find("/*") {
+        rest = &rest[at + 2..];
+        let body = rest.trim_start();
+        if body.starts_with('!')
+            || body.get(..2).is_some_and(|head| {
+                head.eq_ignore_ascii_case("m!") || head.eq_ignore_ascii_case("t!")
+            })
+        {
+            return true;
         }
-        if !in_single && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            let rest = sql[i + 2..].trim_start();
-            if rest.starts_with('!')
-                || rest.len() >= 2
-                    && (rest[..2].eq_ignore_ascii_case("m!")
-                        || rest[..2].eq_ignore_ascii_case("t!"))
-            {
-                return true;
-            }
-        }
-        i += 1;
     }
     false
+}
+
+/// `ABORT`, `XA START`, `START TRANSACTION WITH CONSISTENT SNAPSHOT`,
+/// `PREPARE TRANSACTION`, `COMMIT PREPARED`: sqlparser 0.58 reads none of them.
+fn looks_like_txn_control(sql: &str) -> bool {
+    let lower = skip_leading_comments(sql).to_ascii_lowercase();
+    let mut words = lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty());
+    matches!(
+        (words.next(), words.next()),
+        (
+            Some("begin" | "commit" | "end" | "rollback" | "abort" | "xa"),
+            _
+        ) | (Some("start" | "prepare"), Some("transaction"))
+    )
+}
+
+fn skip_leading_comments(sql: &str) -> &str {
+    let mut rest = sql.trim_start();
+    loop {
+        if let Some(after) = rest.strip_prefix("--") {
+            rest = after
+                .split_once('\n')
+                .map_or("", |(_, tail)| tail)
+                .trim_start();
+        } else if let Some(after) = rest.strip_prefix("/*") {
+            rest = after
+                .split_once("*/")
+                .map_or("", |(_, tail)| tail)
+                .trim_start();
+        } else {
+            return rest;
+        }
+    }
 }
 
 fn looks_like_table_read(sql: &str) -> bool {
@@ -454,13 +557,92 @@ fn looks_like_table_read(sql: &str) -> bool {
         && !rest.contains("for share")
 }
 
+/// Text fallback for a pragma sqlparser cannot read. Same rule as the AST path.
 fn looks_like_pragma_read(sql: &str) -> bool {
     let lower = sql.trim().to_ascii_lowercase();
     let Some(rest) = lower.strip_prefix("pragma") else {
         return false;
     };
-    // `PRAGMA table_info(t)` reads. `PRAGMA query_only = ON` writes.
-    rest.starts_with(|c: char| c.is_whitespace()) && !rest.contains('=') && !rest.contains(';')
+    if !rest.starts_with(|c: char| c.is_whitespace()) {
+        return false;
+    }
+    let rest = rest.trim_start();
+    let name_end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+        .unwrap_or(rest.len());
+    let name = rest[..name_end].rsplit('.').next().unwrap_or("");
+    let tail = rest[name_end..].trim();
+    let has_arg = match tail {
+        "" => false,
+        _ if tail.starts_with('(') && tail.ends_with(')') && !tail.contains(';') => true,
+        _ => return false,
+    };
+    pragma_risk(name, has_arg, false) == StatementRisk::Read
+}
+
+/// `PRAGMA user_version(42)` writes as surely as `= 42`. Only listed pragmas
+/// read: introspection ones take a table or schema argument, settings take none.
+fn pragma_risk(name: &str, has_arg: bool, is_eq: bool) -> StatementRisk {
+    if is_eq {
+        return StatementRisk::Write;
+    }
+    let introspection = matches!(
+        name,
+        "table_info"
+            | "table_xinfo"
+            | "table_list"
+            | "index_info"
+            | "index_xinfo"
+            | "index_list"
+            | "foreign_key_list"
+            | "foreign_key_check"
+            | "integrity_check"
+            | "quick_check"
+            | "collation_list"
+            | "database_list"
+            | "function_list"
+            | "module_list"
+            | "pragma_list"
+            | "compile_options"
+    );
+    let setting = matches!(
+        name,
+        "application_id"
+            | "auto_vacuum"
+            | "automatic_index"
+            | "busy_timeout"
+            | "cache_size"
+            | "cache_spill"
+            | "cell_size_check"
+            | "data_version"
+            | "defer_foreign_keys"
+            | "encoding"
+            | "foreign_keys"
+            | "freelist_count"
+            | "journal_mode"
+            | "journal_size_limit"
+            | "legacy_alter_table"
+            | "locking_mode"
+            | "max_page_count"
+            | "mmap_size"
+            | "page_count"
+            | "page_size"
+            | "query_only"
+            | "recursive_triggers"
+            | "schema_version"
+            | "secure_delete"
+            | "synchronous"
+            | "temp_store"
+            | "trusted_schema"
+            | "user_version"
+            | "wal_autocheckpoint"
+            | "writable_schema"
+    );
+    if introspection || (setting && !has_arg) {
+        StatementRisk::Read
+    } else {
+        StatementRisk::Write
+    }
 }
 
 fn looks_like_do_block(sql: &str) -> bool {
@@ -492,20 +674,21 @@ fn one_is_safe_dml(sql: &str, dialect: SqlDialect) -> bool {
 }
 
 fn classify_ast(stmt: &Statement) -> StatementRisk {
+    // A plain EXPLAIN plans its statement and calls nothing in it.
+    if let Statement::Explain { statement, .. } = stmt {
+        return if ast_explain_executes(stmt) {
+            classify_ast(statement)
+        } else {
+            StatementRisk::Read
+        };
+    }
+    statement_risk(stmt).max(deep_risk(stmt))
+}
+
+/// Risk of the statement kind. Functions and nested queries are [`deep_risk`].
+fn statement_risk(stmt: &Statement) -> StatementRisk {
     match stmt {
-        Statement::Query(q) => classify_query(q),
-        Statement::Explain {
-            analyze,
-            options,
-            statement,
-            ..
-        } => {
-            if *analyze || options_enable_analyze(options) {
-                classify_ast(statement)
-            } else {
-                StatementRisk::Read
-            }
-        }
+        Statement::Query(_) => StatementRisk::Read,
         Statement::ExplainTable { .. }
         | Statement::ShowVariable { .. }
         | Statement::ShowStatus { .. }
@@ -556,14 +739,9 @@ fn classify_ast(stmt: &Statement) -> StatementRisk {
         Statement::Execute { .. } => StatementRisk::Write,
         // CALL / anonymous DO can hide DDL. Type-to-confirm on production.
         Statement::Call(_) => StatementRisk::Destructive,
-        // `PRAGMA table_info(t)` is a read. `PRAGMA query_only = ON` assigns.
-        Statement::Pragma { is_eq, .. } => {
-            if *is_eq {
-                StatementRisk::Write
-            } else {
-                StatementRisk::Read
-            }
-        }
+        Statement::Pragma {
+            name, value, is_eq, ..
+        } => pragma_risk(&basename(name), value.is_some(), *is_eq),
 
         Statement::AlterTable { operations, .. } => {
             if operations
@@ -659,225 +837,113 @@ fn variable_is_sensitive(name: &ObjectName) -> bool {
     )
 }
 
-fn classify_query(q: &Query) -> StatementRisk {
-    let mut risk = if q.locks.is_empty() {
-        StatementRisk::Read
-    } else {
-        StatementRisk::Write
+/// Worst risk of everything the statement runs: every function call in any
+/// clause, row locks, `SELECT INTO`, and DML nested in a query.
+fn deep_risk(stmt: &Statement) -> StatementRisk {
+    let mut scan = RiskScan {
+        risk: StatementRisk::Read,
     };
-    if let Some(with) = &q.with {
-        for cte in &with.cte_tables {
-            risk = risk.max(classify_query(&cte.query));
-        }
-    }
-    risk.max(classify_set_expr(&q.body))
+    let _ = stmt.visit(&mut scan);
+    scan.risk
 }
 
-fn classify_set_expr(expr: &SetExpr) -> StatementRisk {
+struct RiskScan {
+    risk: StatementRisk,
+}
+
+impl Visitor for RiskScan {
+    type Break = ();
+
+    fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<()> {
+        if !query.locks.is_empty() {
+            self.risk = self.risk.max(StatementRisk::Write);
+        }
+        self.risk = self.risk.max(set_expr_shape_risk(&query.body));
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<()> {
+        // `FROM dblink(…)` is a table with arguments, not an expression.
+        match factor {
+            TableFactor::Table {
+                name,
+                args: Some(_),
+                ..
+            }
+            | TableFactor::Function { name, .. } => {
+                self.risk = self.risk.max(function_name_risk(name));
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
+        if let Expr::Function(function) = expr {
+            self.risk = self.risk.max(function_name_risk(&function.name));
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// The query body itself. Nested queries are visited on their own.
+fn set_expr_shape_risk(expr: &SetExpr) -> StatementRisk {
     match expr {
-        SetExpr::Select(select) => classify_select(select),
-        SetExpr::Query(inner) => classify_query(inner),
+        SetExpr::Select(select) if select.into.is_some() => StatementRisk::Write,
         SetExpr::SetOperation { left, right, .. } => {
-            classify_set_expr(left).max(classify_set_expr(right))
+            set_expr_shape_risk(left).max(set_expr_shape_risk(right))
         }
-        SetExpr::Values(values) => values
-            .rows
-            .iter()
-            .flatten()
-            .fold(StatementRisk::Read, |risk, expr| risk.max(expr_risk(expr))),
-        SetExpr::Table(_) => StatementRisk::Read,
         SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Delete(_) => StatementRisk::Write,
-    }
-}
-
-fn classify_select(select: &Select) -> StatementRisk {
-    let mut risk = if select.into.is_some() {
-        StatementRisk::Write
-    } else {
-        StatementRisk::Read
-    };
-    for item in &select.projection {
-        risk = risk.max(select_item_risk(item));
-    }
-    for from in &select.from {
-        risk = risk.max(table_factor_risk(&from.relation));
-        for join in &from.joins {
-            risk = risk.max(table_factor_risk(&join.relation));
-            risk = risk.max(join_operator_risk(&join.join_operator));
-        }
-    }
-    for expr in [
-        select.selection.as_ref(),
-        select.prewhere.as_ref(),
-        select.having.as_ref(),
-        select.qualify.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        risk = risk.max(expr_risk(expr));
-    }
-    risk
-}
-
-fn select_item_risk(item: &SelectItem) -> StatementRisk {
-    match item {
-        SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => expr_risk(expr),
         _ => StatementRisk::Read,
     }
 }
 
-fn table_factor_risk(factor: &TableFactor) -> StatementRisk {
-    match factor {
-        TableFactor::Derived { subquery, .. } => classify_query(subquery),
-        TableFactor::TableFunction { expr, .. } => expr_risk(expr),
-        TableFactor::Function { name, args, .. } => {
-            function_name_risk(name).max(args.iter().fold(StatementRisk::Read, |risk, arg| {
-                risk.max(function_arg_risk(arg))
-            }))
-        }
-        TableFactor::UNNEST { array_exprs, .. } => array_exprs
-            .iter()
-            .fold(StatementRisk::Read, |risk, expr| risk.max(expr_risk(expr))),
-        _ => StatementRisk::Read,
-    }
-}
-
-fn join_operator_risk(op: &JoinOperator) -> StatementRisk {
-    match op {
-        JoinOperator::Join(constraint)
-        | JoinOperator::Inner(constraint)
-        | JoinOperator::Left(constraint)
-        | JoinOperator::LeftOuter(constraint)
-        | JoinOperator::Right(constraint)
-        | JoinOperator::RightOuter(constraint)
-        | JoinOperator::FullOuter(constraint)
-        | JoinOperator::Semi(constraint)
-        | JoinOperator::LeftSemi(constraint)
-        | JoinOperator::RightSemi(constraint)
-        | JoinOperator::Anti(constraint)
-        | JoinOperator::LeftAnti(constraint)
-        | JoinOperator::RightAnti(constraint)
-        | JoinOperator::StraightJoin(constraint) => constraint_risk(constraint),
-        JoinOperator::AsOf {
-            match_condition,
-            constraint,
-        } => expr_risk(match_condition).max(constraint_risk(constraint)),
-        JoinOperator::CrossJoin | JoinOperator::CrossApply | JoinOperator::OuterApply => {
-            StatementRisk::Read
-        }
-    }
-}
-
-fn constraint_risk(constraint: &JoinConstraint) -> StatementRisk {
-    match constraint {
-        JoinConstraint::On(expr) => expr_risk(expr),
-        _ => StatementRisk::Read,
-    }
-}
-
-fn expr_risk(expr: &Expr) -> StatementRisk {
-    match expr {
-        Expr::Function(function) => function_risk(function),
-        Expr::Subquery(query)
-        | Expr::Exists {
-            subquery: query, ..
-        } => classify_query(query),
-        Expr::InSubquery { expr, subquery, .. } => expr_risk(expr).max(classify_query(subquery)),
-        Expr::Nested(inner)
-        | Expr::IsNull(inner)
-        | Expr::IsNotNull(inner)
-        | Expr::IsTrue(inner)
-        | Expr::IsNotTrue(inner)
-        | Expr::IsFalse(inner)
-        | Expr::IsNotFalse(inner) => expr_risk(inner),
-        Expr::BinaryOp { left, right, .. }
-        | Expr::IsDistinctFrom(left, right)
-        | Expr::IsNotDistinctFrom(left, right) => expr_risk(left).max(expr_risk(right)),
-        Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } | Expr::Extract { expr, .. } => {
-            expr_risk(expr)
-        }
-        Expr::InList { expr, list, .. } => list
-            .iter()
-            .fold(expr_risk(expr), |risk, item| risk.max(expr_risk(item))),
-        Expr::Between {
-            expr, low, high, ..
-        } => expr_risk(expr).max(expr_risk(low)).max(expr_risk(high)),
-        Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
-            expr_risk(expr).max(expr_risk(pattern))
-        }
-        Expr::Case {
-            operand,
-            conditions,
-            else_result,
-            ..
-        } => {
-            let mut risk = operand
-                .as_deref()
-                .map(expr_risk)
-                .unwrap_or(StatementRisk::Read);
-            for when in conditions {
-                risk = risk
-                    .max(expr_risk(&when.condition))
-                    .max(expr_risk(&when.result));
-            }
-            if let Some(else_result) = else_result {
-                risk = risk.max(expr_risk(else_result));
-            }
-            risk
-        }
-        _ => StatementRisk::Read,
-    }
-}
-
-fn function_risk(function: &Function) -> StatementRisk {
-    function_name_risk(&function.name)
-        .max(function_arguments_risk(&function.args))
-        .max(function_arguments_risk(&function.parameters))
-        .max(
-            function
-                .filter
-                .as_deref()
-                .map(expr_risk)
-                .unwrap_or(StatementRisk::Read),
-        )
-}
-
-fn function_arguments_risk(args: &FunctionArguments) -> StatementRisk {
-    match args {
-        FunctionArguments::None => StatementRisk::Read,
-        FunctionArguments::Subquery(query) => classify_query(query),
-        FunctionArguments::List(list) => list.args.iter().fold(StatementRisk::Read, |risk, arg| {
-            risk.max(function_arg_risk(arg))
-        }),
-    }
-}
-
-fn function_arg_risk(arg: &FunctionArg) -> StatementRisk {
-    match arg {
-        FunctionArg::Named { arg, .. } | FunctionArg::Unnamed(arg) => function_arg_expr_risk(arg),
-        FunctionArg::ExprNamed { name, arg, .. } => {
-            expr_risk(name).max(function_arg_expr_risk(arg))
-        }
-    }
-}
-
-fn function_arg_expr_risk(arg: &FunctionArgExpr) -> StatementRisk {
-    match arg {
-        FunctionArgExpr::Expr(expr) => expr_risk(expr),
-        _ => StatementRisk::Read,
-    }
-}
-
+/// Denylist of functions with side effects. Phase F replaces it with an allowlist.
 fn function_name_risk(name: &ObjectName) -> StatementRisk {
-    match basename(name).as_str() {
-        "pg_terminate_backend" | "pg_cancel_backend" | "load_extension" => {
-            StatementRisk::Destructive
-        }
-        "set_config" | "dblink_exec" | "dblink_connect" | "nextval" | "lo_import" | "lo_export"
-        | "lo_unlink" | "get_lock" | "release_lock" | "is_used_lock" | "sleep" | "benchmark" => {
-            StatementRisk::Write
-        }
+    let name = basename(name);
+    let name = name.as_str();
+    if matches!(
+        name,
+        "pg_terminate_backend" | "pg_cancel_backend" | "load_extension"
+    ) {
+        return StatementRisk::Destructive;
+    }
+    // dblink and fdw run SQL on their own autocommit connection, outside
+    // the read-only transaction.
+    const WRITE_PREFIXES: &[&str] = &[
+        "dblink",
+        "postgres_fdw_",
+        "pg_advisory_",
+        "pg_try_advisory_",
+        "pg_sleep",
+        "pg_ls_",
+        "pg_stat_reset",
+        "pg_create_",
+        "pg_drop_replication_slot",
+        "pg_copy_",
+        "pg_replication_origin_",
+        "pg_replication_slot_advance",
+        "pg_file_",
+        "pg_wal_replay_",
+        "lo_",
+    ];
+    if WRITE_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
+        return StatementRisk::Write;
+    }
+    match name {
+        // Postgres
+        "set_config" | "nextval" | "setval" | "lowrite" | "pg_reload_conf"
+        | "pg_rotate_logfile" | "pg_read_file" | "pg_read_binary_file" | "pg_stat_file"
+        | "pg_notify" | "pg_switch_wal" | "pg_promote" | "pg_backup_start" | "pg_backup_stop"
+        | "pg_start_backup" | "pg_stop_backup" | "pg_logical_emit_message"
+        | "pg_import_system_collations" | "pg_log_backend_memory_contexts"
+        | "pg_stat_statements_reset"
+        // MySQL
+        | "get_lock" | "release_lock" | "release_all_locks" | "is_used_lock" | "is_free_lock"
+        | "sleep" | "benchmark" | "load_file" | "master_pos_wait" | "source_pos_wait"
+        | "wait_for_executed_gtid_set" | "wait_until_sql_thread_after_gtids"
+        // SQLite
+        | "writefile" => StatementRisk::Write,
         _ => StatementRisk::Read,
     }
 }
@@ -896,8 +962,9 @@ fn basename(name: &ObjectName) -> String {
         .to_ascii_lowercase()
 }
 
+/// INSERT / UPDATE / MERGE whose every source and expression is a read.
 fn ast_is_safe_dml(stmt: &Statement) -> bool {
-    match stmt {
+    let shape = match stmt {
         Statement::Insert(_) | Statement::Update { .. } => true,
         Statement::Merge { clauses, .. } => clauses.iter().all(|clause| {
             matches!(
@@ -905,18 +972,21 @@ fn ast_is_safe_dml(stmt: &Statement) -> bool {
                 MergeAction::Insert(_) | MergeAction::Update { .. }
             )
         }),
-        Statement::Query(query) => query_is_safe_dml(query),
+        Statement::Query(query) => return query_is_safe_dml(query),
         _ => false,
-    }
+    };
+    // The statement's own write is not visited, only what it reads and calls.
+    shape && deep_risk(stmt) == StatementRisk::Read
 }
 
 fn query_is_safe_dml(query: &Query) -> bool {
+    if !query.locks.is_empty() {
+        return false;
+    }
     if let Some(with) = &query.with {
-        if with
-            .cte_tables
-            .iter()
-            .any(|cte| !query_is_safe_dml(&cte.query))
-        {
+        if !with.cte_tables.iter().all(|cte| {
+            query_is_safe_dml(&cte.query) || classify_query(&cte.query) == StatementRisk::Read
+        }) {
             return false;
         }
     }
@@ -925,13 +995,21 @@ fn query_is_safe_dml(query: &Query) -> bool {
 
 fn set_expr_is_safe_dml(expr: &SetExpr) -> bool {
     match expr {
-        SetExpr::Insert(_) | SetExpr::Update(_) => true,
+        SetExpr::Insert(stmt) | SetExpr::Update(stmt) => ast_is_safe_dml(stmt),
         SetExpr::Query(inner) => query_is_safe_dml(inner),
         SetExpr::SetOperation { left, right, .. } => {
             set_expr_is_safe_dml(left) && set_expr_is_safe_dml(right)
         }
         _ => false,
     }
+}
+
+fn classify_query(query: &Query) -> StatementRisk {
+    let mut scan = RiskScan {
+        risk: StatementRisk::Read,
+    };
+    let _ = query.visit(&mut scan);
+    scan.risk
 }
 
 fn ast_destructive_names(stmt: &Statement) -> Vec<String> {
@@ -975,7 +1053,7 @@ fn ast_destructive_names(stmt: &Statement) -> Vec<String> {
             options,
             statement,
             ..
-        } if *analyze || options_enable_analyze(options) => ast_destructive_names(statement),
+        } if *analyze || options_may_execute(options) => ast_destructive_names(statement),
         _ => Vec::new(),
     }
 }
@@ -1072,6 +1150,113 @@ mod tests {
             "EXPLAIN ANALYZE SELECT 1",
             SqlDialect::Mysql
         ));
+    }
+
+    #[test]
+    fn explain_analyse_spelling_and_unknown_options_execute() {
+        for sql in [
+            "EXPLAIN (ANALYSE) DELETE FROM t",
+            "EXPLAIN (analyse on) DELETE FROM t",
+            "EXPLAIN (FOO) DELETE FROM t",
+            "EXPLAIN (ANALYZE 'off') DELETE FROM t",
+        ] {
+            assert!(explain_executes(sql, SqlDialect::Postgres), "{sql}");
+            assert_eq!(pg(sql), StatementRisk::Write, "{sql}");
+        }
+        // Unparsed, but the text still says ANALYSE.
+        assert!(explain_executes(
+            "EXPLAIN ANALYSE DELETE FROM t",
+            SqlDialect::Postgres
+        ));
+        assert!(!explain_executes(
+            "EXPLAIN (VERBOSE, COSTS off, FORMAT JSON) DELETE FROM t",
+            SqlDialect::Postgres
+        ));
+    }
+
+    #[test]
+    fn functions_in_any_clause_raise_the_risk() {
+        assert_eq!(
+            pg("SELECT a FROM t ORDER BY pg_sleep(1)"),
+            StatementRisk::Write
+        );
+        assert_eq!(
+            pg("SELECT 1 LIMIT (SELECT nextval('s'))"),
+            StatementRisk::Write
+        );
+        assert_eq!(
+            pg("SELECT ARRAY[pg_terminate_backend(1)]"),
+            StatementRisk::Destructive
+        );
+        assert_eq!(
+            pg("SELECT * FROM dblink('c', 'DELETE FROM t') AS x(a int)"),
+            StatementRisk::Write
+        );
+        // A plain EXPLAIN calls nothing.
+        assert_eq!(pg("EXPLAIN SELECT pg_sleep(1)"), StatementRisk::Read);
+        assert_eq!(pg("SELECT now(), lower(a) FROM t"), StatementRisk::Read);
+    }
+
+    #[test]
+    fn safe_dml_walks_sources_and_expressions() {
+        assert!(!is_safe_dml(
+            "INSERT INTO t SELECT pg_terminate_backend(pid) FROM pg_stat_activity",
+            SqlDialect::Postgres
+        ));
+        assert!(!is_safe_dml(
+            "UPDATE t SET a = pg_sleep(1)",
+            SqlDialect::Postgres
+        ));
+        assert!(!is_safe_dml("VACUUM", SqlDialect::Postgres));
+        assert!(is_safe_dml(
+            "INSERT INTO t SELECT a FROM s",
+            SqlDialect::Postgres
+        ));
+        assert!(is_safe_dml(
+            "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+            SqlDialect::Postgres
+        ));
+    }
+
+    #[test]
+    fn pragma_with_an_argument_to_a_setting_is_a_write() {
+        let lite = |sql| classify(sql, SqlDialect::Sqlite);
+        assert_eq!(lite("PRAGMA user_version(42)"), StatementRisk::Write);
+        assert_eq!(lite("PRAGMA journal_mode(DELETE)"), StatementRisk::Write);
+        assert_eq!(lite("PRAGMA optimize"), StatementRisk::Write);
+        assert_eq!(lite("PRAGMA user_version"), StatementRisk::Read);
+        assert_eq!(lite("PRAGMA table_info(t)"), StatementRisk::Read);
+        assert!(looks_like_pragma_read("PRAGMA main.index_list(\"t\")"));
+        assert!(!looks_like_pragma_read("PRAGMA journal_mode = WAL"));
+        assert!(!looks_like_pragma_read("PRAGMA writable_schema(1)"));
+    }
+
+    #[test]
+    fn read_safe_set_is_session_scope_and_listed() {
+        assert!(is_read_safe_set(
+            "SET search_path TO public",
+            SqlDialect::Postgres
+        ));
+        assert!(is_read_safe_set(
+            "SET TIME ZONE 'UTC'",
+            SqlDialect::Postgres
+        ));
+        assert!(is_read_safe_set(
+            "SET @@session.time_zone = '+00:00'",
+            SqlDialect::Mysql
+        ));
+        assert!(is_read_safe_set("SET @a = 1", SqlDialect::Mysql));
+        for (sql, dialect) in [
+            ("SET statement_timeout = 0", SqlDialect::Postgres),
+            ("SET ROLE admin", SqlDialect::Postgres),
+            ("SET TRANSACTION READ WRITE", SqlDialect::Postgres),
+            ("SET GLOBAL time_zone = '+00:00'", SqlDialect::Mysql),
+            ("SET sql_mode = ''", SqlDialect::Mysql),
+            ("SET @a = (SELECT SLEEP(1))", SqlDialect::Mysql),
+            ("SELECT 1", SqlDialect::Postgres),
+        ] {
+            assert!(!is_read_safe_set(sql, dialect), "{sql}");
+        }
     }
 
     #[test]
