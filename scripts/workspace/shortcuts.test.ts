@@ -4,8 +4,6 @@ import {
 	openDialogCount,
 	pushDialog,
 } from '../../src/lib/core/ui/dialog-stack'
-import { isModChord } from '../../src/lib/core/util/platform'
-import { appKeyCommand } from '../../src/lib/features/shortcuts/app-keys'
 import {
 	CLOSED_TAB_LIMIT,
 	closedTabEntry,
@@ -14,107 +12,89 @@ import {
 	reopenTab,
 	takeClosed,
 } from '../../src/lib/features/workspace/session/closed-tabs'
-import {
-	mountWorkspaceShortcuts,
-	workspaceChord,
-} from '../../src/lib/features/workspace/shell/shortcuts'
 import type { WorkspaceTab } from '../../src/lib/features/workspace/session/types'
+import { keymapHarness, type Harness } from './keymap-harness'
 
-const cmd = {
-	metaKey: true,
-	ctrlKey: false,
-	altKey: false,
-	shiftKey: false,
-	code: 'KeyW',
-	key: 'w',
-}
+const cmd = { metaKey: true }
 
-describe('command modifier', () => {
-	it('is cmd alone on the Mac and ctrl alone elsewhere', () => {
-		expect(isModChord({ metaKey: true, ctrlKey: false }, true)).toBe(true)
-		expect(isModChord({ metaKey: false, ctrlKey: true }, true)).toBe(false)
-		expect(isModChord({ metaKey: true, ctrlKey: true }, true)).toBe(false)
-		expect(isModChord({ metaKey: false, ctrlKey: true }, false)).toBe(true)
-		expect(isModChord({ metaKey: true, ctrlKey: false }, false)).toBe(false)
-	})
+const harnesses: Harness[] = []
+afterEach(() => {
+	for (const h of harnesses.splice(0)) h.dispose()
 })
+
+function harness(opts: Parameters<typeof keymapHarness>[0]): Harness {
+	const h = keymapHarness(opts)
+	harnesses.push(h)
+	return h
+}
 
 describe('workspace tab chords', () => {
 	it('maps each chord to one command', () => {
-		expect(workspaceChord({ ...cmd, code: 'KeyT' }, true)).toBe('new-query')
-		expect(workspaceChord({ ...cmd, code: 'KeyS' }, true)).toBe('save')
-		expect(workspaceChord({ ...cmd, code: 'KeyW' }, true)).toBe('close-tab')
-		expect(workspaceChord({ ...cmd, code: 'KeyO' }, true)).toBe('open-connection')
-		expect(workspaceChord({ ...cmd, shiftKey: true, code: 'KeyT' }, true)).toBe(
-			'reopen-tab',
-		)
-		expect(workspaceChord({ ...cmd, shiftKey: true, code: 'KeyW' }, true)).toBeNull()
-		expect(
-			workspaceChord({ ...cmd, metaKey: false, ctrlKey: true, code: 'KeyT' }, true),
-		).toBeNull()
+		const h = harness({ mac: true, nativeMenu: false })
+		expect(h.press({ ...cmd, code: 'KeyT' })).toEqual(['workspace.new-query'])
+		expect(h.press({ ...cmd, code: 'KeyS' })).toEqual(['workspace.save'])
+		expect(h.press({ ...cmd, code: 'KeyW' })).toEqual(['workspace.close-tab'])
+		expect(h.press({ ...cmd, code: 'KeyO' })).toEqual(['workspace.open-connection'])
+		expect(h.press({ ...cmd, shiftKey: true, code: 'KeyT' })).toEqual([
+			'workspace.reopen-tab',
+		])
+		expect(h.press({ ...cmd, shiftKey: true, code: 'KeyW' })).toEqual([])
+		expect(h.press({ ctrlKey: true, code: 'KeyT' })).toEqual([])
 	})
 
-	function press(code: string, shiftKey = false) {
-		document.body.dispatchEvent(
-			new KeyboardEvent('keydown', {
-				code,
-				metaKey: true,
-				shiftKey,
-				bubbles: true,
-				cancelable: true,
-			}),
-		)
-	}
-
 	it('runs a keydown command once in the browser preview', () => {
-		const close = vi.fn()
-		const reopen = vi.fn()
-		const stop = mountWorkspaceShortcuts({
-			commands: { 'close-tab': close, 'reopen-tab': reopen },
-			isTauri: false,
-			mac: true,
-		})
-		press('KeyW')
-		press('KeyT', true)
-		stop()
-		press('KeyW')
-		expect(close).toHaveBeenCalledTimes(1)
-		expect(reopen).toHaveBeenCalledTimes(1)
+		const h = harness({ mac: true, nativeMenu: false })
+		h.press({ ...cmd, code: 'KeyW' })
+		h.press({ ...cmd, code: 'KeyT', shiftKey: true })
+		expect(h.ran).toEqual(['workspace.close-tab', 'workspace.reopen-tab'])
 	})
 
 	it('leaves tab chords to the native menu in the desktop app', () => {
-		const close = vi.fn()
-		const stop = mountWorkspaceShortcuts({
-			commands: { 'close-tab': close },
-			isTauri: true,
-			mac: true,
-		})
-		press('KeyW')
-		stop()
-		expect(close).not.toHaveBeenCalled()
+		const h = harness({ mac: true, nativeMenu: true })
+		for (const code of ['KeyT', 'KeyS', 'KeyW', 'KeyO']) h.press({ ...cmd, code })
+		h.press({ ...cmd, code: 'KeyT', shiftKey: true })
+		expect(h.ran).toEqual([])
+		expect(h.runMenu('workspace_close_tab')).toEqual(['workspace.close-tab'])
+		expect(h.runMenu('workspace_reopen_tab')).toEqual(['workspace.reopen-tab'])
+		expect(h.runMenu('workspace_save_query')).toEqual(['workspace.save'])
 	})
 })
 
 describe('app chords', () => {
-	const desktop = { mac: true, nativeMenu: true }
-	const browser = { mac: true, nativeMenu: false }
-
 	it('keeps the reset confirm on keydown everywhere', () => {
-		const reset = { ...cmd, shiftKey: true, code: 'KeyR', key: 'R' }
-		expect(appKeyCommand(reset, desktop)).toBe('reset')
-		expect(appKeyCommand(reset, browser)).toBe('reset')
-		expect(appKeyCommand({ ...reset, metaKey: false, ctrlKey: true }, desktop)).toBeNull()
+		for (const nativeMenu of [true, false]) {
+			const h = harness({ mac: true, nativeMenu })
+			expect(h.press({ ...cmd, shiftKey: true, code: 'KeyR', key: 'R' })).toEqual([
+				'app.reset',
+			])
+			expect(h.press({ ctrlKey: true, shiftKey: true, code: 'KeyR' })).toEqual([])
+			h.dispose()
+		}
 	})
 
 	it('leaves settings and zoom to the menu in the desktop app', () => {
-		const comma = { ...cmd, code: 'Comma', key: ',' }
-		const plus = { ...cmd, code: 'Equal', key: '=' }
-		expect(appKeyCommand(comma, desktop)).toBeNull()
-		expect(appKeyCommand(plus, desktop)).toBeNull()
-		expect(appKeyCommand(comma, browser)).toBe('settings')
-		expect(appKeyCommand(plus, browser)).toBe('zoom-in')
-		expect(appKeyCommand({ ...cmd, code: 'Digit0', key: '0' }, browser)).toBe('zoom-reset')
-		expect(appKeyCommand({ ...cmd, code: 'KeyR', key: 'r' }, browser)).toBeNull()
+		const only = ['app.settings', 'app.zoom-in', 'app.zoom-reset', 'app.reset']
+		const desktop = harness({ mac: true, nativeMenu: true, only })
+		expect(desktop.press({ ...cmd, code: 'Comma', key: ',' })).toEqual([])
+		expect(desktop.press({ ...cmd, code: 'Equal', key: '=' })).toEqual([])
+		expect(desktop.runMenu('app_settings')).toEqual(['app.settings'])
+		expect(desktop.runMenu('view_zoom_in')).toEqual(['app.zoom-in'])
+		desktop.dispose()
+
+		const browser = harness({ mac: true, nativeMenu: false, only })
+		expect(browser.press({ ...cmd, code: 'Comma', key: ',' })).toEqual(['app.settings'])
+		expect(browser.press({ ...cmd, code: 'Equal', key: '=' })).toEqual(['app.zoom-in'])
+		expect(browser.press({ ...cmd, code: 'Digit0', key: '0' })).toEqual(['app.zoom-reset'])
+		expect(browser.press({ ...cmd, code: 'KeyR', key: 'r' })).toEqual([])
+	})
+
+	it('lets an open diagram take the zoom chords from the app', () => {
+		const h = harness({
+			mac: true,
+			nativeMenu: false,
+			only: ['app.zoom-in', 'er.zoom-in'],
+		})
+		expect(h.press({ ...cmd, code: 'Equal', key: '=' })).toEqual(['er.zoom-in'])
 	})
 })
 

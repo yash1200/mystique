@@ -5,6 +5,7 @@
 		TablePreviewFilter,
 		TablePreviewSortDir,
 	} from '#core/contracts'
+	import { commands, type CommandContext } from '#core/commands'
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
 	import { fetchEngineLargeValue, unlockEngineWrites } from '#core/ipc'
 	import { copyTextToClipboard, latestRun } from '#core/util'
@@ -20,7 +21,7 @@
 		tabEditsAreDirty,
 		type SaveOutcome,
 	} from '#features/workspace/session'
-	import { appPrefs } from '#lib/app'
+	import { appPrefs, cmd } from '#lib/app'
 	import { onMount, tick, untrack } from 'svelte'
 	import {
 		distinctColumnValues,
@@ -68,7 +69,7 @@
 		undoEdit,
 		type GridEditSnapshot,
 	} from '../edit-history'
-	import { accelPlatform, gridShortcutBlocked, isGridAccel } from '../grid-keys'
+	import { gridShortcutBlocked } from '../grid-keys'
 	import { applyCellBatch, type CellEdit } from '../paste-batch'
 	import { formatSelectionStats, selectionStats } from '../selection-stats'
 	import { valueToEditorText } from '../cell-view'
@@ -2604,76 +2605,41 @@
 		}
 	}
 
-	// Global shortcuts + File→Save while this table is the active tab.
+	/** Grid chords stay out of text fields other than the cell being edited. */
+	function gridKeysAllowed({ focus }: CommandContext): boolean {
+		const target = focus?.target instanceof HTMLElement ? focus.target : null
+		const inCellEditor = !!(
+			editing &&
+			target &&
+			(target === inputEl || inputEl?.contains(target))
+		)
+		return !gridShortcutBlocked({
+			modalOpen: cellModal != null,
+			inCellEditor,
+			tagName: target?.tagName,
+			contentEditable: target?.isContentEditable,
+			inDialog: !!target?.closest('[role="dialog"]'),
+		})
+	}
+
+	// Table commands and File→Save while this table is the active tab.
 	onMount(() => {
-		const onKey = (e: KeyboardEvent) => {
-			const platform = accelPlatform(
-				typeof navigator === 'undefined' ? '' : navigator.platform,
-			)
-			const key = e.key.toLowerCase()
-			const undoKey = key === 'z' && (platform === 'mac' ? e.metaKey && !e.ctrlKey : e.ctrlKey || e.metaKey) && !e.altKey
-			if (!undoKey && !isGridAccel(e, platform)) return
-			if (key !== 's' && key !== 'n' && key !== 'd' && key !== 'r' && key !== 'z') return
-			const target = e.target instanceof HTMLElement ? e.target : null
-			const inCellEditor = !!(
-				editing &&
-				target &&
-				(target === inputEl || inputEl?.contains(target))
-			)
-			if (
-				gridShortcutBlocked({
-					modalOpen: cellModal != null,
-					inCellEditor,
-					tagName: target?.tagName,
-					contentEditable: target?.isContentEditable,
-					inDialog: !!target?.closest('[role="dialog"]'),
-				})
-			) {
-				return
-			}
-			if (key === 'z') {
-				if (inCellEditor) return
-				e.preventDefault()
-				e.stopPropagation()
-				if (e.shiftKey) redoPending()
-				else undoPending()
-				return
-			}
-			if (e.shiftKey) return
-			if (key === 's') {
-				e.preventDefault()
-				e.stopPropagation()
-				void saveChanges()
-				return
-			}
-			if (key === 'n') {
-				e.preventDefault()
-				e.stopPropagation()
-				addNewRow()
-				return
-			}
-			if (key === 'd') {
-				e.preventDefault()
-				e.stopPropagation()
-				cloneFocusedRow()
-				return
-			}
-			if (key === 'r') {
-				// Block browser reload; refresh table data instead.
-				e.preventDefault()
-				e.stopPropagation()
-				void refresh()
-			}
-		}
-		const onMenuSave = () => {
-			void saveChanges()
-		}
-		window.addEventListener('keydown', onKey, true)
-		window.addEventListener('mystique:save-table', onMenuSave)
+		const unregisterCommands = commands.register([
+			{ ...cmd.save, run: () => void saveChanges() },
+			{ ...cmd.gridNewRow, when: gridKeysAllowed, run: () => addNewRow() },
+			{
+				...cmd.gridDuplicateRow,
+				when: gridKeysAllowed,
+				run: () => cloneFocusedRow(),
+			},
+			// Instead of reloading the page.
+			{ ...cmd.gridRefresh, when: gridKeysAllowed, run: () => void refresh() },
+			{ ...cmd.gridUndo, when: gridKeysAllowed, run: () => undoPending() },
+			{ ...cmd.gridRedo, when: gridKeysAllowed, run: () => redoPending() },
+		])
 		const unregisterSaver = tabId ? registerTabSaver(tabId, saveForPrompt) : null
 		return () => {
-			window.removeEventListener('keydown', onKey, true)
-			window.removeEventListener('mystique:save-table', onMenuSave)
+			unregisterCommands()
 			unregisterSaver?.()
 			settleSave({ ok: false, error: null })
 		}

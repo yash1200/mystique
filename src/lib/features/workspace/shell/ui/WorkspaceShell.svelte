@@ -10,10 +10,10 @@
 		closeEngineSession,
 		commitPinnedTab,
 		isTauri,
-		listenNativeMenu,
 		rollbackPinnedTab,
 		setNativeMenu,
 	} from '#core/ipc'
+	import { commands } from '#core/commands'
 	import { closeTopDialog } from '#core/ui'
 	import { setAppTitle } from '#core/util'
 	import {
@@ -27,7 +27,7 @@
 		SshHostKeyModal,
 		testSessionWithPassword,
 	} from '#features/connections'
-	import { appChrome } from '#lib/app'
+	import { appChrome, cmd } from '#lib/app'
 	import {
 		catalogColumnsCache,
 		ensureCatalogForActiveSession,
@@ -53,7 +53,6 @@
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
-	import { mountWorkspaceShortcuts } from '../shortcuts'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import OpenTransactionModal from './OpenTransactionModal.svelte'
 	import type { SideNavMode } from './SessionsRail.svelte'
@@ -420,18 +419,6 @@
 		requestCloseTab(id)
 	}
 
-	function shortcutSave() {
-		const tab = workspaceSession.activeTab
-		if (!tab) return
-		if (tab.kind === 'query') {
-			void querySave.saveActive()
-			return
-		}
-		if (tab.kind === 'table') {
-			window.dispatchEvent(new Event('mystique:save-table'))
-		}
-	}
-
 	$effect(() => {
 		setNativeMenu({
 			page: 'workspace',
@@ -441,65 +428,58 @@
 		})
 	})
 
+	function quickConnect(id: string) {
+		if (workspaceSession.sessions.some((session) => session.profile.id === id)) {
+			workspaceSession.setActiveConnection(id)
+			return
+		}
+		const profile = connectionProfiles.profile(id)
+		if (profile) void connectAdditional(profile)
+	}
+
 	onMount(() => {
 		const openPicker = () => {
 			pickerError = null
 			pickerOpen = true
 		}
-		const unsubKeys = mountWorkspaceShortcuts({
-			commands: {
-				'new-query': shortcutNewQuery,
-				'close-tab': shortcutCloseTab,
-				'reopen-tab': () => void workspaceSession.reopenClosedTab(),
-				save: shortcutSave,
-				'open-connection': openPicker,
+		const unregister = commands.register([
+			{ ...cmd.newQuery, run: shortcutNewQuery },
+			{ ...cmd.closeTab, run: shortcutCloseTab },
+			{ ...cmd.reopenTab, run: () => void workspaceSession.reopenClosedTab() },
+			// A table tab's grid registers its own save while it is mounted.
+			{
+				...cmd.save,
+				when: () => workspaceSession.activeTab?.kind === 'query',
+				run: () => void querySave.saveActive(),
 			},
-			isTauri: isTauri(),
-		})
-		let unsubMenu = () => {}
-		let cancelled = false
-		void listenNativeMenu({
-			'workspace-connection-details': () => {
-				window.dispatchEvent(new Event('mystique:connection-details'))
+			{ ...cmd.openConnection, run: openPicker },
+			{
+				...cmd.refreshCatalog,
+				run: () => {
+					if (activeId) void refreshConnection(activeId)
+				},
 			},
-			'workspace-copy-url': () => {
-				window.dispatchEvent(new Event('mystique:copy-connection-url'))
+			{
+				...cmd.disconnect,
+				run: () => {
+					if (activeId) handleDisconnect(activeId)
+				},
 			},
-			'workspace-refresh-catalog': () => {
-				if (activeId) void refreshConnection(activeId)
+			{ ...cmd.viewExplorer, run: () => setSideMode('explorer') },
+			{ ...cmd.viewSaved, run: () => setSideMode('saved-queries') },
+			{ ...cmd.viewHistory, run: () => setSideMode('history') },
+			{
+				...cmd.openConnectionById,
+				run: ({ args }) => {
+					if (args?.id) quickConnect(args.id)
+				},
 			},
-			'workspace-disconnect': () => {
-				if (activeId) handleDisconnect(activeId)
-			},
-			'workspace-go-home': () => {
-				window.dispatchEvent(new Event('mystique:go-home'))
-			},
-			'workspace-view-explorer': () => setSideMode('explorer'),
-			'workspace-view-saved': () => setSideMode('saved-queries'),
-			'workspace-view-history': () => setSideMode('history'),
-		}).then((u) => {
-			if (cancelled) u()
-			else unsubMenu = u
-		})
+		])
 		const unsubHealth = startSessionHealthWatch()
-		const onQuickConnect = (event: Event) => {
-			const id = (event as CustomEvent<{ id?: string }>).detail?.id
-			if (!id) return
-			if (workspaceSession.sessions.some((session) => session.profile.id === id)) {
-				workspaceSession.setActiveConnection(id)
-				return
-			}
-			const profile = connectionProfiles.profile(id)
-			if (profile) void connectAdditional(profile)
-		}
-		window.addEventListener('mystique:quick-open-connect', onQuickConnect)
 
 		return () => {
-			cancelled = true
-			unsubKeys()
-			unsubMenu()
+			unregister()
 			unsubHealth()
-			window.removeEventListener('mystique:quick-open-connect', onQuickConnect)
 		}
 	})
 </script>

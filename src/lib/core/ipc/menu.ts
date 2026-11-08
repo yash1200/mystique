@@ -28,16 +28,3 @@ export async function listenMenuCommands(
 	const { listen } = await import('@tauri-apps/api/event')
 	return listen<string>(MENU_COMMAND_EVENT, (event) => onItem(event.payload))
 }
-
-export async function listenNativeMenu(
-	handlers: Record<string, () => void>,
-): Promise<() => void> {
-	if (!isTauri()) return () => {}
-	const { listen } = await import('@tauri-apps/api/event')
-	const unsubs = await Promise.all(
-		Object.entries(handlers).map(([name, fn]) => listen(name, () => fn())),
-	)
-	return () => {
-		for (const u of unsubs) u()
-	}
-}

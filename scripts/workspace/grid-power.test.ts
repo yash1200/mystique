@@ -18,7 +18,7 @@ import {
 } from '../../src/lib/features/workspace/grid/column-layout.ts'
 import { columnCompletions } from '../../src/lib/features/workspace/grid/column-complete.ts'
 import { pushUndo, undoEdit, type GridEditSnapshot } from '../../src/lib/features/workspace/grid/edit-history.ts'
-import { gridShortcutBlocked, isGridAccel } from '../../src/lib/features/workspace/grid/grid-keys.ts'
+import { gridShortcutBlocked } from '../../src/lib/features/workspace/grid/grid-keys.ts'
 import { applyCellBatch } from '../../src/lib/features/workspace/grid/paste-batch.ts'
 import {
 	formatSelectionStats,
@@ -95,18 +95,6 @@ test('undo restores a pending edit and stops at the cap', () => {
 })
 
 test('a filter input and an open modal block grid shortcuts', () => {
-	assert.equal(
-		isGridAccel({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, 'mac'),
-		true,
-	)
-	assert.equal(
-		isGridAccel({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, 'mac'),
-		false,
-	)
-	assert.equal(
-		isGridAccel({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, 'other'),
-		true,
-	)
 	assert.equal(
 		gridShortcutBlocked({ modalOpen: true, inCellEditor: false, tagName: 'DIV' }),
 		true,

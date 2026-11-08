@@ -1,29 +1,31 @@
 <script lang="ts">
-	import { isTauri, listenNativeMenu } from '#core/ipc'
+	import { commands, mountCommands } from '#core/commands'
 	import {
 		applyPreferredUiScale,
 		applyUiScale,
 		blockHistoryBackspace,
-		isMacPlatform,
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
 	import { PasswordPromptModal } from '#features/connections'
-	import { appSettingsUi } from '#features/settings'
-	import {
-		appKeyCommand,
-		appShortcutsUi,
-		KeyboardShortcutsModal,
-	} from '#features/shortcuts'
+	import { appSettingsUi, type SettingsSection } from '#features/settings'
+	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
-	import { mountAppChords, QuickOpen } from '#features/workspace/quick-open'
+	import {
+		QuickOpen,
+		registerQuickOpenCommands,
+	} from '#features/workspace/quick-open'
 	import { resetGuard } from '#features/workspace/session'
 	import { ResetConfirmModal } from '#features/workspace/shell'
-	import { appPrefs } from '#lib/app'
+	import { appPrefs, cmd, KEYMAP } from '#lib/app'
 	import { onMount } from 'svelte'
 	import '../app.css'
 
 	let { children } = $props()
+
+	// The keymap is known before anything mounts, so the shortcuts view can
+	// list every command.
+	commands.declare(KEYMAP)
 
 	function zoomBy(delta: number) {
 		const cur = Number(document.documentElement.dataset.uiScale) || 1
@@ -46,51 +48,28 @@
 		applyPreferredUiScale()
 		void setAppTitle()
 
-		const keyContext = { mac: isMacPlatform(), nativeMenu: isTauri() }
-		const onKey = (e: KeyboardEvent) => {
-			const command = appKeyCommand(e, keyContext)
-			if (!command) return
-			e.preventDefault()
-			if (command === 'reset') {
-				e.stopImmediatePropagation()
-				resetGuard.request()
-			} else if (command === 'settings') {
-				e.stopImmediatePropagation()
-				appSettingsUi.show()
-			} else if (command === 'zoom-in') zoomBy(0.1)
-			else if (command === 'zoom-out') zoomBy(-0.1)
-			else zoomReset()
-		}
-		window.addEventListener('keydown', onKey, true)
+		const unmountCommands = mountCommands()
+		const unregister = commands.register([
+			{
+				...cmd.settings,
+				run: ({ args }) =>
+					appSettingsUi.show(args?.section as SettingsSection | undefined),
+			},
+			{ ...cmd.shortcuts, run: () => appShortcutsUi.show() },
+			{ ...cmd.reset, run: () => resetGuard.request() },
+			{ ...cmd.zoomIn, run: () => zoomBy(0.1) },
+			{ ...cmd.zoomOut, run: () => zoomBy(-0.1) },
+			{ ...cmd.zoomReset, run: zoomReset },
+		])
+		const unregisterQuickOpen = registerQuickOpenCommands()
 		window.addEventListener('keydown', blockHistoryBackspace, true)
-		const unsubChords = mountAppChords()
-
-		const unsubs: Array<() => void> = []
-		let cancelled = false
-		if (isTauri()) {
-			void listenNativeMenu({
-				'ui-zoom-in': () => zoomBy(0.1),
-				'ui-zoom-out': () => zoomBy(-0.1),
-				'ui-zoom-reset': zoomReset,
-				'app-open-settings': () => appSettingsUi.show(),
-				'app-open-shortcuts': () => appShortcutsUi.show(),
-			})
-				.then((u) => {
-					if (cancelled) u()
-					else unsubs.push(u)
-				})
-				.catch(() => {
-					/* optional */
-				})
-		}
 
 		return () => {
-			cancelled = true
 			unwatchScheme()
-			window.removeEventListener('keydown', onKey, true)
+			unmountCommands()
+			unregister()
+			unregisterQuickOpen()
 			window.removeEventListener('keydown', blockHistoryBackspace, true)
-			unsubChords()
-			for (const u of unsubs) u()
 		}
 	})
 </script>

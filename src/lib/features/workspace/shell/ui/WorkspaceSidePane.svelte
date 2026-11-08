@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { commands } from '#core/commands'
 	import { Icon, IconButton, Resizable } from '#core/ui'
 	import {
 		createCatalogGroup,
@@ -26,6 +27,7 @@
 	} from '#features/workspace/query'
 	import {
 		appPrefs,
+		cmd,
 		EXPLORER_PANEL_WIDTH_DEFAULT,
 		EXPLORER_PANEL_WIDTH_MAX,
 		EXPLORER_PANEL_WIDTH_MIN,
@@ -76,14 +78,13 @@
 			).supportsExplorer,
 	)
 
-	onMount(() => {
-		const onDetails = () => {
-			if (workspaceSession.activeSession) infoOpen = true
-		}
-		window.addEventListener('mystique:connection-details', onDetails)
-		return () =>
-			window.removeEventListener('mystique:connection-details', onDetails)
-	})
+	onMount(() =>
+		commands.register({
+			...cmd.connectionDetails,
+			when: () => workspaceSession.activeSession != null,
+			run: () => (infoOpen = true),
+		}),
+	)
 
 	$effect(() => {
 		void refreshSavedQueries(activeId)

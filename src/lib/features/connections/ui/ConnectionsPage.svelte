@@ -5,10 +5,10 @@
 		ConnectionProfile,
 		SshHostKeyPrompt,
 	} from '#core/contracts'
+	import { commands } from '#core/commands'
 	import {
 		formatEngineConnectionUrl,
 		isTauri,
-		listenNativeMenu,
 		setNativeMenu,
 		testEngineConnection,
 	} from '#core/ipc'
@@ -16,7 +16,8 @@
 	import { copyTextToClipboard, setAppTitle } from '#core/util'
 	import { showToast } from '#features/toast'
 	import { workspaceSession } from '#features/workspace/session'
-	import { appChrome } from '#lib/app'
+	import { OPEN_URL_IMPORT } from '#engines'
+	import { appChrome, cmd } from '#lib/app'
 	import { onMount } from 'svelte'
 	import {
 		draftFromProfile,
@@ -140,7 +141,7 @@
 	function openImportUrl() {
 		if (!creating || editing) enterCreateMode()
 		window.setTimeout(() => {
-			window.dispatchEvent(new Event('mystique:import-connection-url'))
+			commands.run(OPEN_URL_IMPORT)
 		}, 0)
 	}
 
@@ -156,14 +157,9 @@
 	}
 
 	/** Esc on a selected connection returns to the new-connection landing. */
-	function onHomeKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || e.repeat || e.isComposing) return
-		if (e.defaultPrevented) return
-		if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
-		if (creating || editing || !selected) return
-		if (pendingDelete || overlayBlocksEscape()) return
-		e.preventDefault()
-		enterCreateMode()
+	function canGoBackToNew(): boolean {
+		if (creating || editing || !selected) return false
+		return !pendingDelete && !overlayBlocksEscape()
 	}
 
 	function startEdit() {
@@ -549,23 +545,28 @@
 
 	onMount(() => {
 		void setAppTitle()
-		let unsubMenu = () => {}
-		let cancelled = false
-		void listenNativeMenu({
-			'home-new-connection': startCreate,
-			'home-import-url': openImportUrl,
-			'home-connect': () => void connectSelected(),
-			'home-edit': startEdit,
-			'home-duplicate': () => void duplicateSelected(),
-			'home-copy-url': () => {
-				if (selected) void copyConnectionUrl(selected.id)
+		const unregister = commands.register([
+			{ ...cmd.homeBack, when: canGoBackToNew, run: enterCreateMode },
+			{ ...cmd.homeNewConnection, run: startCreate },
+			{ ...cmd.homeImportUrl, run: openImportUrl },
+			{ ...cmd.homeConnect, run: () => void connectSelected() },
+			{ ...cmd.homeEdit, run: startEdit },
+			{ ...cmd.homeDuplicate, run: () => void duplicateSelected() },
+			{
+				...cmd.homeCopyUrl,
+				run: () => {
+					if (selected) void copyConnectionUrl(selected.id)
+				},
 			},
-			'home-delete': requestDeleteSelected,
-			'home-refresh': () => void refreshConnections(),
-		}).then((u) => {
-			if (cancelled) u()
-			else unsubMenu = u
-		})
+			{ ...cmd.homeDelete, run: requestDeleteSelected },
+			{ ...cmd.homeRefresh, run: () => void refreshConnections() },
+			{
+				...cmd.openConnectionById,
+				run: ({ args }) => {
+					if (args?.id) void connectById(args.id)
+				},
+			},
+		])
 		;(async () => {
 			loading = true
 			loadError = null
@@ -581,20 +582,9 @@
 				loading = false
 			}
 		})()
-		const onQuickConnect = (event: Event) => {
-			const id = (event as CustomEvent<{ id?: string }>).detail?.id
-			if (id) void connectById(id)
-		}
-		window.addEventListener('mystique:quick-open-connect', onQuickConnect)
-		return () => {
-			cancelled = true
-			unsubMenu()
-			window.removeEventListener('mystique:quick-open-connect', onQuickConnect)
-		}
+		return unregister
 	})
 </script>
-
-<svelte:window onkeydown={onHomeKeydown} />
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
 	{#if appChrome.homeSidebarOpen}

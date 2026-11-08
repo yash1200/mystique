@@ -1,15 +1,14 @@
+import { commands } from '#core/commands'
 import { tablePreview } from '#features/workspace/grid'
 import {
 	findCatalogTable,
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
-import { appChrome } from '#lib/app'
+import { appChrome, cmd } from '#lib/app'
 import { goto } from '$app/navigation'
 import { tick } from 'svelte'
 import type { QuickOpenCommand, QuickOpenItem } from './items'
-
-const CONNECT_EVENT = 'mystique:quick-open-connect'
 
 export async function runQuickOpenItem(item: QuickOpenItem) {
 	if (item.kind === 'command' && item.command) {
@@ -119,7 +118,8 @@ async function openConnection(id: string) {
 		await focusConnection(id)
 		return
 	}
-	window.dispatchEvent(new CustomEvent(CONNECT_EVENT, { detail: { id } }))
+	// Home or the workspace connects it, whichever is mounted.
+	commands.run(cmd.openConnectionById, { id })
 }
 
 async function openCatalogObject(connectionId: string, tableId: string) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { commands } from '#core/commands'
 	import type { ConnectedSession } from '#core/contracts'
 	import { formatEngineConnectionUrl, isTauri } from '#core/ipc'
 	import {
@@ -14,6 +15,7 @@
 	import { SettingsModal } from '#features/settings'
 	import { appShortcutsUi } from '#features/shortcuts'
 	import { showToast } from '#features/toast'
+	import { cmd } from '#lib/app'
 	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
 	import {
@@ -193,18 +195,18 @@
 		if (action === 'disconnect') ondisconnect(id)
 	}
 
-	onMount(() => {
-		const onGoHome = () => requestLeaveHome()
-		const onCopy = () => {
-			if (activeId) void copyConnectionUrl(activeId)
-		}
-		window.addEventListener('mystique:go-home', onGoHome)
-		window.addEventListener('mystique:copy-connection-url', onCopy)
-		return () => {
-			window.removeEventListener('mystique:go-home', onGoHome)
-			window.removeEventListener('mystique:copy-connection-url', onCopy)
-		}
-	})
+	onMount(() =>
+		commands.register([
+			{ ...cmd.goHome, run: () => requestLeaveHome() },
+			{
+				...cmd.copyConnectionUrl,
+				when: () => activeId != null,
+				run: () => {
+					if (activeId) void copyConnectionUrl(activeId)
+				},
+			},
+		]),
+	)
 </script>
 
 <aside

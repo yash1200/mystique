@@ -478,43 +478,21 @@ fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     )
 }
 
+/// The one event every frontend menu item sends; the payload is the item id.
+/// The frontend runs the command bound to that id (`src/lib/core/commands`).
+const MENU_COMMAND_EVENT: &str = "menu-command";
+
 pub fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "window_close" => close_focused_window(app),
-        "app_settings" => emit_to_webviews(app, "app-open-settings"),
-        "app_shortcuts" | "help_shortcuts" => emit_to_webviews(app, "app-open-shortcuts"),
-        "home_new_connection" => emit_to_webviews(app, "home-new-connection"),
-        "home_import_url" => emit_to_webviews(app, "home-import-url"),
-        "home_connect" => emit_to_webviews(app, "home-connect"),
-        "home_edit" => emit_to_webviews(app, "home-edit"),
-        "home_duplicate" => emit_to_webviews(app, "home-duplicate"),
-        "home_copy_url" => emit_to_webviews(app, "home-copy-url"),
-        "home_delete" => emit_to_webviews(app, "home-delete"),
-        "home_refresh" => emit_to_webviews(app, "home-refresh"),
-        "workspace_close_tab" => emit_to_webviews(app, "workspace-close-tab"),
-        "workspace_reopen_tab" => emit_to_webviews(app, "workspace-reopen-tab"),
-        "workspace_new_query" => emit_to_webviews(app, "workspace-new-query"),
-        "workspace_save_query" => emit_to_webviews(app, "workspace-save-query"),
-        "workspace_open_connection" => emit_to_webviews(app, "workspace-open-connection"),
-        "workspace_connection_details" => emit_to_webviews(app, "workspace-connection-details"),
-        "workspace_copy_url" => emit_to_webviews(app, "workspace-copy-url"),
-        "workspace_refresh_catalog" => emit_to_webviews(app, "workspace-refresh-catalog"),
-        "workspace_disconnect" => emit_to_webviews(app, "workspace-disconnect"),
-        "workspace_go_home" => emit_to_webviews(app, "workspace-go-home"),
-        "workspace_view_explorer" => emit_to_webviews(app, "workspace-view-explorer"),
-        "workspace_view_saved" => emit_to_webviews(app, "workspace-view-saved"),
-        "workspace_view_history" => emit_to_webviews(app, "workspace-view-history"),
-        "view_zoom_in" => emit_to_webviews(app, "ui-zoom-in"),
-        "view_zoom_out" => emit_to_webviews(app, "ui-zoom-out"),
-        "view_zoom_reset" => emit_to_webviews(app, "ui-zoom-reset"),
-        _ => {}
+        _ => emit_menu_command(app, id),
     }
 }
 
 /// `AppHandle::emit` already reaches every webview. Emitting per window too
 /// delivered each menu command more than once.
-fn emit_to_webviews(app: &AppHandle, event: &str) {
-    let _ = app.emit(event, ());
+fn emit_menu_command(app: &AppHandle, id: &str) {
+    let _ = app.emit(MENU_COMMAND_EVENT, id);
 }
 
 fn close_focused_window(app: &AppHandle) {

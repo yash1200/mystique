@@ -1,21 +1,7 @@
 /**
- * Grid accelerators. On macOS, Ctrl stays with the editor (Ctrl+T / Ctrl+O).
+ * When grid chords (⌘N, ⌘D, ⌘R, ⌘Z…) may run. The keys themselves live in the
+ * keymap (`#lib/app`); Ctrl stays with the editor on macOS.
  */
-
-export type AccelPlatform = 'mac' | 'other'
-
-export function accelPlatform(platform: string): AccelPlatform {
-	return /Mac|iPhone|iPad/i.test(platform) ? 'mac' : 'other'
-}
-
-export function isGridAccel(
-	event: { metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean },
-	platform: AccelPlatform,
-): boolean {
-	if (event.altKey || event.shiftKey) return false
-	if (platform === 'mac') return event.metaKey && !event.ctrlKey
-	return (event.ctrlKey || event.metaKey) && !(event.ctrlKey && event.metaKey)
-}
 
 export function gridShortcutBlocked(input: {
 	modalOpen: boolean

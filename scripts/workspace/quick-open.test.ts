@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { sidebarTarget } from '../../src/lib/app/sidebar-target'
 import { SearchGeneration } from '../../src/lib/features/workspace/quick-open/generation'
 import {
@@ -7,8 +7,8 @@ import {
 	type QuickOpenItem,
 	type QuickOpenSource,
 } from '../../src/lib/features/workspace/quick-open/items'
-import { appChord } from '../../src/lib/features/workspace/quick-open/keys'
 import { MATCH_TIER, matchTier } from '../../src/lib/features/workspace/quick-open/score'
+import { keymapHarness, type Harness } from './keymap-harness'
 
 describe('quick open scoring', () => {
 	it('locks the six tiers in order', () => {
@@ -127,60 +127,64 @@ describe('quick open sources', () => {
 })
 
 describe('quick open chords', () => {
-	const base = {
-		metaKey: true,
-		ctrlKey: false,
-		altKey: false,
-		shiftKey: false,
-		repeat: false,
-		code: 'KeyK',
+	const harnesses: Harness[] = []
+	afterEach(() => {
+		for (const h of harnesses.splice(0)) h.dispose()
+		document.body.innerHTML = ''
+	})
+	function keys(mac: boolean): Harness {
+		const h = keymapHarness({ mac, nativeMenu: true })
+		harnesses.push(h)
+		return h
 	}
-
-	const mac = { mac: true }
-	const other = { mac: false }
-	const ctrl = { ...base, metaKey: false, ctrlKey: true }
+	const cmd = { metaKey: true }
+	const ctrl = { ctrlKey: true }
 
 	it('opens on cmd K (ctrl K off the Mac) and leaves P alone', () => {
-		expect(appChord(base, mac)?.type).toBe('quick-open')
-		expect(appChord(ctrl, other)?.type).toBe('quick-open')
-		expect(appChord({ ...base, code: 'KeyP' }, mac)).toBeNull()
-		expect(appChord({ ...ctrl, code: 'KeyP' }, other)).toBeNull()
+		expect(keys(true).press({ ...cmd, code: 'KeyK' })).toEqual(['app.quick-open'])
+		expect(keys(false).press({ ...ctrl, code: 'KeyK' })).toEqual(['app.quick-open'])
+		expect(keys(true).press({ ...cmd, code: 'KeyP' })).toEqual([])
+		expect(keys(false).press({ ...ctrl, code: 'KeyP' })).toEqual([])
 	})
 
 	it('does not treat ctrl as cmd on the Mac', () => {
-		expect(appChord(ctrl, mac)).toBeNull()
-		expect(appChord({ ...ctrl, code: 'KeyL' }, mac)).toBeNull()
-		expect(appChord({ ...base, ctrlKey: true }, mac)).toBeNull()
+		const mac = keys(true)
+		expect(mac.press({ ...ctrl, code: 'KeyK' })).toEqual([])
+		expect(mac.press({ ...ctrl, code: 'KeyL' })).toEqual([])
+		expect(mac.press({ ...cmd, ...ctrl, code: 'KeyK' })).toEqual([])
 		// The Windows key is not the command key.
-		expect(appChord(base, other)).toBeNull()
+		expect(keys(false).press({ ...cmd, code: 'KeyK' })).toEqual([])
 	})
 
 	it('leaves cmd L to the editor', () => {
-		const l = { ...base, code: 'KeyL' }
-		expect(appChord(l, { mac: true, inEditor: true })).toBeNull()
-		expect(appChord(l, { mac: true, inEditor: false })?.type).toBe(
-			'focus-explorer-filter',
-		)
+		const h = keys(true)
+		const editor = document.createElement('div')
+		editor.className = 'cm-editor'
+		const content = document.createElement('div')
+		content.contentEditable = 'true'
+		editor.append(content)
+		document.body.append(editor)
+		expect(h.press({ ...cmd, code: 'KeyL' }, content)).toEqual([])
+		expect(h.press({ ...cmd, code: 'KeyL' })).toEqual(['workspace.focus-filter'])
 	})
 
-	it('toggles the sidebar and focuses a tab', () => {
-		expect(appChord({ ...base, code: 'KeyB' }, mac)?.type).toBe('toggle-sidebar')
-		expect(appChord({ ...base, code: 'KeyL' }, mac)?.type).toBe(
-			'focus-explorer-filter',
-		)
-		expect(appChord({ ...base, code: 'Digit1' }, mac)).toEqual({
-			type: 'focus-tab',
-			index: 0,
-		})
-		expect(appChord({ ...base, shiftKey: true, code: 'BracketRight' }, mac)).toEqual({
-			type: 'cycle-connection',
-			delta: 1,
-		})
+	it('toggles the sidebar, focuses a tab and cycles connections', () => {
+		const h = keys(true)
+		expect(h.press({ ...cmd, code: 'KeyB' })).toEqual(['app.toggle-sidebar'])
+		expect(h.press({ ...cmd, code: 'Digit1' })).toEqual(['workspace.focus-tab'])
+		expect(h.press({ ...cmd, code: 'Digit9' })).toEqual(['workspace.focus-tab'])
+		expect(h.press({ ...cmd, shiftKey: true, code: 'BracketRight', key: '}' })).toEqual([
+			'workspace.next-connection',
+		])
+		expect(h.press({ ...cmd, shiftKey: true, code: 'BracketLeft', key: '{' })).toEqual([
+			'workspace.prev-connection',
+		])
 	})
 
-	it('ignores repeats and zoom reset', () => {
-		expect(appChord({ ...base, repeat: true }, mac)).toBeNull()
-		expect(appChord({ ...base, code: 'Digit0' }, mac)).toBeNull()
+	it('runs a held chord once', () => {
+		const h = keys(true)
+		expect(h.press({ ...cmd, code: 'KeyK' })).toEqual(['app.quick-open'])
+		expect(h.press({ ...cmd, code: 'KeyK', repeat: true })).toEqual([])
 	})
 })
 

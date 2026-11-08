@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { commands } from '#core/commands'
 	import type { ParsedConnectionUrl } from '#core/contracts'
 	import { isTauri, parseEngineConnectionUrl } from '#core/ipc'
+	import { OPEN_URL_IMPORT } from '../commands'
 	import { runtimeFor } from '../products'
 	import { Alert, Button, Icon, IconButton } from '#core/ui'
 	import { DURATION, cn, easeOut, reducedMotion } from '#core/util'
@@ -72,12 +74,7 @@
 		openPanel()
 	}
 
-	onMount(() => {
-		const onMenu = () => openPanel()
-		window.addEventListener('mystique:import-connection-url', onMenu)
-		return () =>
-			window.removeEventListener('mystique:import-connection-url', onMenu)
-	})
+	onMount(() => commands.register({ ...OPEN_URL_IMPORT, run: () => openPanel() }))
 
 	async function pasteFromClipboard() {
 		if (busy || !navigator.clipboard?.readText) {
