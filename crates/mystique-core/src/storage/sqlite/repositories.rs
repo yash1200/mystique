@@ -5,6 +5,7 @@ pub mod grid_layout;
 pub mod history;
 pub mod ids;
 pub mod queries;
+pub mod secrets;
 pub mod settings;
 pub mod ssh_hosts;
 pub mod workspace_tabs;

@@ -1,150 +1,88 @@
-//! OS keychain for connection passwords, with an in-process cache.
+//! Saved secrets: AES-256-GCM envelopes in SQLite, sealed with one vault key.
 //!
-//! SQLite stores only an opaque pointer. The renderer never sees a saved
-//! secret. Cache so macOS does not prompt on every read. Misses are cached
-//! too, and concurrent reads of one account share a single OS read.
+//! The key is the only thing Mystique keeps in the OS keychain
+//! (`dev.mystique.db` / `vault.v1`), or a 0600 file in debug builds; see
+//! [`vault`]. It loads on the first secret use, never at startup, and is cached
+//! for the process, a denied prompt included, until [`SecretStore::retry_unlock`].
+//! The renderer never sees a saved secret.
 //!
-//! Accounts (service `dev.mystique.db`):
-//! - `conn.<install-uuid>.<id>` password
-//! - `conn.<install-uuid>.<id>.ssh` bastion secret
-//! - `conn.<install-uuid>.<id>.tls` TLS client-key passphrase
-//! - `conn.<install-uuid>.<id>.user` legacy Mongo username. New saves keep
-//!   the username in `plugin_config`; connect moves an old item there.
-//!
-//! Older rows keep the pointer they already stored (`conn.<id>`,
-//! `connection.<id>.password`). A null pointer is not a secret.
-//!
-//! One item per secret, not an AES-GCM envelope in SQLite. The stale-id bug
-//! is a null `secret_ref` still reading `conn.<id>`. Gating the read on the
-//! pointer, and putting the install UUID in new account names, closes it.
-//! Envelopes would rewrite every secret (SSH, TLS, Mongo) and are a larger
-//! change than this bug. AI keys stay on their own AES-GCM path.
+//! `connections.secret_ref` and `ssh_secret_ref` hold [`VAULT_SECRET_REF`] when
+//! the secret is an envelope here. Older rows still hold a keychain account
+//! (`conn.<install>.<id>`, `conn.<id>`, `connection.<id>.password`). The first
+//! use reads that item once, moves it into the vault, then deletes it. A null
+//! pointer is not a secret, so no stale `conn.<id>` is ever read for it.
+
+mod envelope;
+pub mod keychain;
+pub mod vault;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::domain::{
-    is_legacy_keychain_pointer, is_placeholder_secret_ref, secret_account, ssh_secret_account,
-    tls_secret_account,
-};
+use rusqlite::Connection;
+
+use crate::domain::{is_legacy_keychain_pointer, is_placeholder_secret_ref, VAULT_SECRET_REF};
 use crate::error::{AppError, AppResult};
+use crate::storage::sqlite::repo;
+use crate::storage::AppDatabase;
 
-const SERVICE: &str = "dev.mystique.db";
+use self::envelope::{Slot, KEY_VERSION};
+use self::keychain::{KeyringBackend, LOCKED_MESSAGE};
+use self::vault::Vault;
 
+pub use self::keychain::VAULT_ACCOUNT;
+pub use self::vault::{
+    default_key_source, FileKeySource, KeySource, MemoryKeySource, Prompt, VaultError, VaultKey,
+    VaultStatus, KEY_FILE_NAME, KEY_SOURCE_ENV,
+};
+
+const INSTALL_ID_KEY: &str = "install_id";
+
+const LEGACY_OFF_MESSAGE: &str = "This password is still in the system keychain from an older version, and this build does not read the keychain (vault key source: file). Enter it again, or run once with MYSTIQUE_VAULT_KEY_SOURCE=keychain to move it.";
+
+/// Keychain items from builds before the vault.
 pub(crate) trait SecretBackend: Send + Sync {
-    fn get(&self, account: &str) -> AppResult<Option<String>>;
-    fn set(&self, account: &str, secret: &str) -> AppResult<()>;
-    fn delete(&self, account: &str) -> AppResult<()>;
+    fn get(&self, account: &str, prompt: Prompt) -> AppResult<Option<String>>;
+    /// Delete without UI. False when absent or when it would need a prompt.
+    fn delete(&self, account: &str) -> AppResult<bool>;
+    /// Account names under the service, attributes only.
+    fn list(&self) -> AppResult<Vec<String>>;
 }
 
+#[derive(Default)]
 struct MemoryBackend {
     inner: Mutex<HashMap<String, String>>,
 }
 
-impl MemoryBackend {
-    fn new() -> Self {
-        Self {
-            inner: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
 impl SecretBackend for MemoryBackend {
-    fn get(&self, account: &str) -> AppResult<Option<String>> {
+    fn get(&self, account: &str, _prompt: Prompt) -> AppResult<Option<String>> {
         let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         Ok(map.get(account).cloned())
     }
 
-    fn set(&self, account: &str, secret: &str) -> AppResult<()> {
+    fn delete(&self, account: &str) -> AppResult<bool> {
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        map.insert(account.to_string(), secret.to_string());
-        Ok(())
+        Ok(map.remove(account).is_some())
     }
 
-    fn delete(&self, account: &str) -> AppResult<()> {
-        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        map.remove(account);
-        Ok(())
+    fn list(&self) -> AppResult<Vec<String>> {
+        let map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(map.keys().cloned().collect())
     }
 }
 
-struct KeyringBackend;
-
-impl SecretBackend for KeyringBackend {
-    fn get(&self, account: &str) -> AppResult<Option<String>> {
-        let entry = keyring_entry(account)?;
-        match entry.get_password() {
-            Ok(p) if !p.is_empty() => Ok(Some(p)),
-            Ok(_) => Ok(None),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(secret_store_err(e)),
-        }
-    }
-
-    fn set(&self, account: &str, secret: &str) -> AppResult<()> {
-        keyring_entry(account)?
-            .set_password(secret)
-            .map_err(secret_store_err)
-    }
-
-    fn delete(&self, account: &str) -> AppResult<()> {
-        match keyring_entry(account)?.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(secret_store_err(e)),
-        }
-    }
-}
-
-fn keyring_entry(account: &str) -> AppResult<keyring::Entry> {
-    ensure_native_keyring()?;
-    keyring::Entry::new(SERVICE, account).map_err(secret_store_err)
-}
-
-/// keyring 3 has no default store. Missing features → in-process mock →
-/// save appears to work (our cache) then the secret is gone after restart.
-fn ensure_native_keyring() -> AppResult<()> {
-    use keyring::credential::CredentialPersistence;
-    match keyring::default::default_credential_builder().persistence() {
-        CredentialPersistence::UntilDelete | CredentialPersistence::UntilReboot => Ok(()),
-        CredentialPersistence::EntryOnly | CredentialPersistence::ProcessOnly => {
-            Err(secret_store_err(
-                "keyring is using a non-persistent store; enable apple-native, windows-native, or sync-secret-service",
-            ))
-        }
-        _ => Ok(()),
-    }
-}
-
-fn secret_store_err(err: impl std::fmt::Display) -> AppError {
-    AppError::SecretStore(format!(
-        "OS secret store unavailable ({err}). Mystique will not store passwords in the app database."
-    ))
-}
-
-/// Connection-password store. Pointer in SQLite; bytes in the OS keychain.
-pub struct SecretStore {
+/// Old keychain items, read at most once each per process. Misses are cached
+/// too, and parallel reads of one account share a single OS read.
+struct LegacyItems {
     backend: Arc<dyn SecretBackend>,
     /// `None` is a cached miss.
     cache: Mutex<HashMap<String, Option<String>>>,
-    /// Per-account gate so parallel opens make one OS read.
     reads: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
-impl SecretStore {
-    pub fn os() -> Self {
-        Self::with_backend(Arc::new(KeyringBackend))
-    }
-
-    pub fn memory() -> Self {
-        Self::with_backend(Arc::new(MemoryBackend::new()))
-    }
-
-    pub(crate) fn from_backend(backend: Arc<dyn SecretBackend>) -> Self {
-        Self::with_backend(backend)
-    }
-
-    fn with_backend(backend: Arc<dyn SecretBackend>) -> Self {
+impl LegacyItems {
+    fn new(backend: Arc<dyn SecretBackend>) -> Self {
         Self {
             backend,
             cache: Mutex::new(HashMap::new()),
@@ -156,167 +94,313 @@ impl SecretStore {
         self.cache.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn read_gate(&self, account: &str) -> Arc<Mutex<()>> {
-        let mut gates = self.reads.lock().unwrap_or_else(|p| p.into_inner());
-        Arc::clone(gates.entry(account.to_string()).or_default())
-    }
-
-    /// Drop cached hits and misses. Tests use it to prove a path reads nothing.
-    #[cfg(test)]
-    pub(crate) fn forget_cached(&self) {
-        self.cache_lock().clear();
-    }
-
-    pub fn get(&self, connection_id: &str) -> AppResult<Option<String>> {
-        self.get_account(&secret_account(connection_id))
-    }
-
-    /// Look up an exact keychain account. This is the read path for a stored pointer.
-    pub fn get_named(&self, account: &str) -> AppResult<Option<String>> {
-        let account = account.trim();
-        if account.is_empty() {
-            return Ok(None);
-        }
-        self.get_account(account)
-    }
-
-    pub fn set(&self, connection_id: &str, password: &str) -> AppResult<()> {
-        self.set_account(&secret_account(connection_id), password)
-    }
-
-    pub fn delete(&self, connection_id: &str) -> AppResult<()> {
-        self.delete_account(&secret_account(connection_id))
-    }
-
-    pub fn set_named(&self, account: &str, secret: &str) -> AppResult<()> {
-        let account = account.trim();
-        if account.is_empty() {
-            return Err(AppError::Invalid("secret account is required".into()));
-        }
-        self.set_account(account, secret)
-    }
-
-    pub fn delete_named(&self, account: &str) -> AppResult<()> {
-        let account = account.trim();
-        if account.is_empty() {
-            return Ok(());
-        }
-        self.delete_account(account)
-    }
-
-    /// Copy a stored secret to a new connection id. Returns whether a secret existed.
-    pub fn copy(&self, from_id: &str, to_id: &str) -> AppResult<bool> {
-        match self.get(from_id)? {
-            Some(secret) => {
-                self.set(to_id, &secret)?;
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    }
-
-    pub fn get_ssh(&self, connection_id: &str) -> AppResult<Option<String>> {
-        self.get_account(&ssh_secret_account(connection_id))
-    }
-
-    pub fn set_ssh(&self, connection_id: &str, secret: &str) -> AppResult<()> {
-        self.set_account(&ssh_secret_account(connection_id), secret)
-    }
-
-    pub fn delete_ssh(&self, connection_id: &str) -> AppResult<()> {
-        self.delete_account(&ssh_secret_account(connection_id))
-    }
-
-    pub fn copy_ssh(&self, from_id: &str, to_id: &str) -> AppResult<bool> {
-        match self.get_ssh(from_id)? {
-            Some(secret) => {
-                self.set_ssh(to_id, &secret)?;
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    }
-
-    pub fn get_tls(&self, connection_id: &str) -> AppResult<Option<String>> {
-        self.get_account(&tls_secret_account(connection_id))
-    }
-
-    pub fn set_tls(&self, connection_id: &str, secret: &str) -> AppResult<()> {
-        self.set_account(&tls_secret_account(connection_id), secret)
-    }
-
-    pub fn delete_tls(&self, connection_id: &str) -> AppResult<()> {
-        self.delete_account(&tls_secret_account(connection_id))
-    }
-
-    pub fn copy_tls(&self, from_id: &str, to_id: &str) -> AppResult<bool> {
-        match self.get_tls(from_id)? {
-            Some(secret) => {
-                self.set_tls(to_id, &secret)?;
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    }
-
     /// Errors are not cached, so a denied prompt can be retried.
-    fn get_account(&self, account: &str) -> AppResult<Option<String>> {
+    fn get(&self, account: &str, prompt: Prompt) -> AppResult<Option<String>> {
         if let Some(cached) = self.cache_lock().get(account).cloned() {
             return Ok(cached);
         }
-        let gate = self.read_gate(account);
+        let gate = {
+            let mut gates = self.reads.lock().unwrap_or_else(|p| p.into_inner());
+            Arc::clone(gates.entry(account.to_string()).or_default())
+        };
         let _hold = gate.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(cached) = self.cache_lock().get(account).cloned() {
             return Ok(cached);
         }
-        let got = self.backend.get(account)?;
+        let got = self.backend.get(account, prompt)?;
         self.cache_lock().insert(account.to_string(), got.clone());
         Ok(got)
     }
 
-    fn set_account(&self, account: &str, secret: &str) -> AppResult<()> {
-        self.backend.set(account, secret)?;
-        self.cache_lock()
-            .insert(account.to_string(), Some(secret.to_string()));
-        Ok(())
-    }
-
-    fn delete_account(&self, account: &str) -> AppResult<()> {
-        self.backend.delete(account)?;
+    fn delete(&self, account: &str) -> bool {
+        let deleted = self.backend.delete(account).unwrap_or(false);
         self.cache_lock().insert(account.to_string(), None);
-        Ok(())
+        deleted
     }
 }
 
-/// True when `secret_ref` is leftover plaintext, not a keychain pointer or placeholder.
+/// Who a secret belongs to. Part of the envelope AAD.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretOwner<'a> {
+    Connection(&'a str),
+    App,
+}
+
+impl SecretOwner<'_> {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Connection(_) => "connection",
+            Self::App => "app",
+        }
+    }
+
+    fn id(&self) -> &str {
+        match self {
+            Self::Connection(id) => id.trim(),
+            Self::App => "app",
+        }
+    }
+}
+
+/// `password`, `ssh`, `tls`, `ai:<provider>` or `mcp_token`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretKind<'a> {
+    Password,
+    Ssh,
+    Tls,
+    Ai(&'a str),
+    McpToken,
+}
+
+impl SecretKind<'_> {
+    pub fn name(&self) -> String {
+        match self {
+            Self::Password => "password".into(),
+            Self::Ssh => "ssh".into(),
+            Self::Tls => "tls".into(),
+            Self::Ai(provider) => format!("ai:{}", provider.trim()),
+            Self::McpToken => "mcp_token".into(),
+        }
+    }
+}
+
+type UnlockHook = Arc<dyn Fn() + Send + Sync>;
+
+/// The vault plus read-once access to the old keychain items.
+pub struct SecretStore {
+    vault: Vault,
+    /// `None` when the key is not in the keychain: old items are never touched.
+    legacy: Option<LegacyItems>,
+    on_unlock: Mutex<Option<UnlockHook>>,
+}
+
+impl SecretStore {
+    /// The app's store. The key source follows the build; see [`vault`].
+    pub fn os(data_dir: &Path) -> Self {
+        let source = default_key_source(data_dir);
+        let legacy = (source.name() == "keychain")
+            .then(|| Arc::new(KeyringBackend) as Arc<dyn SecretBackend>);
+        Self::from_parts(source, legacy)
+    }
+
+    /// In-process key and items. Never touches the OS keychain.
+    pub fn memory() -> Self {
+        Self::with_key_source(Arc::new(MemoryKeySource::new()))
+    }
+
+    /// A custom key source with in-memory old items. For tests in other crates.
+    pub fn with_key_source(source: Arc<dyn KeySource>) -> Self {
+        Self::from_parts(source, Some(Arc::new(MemoryBackend::default())))
+    }
+
+    pub(crate) fn from_parts(
+        source: Arc<dyn KeySource>,
+        legacy: Option<Arc<dyn SecretBackend>>,
+    ) -> Self {
+        Self {
+            vault: Vault::new(source),
+            legacy: legacy.map(LegacyItems::new),
+            on_unlock: Mutex::new(None),
+        }
+    }
+
+    /// Runs once, right after the key first loads in this process.
+    pub(crate) fn on_first_unlock(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *self.on_unlock.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(hook));
+    }
+
+    /// The vault key. Loads it on first use (one prompt at most, on a release build).
+    pub(crate) fn unlock(&self, prompt: Prompt) -> AppResult<VaultKey> {
+        let (key, fresh) = self.vault.key(prompt).map_err(|e| match e {
+            VaultError::Locked => AppError::SecretStore(LOCKED_MESSAGE.into()),
+            VaultError::Denied(msg) => AppError::SecretStore(format!(
+                "Saved passwords could not be unlocked ({msg}). Use Settings > Retry keychain to try again."
+            )),
+        })?;
+        if fresh {
+            let hook = self
+                .on_unlock
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        Ok(key)
+    }
+
+    /// Never loads the key.
+    pub fn status(&self) -> VaultStatus {
+        self.vault.status()
+    }
+
+    /// Clear a cached denial and ask again.
+    pub fn retry_unlock(&self) -> VaultStatus {
+        self.vault.retry();
+        let _ = self.unlock(Prompt::Allowed);
+        self.vault.status()
+    }
+
+    pub fn key_source(&self) -> &'static str {
+        self.vault.source_name()
+    }
+
+    /// Open one secret. No row, no key load.
+    pub(crate) fn read(
+        &self,
+        db: &AppDatabase,
+        owner: SecretOwner<'_>,
+        kind: SecretKind<'_>,
+        prompt: Prompt,
+    ) -> AppResult<Option<String>> {
+        let kind = kind.name();
+        let found = db.with_conn(|c| {
+            let Some(row) = repo::secrets::get(c, owner.kind(), owner.id(), &kind)? else {
+                return Ok(None);
+            };
+            Ok(Some((row, install_id(c)?)))
+        })?;
+        let Some((row, install)) = found else {
+            return Ok(None);
+        };
+        // The key loads outside the database lock: a prompt can take a while.
+        let key = self.unlock(prompt)?;
+        let slot = Slot {
+            install: &install,
+            owner_kind: owner.kind(),
+            owner_id: owner.id(),
+            kind: &kind,
+        };
+        envelope::open(&key, &slot, &row.envelope).map(Some)
+    }
+
+    /// Seal and upsert. Callers unlock first, outside their transaction.
+    pub(crate) fn write(
+        &self,
+        conn: &Connection,
+        key: &VaultKey,
+        owner: SecretOwner<'_>,
+        kind: SecretKind<'_>,
+        plaintext: &str,
+    ) -> AppResult<()> {
+        let kind = kind.name();
+        let install = install_id(conn)?;
+        let slot = Slot {
+            install: &install,
+            owner_kind: owner.kind(),
+            owner_id: owner.id(),
+            kind: &kind,
+        };
+        let sealed = envelope::seal(key, &slot, plaintext)?;
+        repo::secrets::upsert(conn, owner.kind(), owner.id(), &kind, &sealed, KEY_VERSION)
+    }
+
+    pub(crate) fn remove(
+        conn: &Connection,
+        owner: SecretOwner<'_>,
+        kind: SecretKind<'_>,
+    ) -> AppResult<()> {
+        repo::secrets::delete(conn, owner.kind(), owner.id(), &kind.name())?;
+        Ok(())
+    }
+
+    pub(crate) fn remove_owner(conn: &Connection, owner: SecretOwner<'_>) -> AppResult<()> {
+        repo::secrets::delete_owner(conn, owner.kind(), owner.id())?;
+        Ok(())
+    }
+
+    pub(crate) fn has(
+        conn: &Connection,
+        owner: SecretOwner<'_>,
+        kind: SecretKind<'_>,
+    ) -> AppResult<bool> {
+        repo::secrets::exists(conn, owner.kind(), owner.id(), &kind.name())
+    }
+
+    pub(crate) fn legacy_enabled(&self) -> bool {
+        self.legacy.is_some()
+    }
+
+    /// One old keychain item, read at most once per process.
+    pub(crate) fn legacy_get(&self, account: &str, prompt: Prompt) -> AppResult<Option<String>> {
+        let account = account.trim();
+        if account.is_empty() {
+            return Ok(None);
+        }
+        match &self.legacy {
+            Some(items) => items.get(account, prompt),
+            None => Err(AppError::SecretStore(LEGACY_OFF_MESSAGE.into())),
+        }
+    }
+
+    /// Best effort and never shows UI. False when skipped.
+    pub(crate) fn legacy_delete(&self, account: &str) -> bool {
+        let account = account.trim();
+        match &self.legacy {
+            Some(items) if !account.is_empty() => items.delete(account),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn legacy_list(&self) -> AppResult<Vec<String>> {
+        match &self.legacy {
+            Some(items) => items.backend.list(),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Drop the cached key and item reads. Tests use it to prove a path reads nothing.
+    #[cfg(test)]
+    pub(crate) fn forget_cached(&self) {
+        self.vault.forget();
+        if let Some(items) = &self.legacy {
+            items.cache_lock().clear();
+        }
+    }
+}
+
+/// The UUID in `app_settings.install_id`, created on first need. Part of every
+/// envelope's AAD and of the old `conn.<install>.<id>` account names.
+pub(crate) fn install_id(conn: &Connection) -> AppResult<String> {
+    if let Some(row) = repo::settings::get(conn, INSTALL_ID_KEY)? {
+        if uuid::Uuid::parse_str(row.value.trim()).is_ok() {
+            return Ok(row.value.trim().to_string());
+        }
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    repo::settings::set(conn, INSTALL_ID_KEY, &id)?;
+    Ok(id)
+}
+
+/// True when `secret_ref` is leftover plaintext, not a pointer or placeholder.
 pub fn is_legacy_plaintext_secret(secret_ref: &str) -> bool {
     let t = secret_ref.trim();
     !t.is_empty()
+        && t != VAULT_SECRET_REF
         && !is_placeholder_secret_ref(t)
         && !t.starts_with("conn.")
         && !is_legacy_keychain_pointer(t)
 }
 
-/// Fake keychain that counts OS reads per account.
+/// Fake keychain that counts reads per account, and a counting key source.
 #[cfg(test)]
 pub(crate) mod counting {
     use super::*;
-    use std::time::Duration;
+
+    pub(crate) use super::vault::counting::CountingKeySource;
 
     #[derive(Default)]
     pub(crate) struct CountingBackend {
         map: Mutex<HashMap<String, String>>,
         reads: Mutex<HashMap<String, usize>>,
-        /// Holds each read open so parallel callers overlap.
-        pub delay: Option<Duration>,
     }
 
     impl CountingBackend {
-        pub fn slow(delay: Duration) -> Self {
-            Self {
-                delay: Some(delay),
-                ..Self::default()
-            }
+        /// An item an older build left behind.
+        pub fn plant(&self, account: &str, secret: &str) {
+            let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            map.insert(account.to_string(), secret.to_string());
         }
 
         pub fn reads_of(&self, account: &str) -> usize {
@@ -347,118 +431,145 @@ pub(crate) mod counting {
     }
 
     impl SecretBackend for CountingBackend {
-        fn get(&self, account: &str) -> AppResult<Option<String>> {
+        fn get(&self, account: &str, _prompt: Prompt) -> AppResult<Option<String>> {
             *self
                 .reads
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .entry(account.to_string())
                 .or_default() += 1;
-            if let Some(delay) = self.delay {
-                std::thread::sleep(delay);
-            }
             let map = self.map.lock().unwrap_or_else(|p| p.into_inner());
             Ok(map.get(account).cloned())
         }
 
-        fn set(&self, account: &str, secret: &str) -> AppResult<()> {
+        fn delete(&self, account: &str) -> AppResult<bool> {
             let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
-            map.insert(account.to_string(), secret.to_string());
-            Ok(())
+            Ok(map.remove(account).is_some())
         }
 
-        fn delete(&self, account: &str) -> AppResult<()> {
-            let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
-            map.remove(account);
-            Ok(())
+        fn list(&self) -> AppResult<Vec<String>> {
+            let map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            let mut out: Vec<String> = map.keys().cloned().collect();
+            out.sort();
+            Ok(out)
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::counting::CountingBackend;
+    use super::counting::{CountingBackend, CountingKeySource};
     use super::*;
 
-    #[test]
-    fn a_miss_is_read_once() {
-        let backend = Arc::new(CountingBackend::default());
-        let store = SecretStore::from_backend(backend.clone());
-        assert!(store.get_named("conn.x.tls").unwrap().is_none());
-        assert!(store.get_named("conn.x.tls").unwrap().is_none());
-        assert_eq!(backend.reads_of("conn.x.tls"), 1);
-        store.set_named("conn.x.tls", "pp").unwrap();
-        assert_eq!(
-            store.get_named("conn.x.tls").unwrap().as_deref(),
-            Some("pp")
-        );
-        store.delete_named("conn.x.tls").unwrap();
-        assert!(store.get_named("conn.x.tls").unwrap().is_none());
-        assert_eq!(backend.reads_of("conn.x.tls"), 1);
+    fn store(keys: &Arc<CountingKeySource>, items: &Arc<CountingBackend>) -> SecretStore {
+        SecretStore::from_parts(keys.clone(), Some(items.clone()))
     }
 
     #[test]
-    fn parallel_reads_of_one_account_make_one_os_read() {
-        let backend = Arc::new(CountingBackend::slow(std::time::Duration::from_millis(50)));
-        backend.set("conn.a", "pw").unwrap();
-        backend.set("conn.b", "pw-b").unwrap();
-        let store = Arc::new(SecretStore::from_backend(backend.clone()));
-        let started = std::time::Instant::now();
+    fn a_missing_old_item_is_read_once() {
+        let keys = Arc::new(CountingKeySource::default());
+        let items = Arc::new(CountingBackend::default());
+        let store = store(&keys, &items);
+        assert!(store
+            .legacy_get("conn.x.tls", Prompt::Allowed)
+            .unwrap()
+            .is_none());
+        assert!(store
+            .legacy_get("conn.x.tls", Prompt::Allowed)
+            .unwrap()
+            .is_none());
+        assert_eq!(items.reads_of("conn.x.tls"), 1);
+    }
+
+    #[test]
+    fn parallel_reads_of_one_old_item_make_one_os_read() {
+        let keys = Arc::new(CountingKeySource::default());
+        let items = Arc::new(CountingBackend::default());
+        items.plant("conn.a", "pw");
+        let store = Arc::new(store(&keys, &items));
         let handles: Vec<_> = (0..8)
-            .map(|i| {
+            .map(|_| {
                 let store = Arc::clone(&store);
-                std::thread::spawn(move || {
-                    let account = if i % 2 == 0 { "conn.a" } else { "conn.b" };
-                    store.get_named(account).unwrap()
-                })
+                std::thread::spawn(move || store.legacy_get("conn.a", Prompt::Allowed).unwrap())
             })
             .collect();
         for h in handles {
-            assert!(h.join().unwrap().is_some());
+            assert_eq!(h.join().unwrap().as_deref(), Some("pw"));
         }
-        assert_eq!(backend.reads_of("conn.a"), 1);
-        assert_eq!(backend.reads_of("conn.b"), 1);
-        // Different accounts do not wait on each other.
-        assert!(started.elapsed() < std::time::Duration::from_millis(400));
+        assert_eq!(items.reads_of("conn.a"), 1);
     }
 
     #[test]
-    fn memory_roundtrip_and_cache() {
-        let store = SecretStore::memory();
-        assert!(store.get("1").unwrap().is_none());
-        store.set("1", "s3cret").unwrap();
-        assert_eq!(store.get("1").unwrap().as_deref(), Some("s3cret"));
-        store.delete("1").unwrap();
-        assert!(store.get("1").unwrap().is_none());
+    fn a_missing_row_loads_no_key() {
+        let keys = Arc::new(CountingKeySource::default());
+        let items = Arc::new(CountingBackend::default());
+        let store = store(&keys, &items);
+        let db = AppDatabase::open_in_memory().unwrap();
+        let got = store
+            .read(&db, SecretOwner::App, SecretKind::McpToken, Prompt::Never)
+            .unwrap();
+        assert!(got.is_none());
+        assert_eq!(keys.loads(), 0);
     }
 
     #[test]
-    fn copy_secret_between_ids() {
-        let store = SecretStore::memory();
-        store.set("1", "pw").unwrap();
-        assert!(store.copy("1", "2").unwrap());
-        assert_eq!(store.get("2").unwrap().as_deref(), Some("pw"));
-        assert!(!store.copy("missing", "3").unwrap());
+    fn write_then_read_stores_the_key_version() {
+        let keys = Arc::new(CountingKeySource::default());
+        let items = Arc::new(CountingBackend::default());
+        let store = store(&keys, &items);
+        let db = AppDatabase::open_in_memory().unwrap();
+        let key = store.unlock(Prompt::Allowed).unwrap();
+        db.with_tx(|c| store.write(c, &key, SecretOwner::App, SecretKind::Ai("openai"), "sk-1"))
+            .unwrap();
+        let row = db
+            .with_conn(|c| repo::secrets::get(c, "app", "app", "ai:openai"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.key_version, KEY_VERSION);
+        assert!(row.envelope.starts_with("v1."));
+        assert!(!row.envelope.contains("sk-1"));
+        let got = store
+            .read(
+                &db,
+                SecretOwner::App,
+                SecretKind::Ai("openai"),
+                Prompt::Never,
+            )
+            .unwrap();
+        assert_eq!(got.as_deref(), Some("sk-1"));
+        // A row copied to another kind does not open.
+        db.with_conn(|c| {
+            repo::secrets::upsert(c, "app", "app", "ai:google", &row.envelope, KEY_VERSION)
+        })
+        .unwrap();
+        assert!(store
+            .read(
+                &db,
+                SecretOwner::App,
+                SecretKind::Ai("google"),
+                Prompt::Never
+            )
+            .is_err());
+        assert_eq!(keys.loads(), 1);
+    }
+
+    #[test]
+    fn a_store_without_old_items_never_reads_the_keychain() {
+        let store = SecretStore::from_parts(Arc::new(MemoryKeySource::new()), None);
+        assert!(!store.legacy_enabled());
+        let err = store.legacy_get("conn.1", Prompt::Allowed).unwrap_err();
+        assert!(err.to_string().contains("MYSTIQUE_VAULT_KEY_SOURCE"));
+        assert!(!store.legacy_delete("conn.1"));
+        assert!(store.legacy_list().unwrap().is_empty());
     }
 
     #[test]
     fn legacy_plaintext_detection() {
         assert!(is_legacy_plaintext_secret("s3cret"));
+        assert!(!is_legacy_plaintext_secret("vault"));
         assert!(!is_legacy_plaintext_secret("conn.12"));
         assert!(!is_legacy_plaintext_secret("mystique/conn/12"));
         assert!(!is_legacy_plaintext_secret("connection.abc.password"));
         assert!(!is_legacy_plaintext_secret(""));
-    }
-
-    #[test]
-    fn default_keyring_is_not_the_in_process_mock() {
-        use keyring::credential::CredentialPersistence;
-        assert!(
-            !matches!(
-                keyring::default::default_credential_builder().persistence(),
-                CredentialPersistence::EntryOnly | CredentialPersistence::ProcessOnly
-            ),
-            "keyring 3 needs apple-native / windows-native / sync-secret-service or passwords vanish on restart"
-        );
     }
 }

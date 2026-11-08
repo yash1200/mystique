@@ -6392,7 +6392,9 @@ dependencies = [
 name = "mystique-core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm 0.10.3",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "keyring",
  "mystique-connector-api",
@@ -6400,8 +6402,10 @@ dependencies = [
  "mystique-plugin-mysql",
  "mystique-plugin-postgres",
  "mystique-plugin-sqlite",
+ "rand 0.8.8",
  "rusqlite",
  "russh",
+ "security-framework 3.7.0",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

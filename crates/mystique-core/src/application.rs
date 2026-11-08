@@ -11,6 +11,7 @@ mod history;
 mod profiles;
 mod query_library;
 mod settings;
+mod vault;
 mod workspace_tabs;
 
 pub use agent_chat::AgentChatService;
@@ -27,13 +28,15 @@ pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;
 pub use settings::SettingsService;
+pub use vault::{PurgeReport, VaultService};
 pub use workspace_tabs::WorkspaceTabsService;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::connectors::{ConnectionManager, OpenSessionRequest};
 use crate::error::AppResult;
-use crate::secrets::SecretStore;
+use crate::secrets::{Prompt, SecretStore};
 use crate::storage::AppDatabase;
 
 /// Bundle of application services.
@@ -48,12 +51,16 @@ pub struct AppServices {
 }
 
 impl AppServices {
-    pub fn new(db: AppDatabase) -> Self {
-        Self::with_secrets(db, ConnectionManager::bootstrap(), SecretStore::os())
-    }
-
-    pub fn with_connections(db: AppDatabase, connections: ConnectionManager) -> Self {
-        Self::with_secrets(db, connections, SecretStore::os())
+    /// The app. The vault key source follows the build (see `secrets::vault`);
+    /// `data_dir` holds the debug key file.
+    pub fn new(db: AppDatabase, data_dir: &Path) -> Self {
+        let app = Self::with_secrets(
+            db,
+            ConnectionManager::bootstrap(),
+            SecretStore::os(data_dir),
+        );
+        app.maintain_after_first_unlock();
+        app
     }
 
     pub fn with_secrets(
@@ -84,12 +91,27 @@ impl AppServices {
         }
     }
 
-    /// One-time cleanup of plaintext secrets left by old versions.
+    /// One-time startup cleanup of placeholder pointers.
     ///
     /// Not part of construction: the shell runs it off the main thread. It
-    /// never reads the keychain, and it writes only when plaintext is found.
+    /// loads no vault key and reads no keychain item.
     pub fn migrate_legacy_secrets(&self) -> AppResult<()> {
-        self.profiles().migrate_plaintext_secrets()
+        self.profiles().startup_cleanup()
+    }
+
+    /// Once the key first loads, in the background: seal leftover plaintext
+    /// rows, then (once per install) delete orphaned keychain items.
+    fn maintain_after_first_unlock(&self) {
+        let db = Arc::downgrade(&self.db);
+        let secrets = Arc::downgrade(&self.secrets);
+        self.secrets.on_first_unlock(move || {
+            let (db, secrets) = (db.clone(), secrets.clone());
+            std::thread::spawn(move || {
+                if let (Some(db), Some(secrets)) = (db.upgrade(), secrets.upgrade()) {
+                    vault::after_first_unlock(&db, &secrets);
+                }
+            });
+        });
     }
 
     pub fn agent_tools(&self) -> AgentTools {
@@ -105,6 +127,16 @@ impl AppServices {
         ProfileService {
             db: &self.db,
             secrets: &self.secrets,
+            prompt: Prompt::Allowed,
+        }
+    }
+
+    /// App-level secrets (AI keys, the MCP token) and the vault itself.
+    pub fn vault(&self) -> VaultService<'_> {
+        VaultService {
+            db: &self.db,
+            secrets: &self.secrets,
+            prompt: Prompt::Allowed,
         }
     }
 
@@ -114,7 +146,7 @@ impl AppServices {
     /// that profile's host. Database name and SSL fields may still change.
     /// Environment and read-only always come from the saved profile.
     pub fn attach_session_secrets(&self, req: OpenSessionRequest) -> AppResult<OpenSessionRequest> {
-        bind_open_request(&self.db, &self.secrets, req)
+        bind_open_request(&self.db, &self.secrets, req, Prompt::Allowed)
     }
 
     pub fn lookup_ssh_host_key(
@@ -143,7 +175,7 @@ impl AppServices {
 
     /// Typed request password wins. A saved secret is attached only for that profile's host.
     pub fn password_for_request(&self, req: &OpenSessionRequest) -> AppResult<Option<String>> {
-        Ok(bind_open_request(&self.db, &self.secrets, req.clone())?.password)
+        Ok(bind_open_request(&self.db, &self.secrets, req.clone(), Prompt::Allowed)?.password)
     }
 
     pub fn query_library(&self) -> QueryLibraryService<'_> {
@@ -180,11 +212,19 @@ impl AppServices {
 }
 
 /// Saved secrets stay on the stored host. The client may override database and SSL.
+///
+/// MCP passes `Prompt::Never`: a locked vault fails instead of prompting.
 pub(crate) fn bind_open_request(
     db: &AppDatabase,
     secrets: &SecretStore,
     mut req: OpenSessionRequest,
+    prompt: Prompt,
 ) -> AppResult<OpenSessionRequest> {
+    let profiles = ProfileService {
+        db,
+        secrets,
+        prompt,
+    };
     let profile_id = req
         .profile_id
         .as_deref()
@@ -237,7 +277,6 @@ pub(crate) fn bind_open_request(
     let typed = nonempty(req.password.as_deref());
     if typed.is_none() && allow_stored {
         if let Some(id) = profile_id.as_deref() {
-            let profiles = ProfileService { db, secrets };
             req.password = profiles.resolve_password(id)?;
             if let Some(profile) = &profile {
                 inject_mongo_username(&profiles, &profile.engine, id, &mut req.plugin_config)?;
@@ -248,7 +287,7 @@ pub(crate) fn bind_open_request(
         if let Some(profile) = &profile {
             if profile.password_set {
                 return Err(crate::error::AppError::SecretStore(
-                    "Stored password is missing from the OS keychain. Edit the connection and re-enter the password.".into(),
+                    "The saved password is missing. Edit the connection and enter it again.".into(),
                 ));
             }
         }
@@ -259,12 +298,9 @@ pub(crate) fn bind_open_request(
         // is unticked. Open and the agent leave the default, which fills it.
         if req.ssh.is_none() && req.use_saved_ssh {
             if let Some(profile) = &profile {
-                let secret = profile_id.as_deref().and_then(|id| {
-                    ProfileService { db, secrets }
-                        .resolve_ssh_secret(id)
-                        .ok()
-                        .flatten()
-                });
+                let secret = profile_id
+                    .as_deref()
+                    .and_then(|id| profiles.resolve_ssh_secret(id).ok().flatten());
                 req.ssh = crate::domain::SshTunnelRequest::from_config(&profile.ssh, secret);
             }
         } else if let Some(ssh) = req.ssh.as_mut() {
@@ -279,9 +315,7 @@ pub(crate) fn bind_open_request(
                 .is_some_and(|profile| same_ssh_target(&profile.ssh, ssh));
             if needs_secret && same_bastion {
                 if let Some(id) = profile_id.as_deref() {
-                    if let Ok(Some(secret)) =
-                        (ProfileService { db, secrets }).resolve_ssh_secret(id)
-                    {
+                    if let Ok(Some(secret)) = profiles.resolve_ssh_secret(id) {
                         match ssh.auth {
                             crate::domain::SshAuth::Password => ssh.password = Some(secret),
                             crate::domain::SshAuth::Key => ssh.passphrase = Some(secret),
@@ -303,7 +337,7 @@ pub(crate) fn bind_open_request(
     }
     if allow_stored && nonempty(req.tls_key_passphrase.as_deref()).is_none() {
         if let Some(id) = profile_id.as_deref() {
-            if let Ok(Some(pw)) = (ProfileService { db, secrets }).resolve_tls_secret(id) {
+            if let Ok(Some(pw)) = profiles.resolve_tls_secret(id) {
                 req.tls_key_passphrase = Some(pw);
             }
         }
@@ -514,7 +548,7 @@ mod attach_secrets_tests {
     }
 
     #[test]
-    fn attach_fills_password_from_keychain() {
+    fn attach_fills_password_from_the_vault() {
         let app = svc();
         let saved = save_pg(&app, Some("s3cret"));
         let filled = app
@@ -525,22 +559,26 @@ mod attach_secrets_tests {
     }
 
     #[test]
-    fn attach_errors_when_stored_password_missing_from_keychain() {
+    fn attach_errors_when_the_stored_password_is_missing() {
         let app = svc();
         let saved = save_pg(&app, Some("s3cret"));
-        let pointer = app
-            .db
-            .with_conn(|c| crate::storage::sqlite::repo::connections::get_secret_ref(c, &saved.id))
-            .unwrap()
+        app.db
+            .with_conn(|c| {
+                crate::storage::sqlite::repo::secrets::delete(
+                    c,
+                    "connection",
+                    &saved.id,
+                    "password",
+                )
+            })
             .unwrap();
-        app.secrets.delete_named(&pointer).unwrap();
         let err = app
             .attach_session_secrets(open_req(saved.id, saved.plugin_config))
             .unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.to_lowercase().contains("keychain"),
-            "expected keychain miss, got {msg}"
+            msg.contains("missing"),
+            "expected a missing password, got {msg}"
         );
     }
 
@@ -574,7 +612,7 @@ mod attach_secrets_tests {
     }
 
     #[test]
-    fn mongo_connect_reinjects_userinfo_from_the_keychain() {
+    fn mongo_connect_reinjects_userinfo_from_the_vault() {
         let app = svc();
         let saved = app
             .profiles()

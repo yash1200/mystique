@@ -64,8 +64,8 @@ pub fn run() {
 
             let db_path = data_dir.join(mystique_core::storage::sqlite::db_file_name());
             let db = AppDatabase::open(&db_path).map_err(|e| e.to_string())?;
-            let services = Arc::new(AppServices::new(db));
-            // Setup never touches the keychain. Secrets load on first connect.
+            let services = Arc::new(AppServices::new(db, &data_dir));
+            // Setup never touches the keychain. The vault key loads on first secret use.
             let cleanup = Arc::clone(&services);
             tauri::async_runtime::spawn_blocking(move || {
                 let _ = cleanup.migrate_legacy_secrets();

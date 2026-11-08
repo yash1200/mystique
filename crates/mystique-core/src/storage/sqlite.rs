@@ -55,6 +55,16 @@ impl AppDatabase {
         });
         f(&guard)
     }
+
+    /// `f` runs in one transaction: an error rolls back everything it wrote.
+    pub fn with_tx<T>(&self, f: impl FnOnce(&Connection) -> AppResult<T>) -> AppResult<T> {
+        self.with_conn(|c| {
+            let tx = c.unchecked_transaction()?;
+            let out = f(&tx)?;
+            tx.commit()?;
+            Ok(out)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +104,7 @@ pub mod repo {
     pub use super::repositories::grid_layout;
     pub use super::repositories::history;
     pub use super::repositories::queries;
+    pub use super::repositories::secrets;
     pub use super::repositories::settings;
     pub use super::repositories::ssh_hosts;
     pub use super::repositories::workspace_tabs;

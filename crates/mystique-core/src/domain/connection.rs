@@ -3,9 +3,9 @@ use serde_json::Value as JsonValue;
 
 /// Saved connection profile (any engine).
 ///
-/// List/get never include a password. Secrets live in the OS keychain;
-/// SQLite `secret_ref` is an opaque keychain account name.
-/// New secrets use `conn.<install-uuid>.<id>`. Older rows keep `conn.<id>`.
+/// List/get never include a password. Secrets are vault envelopes in the
+/// `secrets` table; `secret_ref` is [`VAULT_SECRET_REF`] for those. Older rows
+/// still name a keychain account until their first use moves it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionProfile {
@@ -19,12 +19,12 @@ pub struct ConnectionProfile {
     pub notes: Option<String>,
     /// Engine-specific connection parameters (JSON object).
     pub plugin_config: JsonValue,
-    /// True when a non-empty password is stored in the OS keychain.
+    /// True when a password is saved (vault, or an old keychain item).
     pub password_set: bool,
     /// SSH bastion (transport). Empty / disabled when unused.
     #[serde(default)]
     pub ssh: crate::domain::SshConfig,
-    /// True when a bastion password or key passphrase is in the keychain.
+    /// True when a bastion password or key passphrase is saved.
     #[serde(default)]
     pub ssh_password_set: bool,
     /// Always omitted on list/get. Write-only on save via [`SaveConnectionInput`].
@@ -82,6 +82,9 @@ pub struct SaveConnectionInput {
     #[serde(default)]
     pub query_timeout_secs: Option<u32>,
 }
+
+/// `secret_ref` / `ssh_secret_ref` value: the secret is an envelope in `secrets`.
+pub const VAULT_SECRET_REF: &str = "vault";
 
 /// Old UI wrote keychain-style placeholders into `secret_ref` without a real secret.
 pub fn is_placeholder_secret_ref(value: &str) -> bool {

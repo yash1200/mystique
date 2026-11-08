@@ -12,12 +12,13 @@ const V6_SQL: &str = include_str!("../../../migrations/006_query_history.sql");
 const V7_SQL: &str = include_str!("../../../migrations/007_grid_saves.sql");
 const V8_SQL: &str = include_str!("../../../migrations/008_grid_column_widths.sql");
 const V9_SQL: &str = include_str!("../../../migrations/009_connection_defaults.sql");
+const V10_SQL: &str = include_str!("../../../migrations/010_secrets.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-const SCHEMA_VERSION: i32 = 9;
+const SCHEMA_VERSION: i32 = 10;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -138,6 +139,11 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
             rebuild_connections(conn)?;
         }
         stamp(conn, 9)?;
+    }
+
+    if current < 10 {
+        conn.execute_batch(V10_SQL)?;
+        stamp(conn, 10)?;
     }
 
     // Dropped leftover from earlier builds. Live ER is not stored here.
@@ -353,7 +359,7 @@ mod tests {
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 9);
+        assert_eq!(n, 10);
     }
 
     #[test]
@@ -562,7 +568,7 @@ mod tests {
               ssh_secret_ref TEXT
             );
             PRAGMA foreign_keys = ON;
-            DELETE FROM schema_migrations WHERE version = 9;
+            DELETE FROM schema_migrations WHERE version >= 9;
             INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (8, 't');
             INSERT INTO connections (id, name, engine, read_only, created_at, updated_at)
               VALUES (1, 'ro', 'sqlite', 1, 'now', 'now'),

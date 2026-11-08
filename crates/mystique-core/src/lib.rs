@@ -22,13 +22,13 @@ pub mod storage;
 pub use application::{
     parse_allowlist, tool_specs, tool_specs_for, AgentColumnInfo, AgentConnectionInfo,
     AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, AgentWritePolicy, AppServices,
-    ToolCaller, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
-    SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
+    PurgeReport, ToolCaller, VaultService, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS,
+    AGENT_MAX_ROWS, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
 };
 pub use connectors::{ConnectionManager, ConnectorRegistry, OpenSessionRequest};
 pub use domain::*;
 pub use error::{AppError, AppResult};
-pub use secrets::SecretStore;
+pub use secrets::{KeySource, Prompt, SecretKind, SecretStore, VaultError, VaultKey, VaultStatus};
 pub use storage::AppDatabase;
 
 // Re-export API types for IPC adapters

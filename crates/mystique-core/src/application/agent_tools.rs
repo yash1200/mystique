@@ -21,7 +21,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::connectors::{ConnectionManager, OpenSessionRequest};
 use crate::domain::SaveQueryInput;
 use crate::error::{AppError, AppResult};
-use crate::secrets::SecretStore;
+use crate::secrets::{Prompt, SecretStore};
 use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
 
@@ -228,29 +228,37 @@ impl AgentTools {
         let profile = self
             .db
             .with_conn(|c| repo::connections::get_by_id(c, connection_id.trim()))?;
-        let req = super::bind_open_request(
-            &self.db,
-            &self.secrets,
-            OpenSessionRequest {
-                engine: profile.engine.clone(),
-                plugin_config: profile.plugin_config.clone(),
-                password: None,
-                profile_id: Some(profile.id.clone()),
-                pool: Some(PoolConfig {
-                    max_size: 5,
-                    min_idle: 0,
-                    acquire_timeout_ms: 10_000,
-                    idle_timeout_secs: 0,
-                }),
-                session_id: Some(sid.clone()),
-                ssh: None,
-                tls_key_passphrase: None,
-                environment: Some(profile.environment.clone()),
-                connection_name: Some(profile.name.clone()),
-                profile_read_only: profile.read_only,
-                use_saved_ssh: true,
-            },
-        )?;
+        // MCP requests arrive while nobody may be looking: never prompt.
+        let prompt = match caller {
+            policy::ToolCaller::Agent => Prompt::Allowed,
+            policy::ToolCaller::Mcp => Prompt::Never,
+        };
+        let (db, secrets) = (Arc::clone(&self.db), Arc::clone(&self.secrets));
+        let open = OpenSessionRequest {
+            engine: profile.engine.clone(),
+            plugin_config: profile.plugin_config.clone(),
+            password: None,
+            profile_id: Some(profile.id.clone()),
+            pool: Some(PoolConfig {
+                max_size: 5,
+                min_idle: 0,
+                acquire_timeout_ms: 10_000,
+                idle_timeout_secs: 0,
+            }),
+            session_id: Some(sid.clone()),
+            ssh: None,
+            tls_key_passphrase: None,
+            environment: Some(profile.environment.clone()),
+            connection_name: Some(profile.name.clone()),
+            profile_read_only: profile.read_only,
+            use_saved_ssh: true,
+        };
+        // The vault key may load here: off the async workers.
+        let req = tokio::task::spawn_blocking(move || {
+            super::bind_open_request(&db, &secrets, open, prompt)
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("secret binding: {e}")))??;
         self.connections.get_or_open(req, origin).await?;
         let _ = self
             .db
