@@ -10,6 +10,7 @@
 	import { showToast } from '#features/toast'
 	import { ensureLiveCatalog } from '#features/workspace/catalog'
 	import {
+		isWriteCancelled,
 		runWithWriteGuard,
 		sessionDatabase,
 		withLiveSession,
@@ -203,12 +204,8 @@
 			)
 			onclose()
 		} catch (e) {
-			const message = e instanceof Error ? e.message : String(e)
-			if (message === 'Write cancelled.') {
-				showToast('info', message)
-				return
-			}
-			error = message
+			if (isWriteCancelled(e)) return
+			error = e instanceof Error ? e.message : String(e)
 		} finally {
 			busy = false
 		}
