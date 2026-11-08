@@ -206,6 +206,25 @@ fn set_is_read_safe(set: &Set) -> bool {
     }
 }
 
+fn set_touches_autocommit(set: &Set) -> bool {
+    let is_autocommit = |name: &ObjectName| {
+        let text = name.to_string().to_ascii_lowercase();
+        let text = text.trim_start_matches('@');
+        let text = text
+            .strip_prefix("session.")
+            .or_else(|| text.strip_prefix("local."))
+            .unwrap_or(text);
+        text == "autocommit"
+    };
+    match set {
+        Set::SingleAssignment { variable, .. } => is_autocommit(variable),
+        Set::MultipleAssignments { assignments } => {
+            assignments.iter().any(|assignment| is_autocommit(&assignment.name))
+        }
+        _ => false,
+    }
+}
+
 fn scope_is_session(scope: &Option<ContextModifier>) -> bool {
     !matches!(scope, Some(ContextModifier::Global))
 }
@@ -472,12 +491,18 @@ fn route_ast(stmt: &Statement, raw_sql: &str) -> TextRoute {
             // opener does not. Pinned sessions are a later ticket.
             route.txn_boundary = statements.is_empty();
         }
-        Statement::Commit { end, .. } => {
-            // `END` of a block sets `end`. `COMMIT` does not.
-            route.txn_boundary = !end;
+        Statement::Commit { .. } => {
+            // A top-level `END` / `END TRANSACTION` commits on Postgres and
+            // SQLite. Block ends only appear inside a parsed body.
+            route.txn_boundary = true;
         }
         Statement::Rollback { savepoint, .. } => {
             route.txn_boundary = savepoint.is_none();
+        }
+        Statement::Set(set) if set_touches_autocommit(set) => {
+            // `SET autocommit = 0` opens an implicit transaction that would
+            // outlive the statement on a pooled connection.
+            route.txn_boundary = true;
         }
         Statement::Pragma { is_eq, .. } => {
             route.returns_rows = !is_eq;
@@ -1150,6 +1175,20 @@ mod tests {
             "EXPLAIN ANALYZE SELECT 1",
             SqlDialect::Mysql
         ));
+    }
+
+    #[test]
+    fn end_and_autocommit_are_transaction_boundaries() {
+        for (sql, dialect) in [
+            ("END", SqlDialect::Postgres),
+            ("END TRANSACTION", SqlDialect::Sqlite),
+            ("COMMIT", SqlDialect::Mysql),
+            ("SET autocommit = 0", SqlDialect::Mysql),
+            ("SET @@session.autocommit = 0", SqlDialect::Mysql),
+        ] {
+            assert!(route_text(sql, dialect).txn_boundary, "{sql}");
+        }
+        assert!(!route_text("SET time_zone = '+00:00'", SqlDialect::Mysql).txn_boundary);
     }
 
     #[test]
