@@ -6507,6 +6507,8 @@ dependencies = [
 name = "mystique-sql"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "sqlparser 0.58.0",
 ]
 

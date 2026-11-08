@@ -2,28 +2,25 @@
 
 use serde_json::Value as JsonValue;
 
-use super::super::edits::{ApplyTableEditsInput, TableRowDelete, TableRowInsert, TableRowUpdate};
-use super::{
-    col_type, is_empty_value, pk_columns, qualify_table, quote_ident, sql_literal, SqlIdentStyle,
-};
-use crate::error::{ConnectorError, ConnectorResult};
+use super::edits::{ApplyTableEditsInput, TableRowDelete, TableRowInsert, TableRowUpdate};
+use super::{col_type, is_empty_value, pk_columns};
+use crate::error::{BuildError, BuildResult};
+use crate::{qualify_table, quote_ident, sql_literal, SqlDialect};
 
 pub fn compile_update(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     input: &ApplyTableEditsInput,
     update: &TableRowUpdate,
-) -> ConnectorResult<String> {
+) -> BuildResult<String> {
     let pks = pk_columns(&input.columns);
     if pks.is_empty() {
-        return Err(ConnectorError::Query(format!(
+        return Err(BuildError::new(format!(
             "Cannot save “{}”: no primary key. Add a PK to update rows safely.",
             input.table
         )));
     }
     if update.values.is_empty() {
-        return Err(ConnectorError::Query(
-            "Update has no changed columns.".into(),
-        ));
+        return Err(BuildError::new("Update has no changed columns.".into()));
     }
     let target = qualify_table(
         style,
@@ -45,13 +42,13 @@ pub fn compile_update(
     let mut where_sql = Vec::new();
     for pk in pks {
         let v = update.original.get(&pk.name).ok_or_else(|| {
-            ConnectorError::Query(format!(
+            BuildError::new(format!(
                 "Cannot save row: primary key “{}” missing from original row.",
                 pk.name
             ))
         })?;
         if is_empty_value(v) {
-            return Err(ConnectorError::Query(format!(
+            return Err(BuildError::new(format!(
                 "Cannot save row: primary key “{}” is empty on the original row.",
                 pk.name
             )));
@@ -70,17 +67,17 @@ pub fn compile_update(
 }
 
 pub fn compile_insert(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     input: &ApplyTableEditsInput,
     insert: &TableRowInsert,
-) -> ConnectorResult<String> {
+) -> BuildResult<String> {
     let cols: Vec<(&String, &JsonValue)> = insert
         .values
         .iter()
         .filter(|(_, v)| !is_empty_value(v))
         .collect();
     if cols.is_empty() {
-        return Err(ConnectorError::Query(
+        return Err(BuildError::new(
             "New row is empty — fill at least one column before saving.".into(),
         ));
     }
@@ -104,14 +101,14 @@ pub fn compile_insert(
 
 /// Insert, or replace existing PK / unique-key rows.
 pub fn compile_upsert(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     input: &ApplyTableEditsInput,
     insert: &TableRowInsert,
-) -> ConnectorResult<String> {
+) -> BuildResult<String> {
     let insert_sql = compile_insert(style, input, insert)?;
     let pks = pk_columns(&input.columns);
     if pks.is_empty() {
-        return Err(ConnectorError::Query(format!(
+        return Err(BuildError::new(format!(
             "Update on duplicate needs a primary key on “{}”.",
             input.table
         )));
@@ -124,7 +121,7 @@ pub fn compile_upsert(
         .map(|(n, _)| n)
         .collect();
     match style {
-        SqlIdentStyle::Mysql => {
+        SqlDialect::Mysql => {
             if set_cols.is_empty() {
                 return Ok(insert_sql);
             }
@@ -140,7 +137,7 @@ pub fn compile_upsert(
                 sets.join(", ")
             ))
         }
-        SqlIdentStyle::Postgres => {
+        SqlDialect::Postgres | SqlDialect::Sqlite | SqlDialect::Generic => {
             let conflict = pks
                 .iter()
                 .map(|c| quote_ident(style, &c.name))
@@ -165,13 +162,13 @@ pub fn compile_upsert(
 }
 
 pub fn compile_delete(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     input: &ApplyTableEditsInput,
     delete: &TableRowDelete,
-) -> ConnectorResult<String> {
+) -> BuildResult<String> {
     let pks = pk_columns(&input.columns);
     if pks.is_empty() {
-        return Err(ConnectorError::Query(format!(
+        return Err(BuildError::new(format!(
             "Cannot delete from “{}”: no primary key. Add a PK to delete rows safely.",
             input.table
         )));
@@ -185,13 +182,13 @@ pub fn compile_delete(
     let mut where_sql = Vec::new();
     for pk in pks {
         let v = delete.original.get(&pk.name).ok_or_else(|| {
-            ConnectorError::Query(format!(
+            BuildError::new(format!(
                 "Cannot delete row: primary key “{}” missing from original row.",
                 pk.name
             ))
         })?;
         if is_empty_value(v) {
-            return Err(ConnectorError::Query(format!(
+            return Err(BuildError::new(format!(
                 "Cannot delete row: primary key “{}” is empty on the original row.",
                 pk.name
             )));
@@ -209,58 +206,4 @@ pub fn compile_delete(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::SqlIdentStyle;
-    use super::compile_update;
-    use crate::table::edits::{ApplyTableEditsInput, TableEditColumn, TableRowUpdate};
-    use serde_json::json;
-    use std::collections::BTreeMap;
-
-    fn column(name: &str, data_type: &str, pk: bool) -> TableEditColumn {
-        TableEditColumn {
-            name: name.into(),
-            data_type: data_type.into(),
-            nullable: false,
-            pk,
-        }
-    }
-
-    fn update_sql(id: &str, data_type: &str) -> String {
-        let mut original = BTreeMap::new();
-        original.insert("id".into(), json!(id));
-        let mut values = BTreeMap::new();
-        values.insert("note".into(), json!("x"));
-        compile_update(
-            SqlIdentStyle::Postgres,
-            &ApplyTableEditsInput {
-                table: "t".into(),
-                schema: None,
-                database: None,
-                columns: vec![column("id", data_type, true), column("note", "text", false)],
-                updates: vec![],
-                inserts: vec![],
-                deletes: vec![],
-                dry_run: false,
-            },
-            &TableRowUpdate { original, values },
-        )
-        .expect("update")
-    }
-
-    #[test]
-    fn int8_identity_matches_one_row_not_its_neighbor() {
-        let sql = update_sql("9007199254740993", "int8");
-        assert!(sql.contains("\"id\" = 9007199254740993"), "{sql}");
-        assert!(!sql.contains("9007199254740992"), "{sql}");
-
-        let max = update_sql("9223372036854775807", "int8");
-        assert!(max.contains("\"id\" = 9223372036854775807"), "{max}");
-        assert!(!max.contains("9223372036854775806"), "{max}");
-    }
-
-    #[test]
-    fn numeric_identity_keeps_the_fraction() {
-        let sql = update_sql("12345678901234567890.25", "numeric");
-        assert!(sql.contains("\"id\" = 12345678901234567890.25"), "{sql}");
-    }
-}
+mod tests;

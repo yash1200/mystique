@@ -1,12 +1,12 @@
 //! Compile UI filter rules to a Mongo JSON predicate.
 
-use crate::catalog::TableFilter;
-use crate::error::{ConnectorError, ConnectorResult};
+use super::TableFilter;
+use crate::error::{BuildError, BuildResult};
 
 use super::looks_numeric;
 
 /// JSON object the Mongo plugin turns into a BSON filter (`$and` when needed).
-pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json::Value> {
+pub fn mongo_filter_json(filters: &[TableFilter]) -> BuildResult<serde_json::Value> {
     use serde_json::{json, Value};
     if filters.is_empty() {
         return Ok(json!({}));
@@ -17,12 +17,12 @@ pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json:
         let op = f.op.trim().to_ascii_lowercase();
         if op == "json" {
             let v: Value = serde_json::from_str(f.value.trim())
-                .map_err(|e| ConnectorError::Query(format!("invalid JSON filter: {e}")))?;
+                .map_err(|e| BuildError::new(format!("invalid JSON filter: {e}")))?;
             clauses.push(v);
             continue;
         }
         if col.is_empty() {
-            return Err(ConnectorError::Query("filter is missing a column".into()));
+            return Err(BuildError::new("filter is missing a column".into()));
         }
         let as_json = || -> Value {
             let t = f.value.trim();
@@ -83,7 +83,7 @@ pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json:
             "is_empty" => json!({ col: "" }),
             "not_empty" => json!({ col: { "$nin": ["", null] } }),
             other => {
-                return Err(ConnectorError::Query(format!(
+                return Err(BuildError::new(format!(
                     "unknown table filter op `{other}`"
                 )));
             }

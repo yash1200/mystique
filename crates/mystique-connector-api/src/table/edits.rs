@@ -1,45 +1,18 @@
 //! Structured table/collection edits. The FE sends the edit set;
 //! each plugin compiles and executes native writes.
+//!
+//! The edit-set types live in `mystique_sql::dml` next to the compiler; the
+//! IPC requests, results and SPI errors stay here.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
-use std::collections::BTreeMap;
 
-/// Column metadata needed to compile a write (types, PK).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TableEditColumn {
-    pub name: String,
-    #[serde(default)]
-    pub data_type: String,
-    #[serde(default)]
-    pub nullable: bool,
-    #[serde(default)]
-    pub pk: bool,
-}
+pub use mystique_sql::dml::{
+    rows_hash, ApplyTableEditsInput, GridUndo, RowCheck, TableEditColumn, TableRowDelete,
+    TableRowInsert, TableRowUpdate,
+};
 
-/// Update one existing row. `original` is used to locate the row (PKs);
-/// `values` is the changed column → new value map.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TableRowUpdate {
-    pub original: BTreeMap<String, JsonValue>,
-    pub values: BTreeMap<String, JsonValue>,
-}
-
-/// Insert one new row. `values` omits empty cells so defaults can apply.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TableRowInsert {
-    pub values: BTreeMap<String, JsonValue>,
-}
-
-/// Delete one existing row. `original` locates the row (PKs).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TableRowDelete {
-    pub original: BTreeMap<String, JsonValue>,
-}
+use crate::catalog::ColumnInfo;
+use crate::error::ConnectorError;
 
 /// IPC request (includes session + read-only flag).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,19 +38,6 @@ pub struct ApplyTableEditsRequest {
     pub confirm_object_name: Option<String>,
     /// Compile the statements and do not write.
     #[serde(default)]
-    pub dry_run: bool,
-}
-
-/// Plugin-facing input (session already resolved).
-#[derive(Debug, Clone)]
-pub struct ApplyTableEditsInput {
-    pub table: String,
-    pub schema: Option<String>,
-    pub database: Option<String>,
-    pub columns: Vec<TableEditColumn>,
-    pub updates: Vec<TableRowUpdate>,
-    pub inserts: Vec<TableRowInsert>,
-    pub deletes: Vec<TableRowDelete>,
     pub dry_run: bool,
 }
 
@@ -127,49 +87,52 @@ impl ApplyTableEditsResult {
     }
 }
 
-/// One saved row read back after the save. `hash` covers every column.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RowCheck {
-    pub sql: String,
-    pub params: Vec<JsonValue>,
-    pub hash: String,
+pub const KEYLESS_AMBIGUOUS: &str = "keyless_ambiguous";
+pub const AFFECTED_MISMATCH: &str = "affected_mismatch";
+
+pub fn keyless_ambiguous(count: i64) -> ConnectorError {
+    ConnectorError::Query(format!(
+        "{KEYLESS_AMBIGUOUS}: {count} rows match every column. Refusing the change."
+    ))
 }
 
-/// Inverse of one committed grid save. Built by the plugin from its own plan.
-/// Rollback refuses when any `checks` hash no longer matches.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GridUndo {
-    pub checks: Vec<RowCheck>,
-    /// Inverse statements, last write first.
-    pub inverse: Vec<String>,
+pub fn affected_mismatch(kind: &str, count: u64) -> ConnectorError {
+    ConnectorError::Query(format!("{AFFECTED_MISMATCH}: {kind} changed {count} rows."))
 }
 
-/// Stable hash of rows read for a [`RowCheck`]. Row order does not matter.
-pub fn rows_hash(rows: &[Vec<JsonValue>]) -> String {
-    let mut encoded: Vec<String> = rows
+/// Catalog primary keys replace whatever the frontend sent.
+pub fn overlay_catalog_pk(columns: &mut Vec<TableEditColumn>, described: &[ColumnInfo]) {
+    let pk_names: Vec<&str> = described
         .iter()
-        .map(|row| serde_json::to_string(row).unwrap_or_default())
+        .filter(|column| column.pk)
+        .map(|column| column.name.as_str())
         .collect();
-    encoded.sort();
-    // FNV-1a 64: stable across builds, unlike `DefaultHasher`.
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in encoded.len().to_le_bytes().into_iter().chain(
-        encoded
-            .iter()
-            .flat_map(|row| row.bytes().chain(std::iter::once(0xff))),
-    ) {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    if pk_names.is_empty() {
+        for column in columns.iter_mut() {
+            column.pk = false;
+        }
+        return;
     }
-    format!("{hash:016x}")
+    for column in columns.iter_mut() {
+        column.pk = pk_names.iter().any(|name| *name == column.name);
+    }
+    for described in described.iter().filter(|column| column.pk) {
+        if columns.iter().any(|column| column.name == described.name) {
+            continue;
+        }
+        columns.push(TableEditColumn {
+            name: described.name.clone(),
+            data_type: described.data_type.clone(),
+            nullable: described.nullable,
+            pk: true,
+        });
+    }
 }
 
 pub const ROLLBACK_STALE: &str = "rollback_stale";
 
-pub fn rollback_stale() -> crate::ConnectorError {
-    crate::ConnectorError::Query(format!(
+pub fn rollback_stale() -> ConnectorError {
+    ConnectorError::Query(format!(
         "{ROLLBACK_STALE}: The rows changed after this save. Rollback would overwrite newer data."
     ))
 }
@@ -256,20 +219,5 @@ mod tests {
         let text = serde_json::to_string(&result).unwrap_or_default();
         assert!(!text.contains("DELETE"), "{text}");
         assert!(!text.contains("rollbackSql"), "{text}");
-    }
-
-    #[test]
-    fn rows_hash_ignores_order_and_sees_any_change() {
-        let a = vec![json!(1), json!("x")];
-        let b = vec![json!(2), json!("y")];
-        assert_eq!(
-            rows_hash(&[a.clone(), b.clone()]),
-            rows_hash(&[b.clone(), a.clone()])
-        );
-        assert_ne!(
-            rows_hash(&[a.clone()]),
-            rows_hash(&[vec![json!(1), json!("z")]])
-        );
-        assert_ne!(rows_hash(&[]), rows_hash(&[a]));
     }
 }

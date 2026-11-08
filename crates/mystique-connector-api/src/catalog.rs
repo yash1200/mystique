@@ -84,17 +84,8 @@ pub struct ListCatalogColumnsRequest {
     pub schema: Option<String>,
 }
 
-/// One grid filter clause. Plugins compile this to SQL / MQL — never the FE.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct TableFilter {
-    pub column: String,
-    /// `eq` `neq` `gt` `gte` `lt` `lte` `contains` `starts` `ends`
-    /// `is_null` `not_null` `is_empty` `not_empty`
-    pub op: String,
-    #[serde(default)]
-    pub value: String,
-}
+/// One grid filter clause. Defined next to its compiler in `mystique_sql::filters`.
+pub use mystique_sql::filters::TableFilter;
 
 /// IPC: fetch a page of table/collection rows (plugin-owned SQL / find + order).
 #[derive(Debug, Clone, Serialize, Deserialize)]

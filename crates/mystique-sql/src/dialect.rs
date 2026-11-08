@@ -32,3 +32,22 @@ impl SqlDialect {
         }
     }
 }
+
+/// How a SQL engine spells bound parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlPlaceholder {
+    /// Postgres `$1`, `$2`, …
+    Dollar,
+    /// MySQL and SQLite `?`.
+    Question,
+}
+
+impl SqlPlaceholder {
+    /// The 1-based `index`th placeholder.
+    pub fn slot(self, index: usize) -> String {
+        match self {
+            Self::Dollar => format!("${index}"),
+            Self::Question => "?".to_string(),
+        }
+    }
+}

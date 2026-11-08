@@ -1,17 +1,26 @@
-//! Shared SQL analysis: statement split, AST write-risk, identifier quoting.
+//! Shared SQL: statement split, AST write-risk, identifier quoting, and the
+//! statement builders (grid DML, filters, structure DDL).
 //!
 //! No app domain and no engine drivers. Plugins and `mystique-connector-api`
 //! call this crate so the query tab, agent, and MCP share one lock.
+//! This crate must not depend on `mystique-connector-api`; the SPI re-exports
+//! from here and maps [`BuildError`] onto its own error type.
 
 mod dialect;
+pub mod dml;
+mod error;
+pub mod filters;
 mod ident;
+mod literal;
 mod params;
 mod plan;
 mod risk;
 mod split;
 
-pub use dialect::SqlDialect;
-pub use ident::{quote_ident, quote_path};
+pub use dialect::{SqlDialect, SqlPlaceholder};
+pub use error::{BuildError, BuildResult};
+pub use ident::{qualify_table, quote_ident, quote_path};
+pub use literal::{sql_literal, sql_string_literal};
 pub use params::{mask_placeholders, ParamSlot, ScriptParams};
 pub use plan::{first_syntax_fault, plan_batch, PlannedStatement, SyntaxFault};
 pub use risk::{

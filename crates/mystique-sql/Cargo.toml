@@ -2,8 +2,10 @@
 name = "mystique-sql"
 version = "0.1.0"
 edition = "2021"
-description = "Shared SQL split, AST risk, and identifier quoting (no app domain)"
+description = "Shared SQL: split, AST risk, identifier quoting, and DML/DDL/filter builders (no app domain)"
 publish = false
 
 [dependencies]
 sqlparser = { version = "0.58", features = ["visitor"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

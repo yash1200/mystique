@@ -147,6 +147,12 @@ pub enum ConnectorError {
     WriteGuard(crate::WriteGuardPrompt),
 }
 
+impl From<mystique_sql::BuildError> for ConnectorError {
+    fn from(err: mystique_sql::BuildError) -> Self {
+        Self::Query(err.into_message())
+    }
+}
+
 impl From<mystique_tls::TlsError> for ConnectorError {
     fn from(err: mystique_tls::TlsError) -> Self {
         match err {

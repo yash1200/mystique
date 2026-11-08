@@ -1,10 +1,10 @@
 //! Parse the grid code-filter box (JSON object or `col = val` predicates).
 
-use crate::catalog::TableFilter;
-use crate::error::{ConnectorError, ConnectorResult};
+use super::TableFilter;
+use crate::error::{BuildError, BuildResult};
 
 /// Parse the code-filter box: JSON `{ "col": "val" }` or `col = val AND …`.
-pub fn parse_code_filter_rules(code: &str) -> ConnectorResult<Vec<TableFilter>> {
+pub fn parse_code_filter_rules(code: &str) -> BuildResult<Vec<TableFilter>> {
     let t = code.trim();
     if t.is_empty() {
         return Ok(Vec::new());
@@ -15,10 +15,10 @@ pub fn parse_code_filter_rules(code: &str) -> ConnectorResult<Vec<TableFilter>> 
     parse_predicate_lines(t)
 }
 
-fn object_to_eq_filters(raw: &str) -> ConnectorResult<Vec<TableFilter>> {
+fn object_to_eq_filters(raw: &str) -> BuildResult<Vec<TableFilter>> {
     let v = parse_loose_json_object(raw)?;
     let obj = v.as_object().ok_or_else(|| {
-        ConnectorError::Query("code filter JSON must be an object `{ column: value }`".into())
+        BuildError::new("code filter JSON must be an object `{ column: value }`".into())
     })?;
     let mut out = Vec::with_capacity(obj.len());
     for (k, val) in obj {
@@ -28,7 +28,7 @@ fn object_to_eq_filters(raw: &str) -> ConnectorResult<Vec<TableFilter>> {
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::String(s) => s.clone(),
             _ => {
-                return Err(ConnectorError::Query(format!(
+                return Err(BuildError::new(format!(
                     "JSON filter value for `{k}` must be a string, number, boolean, or null"
                 )));
             }
@@ -42,13 +42,13 @@ fn object_to_eq_filters(raw: &str) -> ConnectorResult<Vec<TableFilter>> {
     Ok(out)
 }
 
-fn parse_loose_json_object(raw: &str) -> ConnectorResult<serde_json::Value> {
+fn parse_loose_json_object(raw: &str) -> BuildResult<serde_json::Value> {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
         return Ok(v);
     }
     let quoted = quote_unquoted_json_keys(raw);
     serde_json::from_str(&quoted)
-        .map_err(|e| ConnectorError::Query(format!("invalid code filter JSON: {e}")))
+        .map_err(|e| BuildError::new(format!("invalid code filter JSON: {e}")))
 }
 
 fn quote_unquoted_json_keys(input: &str) -> String {
@@ -108,7 +108,7 @@ fn quote_unquoted_json_keys(input: &str) -> String {
     out
 }
 
-fn parse_predicate_lines(code: &str) -> ConnectorResult<Vec<TableFilter>> {
+fn parse_predicate_lines(code: &str) -> BuildResult<Vec<TableFilter>> {
     let chunks: Vec<&str> = code
         .split(|c| c == '\n')
         .flat_map(|line| line.split(" AND ").flat_map(|p| p.split(" and ")))
@@ -126,7 +126,7 @@ fn parse_predicate_lines(code: &str) -> ConnectorResult<Vec<TableFilter>> {
     Ok(out)
 }
 
-fn parse_one_predicate(line: &str) -> ConnectorResult<(String, String, String)> {
+fn parse_one_predicate(line: &str) -> BuildResult<(String, String, String)> {
     let lower = line.to_ascii_lowercase();
     let named: &[(&str, &str)] = &[
         (" is not empty", "not_empty"),
@@ -170,7 +170,7 @@ fn parse_one_predicate(line: &str) -> ConnectorResult<(String, String, String)> 
             return Ok((column, op.into(), value));
         }
     }
-    Err(ConnectorError::Query(format!(
+    Err(BuildError::new(format!(
         "could not parse filter `{line}` — use {{ \"column\": \"value\" }} or column = value"
     )))
 }

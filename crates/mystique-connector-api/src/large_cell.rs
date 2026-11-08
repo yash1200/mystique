@@ -13,7 +13,11 @@ use serde_json::{Map, Value as JsonValue};
 use crate::cancel::QueryControl;
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::query::QueryResult;
-use crate::{qualify_table, quote_ident, QueryBatchResult, SqlIdentStyle, TablePreviewResult};
+use crate::{QueryBatchResult, TablePreviewResult};
+use mystique_sql::{qualify_table, quote_ident, SqlDialect};
+
+pub(crate) use mystique_sql::dml::is_large_marker;
+pub use mystique_sql::SqlPlaceholder;
 
 /// Encoded JSON size above which a grid cell is replaced with a preview.
 pub const LARGE_CELL_BYTES: usize = 32 * 1024;
@@ -24,15 +28,7 @@ pub const LARGE_CELL_CHUNK_CHARS: u64 = 32_000;
 
 const ELLIPSIS: char = '\u{2026}';
 
-/// How a SQL engine spells bound parameters and text casts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SqlPlaceholder {
-    /// Postgres `$1`, `$2`, …
-    Dollar,
-    /// MySQL and SQLite `?`.
-    Question,
-}
-
+/// How a SQL engine spells a text cast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlTextCast {
     /// `CAST(col AS text)` — Postgres and SQLite.
@@ -120,7 +116,7 @@ struct ClipCol {
 /// Build a single-cell read. An empty key list is refused: there is no
 /// "match every column" fallback.
 pub fn large_cell_select(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     placeholder: SqlPlaceholder,
     cast: SqlTextCast,
     locator: &LargeCellLocator,
@@ -311,14 +307,6 @@ fn marker(value: &JsonValue, locator: Option<LargeCellLocator>) -> JsonValue {
     JsonValue::Object(map)
 }
 
-pub(crate) fn is_large_marker(value: &JsonValue) -> bool {
-    value
-        .get("$large")
-        .and_then(JsonValue::as_bool)
-        .unwrap_or(false)
-        && value.get("preview").and_then(JsonValue::as_str).is_some()
-}
-
 fn encoded_len(value: &JsonValue) -> usize {
     serde_json::to_vec(value)
         .map(|bytes| bytes.len())
@@ -463,7 +451,7 @@ mod tests {
             }],
         };
         let select = large_cell_select(
-            SqlIdentStyle::Postgres,
+            SqlDialect::Postgres,
             SqlPlaceholder::Dollar,
             SqlTextCast::Text,
             &locator,
@@ -476,7 +464,7 @@ mod tests {
             vec!["9007199254740993'); DROP TABLE docs;--".to_string()]
         );
         let err = large_cell_select(
-            SqlIdentStyle::Postgres,
+            SqlDialect::Postgres,
             SqlPlaceholder::Question,
             SqlTextCast::Text,
             &LargeCellLocator {
