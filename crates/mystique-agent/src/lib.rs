@@ -19,5 +19,5 @@ pub use runtime::{
     AgentRuntime, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED,
     SETTING_OLLAMA_URL,
 };
-pub use secrets::{AiKeyStatus, SecretStore};
+pub use secrets::{AiKeyStatus, AiSettingsView, SecretStore};
 pub use service::{runtime_enabled, AgentService};

@@ -10,6 +10,7 @@ use crate::{ConnectorError, PinStatus, SourcePosition, SshHostKeyPrompt, WriteGu
 
 /// Stable machine kind of an IPC failure. snake_case on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum IpcErrorKind {
     InvalidConfig,
@@ -39,6 +40,7 @@ pub enum IpcErrorKind {
 
 /// What the UI asks before it retries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum IpcPrompt {
     WriteGuard(WriteGuardPrompt),
@@ -47,6 +49,7 @@ pub enum IpcPrompt {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "IpcErrorPayload"))]
 #[serde(rename_all = "camelCase")]
 pub struct IpcError {
     pub kind: IpcErrorKind,

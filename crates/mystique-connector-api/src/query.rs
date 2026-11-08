@@ -9,6 +9,7 @@ use crate::cancel::QueryControl;
 
 /// Read vs write. Connection profile `read_only` forces Read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum QueryMode {
     #[default]
@@ -18,11 +19,14 @@ pub enum QueryMode {
 
 /// API / IPC request to run a statement against an open session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteQueryRequest {
     pub session_id: String,
     pub text: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub mode: QueryMode,
     /// Soft cap on returned rows (hard-capped in core).
     #[serde(default)]
@@ -44,11 +48,13 @@ pub struct ExecuteQueryRequest {
     pub execution_id: Option<String>,
     /// Bound values for `:name`, `?`, and `$n`. They are not spliced into `text`.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub params: Vec<JsonValue>,
 }
 
 /// One result column.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryColumn {
     pub name: String,
@@ -63,6 +69,7 @@ pub struct QueryColumn {
 
 /// Tabular query result for the FE grid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult {
     pub engine: String,

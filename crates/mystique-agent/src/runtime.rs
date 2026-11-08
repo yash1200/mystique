@@ -23,6 +23,7 @@ pub const SETTING_OLLAMA_URL: &str = "ai.ollama.base_url";
 pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SendAgentMessage {
     pub connection_id: String,
@@ -39,6 +40,7 @@ pub struct SendAgentMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SendAgentResult {
     pub chat: AgentChat,

@@ -7,20 +7,27 @@ use std::collections::BTreeMap;
 
 /// Column metadata needed to compile a write (types, PK).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableEditColumn {
     pub name: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub data_type: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub nullable: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub pk: bool,
 }
 
 /// Update one existing row. `original` is used to locate the row (PKs);
 /// `values` is the changed column → new value map.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableRowUpdate {
     pub original: BTreeMap<String, JsonValue>,
@@ -29,6 +36,8 @@ pub struct TableRowUpdate {
 
 /// Insert one new row. `values` omits empty cells so defaults can apply.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableRowInsert {
     pub values: BTreeMap<String, JsonValue>,
@@ -36,6 +45,8 @@ pub struct TableRowInsert {
 
 /// Delete one existing row. `original` locates the row (PKs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableRowDelete {
     pub original: BTreeMap<String, JsonValue>,
@@ -56,6 +67,7 @@ pub struct ApplyTableEditsInput {
 
 /// One saved row read back after the save. `hash` covers every column.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RowCheck {
     pub sql: String,
@@ -66,6 +78,7 @@ pub struct RowCheck {
 /// Inverse of one committed grid save. Built by the plugin from its own plan.
 /// Rollback refuses when any `checks` hash no longer matches.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GridUndo {
     pub checks: Vec<RowCheck>,

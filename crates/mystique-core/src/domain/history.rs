@@ -7,6 +7,7 @@ pub const QUERY_HISTORY_CAP: i64 = 2_000;
 /// Who ran the statement. The connection manager sets this from the session.
 /// The query canvas does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum QueryHistorySource {
     #[default]
@@ -34,6 +35,7 @@ impl QueryHistorySource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryHistoryItem {
     pub id: String,
@@ -56,6 +58,8 @@ pub struct QueryHistoryItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct AppendHistoryInput {
     pub connection_id: Option<String>,
@@ -72,10 +76,12 @@ pub struct AppendHistoryInput {
     #[serde(default)]
     pub affected_rows: Option<i64>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub source: QueryHistorySource,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryHistoryPage {
     pub items: Vec<QueryHistoryItem>,

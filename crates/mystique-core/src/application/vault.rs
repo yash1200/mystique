@@ -27,6 +27,7 @@ pub struct VaultService<'a> {
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PurgeReport {
     /// False when this build does not use the keychain (file key source).

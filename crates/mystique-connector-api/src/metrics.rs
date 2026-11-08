@@ -20,6 +20,7 @@ fn default_true() -> bool {
 
 /// What this engine can populate in the metrics tab.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerMetricsCapabilities {
     pub overview: bool,
@@ -50,6 +51,7 @@ impl ServerMetricsCapabilities {
 
 /// How the UI should render a metric.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum MetricKind {
     #[default]
@@ -63,6 +65,7 @@ pub enum MetricKind {
 
 /// One typed metric. `value` is raw; `display` is an optional plugin hint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct MetricValue {
     pub key: String,
@@ -175,6 +178,7 @@ impl MetricValue {
 
 /// Headline server snapshot. Keys are stable so the FE can layout them.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerOverview {
     pub connections: MetricValue,
@@ -189,6 +193,7 @@ pub struct ServerOverview {
 
 /// One live backend session / connection / operation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveBackendSession {
     /// Engine-native id (`pid`, MySQL `Id`, Mongo `opid`).
@@ -210,6 +215,7 @@ pub struct ActiveBackendSession {
 
 /// A currently-running or historically slow statement.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SlowQuery {
     pub id: String,
@@ -233,6 +239,7 @@ pub struct SlowQuery {
 
 /// Full metrics payload returned to the UI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerMetricsSnapshot {
     pub engine: String,
@@ -247,12 +254,16 @@ pub struct ServerMetricsSnapshot {
 
 /// IPC request. `sessionId` is the Mystique pool session, not a backend pid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct FetchServerMetricsRequest {
     pub session_id: String,
     #[serde(default = "default_true")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub include_sessions: bool,
     #[serde(default = "default_true")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub include_slow_queries: bool,
     #[serde(default)]
     pub slow_query_limit: Option<u32>,
@@ -285,6 +296,8 @@ impl FetchServerMetricsRequest {
 
 /// IPC request to kill a backend session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminateSessionRequest {
     pub session_id: String,
@@ -307,6 +320,7 @@ impl TerminateSessionRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminateSessionResult {
     pub ok: bool,

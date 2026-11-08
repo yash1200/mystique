@@ -2,26 +2,16 @@ use std::sync::Arc;
 
 use mystique_agent::{
     default_model, parse_provider, provider_catalog, AgentModelInfo, AgentProviderInfo,
-    AiKeyStatus, SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL,
+    AiSettingsView, SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL,
     SETTING_AI_ENABLED, SETTING_OLLAMA_URL,
 };
-use mystique_core::{AgentChat, AgentMessage, AppServices, CreateAgentChatInput};
-use serde::Deserialize;
+use mystique_core::{
+    AgentChat, AgentMessage, AppServices, CreateAgentChatInput, UpdateAgentChatInput,
+};
 use tauri::State;
 
 use super::IpcError;
 use crate::AppState;
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiSettingsView {
-    pub enabled: bool,
-    pub ollama_base_url: String,
-    /// True after the user saves an Ollama URL (even the default).
-    pub ollama_configured: bool,
-    pub keys: Vec<AiKeyStatus>,
-    pub providers: Vec<AgentProviderInfo>,
-}
 
 fn read_ai_settings(
     services: &AppServices,
@@ -194,15 +184,6 @@ pub async fn list_agent_messages(
             .map_err(IpcError::from)
     })
     .await
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateAgentChatInput {
-    pub id: String,
-    pub title: Option<String>,
-    pub provider: Option<String>,
-    pub model: Option<String>,
 }
 
 #[tauri::command]

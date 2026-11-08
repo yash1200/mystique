@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Snapshot of pool health for API / status bar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PoolStatus {
     pub engine: String,
@@ -16,6 +17,8 @@ pub struct PoolStatus {
 
 /// TOFU / mismatch prompt for an SSH bastion host key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct SshHostKeyPrompt {
     /// Always `sshHostKey`. Kept on the wire for older readers.
@@ -27,6 +30,7 @@ pub struct SshHostKeyPrompt {
     pub fingerprint: String,
     pub key_type: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub public_key: String,
 }
 
@@ -97,6 +101,7 @@ impl std::fmt::Display for SshHostKeyPrompt {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TestResult {
     pub ok: bool,

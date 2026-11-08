@@ -8,6 +8,7 @@ pub type ConnectorResult<T> = Result<T, ConnectorError>;
 
 /// Where a fault sits in the submitted batch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SourcePosition {
     /// 0-based byte offset.

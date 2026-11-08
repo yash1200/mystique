@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 /// Request structure for one table / view / collection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectStructureRequest {
     pub session_id: String,
@@ -20,6 +22,7 @@ pub struct ObjectStructureRequest {
 
 /// Full structure payload returned by a plugin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectStructure {
     pub title: String,
@@ -32,6 +35,7 @@ pub struct ObjectStructure {
 
 /// One named section of structure (columns, indexes, …).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct StructureSection {
     pub id: String,

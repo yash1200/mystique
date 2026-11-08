@@ -20,6 +20,8 @@ pub const IMPORT_CHUNK_SIZE: usize = 100;
 pub const IMPORT_PREVIEW_ROWS: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewImportRequest {
     pub session_id: String,
@@ -33,6 +35,7 @@ pub struct PreviewImportRequest {
     pub path: String,
     pub format: ImportFormat,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub encoding: ImportEncoding,
 }
 
@@ -62,6 +65,7 @@ impl PreviewImportRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ImportTableColumn {
     pub name: String,
@@ -71,6 +75,7 @@ pub struct ImportTableColumn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewImportResult {
     pub file_keys: Vec<String>,
@@ -82,6 +87,8 @@ pub struct PreviewImportResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ImportObjectRequest {
     pub session_id: String,
@@ -95,10 +102,13 @@ pub struct ImportObjectRequest {
     pub path: String,
     pub format: ImportFormat,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub encoding: ImportEncoding,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub mapping: Vec<ImportColumnMap>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub on_duplicate: ImportOnDuplicate,
 }
 
@@ -132,6 +142,7 @@ impl ImportObjectRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ImportObjectResult {
     pub inserted: u64,

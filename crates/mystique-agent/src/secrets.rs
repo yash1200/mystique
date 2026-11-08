@@ -17,10 +17,24 @@ use mystique_core::{AppResult, AppServices, SecretKind};
 use crate::providers::AgentProvider;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AiKeyStatus {
     pub provider: String,
     pub has_key: bool,
+}
+
+/// Settings > AI, as the `get_ai_settings` family of commands returns it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettingsView {
+    pub enabled: bool,
+    pub ollama_base_url: String,
+    /// True after the user saves an Ollama URL (even the default).
+    pub ollama_configured: bool,
+    pub keys: Vec<AiKeyStatus>,
+    pub providers: Vec<crate::AgentProviderInfo>,
 }
 
 #[derive(Clone)]

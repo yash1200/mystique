@@ -7,6 +7,7 @@ use crate::query::QueryMode;
 
 /// One labelled fact an engine actually returned (`index`, `actual time`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PlanField {
     pub label: String,
@@ -18,6 +19,7 @@ pub struct PlanField {
 /// `cost` and `rows` are omitted when the engine has no such number.
 /// Self cost is `cost − Σ children` and is computed by the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PlanNode {
     pub name: String,
@@ -45,6 +47,7 @@ impl PlanNode {
 
 /// Plugin-normalised plan plus the engine payload for the Raw tab.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExplainPlan {
     /// Server payload, unchanged. `raw_format` is `json` or `text`.
@@ -58,13 +61,17 @@ pub struct ExplainPlan {
 /// IPC body for `explain_engine_query`. Separate from [`crate::ExecuteQueryRequest`]
 /// so execute call sites do not grow an analyze flag.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ExplainQueryRequest {
     pub session_id: String,
     pub text: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub analyze: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub mode: QueryMode,
     #[serde(default)]
     pub timeout_ms: Option<u64>,

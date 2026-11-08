@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 mod defaults;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EngineFamily {
     Relational,
@@ -15,6 +16,7 @@ pub enum EngineFamily {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ModelViewKind {
     Er,
@@ -24,6 +26,7 @@ pub enum ModelViewKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectLabels {
     pub namespace: String,
@@ -51,6 +54,7 @@ impl ObjectLabels {
 
 /// Explorer chrome inside one database (plugin-owned; FE must not hardcode).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerConfig {
     /// `schema-tree` (Postgres) or `flat` (MySQL / SQLite / Mongo).
@@ -75,6 +79,7 @@ pub struct ExplorerConfig {
 
 /// Catalog-object actions the plugin implements (`apply_table_admin`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TableAdminFeatures {
     pub create_statement: bool,
@@ -93,6 +98,7 @@ fn default_true() -> bool {
 
 /// How Home collects / displays connection coordinates.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionKind {
     #[default]
@@ -105,6 +111,7 @@ pub enum ConnectionKind {
 ///
 /// Chrome reads the boolean flags this depth clamps — never `if engine ===`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum SupportDepth {
     /// Full chrome (today’s four runtimes).
@@ -122,6 +129,7 @@ fn default_supports_query() -> bool {
 
 /// Capability flags returned to the UI / API consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct EngineCapabilities {
     pub engine: String,
@@ -150,9 +158,11 @@ pub struct EngineCapabilities {
     /// Structure edits are limited to adding columns, renaming, and indexes.
     /// SQLite until its table rebuild keeps the original schema.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub structure_edit_limited: bool,
     /// Grid filter can ask for distinct column values. Hidden when false.
     #[serde(default = "default_true")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub supports_distinct_values: bool,
     /// Query editor gutter. Every runtime can run a statement.
     #[serde(default = "default_supports_query")]

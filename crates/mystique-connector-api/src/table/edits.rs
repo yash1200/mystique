@@ -14,8 +14,10 @@ pub use mystique_sql::dml::{
 use crate::catalog::ColumnInfo;
 use crate::error::ConnectorError;
 
-/// IPC request (includes session + read-only flag).
+/// IPC request for a grid save. Read-only comes from the live session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyTableEditsRequest {
     pub session_id: String,
@@ -25,17 +27,22 @@ pub struct ApplyTableEditsRequest {
     #[serde(default)]
     pub database: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub columns: Vec<TableEditColumn>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub updates: Vec<TableRowUpdate>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub inserts: Vec<TableRowInsert>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub deletes: Vec<TableRowDelete>,
     #[serde(default)]
     pub confirm_object_name: Option<String>,
     /// Compile the statements and do not write.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub dry_run: bool,
 }
 
@@ -55,6 +62,7 @@ impl From<ApplyTableEditsRequest> for ApplyTableEditsInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyTableEditsResult {
     pub updated: u32,
@@ -141,6 +149,8 @@ fn default_distinct_limit() -> u32 {
 
 /// Distinct values for one catalog column. `limit` is clamped to 1000.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct DistinctColumnValuesRequest {
     pub session_id: String,
@@ -151,6 +161,7 @@ pub struct DistinctColumnValuesRequest {
     pub database: Option<String>,
     pub column: String,
     #[serde(default = "default_distinct_limit")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub limit: u32,
 }
 
@@ -179,6 +190,8 @@ impl From<DistinctColumnValuesRequest> for DistinctColumnValuesInput {
 /// Roll back one grid save. The backend owns the inverse SQL; the client
 /// sends only the id it got back from the save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RollbackTableEditsRequest {
     pub session_id: String,

@@ -67,6 +67,7 @@ pub fn migration_risk(changes: &[SchemaChange]) -> WriteRisk {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyDdlResult {
     pub applied: Vec<String>,
@@ -74,6 +75,8 @@ pub struct ApplyDdlResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct DescribeTableDefinitionRequest {
     pub session_id: String,
@@ -87,6 +90,8 @@ pub struct DescribeTableDefinitionRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ListTableDefinitionsRequest {
     pub session_id: String,
@@ -97,6 +102,8 @@ pub struct ListTableDefinitionsRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct PlanDdlRequest {
     pub session_id: String,
@@ -104,6 +111,8 @@ pub struct PlanDdlRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyDdlRequest {
     pub session_id: String,
@@ -113,22 +122,28 @@ pub struct ApplyDdlRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct PlanSchemaDiffRequest {
     pub session_id: String,
     pub source: Vec<TableDefinition>,
     pub target: Vec<TableDefinition>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub renames: Vec<RenamePair>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ApplySchemaDiffRequest {
     pub session_id: String,
     pub source: Vec<TableDefinition>,
     pub target: Vec<TableDefinition>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub renames: Vec<RenamePair>,
     #[serde(default)]
     pub confirm_object_name: Option<String>,

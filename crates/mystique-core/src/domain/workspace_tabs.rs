@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Persisted workspace tab (query canvas, table grid, or ER model).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceTabRecord {
     pub id: String,
@@ -35,6 +36,8 @@ pub struct WorkspaceTabRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveWorkspaceTabInput {
     pub id: String,
@@ -42,8 +45,10 @@ pub struct SaveWorkspaceTabInput {
     pub kind: String,
     pub title: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub sort_order: i64,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub is_active: bool,
     #[serde(default)]
     pub saved_query_id: Option<String>,
@@ -52,17 +57,21 @@ pub struct SaveWorkspaceTabInput {
     #[serde(default)]
     pub language: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub write_enabled: bool,
     #[serde(default)]
     pub table_id: Option<String>,
     #[serde(default)]
     pub model_database: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub is_dirty: bool,
 }
 
 /// Replace all open tabs for a connection (order = array order).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ReplaceWorkspaceTabsInput {
     pub connection_id: String,

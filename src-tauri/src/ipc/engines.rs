@@ -3,31 +3,14 @@
 use std::sync::Arc;
 
 use mystique_core::{
-    EngineDescriptor, FormattedConnectionUrl, OpenSessionRequest, ParsedConnectionUrl, PoolStatus,
-    SessionInfo, SshHostKeyPrompt, TestResult,
+    EngineDescriptor, FormatConnectionUrlRequest, FormattedConnectionUrl, OpenSessionRequest,
+    ParseConnectionUrlRequest, ParsedConnectionUrl, PoolStatus, SessionInfo, SshHostKeyPrompt,
+    TestResult,
 };
-use serde::Deserialize;
-use serde_json::Value as JsonValue;
 use tauri::State;
 
 use super::IpcError;
 use crate::AppState;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ParseConnectionUrlRequest {
-    pub engine: String,
-    pub url: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FormatConnectionUrlRequest {
-    pub engine: String,
-    pub plugin_config: JsonValue,
-    #[serde(default)]
-    pub password: Option<String>,
-}
 
 #[tauri::command]
 pub async fn list_engines(state: State<'_, AppState>) -> Result<Vec<EngineDescriptor>, IpcError> {

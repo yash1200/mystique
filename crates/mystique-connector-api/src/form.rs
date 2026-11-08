@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// JSON-schema-ish form description for dynamic connection UIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionFormSchema {
     pub engine: String,
@@ -9,6 +10,7 @@ pub struct ConnectionFormSchema {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FormField {
     pub name: String,
@@ -27,6 +29,7 @@ pub struct FormField {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum FormFieldType {
     Text,

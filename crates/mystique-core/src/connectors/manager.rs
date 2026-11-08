@@ -51,9 +51,12 @@ fn overlay_session_caps(
 
 /// API request to open a pooled session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSessionRequest {
     pub engine: String,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub plugin_config: JsonValue,
     #[serde(default)]
     pub password: Option<String>,
@@ -84,6 +87,7 @@ pub struct OpenSessionRequest {
     /// When false, an omitted `ssh` stays omitted. The test form sets this
     /// from the SSH checkbox so an unticked box does not reuse the saved tunnel.
     #[serde(default = "default_use_saved_ssh")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub use_saved_ssh: bool,
 }
 

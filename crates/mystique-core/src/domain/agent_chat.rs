@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentChat {
     pub id: String,
@@ -13,6 +14,7 @@ pub struct AgentChat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessage {
     pub id: String,
@@ -27,6 +29,8 @@ pub struct AgentMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateAgentChatInput {
     pub connection_id: String,
@@ -35,7 +39,21 @@ pub struct CreateAgentChatInput {
     pub model: String,
 }
 
+/// `update_agent_chat` request. `None` leaves a field as it is.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAgentChatInput {
+    pub id: String,
+    pub title: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct AppendAgentMessageInput {
     pub chat_id: String,

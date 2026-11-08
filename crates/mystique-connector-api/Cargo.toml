@@ -6,6 +6,7 @@ description = "Stable SPI: traits, DTOs, errors for Mystique engine plugins"
 publish = false
 
 [dependencies]
+ts-rs = { version = "12", optional = true, default-features = false, features = ["serde-compat", "serde-json-impl"] }
 mystique-sql = { path = "../mystique-sql" }
 mystique-tls = { path = "../mystique-tls" }
 mystique-transfer = { path = "../mystique-transfer" }
@@ -18,3 +19,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[features]
+# TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
+ts = ["dep:ts-rs", "mystique-sql/ts", "mystique-tls/ts", "mystique-transfer/ts"]

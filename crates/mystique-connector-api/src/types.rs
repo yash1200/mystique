@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Lightweight engine card for Home / API catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct EngineDescriptor {
     pub id: String,
@@ -17,6 +18,7 @@ pub struct EngineDescriptor {
 
 /// Live session handle returned to API clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
     pub session_id: String,

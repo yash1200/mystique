@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// How we authenticate to the bastion. One hop; no SOCKS/HTTP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum SshAuth {
     #[default]
@@ -14,19 +15,27 @@ pub enum SshAuth {
 
 /// Persisted SSH fields. Secrets never live here — see `ssh_secret_ref`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct SshConfig {
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub enabled: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub host: String,
     #[serde(default = "default_ssh_port")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub port: u16,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub user: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub auth: SshAuth,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub private_key_path: String,
 }
 
@@ -63,6 +72,8 @@ impl SshConfig {
 
 /// Runtime tunnel params on `OpenSessionRequest` (includes secrets).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct SshTunnelRequest {
     pub host: String,

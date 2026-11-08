@@ -10,6 +10,7 @@ pub const SETTING_MCP_TOKEN: &str = "mcp.token";
 pub use mystique_core::{SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct McpAllowlistConnection {
     pub id: String,
@@ -18,6 +19,7 @@ pub struct McpAllowlistConnection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct McpAccess {
     pub policy: String,

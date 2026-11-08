@@ -3,7 +3,8 @@
 #
 # Jobs:
 #   frontend      pnpm check (svelte-kit sync, zone boundaries, svelte-check) + vitest
-#   rust          cargo test for every crate except the Tauri shell
+#   rust          cargo test for every crate except the Tauri shell, then the
+#                 generated IPC bindings (pnpm gen:ipc) must match the checked-in file
 #   layers        crate dependency direction (scripts/check-crate-layers.mjs)
 #   deny          cargo deny: licenses, bans (duplicate versions warn), sources
 #   audit         cargo deny: RustSec advisories (stands in for cargo audit; non-blocking for now)
@@ -55,6 +56,10 @@ jobs:
       # `mystique` is the Tauri shell: it needs WebKitGTK on Linux and is
       # covered by tauri-smoke.
       - run: cargo test --workspace --exclude mystique --locked
+      # `pnpm gen:ipc` without pnpm. Fails when a Rust DTO changed and the
+      # checked-in TS bindings were not regenerated.
+      - run: cargo run -q -p mystique-ipc-gen --features ts --locked
+      - run: git diff --exit-code src/lib/core/ipc/bindings.gen.ts
 
   layers:
     runs-on: ubuntu-latest

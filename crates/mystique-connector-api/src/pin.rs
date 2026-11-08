@@ -28,6 +28,7 @@ pub trait PinnedSession: Send {
 
 /// What the editor shows for one tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PinStatus {
     pub pinned: bool,

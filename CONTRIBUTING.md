@@ -11,7 +11,10 @@ pnpm install
 pnpm tauri dev          # desktop window
 pnpm check              # boundaries + svelte-check
 cargo test              # from repo root
+pnpm gen:ipc            # after changing a Rust IPC DTO: rewrites src/lib/core/ipc/bindings.gen.ts
 ```
+
+IPC types are generated from Rust (ts-rs, behind each DTO crate's `ts` feature) into `src/lib/core/ipc/bindings.gen.ts` and re-exported from `#core/contracts`. Do not edit the generated file; CI fails when it is stale.
 
 `rust-toolchain.toml` pulls `aarch64-apple-darwin` and `x86_64-apple-darwin`. First `tauri dev` is slow.
 

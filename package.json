@@ -10,6 +10,7 @@
 		"check": "svelte-kit sync && node scripts/check-boundaries.mjs && svelte-check --tsconfig ./tsconfig.json",
 		"check:boundaries": "node scripts/check-boundaries.mjs",
 		"check:crates": "node scripts/check-crate-layers.mjs",
+		"gen:ipc": "cargo run -q -p mystique-ipc-gen --features ts --locked",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
 		"tauri": "tauri",

@@ -8,6 +8,7 @@ members = [
     "crates/mystique-core",
     "crates/mystique-mcp",
     "crates/mystique-agent",
+    "crates/mystique-ipc-gen",
     "crates/plugins/mystique-plugin-postgres",
     "crates/plugins/mystique-plugin-sqlite",
     "crates/plugins/mystique-plugin-mongodb",

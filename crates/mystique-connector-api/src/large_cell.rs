@@ -39,6 +39,8 @@ pub enum SqlTextCast {
 
 /// One primary-key value, already in the js-safe JSON form the grid uses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct LargeCellKey {
     pub column: String,
@@ -47,6 +49,8 @@ pub struct LargeCellKey {
 
 /// Handed back by the grid to load the rest of one cell. No SQL text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct LargeCellLocator {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,11 +70,14 @@ pub struct LargeCellSelect {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct FetchLargeValueRequest {
     pub session_id: String,
     pub locator: LargeCellLocator,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub offset: u64,
     #[serde(default)]
     pub limit: Option<u64>,
@@ -99,6 +106,7 @@ impl FetchLargeValueRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FetchLargeValueResult {
     pub text: String,

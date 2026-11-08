@@ -66,6 +66,7 @@ fn bool_field(config: &impl TlsConfigSource, key: &str, default: bool) -> bool {
 
 /// libpq-style SSL mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum SslMode {
     #[default]

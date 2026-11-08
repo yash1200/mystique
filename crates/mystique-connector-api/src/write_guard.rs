@@ -11,6 +11,8 @@ use crate::Confirmation;
 pub const WRITE_GUARD_CODE: &str = "writeGuard";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct WriteGuardPrompt {
     pub code: String,
@@ -23,6 +25,7 @@ pub struct WriteGuardPrompt {
     pub preview: String,
     /// Statements the write will run, when known.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub statements: Vec<String>,
     /// Name to send back as `confirmObjectName` for `confirm` and `typeConfirm`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

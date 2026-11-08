@@ -1,0 +1,30 @@
+[package]
+name = "mystique-ipc-gen"
+version = "0.1.0"
+edition = "2021"
+description = "Writes src/lib/core/ipc/bindings.gen.ts from the Rust IPC types (pnpm gen:ipc)"
+publish = false
+
+# The generator is the only thing that turns on the `ts` feature of the DTO
+# crates. Without `--features ts` this package builds nothing, so
+# `cargo test --workspace` does not compile ts-rs into the app crates.
+[[bin]]
+name = "mystique-ipc-gen"
+path = "src/main.rs"
+required-features = ["ts"]
+
+[dependencies]
+mystique-connector-api = { path = "../mystique-connector-api" }
+mystique-core = { path = "../mystique-core" }
+mystique-mcp = { path = "../mystique-mcp" }
+mystique-agent = { path = "../mystique-agent" }
+ts-rs = { version = "12", optional = true, default-features = false, features = ["serde-compat", "serde-json-impl"] }
+
+[features]
+ts = [
+    "dep:ts-rs",
+    "mystique-connector-api/ts",
+    "mystique-core/ts",
+    "mystique-mcp/ts",
+    "mystique-agent/ts",
+]

@@ -6,6 +6,11 @@ description = "Shared SQL: split, AST risk, identifier quoting, and DML/DDL/filt
 publish = false
 
 [dependencies]
+ts-rs = { version = "12", optional = true, default-features = false, features = ["serde-compat", "serde-json-impl"] }
 sqlparser = { version = "0.58", features = ["visitor"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[features]
+# TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
+ts = ["dep:ts-rs"]

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::AgentProvider;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentProviderInfo {
     pub id: String,
@@ -12,6 +13,7 @@ pub struct AgentProviderInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentModelInfo {
     pub id: String,

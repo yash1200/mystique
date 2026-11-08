@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub use parse::{parse_import_file, suggest_map, ParsedTable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ImportFormat {
     Csv,
@@ -45,6 +46,7 @@ impl ImportFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ImportOnDuplicate {
     StopOnError,
@@ -58,6 +60,8 @@ impl Default for ImportOnDuplicate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ImportColumnMap {
     pub file_key: String,

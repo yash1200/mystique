@@ -19,6 +19,7 @@ use self::http::{router, HttpState};
 pub(crate) use token::{ensure_token, TokenGate};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct McpStatus {
     pub enabled: bool,

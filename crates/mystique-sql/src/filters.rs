@@ -16,6 +16,8 @@ pub use sort::{preview_sort_field, preview_sort_sql, resolve_preview_sort_column
 
 /// One grid filter clause. Plugins compile this to SQL / MQL — never the FE.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableFilter {
     pub column: String,
@@ -23,6 +25,7 @@ pub struct TableFilter {
     /// `is_null` `not_null` `is_empty` `not_empty`
     pub op: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub value: String,
 }
 

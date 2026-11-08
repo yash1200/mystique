@@ -6,6 +6,11 @@ description = "TLS settings and native-tls connector for Mystique engine plugins
 publish = false
 
 [dependencies]
+ts-rs = { version = "12", optional = true, default-features = false, features = ["serde-compat", "serde-json-impl"] }
 native-tls = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[features]
+# TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
+ts = ["dep:ts-rs"]

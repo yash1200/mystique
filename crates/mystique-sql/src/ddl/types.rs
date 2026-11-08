@@ -3,12 +3,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnOriginal {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub pk_position: u32,
     /// MySQL: the column definition after its name, as `SHOW CREATE TABLE`
     /// prints it. MODIFY is rebuilt from it so DEFAULT, ON UPDATE,
@@ -18,47 +21,61 @@ pub struct ColumnOriginal {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnDraft {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub pk_position: u32,
     #[serde(default)]
     pub original: Option<ColumnOriginal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub drop: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct IndexOriginal {
     pub name: String,
     pub columns: Vec<String>,
     pub unique: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub primary: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct IndexDraft {
     pub name: String,
     pub columns: Vec<String>,
     pub unique: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub primary: bool,
     /// Postgres `CREATE INDEX CONCURRENTLY`. Cannot share a transaction.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub concurrent: bool,
     #[serde(default)]
     pub original: Option<IndexOriginal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub drop: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ForeignKeyOriginal {
     pub name: String,
@@ -70,6 +87,8 @@ pub struct ForeignKeyOriginal {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ForeignKeyDraft {
     pub name: String,
@@ -81,10 +100,13 @@ pub struct ForeignKeyDraft {
     #[serde(default)]
     pub original: Option<ForeignKeyOriginal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub drop: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableDefinition {
     #[serde(default)]
@@ -93,12 +115,16 @@ pub struct TableDefinition {
     pub schema: Option<String>,
     pub name: String,
     #[serde(default = "default_table_kind")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub kind: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub columns: Vec<ColumnDraft>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub indexes: Vec<IndexDraft>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub foreign_keys: Vec<ForeignKeyDraft>,
     /// SQLite `sqlite_master.sql` captured when the definition was read.
     #[serde(default)]
@@ -108,8 +134,10 @@ pub struct TableDefinition {
     #[serde(default)]
     pub original_validator: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub create: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub drop_table: bool,
     /// After an explicit rename pair, the table should end with this name.
     #[serde(default)]
@@ -226,6 +254,7 @@ impl TableDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DdlPlan {
     pub statements: Vec<String>,
@@ -244,6 +273,8 @@ impl DdlPlan {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct RenamePair {
     pub from: String,
@@ -251,6 +282,7 @@ pub struct RenamePair {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaChange {
     pub name: String,
@@ -260,6 +292,7 @@ pub struct SchemaChange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaMigration {
     pub changes: Vec<SchemaChange>,

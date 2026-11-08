@@ -12,6 +12,7 @@ pub use catalog::{default_model, models_for, provider_catalog, AgentModelInfo, A
 /// Copilot / ChatGPT (OAuth), VoyageAI (embeddings only), Galadriel (removed
 /// in Rig 0.42), EternalAI (separate crate).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum AgentProvider {
     Openai,

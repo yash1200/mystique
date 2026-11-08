@@ -12,6 +12,7 @@ pub use host::Host;
 pub const SERVER_NAME: &str = "mystique";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct McpEndpoint {
     pub url: String,
@@ -19,6 +20,7 @@ pub struct McpEndpoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct McpHarness {
     pub id: String,

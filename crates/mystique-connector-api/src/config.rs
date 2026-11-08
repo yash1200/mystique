@@ -8,10 +8,12 @@ use crate::error::{ConnectorError, ConnectorResult};
 /// Plugins map engine-native URL forms (`postgres://…`, `mysql://…`) onto the
 /// same `plugin_config` keys used by the connection form and `build_*` helpers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ParsedConnectionUrl {
     pub engine: String,
     /// Discrete fields (host, port, database, username, ssl, …).
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub plugin_config: JsonValue,
     /// Password from the URL, if present (never log this).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -23,19 +25,45 @@ pub struct ParsedConnectionUrl {
 /// Inverse of [`ParsedConnectionUrl`]: plugins own scheme rules so the FE
 /// never reimplements `postgresql://` / `mysql://` / `mongodb://` assembly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FormattedConnectionUrl {
     pub engine: String,
     pub url: String,
 }
 
+/// `parse_engine_connection_url` request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
+#[serde(rename_all = "camelCase")]
+pub struct ParseConnectionUrlRequest {
+    pub engine: String,
+    pub url: String,
+}
+
+/// `format_engine_connection_url` request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
+#[serde(rename_all = "camelCase")]
+pub struct FormatConnectionUrlRequest {
+    pub engine: String,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    pub plugin_config: JsonValue,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
 /// Opaque engine config from the profile `plugin_config` JSON bag + secrets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionConfig {
     /// Engine id: `postgres`, `sqlite`, `mongodb`, …
     pub engine: String,
     /// Engine-specific fields (host, port, path, uri, …).
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub plugin_config: JsonValue,
     /// Resolved secret (password) — never log this.
     #[serde(default, skip_serializing)]
@@ -47,19 +75,25 @@ pub struct ConnectionConfig {
 
 /// Cross-engine pool knobs. Plugins map these onto native pool settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct PoolConfig {
     /// Max connections in the pool (default engine-specific).
     #[serde(default = "default_max_size")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub max_size: u32,
     /// Minimum idle connections to keep warm.
     #[serde(default = "default_min_idle")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub min_idle: u32,
     /// Acquire timeout in milliseconds.
     #[serde(default = "default_acquire_timeout_ms")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub acquire_timeout_ms: u64,
     /// Connection idle timeout in seconds (0 = no timeout).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub idle_timeout_secs: u64,
 }
 

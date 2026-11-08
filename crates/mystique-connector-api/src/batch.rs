@@ -19,6 +19,7 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Risk copied from the SQL planner. Session is not a data write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum StatementKind {
     Read,
@@ -40,6 +41,7 @@ impl StatementKind {
 
 /// Byte range of one statement in the submitted batch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SqlRange {
     pub start: u32,
@@ -74,6 +76,7 @@ pub struct SqlBatchPlan {
 
 /// Where a progress event sits in the batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum BatchPhase {
     Started,
@@ -82,6 +85,7 @@ pub enum BatchPhase {
 
 /// Statement-boundary progress. Not emitted once per row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BatchEvent {
     /// 0-based statement index.
@@ -199,6 +203,7 @@ pub struct ValidatedBatch {
 /// One statement outcome. `index` is 0-based. Extra MySQL `CALL` sets share
 /// `index` and increment `set_index`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct StatementResult {
     pub index: u32,
@@ -266,6 +271,7 @@ impl StatementResult {
 /// sets stay visible. Read-mode rejection is a [`ConnectorError`] instead:
 /// nothing ran, so `results` would be empty.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryBatchResult {
     pub results: Vec<StatementResult>,

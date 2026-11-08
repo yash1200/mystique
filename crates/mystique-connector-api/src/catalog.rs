@@ -10,6 +10,7 @@ use crate::cancel::QueryControl;
 /// Foreign-key (or equivalent) target for a column — plugin-owned navigation.
 /// The FE shows a jump control; it does not invent relationships.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnReference {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -22,6 +23,7 @@ pub struct ColumnReference {
 
 /// One column as described by the engine plugin (developer-facing types).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub name: String,
@@ -43,6 +45,8 @@ pub struct ColumnInfo {
 
 /// Request to describe a single relation / collection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct DescribeTableRequest {
     pub session_id: String,
@@ -57,6 +61,7 @@ pub struct DescribeTableRequest {
 
 /// Flat column row for ER / bulk catalog (plugin-normalized types).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogColumnRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,6 +78,8 @@ pub struct CatalogColumnRow {
 
 /// Optional scope for bulk column listing.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ListCatalogColumnsRequest {
     pub session_id: String,
@@ -89,6 +96,8 @@ pub use mystique_sql::filters::TableFilter;
 
 /// IPC: fetch a page of table/collection rows (plugin-owned SQL / find + order).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct FetchTablePreviewRequest {
     pub session_id: String,
@@ -103,6 +112,7 @@ pub struct FetchTablePreviewRequest {
     pub offset: Option<u32>,
     /// Plugin-compiled predicates (AND). Empty = unfiltered.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub filters: Vec<TableFilter>,
     /// Raw code-filter box. Plugins compile JSON `{col: val}` or `col = val` expressions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,6 +167,7 @@ impl FetchTablePreviewRequest {
 
 /// Stable preview payload: columns + rows in plugin-defined order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TablePreviewResult {
     pub engine: String,
@@ -176,6 +187,8 @@ pub struct TablePreviewResult {
 
 /// Deferred COUNT + FK targets. Does not block first paint of a table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct FetchTablePreviewStatsRequest {
     pub session_id: String,
@@ -185,6 +198,7 @@ pub struct FetchTablePreviewStatsRequest {
     #[serde(default)]
     pub database: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub filters: Vec<TableFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_filter: Option<String>,
@@ -211,6 +225,7 @@ impl FetchTablePreviewStatsRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TablePreviewColumnRef {
     pub column: String,
@@ -218,6 +233,7 @@ pub struct TablePreviewColumnRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TablePreviewStats {
     pub total_rows: u64,
@@ -229,6 +245,7 @@ pub struct TablePreviewStats {
 
 /// One table / view / collection in the explorer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogObject {
     pub name: String,
@@ -244,6 +261,7 @@ pub struct CatalogObject {
 
 /// One database / catalog in the explorer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogDatabase {
     pub name: String,
@@ -255,6 +273,8 @@ pub struct CatalogDatabase {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ListCatalogRequest {
     pub session_id: String,
@@ -262,6 +282,7 @@ pub struct ListCatalogRequest {
     pub preferred_database: Option<String>,
     /// When false, plugins return database names only (no tables/collections).
     #[serde(default = "default_include_objects")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub include_objects: bool,
 }
 
@@ -271,6 +292,7 @@ fn default_include_objects() -> bool {
 
 /// Declared relationship (FK or equivalent) for live ER.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogRelationship {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -286,6 +308,8 @@ pub struct CatalogRelationship {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ListRelationshipsRequest {
     pub session_id: String,

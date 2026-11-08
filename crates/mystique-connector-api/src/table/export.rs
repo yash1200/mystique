@@ -28,6 +28,8 @@ pub const EXPORT_CHUNK_SIZE: u32 = 100;
 
 /// IPC request. `path` is the absolute destination file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct ExportObjectRequest {
     pub session_id: String,
@@ -72,6 +74,7 @@ impl ExportObjectRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExportObjectResult {
     pub path: String,

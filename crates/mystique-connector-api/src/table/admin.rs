@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Explorer object kind (plugin may ignore and inspect the live catalog).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum TableObjectKind {
     #[default]
@@ -25,6 +26,7 @@ impl TableObjectKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum TableAdminOp {
     /// Return engine-native CREATE / createCollection text. Does not execute.
@@ -41,6 +43,8 @@ pub enum TableAdminOp {
 
 /// IPC request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct TableAdminRequest {
     pub session_id: String,
@@ -84,6 +88,7 @@ impl TableAdminRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TableAdminResult {
     pub op: TableAdminOp,

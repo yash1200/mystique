@@ -98,6 +98,7 @@ impl<T: KeySource + ?Sized> KeySource for Arc<T> {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct VaultStatus {
     /// `keychain`, `file` or `memory`.

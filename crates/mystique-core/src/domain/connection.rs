@@ -7,6 +7,7 @@ use serde_json::Value as JsonValue;
 /// `secrets` table; `secret_ref` is [`VAULT_SECRET_REF`] for those. Older rows
 /// still name a keychain account until their first use moves it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionProfile {
     pub id: String,
@@ -18,6 +19,7 @@ pub struct ConnectionProfile {
     pub read_only: bool,
     pub notes: Option<String>,
     /// Engine-specific connection parameters (JSON object).
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub plugin_config: JsonValue,
     /// True when a password is saved (vault, or an old keychain item).
     pub password_set: bool,
@@ -43,6 +45,8 @@ pub struct ConnectionProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveConnectionInput {
     pub id: Option<String>,
@@ -52,6 +56,7 @@ pub struct SaveConnectionInput {
     pub environment: String,
     pub read_only: bool,
     pub notes: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub plugin_config: JsonValue,
     /// Plaintext password to store. Empty / omitted keeps the existing secret on update.
     #[serde(default)]
@@ -62,6 +67,7 @@ pub struct SaveConnectionInput {
     pub secret_ref: Option<String>,
     /// When true, clear the stored password on update.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub clear_secret: bool,
     /// After insert, copy the keychain secret from this profile id (duplicate).
     #[serde(default)]
@@ -71,12 +77,14 @@ pub struct SaveConnectionInput {
     pub favorite: Option<bool>,
     /// SSH bastion. Omitted / default = no tunnel.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub ssh_config: crate::domain::SshConfig,
     /// Bastion password or key passphrase. Empty keeps the existing secret.
     #[serde(default)]
     pub ssh_password: Option<String>,
     /// Clear the stored SSH secret on update.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub clear_ssh_secret: bool,
     /// Passphrase for an encrypted TLS client key.
     #[serde(default)]
