@@ -30,22 +30,29 @@ mod metrics;
 mod pin;
 mod preview;
 mod query;
+mod read_only;
 mod structure;
 mod transfer;
 
 pub(super) use crate::connector::pool::{query_failed, query_failed_at};
+pub(crate) use read_only::ReadOnlyVar;
 
 pub struct MysqlSession {
     pool: Pool,
+    /// Grid saves only. `CLIENT_FOUND_ROWS` makes an unchanged row count as 1.
+    edit_pool: Pool,
     max_size: u32,
+    read_only: ReadOnlyVar,
     closed: AtomicBool,
 }
 
 impl MysqlSession {
-    pub fn new(pool: Pool, max_size: u32) -> Self {
+    pub(crate) fn new(pool: Pool, edit_pool: Pool, max_size: u32, read_only: ReadOnlyVar) -> Self {
         Self {
             pool,
+            edit_pool,
             max_size,
+            read_only,
             closed: AtomicBool::new(false),
         }
     }
@@ -60,6 +67,14 @@ impl MysqlSession {
     pub(super) async fn conn(&self) -> ConnectorResult<mysql_async::Conn> {
         self.ensure_open()?;
         self.pool
+            .get_conn()
+            .await
+            .map_err(|e| ConnectorError::Pool(e.to_string()))
+    }
+
+    pub(super) async fn edit_conn(&self) -> ConnectorResult<mysql_async::Conn> {
+        self.ensure_open()?;
+        self.edit_pool
             .get_conn()
             .await
             .map_err(|e| ConnectorError::Pool(e.to_string()))
@@ -99,8 +114,8 @@ impl ConnectorSession for MysqlSession {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            let pool = self.pool.clone();
-            let _ = pool.disconnect().await;
+            let _ = self.pool.clone().disconnect().await;
+            let _ = self.edit_pool.clone().disconnect().await;
         }
         Ok(())
     }

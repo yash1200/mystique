@@ -36,6 +36,8 @@
 		table: TableMeta
 		readOnly?: boolean
 		showForeignKeys?: boolean
+		/** Engine can only add columns, rename, and change indexes. Other column edits are locked. */
+		limited?: boolean
 		ondone?: () => void
 	}
 
@@ -44,6 +46,7 @@
 		table,
 		readOnly = false,
 		showForeignKeys = false,
+		limited = false,
 		ondone,
 	}: Props = $props()
 
@@ -224,6 +227,13 @@
 				</div>
 			{/if}
 
+			{#if limited && !collection}
+				<p class="m-0 px-2.5 pt-2 text-caption text-fg-muted">
+					Here you can add columns, rename the table or a column, and change indexes. Other column
+					and foreign key changes are not available for this database yet.
+				</p>
+			{/if}
+
 			{#if !collection}
 				<section class="border-b border-line px-2.5 py-2">
 					<div class="mb-2 flex items-center justify-between gap-2">
@@ -244,10 +254,16 @@
 										Restore
 									</Button>
 								{:else}
+									{@const locked = limited && !!column.original}
 									<input class={field} bind:value={column.name} aria-label="Column name" />
-									<input class={field} bind:value={column.dataType} aria-label="Column type" />
+									<input
+										class={field}
+										bind:value={column.dataType}
+										aria-label="Column type"
+										disabled={locked}
+									/>
 									<label class="inline-flex items-center gap-1 text-caption text-fg-secondary">
-										<input type="checkbox" bind:checked={column.nullable} />
+										<input type="checkbox" bind:checked={column.nullable} disabled={locked} />
 										Null
 									</label>
 									<input
@@ -256,13 +272,19 @@
 										min="0"
 										value={column.pkPosition ?? 0}
 										aria-label="Primary key position"
+										disabled={limited}
 										oninput={(e) => {
 											const next = Number(e.currentTarget.value)
 											column.pkPosition =
 												Number.isFinite(next) && next > 0 ? Math.floor(next) : 0
 										}}
 									/>
-									<Button variant="danger-ghost" size="sm" onclick={() => draft && (draft = dropColumn(draft, i))}>
+									<Button
+										variant="danger-ghost"
+										size="sm"
+										disabled={locked}
+										onclick={() => draft && (draft = dropColumn(draft, i))}
+									>
 										Drop
 									</Button>
 								{/if}
@@ -325,7 +347,7 @@
 				</div>
 			</section>
 
-			{#if showForeignKeys && !collection}
+			{#if showForeignKeys && !collection && !limited}
 				<section class="border-b border-line px-2.5 py-2">
 					<div class="mb-2 flex items-center justify-between gap-2">
 						<h2 class="m-0 text-label font-medium text-fg">Foreign keys</h2>

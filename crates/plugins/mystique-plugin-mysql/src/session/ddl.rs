@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use mysql_async::prelude::Queryable;
 use mystique_connector_api::{
-    ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, DdlPlan, ForeignKeyDraft,
-    IndexDraft, TableDefinition,
+    qualify_table, ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, DdlPlan,
+    ForeignKeyDraft, IndexDraft, SqlIdentStyle, TableDefinition,
 };
 
 use super::query_failed;
@@ -48,7 +48,7 @@ pub(super) async fn list_table_definitions(
 pub(super) async fn apply_ddl(
     session: &MysqlSession,
     plan: &DdlPlan,
-    _draft: &TableDefinition,
+    draft: &TableDefinition,
 ) -> ConnectorResult<ApplyDdlResult> {
     session.ensure_open()?;
     if plan.statements.is_empty() {
@@ -58,6 +58,7 @@ pub(super) async fn apply_ddl(
         });
     }
     let mut conn = session.conn().await?;
+    ensure_definitions_current(&mut conn, draft).await?;
     let mut applied = Vec::new();
     for sql in &plan.statements {
         if let Err(err) = conn.query_drop(sql.as_str()).await {
@@ -164,7 +165,99 @@ async fn load(
             ref_column,
         );
     }
+    for definition in tables.values_mut() {
+        let live = column_definitions(&mut conn, database, &definition.name).await?;
+        for column in &mut definition.columns {
+            if let Some(original) = column.original.as_mut() {
+                original.definition = live.get(&original.name).cloned();
+            }
+        }
+    }
     Ok(tables.into_values().collect())
+}
+
+/// MODIFY is built from the definitions read with the draft. Refuse when the
+/// live table no longer matches them, so a stale or edited draft cannot
+/// rewrite a column.
+async fn ensure_definitions_current(
+    conn: &mut mysql_async::Conn,
+    draft: &TableDefinition,
+) -> ConnectorResult<()> {
+    if draft.create || draft.drop_table {
+        return Ok(());
+    }
+    let expected: Vec<(&str, &str)> = draft
+        .columns
+        .iter()
+        .filter_map(|column| column.original.as_ref())
+        .filter_map(|original| {
+            original
+                .definition
+                .as_deref()
+                .map(|definition| (original.name.as_str(), definition))
+        })
+        .collect();
+    if expected.is_empty() {
+        return Ok(());
+    }
+    let database = schema_name(draft.database.as_deref(), draft.schema.as_deref())?;
+    let live = column_definitions(conn, database, &draft.name).await?;
+    for (name, definition) in expected {
+        if live.get(name).map(String::as_str) != Some(definition.trim()) {
+            return Err(ConnectorError::Query(format!(
+                "Column {name} changed since the structure was loaded. Reload it and try again."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Column definitions as `SHOW CREATE TABLE` prints them, keyed by name.
+async fn column_definitions(
+    conn: &mut mysql_async::Conn,
+    database: &str,
+    table: &str,
+) -> ConnectorResult<HashMap<String, String>> {
+    let name = qualify_table(SqlIdentStyle::Mysql, Some(database), None, table);
+    let row = crate::rows::query_first_opt::<(String, String)>(
+        conn,
+        &format!("SHOW CREATE TABLE {name}"),
+    )
+    .await?;
+    Ok(row
+        .map(|(_, create)| parse_column_definitions(&create))
+        .unwrap_or_default())
+}
+
+/// Column lines of a `CREATE TABLE`: two spaces, the quoted name, the rest.
+fn parse_column_definitions(create: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for line in create.lines() {
+        let Some(rest) = line.trim_start().strip_prefix('`') else {
+            continue;
+        };
+        let mut name = String::new();
+        let mut chars = rest.char_indices().peekable();
+        let mut end = None;
+        while let Some((at, ch)) = chars.next() {
+            if ch == '`' {
+                if chars.peek().map(|(_, next)| *next) == Some('`') {
+                    name.push('`');
+                    chars.next();
+                    continue;
+                }
+                end = Some(at + 1);
+                break;
+            }
+            name.push(ch);
+        }
+        let Some(definition) = end.and_then(|end| rest.get(end..)) else {
+            continue;
+        };
+        let definition = definition.trim().trim_end_matches(',').trim();
+        out.insert(name, definition.to_string());
+    }
+    out
 }
 
 fn push_index(
@@ -271,3 +364,23 @@ SELECT table_name, constraint_name, column_name, referenced_table_schema, \
 FROM information_schema.key_column_usage \
 WHERE table_schema = ? AND table_name = ? AND referenced_table_name IS NOT NULL \
 ORDER BY constraint_name, ordinal_position";
+
+#[cfg(test)]
+mod tests {
+    use super::parse_column_definitions;
+
+    #[test]
+    fn create_table_column_lines_become_definitions() {
+        let create = "CREATE TABLE `t` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `we``ird` varchar(20) CHARACTER SET latin1 DEFAULT 'a,b' COMMENT 'x',\n  PRIMARY KEY (`id`),\n  KEY `k` (`we``ird`)\n) ENGINE=InnoDB";
+        let defs = parse_column_definitions(create);
+        assert_eq!(defs.len(), 2, "{defs:?}");
+        assert_eq!(
+            defs.get("id").map(String::as_str),
+            Some("int NOT NULL AUTO_INCREMENT")
+        );
+        assert_eq!(
+            defs.get("we`ird").map(String::as_str),
+            Some("varchar(20) CHARACTER SET latin1 DEFAULT 'a,b' COMMENT 'x'")
+        );
+    }
+}

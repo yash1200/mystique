@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use async_trait::async_trait;
-use mysql_async::prelude::*;
 use mysql_async::Pool;
 use mystique_connector_api::{
     tls_form_fields, ConnectionConfig, ConnectionFormSchema, ConnectorError, ConnectorResult,
@@ -9,12 +8,12 @@ use mystique_connector_api::{
     FormFieldType, FormattedConnectionUrl, ParsedConnectionUrl, TestResult,
 };
 
-use crate::session::MysqlSession;
+use crate::session::{MysqlSession, ReadOnlyVar};
 
 pub(crate) mod pool;
 pub(crate) mod url;
 
-use pool::{build_opts, connect_once, format_error};
+use pool::{build_opts, connect_once, edit_opts, format_error};
 use url::{format_mysql_url, parse_mysql_url};
 
 pub struct MysqlConnector;
@@ -140,18 +139,25 @@ impl DatabaseConnector for MysqlConnector {
         config: &ConnectionConfig,
     ) -> ConnectorResult<Box<dyn ConnectorSession>> {
         let opts = build_opts(config)?;
+        let edit_pool = Pool::new(edit_opts(&opts));
         let pool = Pool::new(opts);
 
-        {
+        let version = {
             let mut conn = pool
                 .get_conn()
                 .await
                 .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
-            conn.query_drop("SELECT 1")
-                .await
-                .map_err(|e| ConnectorError::Connect(format_error(&e)))?;
-        }
+            crate::rows::query_first_opt::<String>(&mut conn, "SELECT VERSION()")
+                .await?
+                .unwrap_or_default()
+        };
+        let read_only = ReadOnlyVar::detect(&config.engine, &version);
 
-        Ok(Box::new(MysqlSession::new(pool, config.pool.max_size)))
+        Ok(Box::new(MysqlSession::new(
+            pool,
+            edit_pool,
+            config.pool.max_size,
+            read_only,
+        )))
     }
 }

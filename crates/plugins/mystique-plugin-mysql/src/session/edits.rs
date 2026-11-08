@@ -36,7 +36,7 @@ pub(super) async fn apply_table_edits(
             ..ApplyTableEditsResult::empty()
         });
     }
-    let mut conn = session.conn().await?;
+    let mut conn = session.edit_conn().await?;
     conn.query_drop("START TRANSACTION")
         .await
         .map_err(query_failed)?;
@@ -64,7 +64,7 @@ pub(super) async fn apply_grid_undo(
     undo: &GridUndo,
 ) -> ConnectorResult<()> {
     session.ensure_open()?;
-    let mut conn = session.conn().await?;
+    let mut conn = session.edit_conn().await?;
     conn.query_drop("START TRANSACTION")
         .await
         .map_err(query_failed)?;

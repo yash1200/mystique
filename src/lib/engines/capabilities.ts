@@ -255,6 +255,11 @@ export function mergeCapabilities(
 				(c as { supports_structure_edit?: unknown }).supports_structure_edit,
 			fallback.supportsStructureEdit ?? true,
 		),
+		structureEditLimited: asBool(
+			c.structureEditLimited ??
+				(c as { structure_edit_limited?: unknown }).structure_edit_limited,
+			fallback.structureEditLimited ?? false,
+		),
 		supportsDistinctValues: asBool(
 			c.supportsDistinctValues ??
 				(c as { supports_distinct_values?: unknown }).supports_distinct_values,

@@ -394,6 +394,7 @@
 					canEdit={structureCaps?.supportsStructureEdit === true}
 					readOnly={!!activeSession.profile.readOnly}
 					showForeignKeys={structureCaps?.supportsForeignKeys === true}
+					editLimited={structureCaps?.structureEditLimited === true}
 					connectionId={activeSession.profile.id}
 					engine={String(activeSession.profile.engine)}
 					table={structureTable}

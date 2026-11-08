@@ -5,6 +5,8 @@ export interface ColumnOriginal {
 	dataType: string
 	nullable: boolean
 	pkPosition?: number
+	/** MySQL column definition from the server. Sent back unchanged. */
+	definition?: string | null
 }
 
 export interface ColumnDraft {

@@ -14,6 +14,7 @@ use serde_json::Value as JsonValue;
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts, inactivity};
 use super::encode::{mysql_type_label, value_json};
+use super::read_only::{self, ReadOnlyVar};
 use super::MysqlSession;
 use super::{query_failed, query_failed_at};
 
@@ -34,9 +35,9 @@ pub(super) async fn execute_query(
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
 
-    // Same lock as Postgres: Read mode and EXPLAIN ANALYZE cannot write even
-    // when the classifier misses. A rejected START TRANSACTION fails the query
-    // closed — we do not fall through to an unconstrained connection.
+    // Read mode and EXPLAIN ANALYZE cannot write even when the classifier
+    // misses. A rejected lock fails the query closed; we do not fall through
+    // to an unconstrained connection.
     let lock_writes = query.mode == QueryMode::Read
         || stmts
             .iter()
@@ -44,21 +45,17 @@ pub(super) async fn execute_query(
 
     apply_timeouts(&mut conn, query.timeout_ms).await;
 
-    let ran = if lock_writes {
-        if let Err(err) = conn.query_drop("START TRANSACTION READ ONLY").await {
-            clear_timeouts(&mut conn).await;
-            return Err(cancelled_or(query, err));
+    let lock = lock_writes.then_some(session.read_only);
+    if let Some(var) = lock {
+        if let Err(err) = read_only::lock(&mut conn, var, &query.control).await {
+            let _ = conn.disconnect().await;
+            return Err(err);
         }
-        let result = run_batch(&mut conn, query, &stmts, true).await;
-        let drop_conn = drop_mysql_conn(query, &result);
-        query.control.clear_interrupt();
-        release_conn(conn, result, true, drop_conn).await?
-    } else {
-        let result = run_batch(&mut conn, query, &stmts, false).await;
-        let drop_conn = drop_mysql_conn(query, &result);
-        query.control.clear_interrupt();
-        release_conn(conn, result, false, drop_conn).await?
-    };
+    }
+    let result = run_batch(&mut conn, query, &stmts, lock).await;
+    let drop_conn = drop_mysql_conn(query, &result);
+    query.control.clear_interrupt();
+    let ran = release_conn(conn, result, lock, drop_conn).await?;
 
     let mut out = ran;
     out.duration_ms = start.elapsed().as_millis() as u64;
@@ -73,9 +70,9 @@ fn cancelled_or(query: &ValidatedQuery, err: mysql_async::Error) -> ConnectorErr
     }
 }
 
-/// A capped result still has unread packets. Returning the connection would
-/// make the driver drain them. Disconnect instead, on both the plain path and
-/// the read-only transaction path.
+/// A capped last result still has unread packets. Returning the connection
+/// would make the driver drain them. Disconnect instead, on both the plain
+/// path and the read-only path.
 fn drop_mysql_conn(query: &ValidatedQuery, result: &ConnectorResult<QueryResult>) -> bool {
     // Unread packets (row cap or a cancel that aborted mid-stream) must not go
     // back to the pool. A normal SQL error is consumed and the connection is reusable.
@@ -85,15 +82,15 @@ fn drop_mysql_conn(query: &ValidatedQuery, result: &ConnectorResult<QueryResult>
 async fn release_conn<T>(
     mut conn: mysql_async::Conn,
     result: ConnectorResult<T>,
-    read_only: bool,
+    lock: Option<ReadOnlyVar>,
     drop_conn: bool,
 ) -> ConnectorResult<T> {
     if drop_conn {
         let _ = conn.disconnect().await;
         return result;
     }
-    if read_only {
-        return end_read_only_txn(conn, result).await;
+    if let Some(var) = lock {
+        return read_only::unlock(conn, var, result).await;
     }
     clear_timeouts(&mut conn).await;
     result
@@ -118,7 +115,7 @@ async fn run_batch(
     conn: &mut mysql_async::Conn,
     query: &ValidatedQuery,
     stmts: &[String],
-    locked: bool,
+    lock: Option<ReadOnlyVar>,
 ) -> ConnectorResult<QueryResult> {
     let max_rows = query.max_rows as usize;
     let mode = query.mode;
@@ -126,6 +123,7 @@ async fn run_batch(
     let mut last: Option<QueryResult> = None;
 
     for (i, sql) in stmts.iter().enumerate() {
+        let is_last = i + 1 == batch_n;
         let lower = sql.to_ascii_lowercase();
         let is_select_like = lower.starts_with("select")
             || lower.starts_with("with")
@@ -171,7 +169,11 @@ async fn run_batch(
                 saw_row = true;
                 if out_rows.len() >= max_rows {
                     truncated = true;
-                    break;
+                    // Read past the cap so the next statement can run.
+                    if is_last {
+                        break;
+                    }
+                    continue;
                 }
                 let mut cells = Vec::with_capacity(columns.len());
                 for j in 0..columns.len() {
@@ -233,32 +235,13 @@ async fn run_batch(
             }
         };
 
-        let stop = result.truncated;
         last = Some(result);
-        if stop {
-            break;
-        }
-        if locked {
-            ensure_still_read_only(conn).await?;
+        if let (Some(var), false) = (lock, is_last) {
+            read_only::ensure_locked(conn, var).await?;
         }
     }
 
     last.ok_or_else(|| ConnectorError::Query("No statements to run.".into()))
-}
-
-async fn ensure_still_read_only(conn: &mut mysql_async::Conn) -> ConnectorResult<()> {
-    // Cast so a numeric or string column both come back as text.
-    let value = crate::rows::query_first_opt::<String>(
-        conn,
-        "SELECT CASE WHEN @@transaction_read_only = 1 THEN 'on' ELSE 'off' END",
-    )
-    .await?;
-    if value.as_deref() == Some("on") {
-        return Ok(());
-    }
-    Err(ConnectorError::Query(
-        "The read-only transaction ended before every statement ran. Later statements were not executed.".into(),
-    ))
 }
 
 pub(super) async fn execute_batch(
@@ -272,39 +255,29 @@ pub(super) async fn execute_batch(
     let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
     apply_timeouts(&mut conn, batch.timeout_ms).await;
 
-    let ran = if lock_writes {
-        if let Err(err) = conn.query_drop("START TRANSACTION READ ONLY").await {
-            clear_timeouts(&mut conn).await;
-            return Err(cancelled_batch(batch, err));
+    let lock = lock_writes.then_some(session.read_only);
+    if let Some(var) = lock {
+        if let Err(err) = read_only::lock(&mut conn, var, &batch.control).await {
+            let _ = conn.disconnect().await;
+            return Err(err);
         }
-        let result = run_planned_batch(&mut conn, batch, true).await;
-        let drop_conn = drop_mysql_batch(batch, &result);
-        batch.control.clear_interrupt();
-        release_conn(conn, result, true, drop_conn).await?
-    } else {
-        let result = run_planned_batch(&mut conn, batch, false).await;
-        let drop_conn = drop_mysql_batch(batch, &result);
-        batch.control.clear_interrupt();
-        release_conn(conn, result, false, drop_conn).await?
-    };
-    Ok(ran)
+    }
+    let result = run_planned_batch(&mut conn, batch, lock).await;
+    let drop_conn = drop_mysql_batch(batch, &result);
+    batch.control.clear_interrupt();
+    release_conn(conn, result, lock, drop_conn).await
 }
 
+/// Only the last statement can leave a capped result unread; earlier ones are
+/// read to the end so the batch can go on.
 fn drop_mysql_batch(batch: &ValidatedBatch, result: &ConnectorResult<QueryBatchResult>) -> bool {
     batch.control.is_cancelled()
         || result.as_ref().is_ok_and(|ran| {
             ran.results
-                .iter()
-                .any(|stmt| stmt.result.as_ref().is_some_and(|row| row.truncated))
+                .last()
+                .and_then(|stmt| stmt.result.as_ref())
+                .is_some_and(|row| row.truncated)
         })
-}
-
-fn cancelled_batch(batch: &ValidatedBatch, err: mysql_async::Error) -> ConnectorError {
-    if batch.control.is_cancelled() {
-        ConnectorError::Query("Query cancelled.".into())
-    } else {
-        query_failed(err)
-    }
 }
 
 fn located_batch(batch: &ValidatedBatch, sql: &str, err: mysql_async::Error) -> ConnectorError {
@@ -318,16 +291,17 @@ fn located_batch(batch: &ValidatedBatch, sql: &str, err: mysql_async::Error) -> 
 pub(super) async fn run_planned_batch(
     conn: &mut mysql_async::Conn,
     batch: &ValidatedBatch,
-    locked: bool,
+    lock: Option<ReadOnlyVar>,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
-    for stmt in &batch.statements {
+    for (position, stmt) in batch.statements.iter().enumerate() {
+        let is_last = position + 1 == batch.statements.len();
         if batch.control.is_cancelled() {
             return Err(ConnectorError::Query("Query cancelled.".into()));
         }
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
-        let (sets, truncated) = match drain_sets(conn, batch, stmt).await {
+        let (sets, unread) = match drain_sets(conn, batch, stmt, !is_last).await {
             Ok(drained) => drained,
             Err(err) => {
                 if batch.control.is_cancelled() {
@@ -347,13 +321,13 @@ pub(super) async fn run_planned_batch(
         let index = stmt.index;
         results.extend(sets);
         emit_progress(&batch.progress, index, total, BatchPhase::Finished);
-        // A capped result still has unread packets. Stop here and let the
-        // caller disconnect. Truncation is not a statement error.
-        if truncated {
+        // A capped last result still has unread packets; the caller
+        // disconnects. Truncation is not a statement error.
+        if unread || is_last {
             break;
         }
-        if locked {
-            if let Err(err) = ensure_still_read_only(conn).await {
+        if let Some(var) = lock {
+            if let Err(err) = read_only::ensure_locked(conn, var).await {
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
@@ -380,19 +354,20 @@ async fn drain_sets(
     conn: &mut mysql_async::Conn,
     batch: &ValidatedBatch,
     stmt: &PlannedStatement,
+    read_all: bool,
 ) -> ConnectorResult<(Vec<StatementResult>, bool)> {
     let (mut sets, stopped, warnings) = if stmt.params.is_empty() {
         let mut qr = conn
             .query_iter(stmt.sql.as_str())
             .await
             .map_err(|err| located_batch(batch, &stmt.sql, err))?;
-        read_mysql_sets(&mut qr, batch, stmt).await?
+        read_mysql_sets(&mut qr, batch, stmt, read_all).await?
     } else {
         let mut qr = conn
             .exec_iter(stmt.sql.as_str(), super::edits::mysql_params(&stmt.params))
             .await
             .map_err(|err| located_batch(batch, &stmt.sql, err))?;
-        read_mysql_sets(&mut qr, batch, stmt).await?
+        read_mysql_sets(&mut qr, batch, stmt, read_all).await?
     };
     if warnings > 0 {
         let notes = show_warnings(conn).await;
@@ -411,10 +386,13 @@ async fn drain_sets(
     Ok((sets, stopped))
 }
 
+/// The flag is true when packets were left unread. With `read_all`, rows
+/// past the cap are read and dropped so the connection can run more.
 async fn read_mysql_sets<P>(
     qr: &mut mysql_async::QueryResult<'_, '_, P>,
     batch: &ValidatedBatch,
     stmt: &PlannedStatement,
+    read_all: bool,
 ) -> ConnectorResult<(Vec<StatementResult>, bool, u16)>
 where
     P: mysql_async::prelude::Protocol,
@@ -456,7 +434,10 @@ where
             }
             if out_rows.len() >= max_rows {
                 truncated = true;
-                break;
+                if !read_all {
+                    break;
+                }
+                continue;
             }
             let mut cells = Vec::with_capacity(columns.len());
             for column in 0..columns.len() {
@@ -505,7 +486,7 @@ where
             affected,
             Vec::new(),
         ));
-        if truncated {
+        if truncated && !read_all {
             return Ok((sets, true, max_warnings));
         }
         if qr.is_empty() {
@@ -513,7 +494,9 @@ where
         }
         set_index = set_index.saturating_add(1);
         if set_index >= 32 {
-            return Ok((sets, true, max_warnings));
+            // With `read_all` the driver drops the remaining sets before the
+            // next statement.
+            return Ok((sets, !read_all, max_warnings));
         }
     }
     Ok((sets, false, max_warnings))

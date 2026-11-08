@@ -53,6 +53,11 @@ pub struct ColumnOriginal {
     pub nullable: bool,
     #[serde(default)]
     pub pk_position: u32,
+    /// MySQL: the column definition after its name, as `SHOW CREATE TABLE`
+    /// prints it. MODIFY is rebuilt from it so DEFAULT, ON UPDATE,
+    /// AUTO_INCREMENT, COMMENT, charset, and collation survive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -178,6 +183,7 @@ impl ColumnDraft {
                 data_type,
                 nullable,
                 pk_position,
+                definition: None,
             }),
             drop: false,
         }
@@ -318,7 +324,7 @@ pub fn plan_table_alter(dialect: DdlDialect, draft: &TableDefinition) -> DdlPlan
     {
         warnings.push("Views cannot be edited here.".into());
     }
-    validate_columns(dialect, draft, &mut warnings);
+    validate_columns(draft, &mut warnings);
     validate_indexes(draft, &mut warnings);
     validate_foreign_keys(draft, &mut warnings);
 
@@ -561,12 +567,13 @@ fn plan_sql(dialect: DdlDialect, draft: &TableDefinition, postgres: bool) -> Ddl
                             ));
                         }
                     } else {
-                        let null_sql = if column.nullable { "NULL" } else { "NOT NULL" };
-                        statements.push(format!(
-                            "ALTER TABLE {table} MODIFY COLUMN {} {} {null_sql}",
-                            quote(dialect, &column.name),
-                            column.data_type.trim()
-                        ));
+                        match mysql_modify_definition(original, column) {
+                            Ok(definition) => statements.push(format!(
+                                "ALTER TABLE {table} MODIFY COLUMN {} {definition}",
+                                quote(dialect, &column.name),
+                            )),
+                            Err(warning) => warnings.push(warning),
+                        }
                     }
                 }
             }
@@ -605,71 +612,260 @@ fn plan_sql(dialect: DdlDialect, draft: &TableDefinition, postgres: bool) -> Ddl
     )
 }
 
-fn plan_sqlite(draft: &TableDefinition) -> DdlPlan {
-    let mut warnings = Vec::new();
-    if pk_changed(draft) || needs_sqlite_rebuild(draft) {
-        if draft
-            .schema_revision
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-        {
-            warnings
-                .push("Reload the table before rebuilding. The schema revision is missing.".into());
+/// The full MySQL column definition for MODIFY: the new type and NULL-ness,
+/// with every other attribute copied from the original definition.
+fn mysql_modify_definition(
+    original: &ColumnOriginal,
+    column: &ColumnDraft,
+) -> Result<String, String> {
+    let reload = || {
+        format!(
+            "Reload the table before changing column {}. MODIFY needs its full definition, or it drops DEFAULT, AUTO_INCREMENT, COMMENT, and charset.",
+            original.name
+        )
+    };
+    let definition = original.definition.as_deref().ok_or_else(reload)?.trim();
+    let old_type = original.data_type.trim();
+    let tail = definition
+        .get(..old_type.len())
+        .filter(|head| head.eq_ignore_ascii_case(old_type))
+        .and_then(|_| definition.get(old_type.len()..))
+        .filter(|rest| rest.is_empty() || rest.starts_with(' '))
+        .ok_or_else(reload)?;
+    let mut words = top_level_words(tail);
+    let is = |words: &[String], at: usize, want: &str| {
+        words
+            .get(at)
+            .is_some_and(|word| word.eq_ignore_ascii_case(want))
+    };
+
+    let new_type = column.data_type.trim();
+    if !new_type.eq_ignore_ascii_case(old_type) && !is_text_type(new_type) {
+        // CHARACTER SET / COLLATE only apply to text types.
+        let mut at = 0;
+        while at < words.len() {
+            let span = if is(&words, at, "CHARACTER") && is(&words, at + 1, "SET") {
+                3
+            } else if is(&words, at, "CHARSET") || is(&words, at, "COLLATE") {
+                2
+            } else {
+                at += 1;
+                continue;
+            };
+            words.drain(at..(at + span).min(words.len()));
         }
-        let mut statements = vec!["PRAGMA foreign_keys=OFF".into(), "BEGIN".into()];
-        statements.push(create_table_sql(
-            DdlDialect::Sqlite,
-            &renamed_rebuild(draft),
-        ));
-        statements.push(sqlite_copy_sql(draft));
-        statements.push(format!("DROP TABLE {}", qualify(DdlDialect::Sqlite, draft)));
-        statements.push(format!(
-            "ALTER TABLE {} RENAME TO {}",
-            quote(DdlDialect::Sqlite, &rebuild_name(&draft.name)),
-            quote(DdlDialect::Sqlite, &draft.name)
-        ));
-        statements.extend(index_statements(DdlDialect::Sqlite, draft, false));
-        statements.push("COMMIT".into());
-        statements.push("PRAGMA foreign_keys=ON".into());
-        if let Some(rename) = rename_sql(DdlDialect::Sqlite, draft) {
-            statements.push(rename);
-        }
-        return finish(
-            DdlDialect::Sqlite,
-            statements,
-            warnings,
-            true,
-            true,
-            Some(
-                "SQLite rebuilds the table in one transaction, then checks the schema revision."
-                    .into(),
-            ),
-        );
     }
+
+    // Take out the old NULL / NOT NULL; remember where it sat.
+    let mut slot = None;
+    let mut at = 0;
+    while at < words.len() {
+        if is(&words, at, "NOT") && is(&words, at + 1, "NULL") {
+            words.drain(at..at + 2);
+            slot.get_or_insert(at);
+        } else if is(&words, at, "NULL") && !(at > 0 && is(&words, at - 1, "DEFAULT")) {
+            words.remove(at);
+            slot.get_or_insert(at);
+        } else if !column.nullable && is(&words, at, "DEFAULT") && is(&words, at + 1, "NULL") {
+            words.drain(at..at + 2);
+        } else {
+            at += 1;
+        }
+    }
+    let slot = slot.unwrap_or_else(|| {
+        words
+            .iter()
+            .position(|word| {
+                ["DEFAULT", "ON", "AUTO_INCREMENT", "COMMENT"]
+                    .iter()
+                    .any(|key| word.eq_ignore_ascii_case(key))
+                    || word.starts_with("/*")
+            })
+            .unwrap_or(words.len())
+    });
+    let null_sql = if column.nullable { "NULL" } else { "NOT NULL" };
+    words.insert(slot.min(words.len()), null_sql.to_string());
+    Ok(format!("{new_type} {}", words.join(" ")))
+}
+
+fn is_text_type(data_type: &str) -> bool {
+    let lower = data_type.trim().to_ascii_lowercase();
+    [
+        "char",
+        "varchar",
+        "tinytext",
+        "text",
+        "mediumtext",
+        "longtext",
+        "enum",
+        "set",
+    ]
+    .iter()
+    .any(|name| {
+        lower
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['(', ' ']))
+    })
+}
+
+/// Split on spaces outside quotes, parentheses, and comments.
+fn top_level_words(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if let Some(open) = quote {
+            word.push(ch);
+            if ch == '\\' && open != '`' {
+                if let Some(next) = chars.next() {
+                    word.push(next);
+                }
+            } else if open == '*' {
+                if ch == '*' && chars.peek() == Some(&'/') {
+                    word.push('/');
+                    chars.next();
+                    quote = None;
+                }
+            } else if ch == open {
+                // A doubled quote stays inside the string.
+                if chars.peek() == Some(&open) {
+                    word.push(open);
+                    chars.next();
+                } else {
+                    quote = None;
+                }
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' | '`' => {
+                quote = Some(ch);
+                word.push(ch);
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                quote = Some('*');
+                word.push(ch);
+                word.push('*');
+                chars.next();
+            }
+            '(' => {
+                depth += 1;
+                word.push(ch);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                word.push(ch);
+            }
+            ch if ch.is_whitespace() && depth == 0 => {
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+            }
+            _ => word.push(ch),
+        }
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
+/// SQLite alters in place only. The old rebuild re-created the table from the
+/// draft and lost DEFAULT, CHECK, UNIQUE, COLLATE, AUTOINCREMENT, STRICT,
+/// foreign keys, indexes, and triggers (R-03). Until it rebuilds from the
+/// original `CREATE TABLE`, anything that needs a rebuild is refused.
+fn plan_sqlite(draft: &TableDefinition) -> DdlPlan {
+    let mut warnings = sqlite_refusals(draft);
     let mut statements = Vec::new();
     let table = qualify(DdlDialect::Sqlite, draft);
-    for column in &draft.columns {
-        if column.original.is_none() && !column.drop {
-            if !column.nullable {
-                warnings.push(format!(
-                    "Add column {} as nullable. SQLite cannot add a NOT NULL column without a default.",
-                    column.name
+    for column in draft.columns.iter().filter(|column| !column.drop) {
+        match &column.original {
+            None => {
+                if !column.nullable {
+                    warnings.push(format!(
+                        "Add column {} as nullable. SQLite cannot add a NOT NULL column without a default.",
+                        column.name
+                    ));
+                }
+                statements.push(format!(
+                    "ALTER TABLE {table} ADD COLUMN {} {}",
+                    quote(DdlDialect::Sqlite, &column.name),
+                    column.data_type.trim()
                 ));
             }
-            statements.push(format!(
-                "ALTER TABLE {table} ADD COLUMN {} {}",
-                quote(DdlDialect::Sqlite, &column.name),
-                column.data_type.trim()
-            ));
+            Some(original) if !original.name.eq_ignore_ascii_case(&column.name) => {
+                statements.push(format!(
+                    "ALTER TABLE {table} RENAME COLUMN {} TO {}",
+                    quote(DdlDialect::Sqlite, &original.name),
+                    quote(DdlDialect::Sqlite, &column.name)
+                ));
+            }
+            Some(_) => {}
         }
     }
     statements.extend(index_statements(DdlDialect::Sqlite, draft, true));
     if let Some(rename) = rename_sql(DdlDialect::Sqlite, draft) {
         statements.push(rename);
     }
-    finish(DdlDialect::Sqlite, statements, warnings, false, false, None)
+    // SQLite DDL is transactional: a failed step leaves nothing half-applied.
+    let transactional = statements.len() > 1;
+    if transactional {
+        statements.insert(0, "BEGIN".into());
+        statements.push("COMMIT".into());
+    }
+    finish(
+        DdlDialect::Sqlite,
+        statements,
+        warnings,
+        transactional,
+        false,
+        None,
+    )
+}
+
+const SQLITE_LIMIT: &str =
+    "On SQLite, only adding columns, renaming the table or a column, and index changes can be applied for now.";
+
+fn sqlite_refusals(draft: &TableDefinition) -> Vec<String> {
+    let mut refused = Vec::new();
+    for column in &draft.columns {
+        let Some(original) = &column.original else {
+            continue;
+        };
+        let name = &original.name;
+        if column.drop {
+            refused.push(format!("Column {name} cannot be dropped. {SQLITE_LIMIT}"));
+            continue;
+        }
+        if !original
+            .data_type
+            .eq_ignore_ascii_case(column.data_type.trim())
+        {
+            refused.push(format!(
+                "The type of column {name} cannot be changed. {SQLITE_LIMIT}"
+            ));
+        }
+        if original.nullable != column.nullable {
+            refused.push(format!(
+                "NOT NULL on column {name} cannot be changed. {SQLITE_LIMIT}"
+            ));
+        }
+    }
+    let new_pk = draft
+        .columns
+        .iter()
+        .any(|column| column.original.is_none() && !column.drop && column.pk_position > 0);
+    if pk_changed(draft) || new_pk {
+        refused.push(format!("The primary key cannot be changed. {SQLITE_LIMIT}"));
+    }
+    if draft.foreign_keys.iter().any(fk_changes) {
+        refused.push(format!(
+            "Foreign keys cannot be added, changed, or dropped. {SQLITE_LIMIT}"
+        ));
+    }
+    refused
 }
 
 fn plan_mongo(draft: &TableDefinition, mut warnings: Vec<String>) -> DdlPlan {
@@ -745,12 +941,11 @@ fn finish(
     }
 }
 
-fn validate_columns(dialect: DdlDialect, draft: &TableDefinition, warnings: &mut Vec<String>) {
+fn validate_columns(draft: &TableDefinition, warnings: &mut Vec<String>) {
     let mut seen = HashSet::new();
     let mut live = 0usize;
-    // Unchanged types are not spliced again. A rebuild or CREATE reprints every type.
-    let reprint_all = draft.create
-        || (dialect == DdlDialect::Sqlite && (pk_changed(draft) || needs_sqlite_rebuild(draft)));
+    // Unchanged types are not spliced again. A CREATE reprints every type.
+    let reprint_all = draft.create;
     for column in &draft.columns {
         if column.drop {
             continue;
@@ -784,6 +979,7 @@ fn validate_columns(dialect: DdlDialect, draft: &TableDefinition, warnings: &mut
 
 fn validate_indexes(draft: &TableDefinition, warnings: &mut Vec<String>) {
     let columns = live_column_names(draft);
+    let renamed = renamed_column_names(draft);
     for index in &draft.indexes {
         if index.drop || index.primary {
             continue;
@@ -797,8 +993,14 @@ fn validate_indexes(draft: &TableDefinition, warnings: &mut Vec<String>) {
         if draft.kind.eq_ignore_ascii_case("collection") {
             continue;
         }
+        // An index left alone follows a column rename on every engine.
+        let unchanged = index.original.as_ref().is_some_and(|original| {
+            original.columns == index.columns && original.unique == index.unique
+        });
         for column in &index.columns {
-            if !columns.iter().any(|name| name.eq_ignore_ascii_case(column)) {
+            let known = columns.iter().any(|name| name.eq_ignore_ascii_case(column))
+                || unchanged && renamed.iter().any(|name| name.eq_ignore_ascii_case(column));
+            if !known {
                 warnings.push(format!(
                     "Index {} uses {}, which is not a column on this table.",
                     index.name, column
@@ -810,6 +1012,7 @@ fn validate_indexes(draft: &TableDefinition, warnings: &mut Vec<String>) {
 
 fn validate_foreign_keys(draft: &TableDefinition, warnings: &mut Vec<String>) {
     let columns = live_column_names(draft);
+    let renamed = renamed_column_names(draft);
     for fk in &draft.foreign_keys {
         if fk.drop {
             continue;
@@ -820,8 +1023,11 @@ fn validate_foreign_keys(draft: &TableDefinition, warnings: &mut Vec<String>) {
                 fk.name
             ));
         }
+        let unchanged = !fk_changes(fk);
         for column in &fk.columns {
-            if !columns.iter().any(|name| name.eq_ignore_ascii_case(column)) {
+            let known = columns.iter().any(|name| name.eq_ignore_ascii_case(column))
+                || unchanged && renamed.iter().any(|name| name.eq_ignore_ascii_case(column));
+            if !known {
                 warnings.push(format!(
                     "Foreign key {} uses {}, which is not a column on this table.",
                     fk.name, column
@@ -1036,51 +1242,6 @@ fn rename_sql(dialect: DdlDialect, draft: &TableDefinition) -> Option<String> {
     ))
 }
 
-fn sqlite_copy_sql(draft: &TableDefinition) -> String {
-    let mut into_cols = Vec::new();
-    let mut from_cols = Vec::new();
-    for column in draft.columns.iter().filter(|column| !column.drop) {
-        let Some(original) = &column.original else {
-            continue;
-        };
-        into_cols.push(quote(DdlDialect::Sqlite, &column.name));
-        from_cols.push(quote(DdlDialect::Sqlite, &original.name));
-    }
-    format!(
-        "INSERT INTO {} ({}) SELECT {} FROM {}",
-        quote(DdlDialect::Sqlite, &rebuild_name(&draft.name)),
-        into_cols.join(", "),
-        from_cols.join(", "),
-        qualify(DdlDialect::Sqlite, draft)
-    )
-}
-
-fn renamed_rebuild(draft: &TableDefinition) -> TableDefinition {
-    let mut copy = draft.clone();
-    copy.name = rebuild_name(&draft.name);
-    copy.schema = None;
-    copy.database = None;
-    copy
-}
-
-fn rebuild_name(name: &str) -> String {
-    format!("{name}__mystique_new")
-}
-
-fn needs_sqlite_rebuild(draft: &TableDefinition) -> bool {
-    draft.columns.iter().any(|column| {
-        column.drop && column.original.is_some()
-            || column.original.as_ref().is_some_and(|original| {
-                !original.name.eq_ignore_ascii_case(&column.name)
-                    || !original
-                        .data_type
-                        .eq_ignore_ascii_case(column.data_type.trim())
-                    || original.nullable != column.nullable
-                    || original.pk_position != column.pk_position
-            })
-    }) || draft.foreign_keys.iter().any(fk_changes)
-}
-
 fn pk_changed(draft: &TableDefinition) -> bool {
     draft.columns.iter().any(|column| {
         column
@@ -1150,6 +1311,17 @@ fn live_column_names(draft: &TableDefinition) -> Vec<String> {
         .iter()
         .filter(|column| !column.drop)
         .map(|column| column.name.clone())
+        .collect()
+}
+
+/// Old names of live columns that are being renamed.
+fn renamed_column_names(draft: &TableDefinition) -> Vec<String> {
+    draft
+        .columns
+        .iter()
+        .filter(|column| !column.drop)
+        .filter_map(|column| column.original.as_ref())
+        .map(|original| original.name.clone())
         .collect()
 }
 
@@ -1274,6 +1446,10 @@ fn column_original(column: &ColumnDraft) -> ColumnOriginal {
         data_type: column.data_type.clone(),
         nullable: column.nullable,
         pk_position: column.pk_position,
+        definition: column
+            .original
+            .as_ref()
+            .and_then(|original| original.definition.clone()),
     }
 }
 
@@ -1498,9 +1674,8 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_add_is_alter_and_a_type_change_rebuilds() {
-        let mut add = table("orders", vec![existing("id"), text_column("note", true)]);
-        add.schema_revision = Some("create".into());
+    fn sqlite_add_and_renames_alter_in_place() {
+        let add = table("orders", vec![existing("id"), text_column("note", true)]);
         let plan = plan_table_alter(DdlDialect::Sqlite, &add);
         assert!(plan.applyable(), "{:?}", plan.warnings);
         assert!(!plan.requires_rebuild);
@@ -1509,37 +1684,202 @@ mod tests {
             vec!["ALTER TABLE \"orders\" ADD COLUMN \"note\" text"]
         );
 
-        let mut changed = existing("id");
-        changed.data_type = "integer".into();
-        let mut rebuild = table("orders", vec![changed]);
-        rebuild.schema_revision = Some("CREATE TABLE orders (id text)".into());
-        let plan = plan_table_alter(DdlDialect::Sqlite, &rebuild);
-        assert!(plan.requires_rebuild, "{plan:?}");
-        assert!(plan.statements.iter().any(|sql| sql.contains("BEGIN")));
-        assert!(plan
-            .statements
-            .iter()
-            .any(|sql| sql.contains("INSERT INTO")));
-        assert!(plan
-            .statements
-            .iter()
-            .any(|sql| sql.starts_with("PRAGMA foreign_keys=OFF")));
-        assert!(plan
-            .statements
-            .last()
-            .is_some_and(|sql| sql.starts_with("PRAGMA foreign_keys=ON")));
+        let mut renamed = existing("title");
+        renamed.name = "headline".into();
+        let mut draft = table(
+            "orders",
+            vec![existing("id"), renamed, text_column("note", true)],
+        );
+        draft.rename_to = Some("purchases".into());
+        let plan = plan_table_alter(DdlDialect::Sqlite, &draft);
+        assert!(plan.applyable(), "{:?}", plan.warnings);
+        assert!(plan.transactional);
+        assert_eq!(
+            plan.statements,
+            vec![
+                "BEGIN",
+                "ALTER TABLE \"orders\" RENAME COLUMN \"title\" TO \"headline\"",
+                "ALTER TABLE \"orders\" ADD COLUMN \"note\" text",
+                "ALTER TABLE \"orders\" RENAME TO \"purchases\"",
+                "COMMIT",
+            ]
+        );
     }
 
     #[test]
-    fn sqlite_rebuild_without_a_revision_is_refused() {
-        let mut changed = existing("id");
-        changed.data_type = "integer".into();
-        let plan = plan_table_alter(DdlDialect::Sqlite, &table("orders", vec![changed]));
+    fn renaming_an_indexed_column_keeps_the_index_valid() {
+        let mut renamed = existing("title");
+        renamed.name = "headline".into();
+        let mut draft = table("orders", vec![existing("id"), renamed]);
+        draft.indexes.push(IndexDraft::loaded(
+            "orders_title",
+            vec!["title".into()],
+            false,
+            false,
+        ));
+        let plan = plan_table_alter(DdlDialect::Postgres, &draft);
+        assert!(plan.applyable(), "{:?}", plan.warnings);
+        assert_eq!(
+            plan.statements,
+            vec!["ALTER TABLE \"public\".\"orders\" RENAME COLUMN \"title\" TO \"headline\""]
+        );
+    }
+
+    fn mysql_column(data_type: &str, nullable: bool, definition: Option<&str>) -> ColumnDraft {
+        let mut column = ColumnDraft::loaded("c", data_type, nullable, 0);
+        if let Some(original) = column.original.as_mut() {
+            original.definition = definition.map(str::to_string);
+        }
+        column
+    }
+
+    fn mysql_modify(column: ColumnDraft) -> Result<String, String> {
+        let original = column.original.clone().expect("original");
+        mysql_modify_definition(&original, &column)
+    }
+
+    #[test]
+    fn mysql_modify_keeps_every_attribute_it_does_not_change() {
+        let mut column = mysql_column(
+            "varchar(20)",
+            false,
+            Some("varchar(20) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL DEFAULT 'x y' COMMENT 'it''s (the) name'"),
+        );
+        column.data_type = "varchar(40)".into();
+        assert_eq!(
+            mysql_modify(column).as_deref(),
+            Ok("varchar(40) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL DEFAULT 'x y' COMMENT 'it''s (the) name'")
+        );
+
+        let mut id = mysql_column("int", false, Some("int NOT NULL AUTO_INCREMENT"));
+        id.data_type = "bigint".into();
+        assert_eq!(
+            mysql_modify(id).as_deref(),
+            Ok("bigint NOT NULL AUTO_INCREMENT")
+        );
+
+        let mut ts = mysql_column(
+            "timestamp",
+            true,
+            Some("timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'touched'"),
+        );
+        ts.nullable = false;
+        assert_eq!(
+            mysql_modify(ts).as_deref(),
+            Ok("timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'touched'")
+        );
+    }
+
+    #[test]
+    fn mysql_modify_moves_null_and_drops_what_no_longer_applies() {
+        // Nullable column without an explicit NULL; DEFAULT NULL goes with NOT NULL.
+        let mut column = mysql_column("int", true, Some("int DEFAULT NULL COMMENT 'n'"));
+        column.nullable = false;
+        assert_eq!(
+            mysql_modify(column).as_deref(),
+            Ok("int NOT NULL COMMENT 'n'")
+        );
+
+        let mut column = mysql_column("int", false, Some("int NOT NULL DEFAULT '5'"));
+        column.nullable = true;
+        assert_eq!(mysql_modify(column).as_deref(), Ok("int NULL DEFAULT '5'"));
+
+        // A charset makes no sense on a number.
+        let mut column = mysql_column(
+            "varchar(10)",
+            true,
+            Some("varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL"),
+        );
+        column.data_type = "int".into();
+        assert_eq!(mysql_modify(column).as_deref(), Ok("int NULL DEFAULT NULL"));
+
+        // Expression defaults and generated columns keep their parentheses.
+        let mut column = mysql_column(
+            "int",
+            true,
+            Some("int GENERATED ALWAYS AS ((`a` + 1)) VIRTUAL"),
+        );
+        column.nullable = false;
+        assert_eq!(
+            mysql_modify(column).as_deref(),
+            Ok("int GENERATED ALWAYS AS ((`a` + 1)) VIRTUAL NOT NULL")
+        );
+    }
+
+    #[test]
+    fn mysql_modify_without_a_definition_is_refused() {
+        let mut column = mysql_column("int", true, None);
+        column.nullable = false;
+        let mut draft = table("orders", vec![column]);
+        draft.schema = None;
+        draft.database = Some("app".into());
+        let plan = plan_table_alter(DdlDialect::Mysql, &draft);
         assert!(!plan.applyable());
-        assert!(plan
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("revision")));
+        assert!(
+            plan.warnings.iter().any(|w| w.contains("Reload")),
+            "{plan:?}"
+        );
+
+        // The definition must start with the type it was read with.
+        let mut column = mysql_column("int", true, Some("bigint DEFAULT NULL"));
+        column.nullable = false;
+        assert!(mysql_modify(column).is_err());
+    }
+
+    #[test]
+    fn mysql_plan_shows_the_full_modify() {
+        let mut column = mysql_column("int", false, Some("int NOT NULL AUTO_INCREMENT"));
+        column.data_type = "bigint".into();
+        let mut draft = table("orders", vec![column]);
+        draft.schema = None;
+        draft.database = Some("app".into());
+        let plan = plan_table_alter(DdlDialect::Mysql, &draft);
+        assert!(plan.applyable(), "{:?}", plan.warnings);
+        assert_eq!(
+            plan.statements,
+            vec!["ALTER TABLE `app`.`orders` MODIFY COLUMN `c` bigint NOT NULL AUTO_INCREMENT"]
+        );
+    }
+
+    #[test]
+    fn sqlite_refuses_every_change_that_needs_a_rebuild() {
+        let mut typed = existing("note");
+        typed.data_type = "integer".into();
+        let mut not_null = existing("note");
+        not_null.nullable = false;
+        let mut dropped = existing("note");
+        dropped.drop = true;
+        let mut keyed = existing("note");
+        keyed.pk_position = 1;
+        let mut new_key = text_column("code", true);
+        new_key.pk_position = 1;
+        let mut with_fk = table("orders", vec![existing("id"), existing("note")]);
+        with_fk.foreign_keys.push(ForeignKeyDraft {
+            name: "orders_note_fk".into(),
+            columns: vec!["note".into()],
+            ref_schema: None,
+            ref_table: "notes".into(),
+            ref_columns: vec!["id".into()],
+            original: None,
+            drop: false,
+        });
+        let drafts = [
+            table("orders", vec![existing("id"), typed]),
+            table("orders", vec![existing("id"), not_null]),
+            table("orders", vec![existing("id"), dropped]),
+            table("orders", vec![existing("id"), keyed]),
+            table("orders", vec![existing("id"), new_key]),
+            with_fk,
+        ];
+        for draft in &drafts {
+            let plan = plan_table_alter(DdlDialect::Sqlite, draft);
+            assert!(!plan.applyable(), "{draft:?} -> {plan:?}");
+            assert!(plan.statements.is_empty(), "{plan:?}");
+            assert!(
+                plan.warnings.iter().any(|w| w.contains("On SQLite")),
+                "{plan:?}"
+            );
+        }
     }
 
     #[test]

@@ -273,40 +273,131 @@ mod tests {
         }));
     }
 
+    /// SQL of every table, index, and trigger, by name.
+    fn schema(conn: &Connection) -> Vec<(String, String)> {
+        let mut stmt = match conn
+            .prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name")
+        {
+            Ok(stmt) => stmt,
+            Err(err) => panic!("{err}"),
+        };
+        let rows = match stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
+            Ok(rows) => rows,
+            Err(err) => panic!("{err}"),
+        };
+        rows.map(|row| row.unwrap_or_else(|err| panic!("{err}")))
+            .collect()
+    }
+
     #[test]
-    fn rebuild_aborts_when_the_schema_changed() {
-        let conn = match Connection::open_in_memory() {
+    fn structure_apply_keeps_the_schema_on_a_real_file() {
+        let path = std::env::temp_dir().join(format!(
+            "mystique-structure-{}-{}.sqlite",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let conn = match Connection::open(&path) {
             Ok(conn) => conn,
             Err(err) => panic!("{err}"),
         };
-        if let Err(err) = conn.execute_batch("CREATE TABLE orders (id INTEGER PRIMARY KEY)") {
+        if let Err(err) = conn.execute_batch(
+            "CREATE TABLE p (id INTEGER PRIMARY KEY);
+             INSERT INTO p VALUES (1);
+             CREATE TABLE t (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 a TEXT DEFAULT 'x' COLLATE NOCASE CHECK (a <> ''),
+                 b INTEGER UNIQUE,
+                 pid INTEGER REFERENCES p(id),
+                 c TEXT
+             );
+             CREATE INDEX t_c ON t(c);
+             CREATE TRIGGER t_trg AFTER INSERT ON t BEGIN SELECT 1; END;
+             INSERT INTO t (a, b, pid, c) VALUES ('y', 1, 1, 'z');",
+        ) {
             panic!("{err}");
         }
-        let mut draft = match describe_on(&conn, "orders") {
+        let before = schema(&conn);
+
+        // A type change needs a rebuild, which would drop the schema above.
+        let mut typed = match describe_on(&conn, "t") {
             Ok(draft) => draft,
             Err(err) => panic!("{err}"),
         };
-        draft.schema_revision = Some("CREATE TABLE orders (id INTEGER)".into());
-        if let Some(column) = draft.columns.first_mut() {
-            column.data_type = "text".into();
+        for column in &mut typed.columns {
+            if column.name == "c" {
+                column.data_type = "INTEGER".into();
+            }
         }
-        let plan = plan_table_alter(DdlDialect::Sqlite, &draft);
-        assert!(plan.requires_rebuild, "{plan:?}");
-        let err = match apply_on(&conn, &plan, &draft) {
-            Err(err) => err,
-            Ok(result) => panic!("rebuild ran: {result:?}"),
-        };
+        let refused = plan_table_alter(DdlDialect::Sqlite, &typed);
+        assert!(!refused.applyable(), "{refused:?}");
         assert!(
-            err.to_string().to_ascii_lowercase().contains("schema"),
-            "{err}"
+            refused
+                .warnings
+                .iter()
+                .any(|w| w.contains("type of column c")),
+            "{refused:?}"
         );
-        let again = match describe_on(&conn, "orders") {
+        assert_eq!(schema(&conn), before);
+
+        // Add a column, rename a column and the table: everything else stays.
+        let mut draft = match describe_on(&conn, "t") {
             Ok(draft) => draft,
             Err(err) => panic!("{err}"),
         };
-        assert!(again.columns.iter().any(|column| {
-            column.name == "id" && column.data_type.eq_ignore_ascii_case("integer")
-        }));
-        assert!(!again.columns.iter().any(|column| column.name == "note"));
+        for column in &mut draft.columns {
+            if column.name == "c" {
+                column.name = "c2".into();
+            }
+        }
+        draft.columns.push(ColumnDraft {
+            name: "note".into(),
+            data_type: "text".into(),
+            nullable: true,
+            pk_position: 0,
+            original: None,
+            drop: false,
+        });
+        draft.rename_to = Some("t2".into());
+        let plan = plan_table_alter(DdlDialect::Sqlite, &draft);
+        assert!(plan.applyable(), "{:?}", plan.warnings);
+        let applied = match apply_on(&conn, &plan, &draft) {
+            Ok(result) => result,
+            Err(err) => panic!("{err}"),
+        };
+        assert_eq!(applied.applied, plan.statements);
+
+        let after = schema(&conn);
+        let table_sql = after
+            .iter()
+            .find(|(name, _)| name == "t2")
+            .map(|(_, sql)| sql.clone())
+            .unwrap_or_default();
+        for kept in [
+            "AUTOINCREMENT",
+            "DEFAULT 'x'",
+            "COLLATE NOCASE",
+            "CHECK (a <> '')",
+            "UNIQUE",
+            "REFERENCES p(id)",
+            "\"c2\" TEXT",
+            "note",
+        ] {
+            assert!(table_sql.contains(kept), "lost {kept}: {table_sql}");
+        }
+        assert!(after
+            .iter()
+            .any(|(name, sql)| name == "t_c" && sql.contains("c2")));
+        assert!(after.iter().any(|(name, _)| name == "t_trg"));
+        let row: (String, i64, String) =
+            match conn.query_row("SELECT a, pid, c2 FROM t2", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            }) {
+                Ok(row) => row,
+                Err(err) => panic!("{err}"),
+            };
+        assert_eq!(row, ("y".to_string(), 1, "z".to_string()));
+
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
     }
 }
