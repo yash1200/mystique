@@ -19,7 +19,7 @@ const PREFIX: &str = "v1";
 pub(crate) const KEY_VERSION: i64 = 1;
 
 const UNREADABLE: &str = "A saved secret could not be decrypted with this build's vault key. \
-It was probably saved by another build (dev and release use different keys) or another install. \
+It was probably saved with another key (another install, or MYSTIQUE_VAULT_KEY_SOURCE=file). \
 Edit the connection and enter it again.";
 
 /// Where an envelope lives. All of it goes into the AAD.

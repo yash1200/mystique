@@ -21,7 +21,7 @@
 	function describe(s: VaultStatus | null): string {
 		if (!s) return ''
 		if (s.source !== 'keychain') {
-			return 'This build keeps the key in a file in the app data folder and never uses the keychain.'
+			return 'MYSTIQUE_VAULT_KEY_SOURCE=file: the key is in a file in the app data folder and the keychain is not used.'
 		}
 		if (s.state === 'unlocked') return 'Unlocked for this session.'
 		if (s.state === 'denied') {
@@ -107,8 +107,8 @@
 		{/if}
 		<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
 			Saved passwords, SSH and TLS secrets, AI keys and the MCP token are
-			encrypted in the app database with one key. Release builds keep that key
-			in the macOS keychain, so macOS asks at most once per launch.
+			encrypted in the app database with one key, kept in the macOS keychain.
+			Development builds cache a copy in the app data folder.
 		</p>
 	</div>
 {/if}

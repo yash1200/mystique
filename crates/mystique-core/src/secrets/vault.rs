@@ -1,16 +1,22 @@
 //! The one vault key: loaded on first use, then cached for the process.
 //!
-//! Key sources:
-//! - keychain: one item, service `dev.mystique.db`, account `vault.v1`.
-//!   Default for release builds.
-//! - file: `<app data dir>/vault.key`, mode 0600. Default for debug builds, so
-//!   `pnpm tauri dev` never touches the keychain.
-//! - memory: tests.
+//! There is one key per machine, shared by dev and release builds, which use
+//! the same app data dir and database.
 //!
-//! `MYSTIQUE_VAULT_KEY_SOURCE=keychain|file` overrides the default in any
-//! build. That is the only way a release build uses the file: it is meant for
-//! machines without a usable keychain, and the key then sits on disk next to
-//! the database it protects.
+//! - release: the keychain item `dev.mystique.db` / `vault.v1` only.
+//! - debug: `<app data dir>/vault.key` if present. Otherwise the keychain item
+//!   is read once (or created), then cached to that file.
+//! - `MYSTIQUE_VAULT_KEY_SOURCE=keychain`: the keychain item only, any build.
+//! - `MYSTIQUE_VAULT_KEY_SOURCE=file`: the file only, created if missing. The
+//!   keychain is never touched, old items included.
+//!
+//! The debug file is a cached copy of the release key: mode 0600, deleted with
+//! the app data dir. With it, `pnpm tauri dev` reads the keychain at most once
+//! per machine, and rebuilds never prompt. If the file and the keychain ever
+//! disagree, the file wins and a warning is logged; nothing is re-keyed.
+//!
+//! `MYSTIQUE_VAULT_KEY_SOURCE=file` is for CI and headless use: the key then
+//! sits on disk next to the database it protects. Tests use the memory source.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -167,15 +173,93 @@ impl Vault {
     }
 }
 
-/// The source for this build: see the module docs.
-pub fn default_key_source(data_dir: &Path) -> Arc<dyn KeySource> {
-    let file = || Arc::new(FileKeySource::new(data_dir.join(KEY_FILE_NAME))) as Arc<dyn KeySource>;
-    let keychain = || Arc::new(super::keychain::KeychainKeySource) as Arc<dyn KeySource>;
-    match std::env::var(KEY_SOURCE_ENV).ok().as_deref().map(str::trim) {
-        Some("keychain") => keychain(),
-        Some("file") => file(),
-        _ if cfg!(debug_assertions) => file(),
-        _ => keychain(),
+/// Where this build gets the key. See the module docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyChoice {
+    /// The keychain item only (release).
+    Keychain,
+    /// The file if present, else the keychain item, cached to the file (debug).
+    CachedKeychain,
+    /// The file only; never the keychain (`MYSTIQUE_VAULT_KEY_SOURCE=file`).
+    File,
+}
+
+impl KeyChoice {
+    /// From `MYSTIQUE_VAULT_KEY_SOURCE` and the build profile.
+    pub fn from_env() -> Self {
+        Self::choose(
+            std::env::var(KEY_SOURCE_ENV).ok().as_deref(),
+            cfg!(debug_assertions),
+        )
+    }
+
+    fn choose(env: Option<&str>, debug: bool) -> Self {
+        match env.map(str::trim) {
+            Some("keychain") => Self::Keychain,
+            Some("file") => Self::File,
+            _ if debug => Self::CachedKeychain,
+            _ => Self::Keychain,
+        }
+    }
+
+    /// Whether this choice may touch the keychain at all, old items included.
+    pub fn uses_keychain(self) -> bool {
+        self != Self::File
+    }
+
+    pub fn source(self, data_dir: &Path, keychain: Arc<dyn KeySource>) -> Arc<dyn KeySource> {
+        let path = data_dir.join(KEY_FILE_NAME);
+        match self {
+            Self::Keychain => keychain,
+            Self::CachedKeychain => Arc::new(CachedKeySource { path, keychain }),
+            Self::File => Arc::new(FileKeySource::new(path)),
+        }
+    }
+}
+
+/// Debug builds: a 0600 file that caches the keychain key.
+pub struct CachedKeySource {
+    path: PathBuf,
+    keychain: Arc<dyn KeySource>,
+}
+
+impl KeySource for CachedKeySource {
+    fn load(&self, prompt: Prompt) -> Result<VaultKey, VaultError> {
+        let file_err = |e: std::io::Error| {
+            VaultError::Denied(format!("vault key file {}: {e}", self.path.display()))
+        };
+        match read_key_file(&self.path) {
+            Ok(key) => return Ok(key),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(file_err(e)),
+        }
+        // Reads the item, or creates it when missing (a write never prompts).
+        let key = self.keychain.load(prompt)?;
+        match create_key_file(&self.path, &key) {
+            Ok(true) => Ok(key),
+            // Another process cached a key first. The file wins.
+            Ok(false) => {
+                let cached = read_key_file_retrying(&self.path).map_err(file_err)?;
+                if cached != key {
+                    eprintln!(
+                        "mystique: {} differs from the keychain vault key; using the file",
+                        self.path.display()
+                    );
+                }
+                Ok(cached)
+            }
+            Err(e) => {
+                eprintln!(
+                    "mystique: could not cache the vault key at {}: {e}",
+                    self.path.display()
+                );
+                Ok(key)
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "keychain"
     }
 }
 
@@ -206,10 +290,19 @@ fn read_or_create_key_file(path: &Path) -> std::io::Result<VaultKey> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         other => return other,
     }
+    let key = VaultKey::random();
+    if create_key_file(path, &key)? {
+        Ok(key)
+    } else {
+        read_key_file_retrying(path)
+    }
+}
+
+/// Write `key` with `create_new` and mode 0600. False when the file exists.
+fn create_key_file(path: &Path, key: &VaultKey) -> std::io::Result<bool> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let key = VaultKey::random();
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -221,20 +314,22 @@ fn read_or_create_key_file(path: &Path) -> std::io::Result<VaultKey> {
         Ok(mut file) => {
             file.write_all(key.encode().as_bytes())?;
             file.sync_all()?;
-            Ok(key)
+            Ok(true)
         }
-        // Another process created it first and may still be writing.
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            for _ in 0..20 {
-                if let Ok(key) = read_key_file(path) {
-                    return Ok(key);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            read_key_file(path)
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+/// Another process created the file first and may still be writing it.
+fn read_key_file_retrying(path: &Path) -> std::io::Result<VaultKey> {
+    for _ in 0..20 {
+        if let Ok(key) = read_key_file(path) {
+            return Ok(key);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    read_key_file(path)
 }
 
 fn read_key_file(path: &Path) -> std::io::Result<VaultKey> {
@@ -420,6 +515,149 @@ mod tests {
         assert!(vault.key(Prompt::Allowed).is_ok());
         assert!(vault.key(Prompt::Never).is_ok());
         assert_eq!(source.loads(), 2);
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("mystique-{tag}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn choices_follow_the_build_and_the_override() {
+        assert_eq!(KeyChoice::choose(None, false), KeyChoice::Keychain);
+        assert_eq!(KeyChoice::choose(None, true), KeyChoice::CachedKeychain);
+        for debug in [false, true] {
+            assert_eq!(
+                KeyChoice::choose(Some("keychain"), debug),
+                KeyChoice::Keychain
+            );
+            assert_eq!(KeyChoice::choose(Some(" file "), debug), KeyChoice::File);
+            assert_eq!(KeyChoice::choose(Some("bogus"), false), KeyChoice::Keychain);
+        }
+        assert!(KeyChoice::CachedKeychain.uses_keychain());
+        assert!(!KeyChoice::File.uses_keychain());
+    }
+
+    #[test]
+    fn debug_reads_the_keychain_once_then_uses_the_file() {
+        let dir = temp_dir("cached");
+        let keychain = Arc::new(CountingKeySource::default());
+        let release_key = keychain.load(Prompt::Allowed).unwrap();
+        keychain.reset();
+
+        let first = KeyChoice::CachedKeychain.source(&dir, keychain.clone());
+        assert_eq!(first.load(Prompt::Allowed).unwrap(), release_key);
+        assert_eq!(keychain.loads(), 1);
+        let path = dir.join(KEY_FILE_NAME);
+        #[cfg(unix)]
+        assert_eq!(mode(&path), 0o600);
+
+        // The next process: the file, no keychain read.
+        keychain.reset();
+        let next = KeyChoice::CachedKeychain.source(&dir, keychain.clone());
+        assert_eq!(next.load(Prompt::Never).unwrap(), release_key);
+        assert_eq!(keychain.loads(), 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn debug_without_a_keychain_item_writes_one_key_to_both() {
+        let dir = temp_dir("fresh");
+        // Holds no key yet: its first load creates one, as the keychain would.
+        let keychain = Arc::new(CountingKeySource::default());
+        let key = KeyChoice::CachedKeychain
+            .source(&dir, keychain.clone())
+            .load(Prompt::Allowed)
+            .unwrap();
+        assert_eq!(keychain.load(Prompt::Never).unwrap(), key, "keychain");
+        assert_eq!(
+            read_key_file(&dir.join(KEY_FILE_NAME)).unwrap(),
+            key,
+            "file"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_existing_file_is_used_without_the_keychain() {
+        let dir = temp_dir("existing");
+        let file_key = VaultKey::random();
+        assert!(create_key_file(&dir.join(KEY_FILE_NAME), &file_key).unwrap());
+        let keychain = Arc::new(CountingKeySource::default());
+        keychain.seed(VaultKey::random());
+        let got = KeyChoice::CachedKeychain
+            .source(&dir, keychain.clone())
+            .load(Prompt::Allowed)
+            .unwrap();
+        assert_eq!(got, file_key);
+        assert_eq!(keychain.loads(), 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Another process caches a different key while this one reads the keychain.
+    struct Racer {
+        file: PathBuf,
+        theirs: VaultKey,
+        ours: VaultKey,
+    }
+
+    impl KeySource for Racer {
+        fn load(&self, _prompt: Prompt) -> Result<VaultKey, VaultError> {
+            create_key_file(&self.file, &self.theirs).unwrap();
+            Ok(self.ours.clone())
+        }
+
+        fn name(&self) -> &'static str {
+            "keychain"
+        }
+    }
+
+    #[test]
+    fn when_the_file_and_keychain_disagree_the_file_wins() {
+        let dir = temp_dir("disagree");
+        let theirs = VaultKey::random();
+        let racer = Arc::new(Racer {
+            file: dir.join(KEY_FILE_NAME),
+            theirs: theirs.clone(),
+            ours: VaultKey::random(),
+        });
+        let got = KeyChoice::CachedKeychain
+            .source(&dir, racer)
+            .load(Prompt::Allowed)
+            .unwrap();
+        assert_eq!(got, theirs);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn release_ignores_an_existing_file() {
+        let dir = temp_dir("release");
+        let file_key = VaultKey::random();
+        assert!(create_key_file(&dir.join(KEY_FILE_NAME), &file_key).unwrap());
+        let keychain = Arc::new(CountingKeySource::default());
+        let got = KeyChoice::Keychain
+            .source(&dir, keychain.clone())
+            .load(Prompt::Allowed)
+            .unwrap();
+        assert_ne!(got, file_key);
+        assert_eq!(keychain.loads(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn file_mode_never_touches_the_keychain() {
+        let dir = temp_dir("file-mode");
+        let keychain = Arc::new(CountingKeySource::default());
+        let source = KeyChoice::File.source(&dir, keychain.clone());
+        let first = source.load(Prompt::Allowed).unwrap();
+        assert_eq!(source.load(Prompt::Never).unwrap(), first);
+        assert_eq!(keychain.loads(), 0);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

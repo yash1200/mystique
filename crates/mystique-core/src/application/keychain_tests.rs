@@ -465,7 +465,7 @@ fn plaintext_and_placeholder_rows_behave_as_before() {
 }
 
 #[test]
-fn the_debug_file_source_never_touches_old_items() {
+fn file_mode_never_touches_old_items() {
     let app = AppServices::with_secrets(
         AppDatabase::open_in_memory().unwrap(),
         ConnectionManager::bootstrap(),

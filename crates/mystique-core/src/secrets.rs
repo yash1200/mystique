@@ -1,7 +1,7 @@
 //! Saved secrets: AES-256-GCM envelopes in SQLite, sealed with one vault key.
 //!
 //! The key is the only thing Mystique keeps in the OS keychain
-//! (`dev.mystique.db` / `vault.v1`), or a 0600 file in debug builds; see
+//! (`dev.mystique.db` / `vault.v1`). Debug builds cache it in a 0600 file; see
 //! [`vault`]. It loads on the first secret use, never at startup, and is cached
 //! for the process, a denied prompt included, until [`SecretStore::retry_unlock`].
 //! The renderer never sees a saved secret.
@@ -28,18 +28,18 @@ use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
 
 use self::envelope::{Slot, KEY_VERSION};
-use self::keychain::{KeyringBackend, LOCKED_MESSAGE};
+use self::keychain::{KeychainKeySource, KeyringBackend, LOCKED_MESSAGE};
 use self::vault::Vault;
 
 pub use self::keychain::VAULT_ACCOUNT;
 pub use self::vault::{
-    default_key_source, FileKeySource, KeySource, MemoryKeySource, Prompt, VaultError, VaultKey,
-    VaultStatus, KEY_FILE_NAME, KEY_SOURCE_ENV,
+    CachedKeySource, FileKeySource, KeyChoice, KeySource, MemoryKeySource, Prompt, VaultError,
+    VaultKey, VaultStatus, KEY_FILE_NAME, KEY_SOURCE_ENV,
 };
 
 const INSTALL_ID_KEY: &str = "install_id";
 
-const LEGACY_OFF_MESSAGE: &str = "This password is still in the system keychain from an older version, and this build does not read the keychain (vault key source: file). Enter it again, or run once with MYSTIQUE_VAULT_KEY_SOURCE=keychain to move it.";
+const LEGACY_OFF_MESSAGE: &str = "This password is still in the system keychain from an older version, and MYSTIQUE_VAULT_KEY_SOURCE=file keeps this run away from the keychain. Run once without it to move the password, or enter it again.";
 
 /// Keychain items from builds before the vault.
 pub(crate) trait SecretBackend: Send + Sync {
@@ -177,8 +177,11 @@ pub struct SecretStore {
 impl SecretStore {
     /// The app's store. The key source follows the build; see [`vault`].
     pub fn os(data_dir: &Path) -> Self {
-        let source = default_key_source(data_dir);
-        let legacy = (source.name() == "keychain")
+        let choice = KeyChoice::from_env();
+        let source = choice.source(data_dir, Arc::new(KeychainKeySource));
+        // Old items move into the vault in every build that may use the keychain.
+        let legacy = choice
+            .uses_keychain()
             .then(|| Arc::new(KeyringBackend) as Arc<dyn SecretBackend>);
         Self::from_parts(source, legacy)
     }
