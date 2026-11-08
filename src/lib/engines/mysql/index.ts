@@ -31,6 +31,7 @@ export const mysql: EngineAdapter = {
 			readOnly: false,
 			environment: 'local',
 			notes: '',
+			queryTimeout: '',
 		}),
 		toPluginConfig: (draft) => ({
 			host: draft.host.trim() || '127.0.0.1',

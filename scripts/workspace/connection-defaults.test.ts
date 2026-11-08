@@ -18,6 +18,12 @@ test('read-only defaults to off in every engine form (the metadata DB agrees sin
 	}
 })
 
+test('every engine draft sets the timeout field, so the form never binds undefined', () => {
+	for (const adapter of [postgres, mysql, sqlite, mongodb]) {
+		assert.equal(adapter.connection.emptyDraft().queryTimeout, '', adapter.id)
+	}
+})
+
 test('production suggests read-only and leaves the choice alone', () => {
 	assert.equal(suggestReadOnly({ environment: 'production', readOnly: false }), true)
 	assert.equal(suggestReadOnly({ environment: 'production', readOnly: true }), false)

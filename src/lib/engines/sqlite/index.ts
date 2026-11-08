@@ -28,6 +28,7 @@ export const sqlite: EngineAdapter = {
 			readOnly: false,
 			environment: 'local',
 			notes: '',
+			queryTimeout: '',
 		}),
 		toPluginConfig: (draft) => ({
 			path: draft.path.trim() || draft.database.trim(),

@@ -117,7 +117,7 @@ export interface ConnectionFormDraft {
 	environment: Environment
 	notes: string
 	/** Seconds as typed. Blank uses the app setting; 0 means no timeout. */
-	queryTimeout?: string
+	queryTimeout: string
 	sshEnabled?: boolean
 	sshHost?: string
 	sshPort?: number
