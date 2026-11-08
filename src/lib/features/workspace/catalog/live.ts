@@ -1,6 +1,6 @@
 /** Live catalog load / refresh / create. Owned by the catalog feature. */
 import type { DatabaseMeta, TableMeta } from '#core/contracts'
-import { applyEngineTableAdmin, isTauri } from '#core/ipc'
+import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
 import { resolveCapabilities } from '#engines'
 import { isConnectCancelled } from '#features/connections'
 import {
@@ -28,7 +28,7 @@ import { clearCatalogFailure, recordCatalogFailure } from './failure'
 function reportCatalogError(connectionId: string, err: unknown) {
 	// The user closed the password prompt.
 	if (isConnectCancelled(err)) return
-	const message = err instanceof Error ? err.message : String(err)
+	const message = errorMessage(err)
 	const first = recordCatalogFailure(connectionId, message)
 	if (first) {
 		workspaceStudio.setCatalogError(message)
@@ -194,7 +194,7 @@ export async function selectDatabase(name: string) {
 			[id]: previous,
 		}
 		workspaceStudio.setCatalogError(
-			e instanceof Error ? e.message : String(e),
+			errorMessage(e),
 		)
 		workspaceStudio.refreshing = false
 	}
@@ -213,7 +213,7 @@ export async function refreshDatabases() {
 		await ensureLiveCatalog(id, engine, sid, preferred, true, false)
 	} catch (e) {
 		workspaceStudio.setCatalogError(
-			e instanceof Error ? e.message : String(e),
+			errorMessage(e),
 		)
 		workspaceStudio.refreshing = false
 	}
@@ -240,7 +240,7 @@ export async function refreshCurrentTables() {
 		}
 	} catch (e) {
 		workspaceStudio.setCatalogError(
-			e instanceof Error ? e.message : String(e),
+			errorMessage(e),
 		)
 	} finally {
 		workspaceStudio.refreshingTables = false
@@ -286,7 +286,7 @@ export async function createCatalogGroup(name: string) {
 	} catch (e) {
 		if (!isWriteCancelled(e)) {
 			workspaceStudio.setCatalogError(
-				e instanceof Error ? e.message : String(e),
+				errorMessage(e),
 			)
 		}
 	} finally {
@@ -351,7 +351,7 @@ export async function createCatalogObject(name: string, group?: string) {
 	} catch (e) {
 		if (!isWriteCancelled(e)) {
 			workspaceStudio.setCatalogError(
-				e instanceof Error ? e.message : String(e),
+				errorMessage(e),
 			)
 		}
 	} finally {

@@ -4,9 +4,9 @@ import { guardCopy, typedNameOk } from '../../src/lib/features/workspace/session
 import {
 	guardLoop,
 	isWriteCancelled,
-	parseWriteGuard,
 	type WriteGuardDecision,
 } from '../../src/lib/features/workspace/session/guard-loop'
+import { writeGuardPrompt } from '../../src/lib/core/ipc/error'
 
 function prompt(kind: string, extra: Partial<WriteGuardPrompt> = {}): WriteGuardPrompt {
 	return {
@@ -19,15 +19,24 @@ function prompt(kind: string, extra: Partial<WriteGuardPrompt> = {}): WriteGuard
 	}
 }
 
+/** The IPC envelope the backend rejects with. */
+function guardError(p: WriteGuardPrompt) {
+	return {
+		kind: 'write_guard',
+		message: `Confirm the write on ${p.connectionName} (${p.environment}).`,
+		prompt: { type: 'writeGuard', ...p },
+	}
+}
+
 /** The backend refuses until it gets what the prompt asked for. */
 function backend(first: WriteGuardPrompt) {
 	const calls: (string | undefined)[] = []
 	let unlocked = false
 	const run = async (confirm?: string) => {
 		calls.push(confirm)
-		if (first.kind === 'unlock' && !unlocked) throw new Error(JSON.stringify(first))
+		if (first.kind === 'unlock' && !unlocked) throw guardError(first)
 		if (first.kind !== 'unlock' && confirm !== first.objectName) {
-			throw new Error(JSON.stringify(first))
+			throw guardError(first)
 		}
 		return 'ran'
 	}
@@ -95,11 +104,12 @@ describe('guardLoop', () => {
 	})
 })
 
-describe('parseWriteGuard', () => {
-	it('reads the backend JSON, including statements', () => {
-		const raw = `write_guard: ${JSON.stringify(prompt('unlock', { statements: ['DELETE FROM t WHERE id = 1'] }))}`
-		expect(parseWriteGuard(raw)?.statements).toEqual(['DELETE FROM t WHERE id = 1'])
-		expect(parseWriteGuard('policy: read-only')).toBeNull()
+describe('writeGuardPrompt', () => {
+	it('reads the typed prompt, including statements', () => {
+		const err = guardError(prompt('unlock', { statements: ['DELETE FROM t WHERE id = 1'] }))
+		expect(writeGuardPrompt(err)?.statements).toEqual(['DELETE FROM t WHERE id = 1'])
+		expect(writeGuardPrompt({ kind: 'policy', message: 'read-only' })).toBeNull()
+		expect(writeGuardPrompt('policy: read-only')).toBeNull()
 	})
 })
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorMessage } from '#core/ipc'
 	import type {
 		ActiveBackendSession,
 		EngineCapabilities,
@@ -78,7 +79,7 @@
 			error = null
 			fetchedAt = Date.now()
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err)
+			error = errorMessage(err)
 		} finally {
 			loading = false
 		}
@@ -105,7 +106,7 @@
 				)
 			}
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		} finally {
 			ending = false
 		}

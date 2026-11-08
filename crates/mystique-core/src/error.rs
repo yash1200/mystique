@@ -1,6 +1,6 @@
 //! Shared application errors (storage + services + connectors).
 
-use mystique_connector_api::ConnectorError;
+use mystique_connector_api::{ConnectorError, IpcError, IpcErrorKind, IpcPrompt};
 use serde::Serialize;
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -32,7 +32,8 @@ pub enum AppError {
     SecretStore(String),
 
     /// The profile does not save its password and none is held this session.
-    /// The UI matches the `password_required` prefix and asks for it.
+    /// The IPC envelope turns this into `kind: password_required` with a
+    /// `PasswordRequired` prompt; the prefix stays in `Display` for the agent.
     #[error("password_required: This connection asks for its password once per session.")]
     PasswordRequired,
 }
@@ -49,5 +50,61 @@ impl Serialize for AppError {
 impl From<AppError> for String {
     fn from(value: AppError) -> Self {
         value.to_string()
+    }
+}
+
+/// Text after the machine prefix of [`AppError::PasswordRequired`].
+const PASSWORD_REQUIRED_MESSAGE: &str = "This connection asks for its password once per session.";
+
+/// The IPC envelope. `Display` keeps its prefixes for MCP and the agent;
+/// the envelope moves them into `kind` and `prompt`.
+impl From<AppError> for IpcError {
+    fn from(value: AppError) -> Self {
+        let kind = match value {
+            AppError::Connector(inner) => return IpcError::from(inner),
+            AppError::PasswordRequired => {
+                return IpcError {
+                    prompt: Some(IpcPrompt::PasswordRequired),
+                    ..IpcError::new(IpcErrorKind::PasswordRequired, PASSWORD_REQUIRED_MESSAGE)
+                };
+            }
+            AppError::Database(_) | AppError::Io(_) | AppError::Json(_) => IpcErrorKind::Storage,
+            AppError::NotFound(_) => IpcErrorKind::NotFound,
+            AppError::Invalid(_) => IpcErrorKind::InvalidInput,
+            AppError::Internal(_) => IpcErrorKind::Internal,
+            AppError::SecretStore(_) => IpcErrorKind::SecretStore,
+        };
+        IpcError::new(kind, value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod ipc_tests {
+    use super::*;
+
+    #[test]
+    fn password_required_is_a_typed_prompt_without_the_prefix() {
+        let err = AppError::PasswordRequired;
+        assert!(err.to_string().starts_with("password_required"));
+        let value = serde_json::to_value(IpcError::from(err)).expect("serialize");
+        assert_eq!(value["kind"], "password_required");
+        assert_eq!(value["prompt"]["type"], "passwordRequired");
+        assert_eq!(value["message"], PASSWORD_REQUIRED_MESSAGE);
+    }
+
+    #[test]
+    fn a_connector_error_drops_the_wrapper() {
+        let err = AppError::Connector(ConnectorError::Policy("Read-only.".into()));
+        let value = serde_json::to_value(IpcError::from(err)).expect("serialize");
+        assert_eq!(value["kind"], "policy");
+        assert_eq!(value["message"], "Read-only.");
+    }
+
+    #[test]
+    fn app_errors_keep_their_text() {
+        let value = serde_json::to_value(IpcError::from(AppError::NotFound("profile x".into())))
+            .expect("serialize");
+        assert_eq!(value["kind"], "not_found");
+        assert_eq!(value["message"], "not found: profile x");
     }
 }

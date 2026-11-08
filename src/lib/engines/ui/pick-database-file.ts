@@ -2,7 +2,7 @@
  * Native file picker for file-kind connections (SQLite, later DuckDB).
  * Tauri desktop only — browser previews cannot expose full filesystem paths.
  */
-import { isTauri } from '#core/ipc'
+import { errorMessage, isTauri } from '#core/ipc'
 
 export type PickDatabaseFileResult =
 	| { ok: true; path: string }
@@ -51,7 +51,7 @@ export async function pickDatabaseFilePath(opts?: {
 		return {
 			ok: false,
 			cancelled: false,
-			error: e instanceof Error ? e.message : String(e),
+			error: errorMessage(e),
 		}
 	}
 }

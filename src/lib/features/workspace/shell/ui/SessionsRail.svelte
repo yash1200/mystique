@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import type { ConnectedSession } from '#core/contracts'
-	import { formatEngineConnectionUrl, isTauri } from '#core/ipc'
+	import { errorMessage, formatEngineConnectionUrl, isTauri } from '#core/ipc'
 	import {
 		ContextMenu,
 		Draggable,
@@ -179,7 +179,7 @@
 				showToast('danger', result.error || 'Could not copy connection URL.')
 			}
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		}
 	}
 

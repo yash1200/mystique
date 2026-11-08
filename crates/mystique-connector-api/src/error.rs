@@ -49,58 +49,6 @@ pub fn position_at(text: &str, offset: u32) -> SourcePosition {
     }
 }
 
-/// IPC shape for a query command failure. Other commands stay plain strings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QueryIpcError {
-    pub kind: String,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub position: Option<SourcePosition>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub statement_index: Option<u32>,
-}
-
-impl QueryIpcError {
-    pub fn plain(message: impl Into<String>) -> Self {
-        Self {
-            kind: "internal".into(),
-            message: message.into(),
-            position: None,
-            statement_index: None,
-        }
-    }
-}
-
-impl From<ConnectorError> for QueryIpcError {
-    fn from(err: ConnectorError) -> Self {
-        match &err {
-            ConnectorError::QueryAt {
-                message,
-                position,
-                statement_index,
-            } => Self {
-                kind: "query".into(),
-                message: message.clone(),
-                position: Some(position.clone()),
-                statement_index: *statement_index,
-            },
-            _ => Self {
-                kind: err.kind().into(),
-                message: err.to_string(),
-                position: None,
-                statement_index: None,
-            },
-        }
-    }
-}
-
-impl From<String> for QueryIpcError {
-    fn from(message: String) -> Self {
-        Self::plain(message)
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum ConnectorError {
     #[error("invalid configuration: {0}")]

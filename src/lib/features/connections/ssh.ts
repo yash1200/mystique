@@ -1,5 +1,5 @@
 import type { ConnectionFormDraft, SshHostKeyPrompt, SshTunnelRequest } from '#core/contracts'
-import { trustSshHostKey } from '#core/ipc'
+import { errorMessage, isPasswordRequired, trustSshHostKey } from '#core/ipc'
 
 export function sshTunnelFromDraft(
 	draft: ConnectionFormDraft,
@@ -16,44 +16,22 @@ export function sshTunnelFromDraft(
 	}
 }
 
-export function parseSshHostKey(err: unknown): SshHostKeyPrompt | null {
-	let raw: string
-	if (typeof err === 'string') raw = err
-	else if (err instanceof Error) raw = err.message
-	else if (err && typeof err === 'object' && 'message' in err) {
-		raw = String((err as { message: unknown }).message)
-	} else return null
-	const start = raw.indexOf('{')
-	if (start < 0) return null
-	try {
-		const parsed = JSON.parse(raw.slice(start)) as SshHostKeyPrompt
-		if (parsed?.code === 'sshHostKey' && parsed.fingerprint) return parsed
-	} catch {
-		/* not JSON */
-	}
-	return null
-}
-
 export async function acceptSshHostKey(
 	prompt: SshHostKeyPrompt,
 ): Promise<void> {
 	await trustSshHostKey(prompt)
 }
 
-export function invokeErrorMessage(err: unknown): string {
-	if (typeof err === 'string') return err
-	if (err instanceof Error) return err.message
-	if (err && typeof err === 'object' && 'message' in err) {
-		return String((err as { message: unknown }).message)
+/** A failed connect or test, worded for the toast. */
+export function connectErrorMessage(err: unknown): string {
+	if (isPasswordRequired(err)) {
+		return 'Enter the password. This connection does not save it.'
 	}
-	return String(err)
+	return prettifyConnectError(errorMessage(err))
 }
 
 export function prettifyConnectError(message: string): string {
 	const lower = message.toLowerCase()
-	if (lower.includes('password_required')) {
-		return 'Enter the password. This connection does not save it.'
-	}
 	if (
 		lower.includes('password missing') ||
 		lower.includes('stored password is missing')

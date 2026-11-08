@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import type { ParsedConnectionUrl } from '#core/contracts'
-	import { isTauri, parseEngineConnectionUrl } from '#core/ipc'
+	import { errorMessage, isTauri, parseEngineConnectionUrl } from '#core/ipc'
 	import { OPEN_URL_IMPORT } from '../commands'
 	import { runtimeFor } from '../products'
 	import { Alert, Button, Icon, IconButton } from '#core/ui'
@@ -116,7 +116,7 @@
 			onparsed?.(parsed)
 			success = 'Server fields updated from URL.'
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			importing = false
 		}

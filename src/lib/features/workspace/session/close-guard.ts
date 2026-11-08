@@ -2,6 +2,7 @@
  * What closing a tab or resetting the app would lose, and the order the
  * prompts come in. Pure so the rules have tests.
  */
+import { errorMessage } from '#core/ipc'
 import type { SaveOutcome } from './tab-save'
 import type { WorkspaceTab } from './types'
 
@@ -38,7 +39,7 @@ export async function saveThenClose(
 	try {
 		outcome = await save()
 	} catch (err) {
-		outcome = { ok: false, error: err instanceof Error ? err.message : String(err) }
+		outcome = { ok: false, error: errorMessage(err) }
 	}
 	if (outcome.ok) close()
 	return outcome

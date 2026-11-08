@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isTauri } from '#core/ipc'
+	import { errorMessage, isTauri } from '#core/ipc'
 	import { Button, ControlGroup, ControlRow } from '#core/ui'
 	import { showToast } from '#features/toast'
 	import { onMount } from 'svelte'
@@ -33,7 +33,7 @@
 			const written = await exportDiagnostics(path)
 			showToast('success', `Diagnostics saved to ${written}`)
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			busy = false
 		}

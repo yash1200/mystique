@@ -1,6 +1,6 @@
 /** Load object structure for the structure tab. */
 import type { TableMeta } from '#core/contracts'
-import { describeEngineObjectStructure, isTauri } from '#core/ipc'
+import { errorMessage, describeEngineObjectStructure, isTauri } from '#core/ipc'
 import {
 	currentDatabaseName,
 	requireActiveConnection,
@@ -46,7 +46,7 @@ export async function openObjectStructure(table: TableMeta, force = false) {
 			workspaceSession.openStructure(id, table.id, table.name)
 		}
 	} catch (e) {
-		workspaceStudio.structureError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.structureError = errorMessage(e)
 	} finally {
 		workspaceStudio.structureLoading = false
 	}

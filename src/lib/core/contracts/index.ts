@@ -100,3 +100,4 @@ export type {
 } from './engines'
 export type * from './session'
 export type * from './ddl'
+export type * from './ipc'

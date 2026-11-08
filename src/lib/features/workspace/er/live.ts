@@ -1,6 +1,6 @@
 /** Load a live ER diagram for a table. */
 import type { TableMeta } from '#core/contracts'
-import { isTauri } from '#core/ipc'
+import { errorMessage, isTauri } from '#core/ipc'
 import { modelTabTitle, resolveCapabilities } from '#engines'
 import {
 	currentDatabaseName,
@@ -121,11 +121,11 @@ export async function openModelDiagram(
 				return
 			} catch (retryErr) {
 				workspaceStudio.modelError =
-					retryErr instanceof Error ? retryErr.message : String(retryErr)
+					errorMessage(retryErr)
 				return
 			}
 		}
-		workspaceStudio.modelError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.modelError = errorMessage(e)
 	} finally {
 		workspaceStudio.modelLoading = false
 	}

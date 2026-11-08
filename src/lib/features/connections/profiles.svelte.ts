@@ -1,5 +1,6 @@
 /** Saved connection profiles. One list for home, workspace boot, and the picker. */
 
+import { errorMessage } from '#core/ipc'
 import type { ConnectionProfile, SaveConnectionInput } from '#core/contracts'
 import {
 	deleteProfile,
@@ -25,7 +26,7 @@ class ConnectionProfilesStore {
 			this.items = await listProfiles()
 			this.#loaded = true
 		} catch (e) {
-			this.error = e instanceof Error ? e.message : String(e)
+			this.error = errorMessage(e)
 			throw e
 		} finally {
 			this.loading = false

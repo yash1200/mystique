@@ -6,10 +6,10 @@ import type { ApplyTableEditsResult, TableMeta } from '#core/contracts'
 import {
 	applyEngineTableEdits,
 	distinctEngineColumnValues,
+	invoke,
 	isTauri,
 	rollbackEngineTableEdits,
 } from '#core/ipc'
-import { invoke } from '@tauri-apps/api/core'
 import { runWithWriteGuard } from '#features/workspace/session'
 import { identityCell } from './identity-cell'
 import {
@@ -21,19 +21,6 @@ import {
 import { DISTINCT_LIMIT } from './column-complete'
 export type PersistResult = ApplyTableEditsResult
 export { identityCell } from './identity-cell'
-
-function invokeError(err: unknown): string {
-	if (err instanceof Error) return err.message
-	if (typeof err === 'string') return err
-	if (err && typeof err === 'object' && 'message' in err) {
-		return String((err as { message: unknown }).message)
-	}
-	try {
-		return JSON.stringify(err)
-	} catch {
-		return String(err)
-	}
-}
 
 function cellEmpty(v: unknown): boolean {
 	return v === null || v === undefined || v === ''
@@ -136,23 +123,19 @@ export async function persistTableEdits(input: {
 		profileReadOnly: input.profileReadOnly,
 	}
 
-	try {
-		if (input.dryRun) {
-			return await applyEngineTableEdits({ ...request, dryRun: true })
-		}
-		return await runWithWriteGuard(
-			input.sessionId,
-			(confirmObjectName) =>
-				applyEngineTableEdits({
-					...request,
-					dryRun: false,
-					confirmObjectName: confirmObjectName ?? null,
-				}),
-			{ confirmLabel: 'Save' },
-		)
-	} catch (err) {
-		throw new Error(invokeError(err))
+	if (input.dryRun) {
+		return applyEngineTableEdits({ ...request, dryRun: true })
 	}
+	return runWithWriteGuard(
+		input.sessionId,
+		(confirmObjectName) =>
+			applyEngineTableEdits({
+				...request,
+				dryRun: false,
+				confirmObjectName: confirmObjectName ?? null,
+			}),
+		{ confirmLabel: 'Save' },
+	)
 }
 
 export async function rollbackTableEdits(input: {
@@ -160,18 +143,14 @@ export async function rollbackTableEdits(input: {
 	saveId: string
 	profileReadOnly: boolean
 }): Promise<void> {
-	try {
-		await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
-			rollbackEngineTableEdits({
-				sessionId: input.sessionId,
-				saveId: input.saveId,
-				profileReadOnly: input.profileReadOnly,
-				confirmObjectName: confirmObjectName ?? null,
-			}),
-		)
-	} catch (err) {
-		throw new Error(invokeError(err))
-	}
+	await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
+		rollbackEngineTableEdits({
+			sessionId: input.sessionId,
+			saveId: input.saveId,
+			profileReadOnly: input.profileReadOnly,
+			confirmObjectName: confirmObjectName ?? null,
+		}),
+	)
 }
 
 export async function distinctColumnValues(input: {

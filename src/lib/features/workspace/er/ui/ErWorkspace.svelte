@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorMessage } from '#core/ipc'
 	/**
 	 * Live ER viewer — catalog schema, rearrange-only.
 	 */
@@ -611,7 +612,7 @@
 				showToast('danger', res.error)
 			}
 		} catch (e) {
-			showToast('danger', e instanceof Error ? e.message : String(e))
+			showToast('danger', errorMessage(e))
 		} finally {
 			exportingPng = false
 		}

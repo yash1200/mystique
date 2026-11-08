@@ -4,7 +4,6 @@ import { guardLoop, type GuardOptions, type WriteGuardDecision } from './guard-l
 
 export {
 	isWriteCancelled,
-	parseWriteGuard,
 	WriteCancelled,
 	type GuardOptions,
 	type WriteGuardDecision,

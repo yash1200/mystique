@@ -1,5 +1,5 @@
 /** Save-query flow. Modal state lives here, not on WorkspaceShell. */
-import { isTauri } from '#core/ipc'
+import { errorMessage, isTauri } from '#core/ipc'
 import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 import { queryLanguageFor } from './policy'
 import { saveQuery } from './saved-api'
@@ -79,7 +79,7 @@ class QuerySave {
 			this.thenClose = false
 			this.closeModal(true)
 		} catch (e) {
-			this.error = e instanceof Error ? e.message : String(e)
+			this.error = errorMessage(e)
 			console.warn('[mystique] save query:', e)
 		} finally {
 			workspaceStudio.querySaving = false
@@ -120,7 +120,7 @@ class QuerySave {
 			return true
 		} catch (e) {
 			console.warn('[mystique] save query:', e)
-			alert(e instanceof Error ? e.message : String(e))
+			alert(errorMessage(e))
 			return false
 		} finally {
 			workspaceStudio.querySaving = false

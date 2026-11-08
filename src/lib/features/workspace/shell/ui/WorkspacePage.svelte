@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import type { ConnectionProfile } from '#core/contracts'
-	import { isTauri } from '#core/ipc'
+	import { errorMessage, isTauri } from '#core/ipc'
 	import {
 		connectionProfiles,
 		ensureSessionWithPassword,
@@ -93,10 +93,7 @@
 				} catch (e) {
 					// Prompt closed: no error page, the boot falls back to home.
 					if (isConnectCancelled(e)) return
-					bootError =
-						e instanceof Error
-							? `Could not open engine session: ${e.message}`
-							: String(e)
+					bootError = `Could not open engine session: ${errorMessage(e)}`
 					return
 				}
 			}
@@ -106,7 +103,7 @@
 				capabilities,
 			)
 		} catch (e) {
-			bootError = e instanceof Error ? e.message : String(e)
+			bootError = errorMessage(e)
 		}
 	}
 

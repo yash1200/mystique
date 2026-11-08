@@ -2,7 +2,7 @@
  * Engine / connection-pool API (Tauri IPC).
  * Mirrors mystique-core ConnectionManager surface.
  */
-import { Channel, invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from './invoke'
 import type {
 	ApplyTableEditsRequest,
 	ApplyTableEditsResult,
@@ -61,6 +61,9 @@ import type {
 	SchemaMigration,
 	TableDefinition,
 } from '../contracts/ddl'
+import type { PinStatus } from '../contracts/ipc'
+
+export type { PinStatus }
 
 import { isTauri } from './tauri'
 function requireTauri() {
@@ -155,14 +158,6 @@ export async function executeEngineQuery(
 ): Promise<QueryResult> {
 	requireTauri()
 	return invoke('execute_engine_query', { request })
-}
-
-/** Run every statement. `onProgress` fires at statement boundaries, not per row. */
-export interface PinStatus {
-	pinned: boolean
-	inTransaction: boolean
-	/** An open transaction was discarded (unpin, idle timeout, disconnect). */
-	rolledBack?: boolean
 }
 
 export async function pinQueryTab(

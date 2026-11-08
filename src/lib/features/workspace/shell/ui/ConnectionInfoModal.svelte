@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '#core/contracts'
-	import { formatEngineConnectionUrl, isTauri } from '#core/ipc'
+	import { errorMessage, formatEngineConnectionUrl, isTauri } from '#core/ipc'
 	import { Icon, IconButton, Modal, Pill } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import {
@@ -62,7 +62,7 @@
 				showToast('danger', result.error || 'Could not copy connection URL.')
 			}
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		} finally {
 			copyBusy = false
 		}

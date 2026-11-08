@@ -1,8 +1,7 @@
 /**
  * Saved queries API (per connection, no groups).
  */
-import { isTauri } from '#core/ipc'
-import { invoke } from '@tauri-apps/api/core'
+import { errorMessage, invoke, isTauri } from '#core/ipc'
 import type {
 	SaveQueryInput,
 	SavedQuery,
@@ -54,7 +53,7 @@ export async function listSavedQueries(
 				normalizeSavedQuery(r as Record<string, unknown>),
 			)
 		} catch (e2) {
-			const msg = e2 instanceof Error ? e2.message : String(e2 ?? e1)
+			const msg = errorMessage(e2 ?? e1)
 			throw new Error(`list_saved_queries failed: ${msg}`)
 		}
 	}
@@ -98,7 +97,7 @@ export async function saveQuery(input: SaveQueryInput): Promise<SavedQuery> {
 			})
 			return normalizeSavedQuery(raw ?? {})
 		} catch (e2) {
-			const msg = e2 instanceof Error ? e2.message : String(e2 ?? e)
+			const msg = errorMessage(e2 ?? e)
 			throw new Error(`save_query failed: ${msg}`)
 		}
 	}

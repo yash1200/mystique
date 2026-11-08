@@ -4,6 +4,7 @@ use std::sync::Arc;
 use mystique_core::diagnostics::{build_bundle, default_bundle_name, BundleContext};
 use tauri::{AppHandle, Manager, State};
 
+use super::IpcError;
 use crate::AppState;
 
 /// Settings > About > Export diagnostics. Writes a `.tar.gz` (see
@@ -14,7 +15,7 @@ pub async fn export_diagnostics(
     app: AppHandle,
     state: State<'_, AppState>,
     path: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, IpcError> {
     let services = Arc::clone(&state.services);
     let log_dir = state.log_dir.clone();
     let version = app.package_info().version.to_string();
@@ -23,7 +24,7 @@ pub async fn export_diagnostics(
         None => app
             .path()
             .download_dir()
-            .map_err(|e| format!("downloads folder: {e}"))?
+            .map_err(|e| IpcError::internal(format!("downloads folder: {e}")))?
             .join(default_bundle_name()),
     };
     super::guard_blocking(move || {
@@ -31,9 +32,13 @@ pub async fn export_diagnostics(
             app_version: &version,
             log_dir: log_dir.as_deref(),
         };
-        let bytes = build_bundle(&services, &ctx).map_err(|e| e.to_string())?;
-        std::fs::write(&target, &bytes)
-            .map_err(|e| format!("could not write {}: {e}", target.display()))?;
+        let bytes = build_bundle(&services, &ctx).map_err(IpcError::from)?;
+        std::fs::write(&target, &bytes).map_err(|e| {
+            IpcError::new(
+                mystique_core::IpcErrorKind::Storage,
+                format!("could not write {}: {e}", target.display()),
+            )
+        })?;
         tracing::info!(bytes = bytes.len(), "diagnostics bundle exported");
         Ok(target.to_string_lossy().into_owned())
     })

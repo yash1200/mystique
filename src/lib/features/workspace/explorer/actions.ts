@@ -1,6 +1,6 @@
 /** Explorer context-menu actions. */
 import type { TableAdminOp, TableMeta } from '#core/contracts'
-import { applyEngineTableAdmin, isTauri } from '#core/ipc'
+import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
 import { refreshCurrentTables } from '#features/workspace/catalog'
 import { openModelDiagram } from '#features/workspace/er'
 import {
@@ -146,7 +146,7 @@ export async function onTableExplorerAction(
 	} catch (e) {
 		if (isWriteCancelled(e)) return
 		workspaceStudio.setCatalogError(
-			e instanceof Error ? e.message : String(e),
+			errorMessage(e),
 		)
 	}
 }

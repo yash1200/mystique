@@ -1,5 +1,5 @@
 /** Query history list. The connection manager writes the rows. */
-import { isTauri } from '#core/ipc'
+import { errorMessage, isTauri } from '#core/ipc'
 import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 import {
 	historyItemToEntry,
@@ -120,7 +120,7 @@ export async function refreshHistory(opts?: {
 		}
 	} catch (e) {
 		if (gen !== historyFetchGen) return
-		workspaceStudio.historyError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.historyError = errorMessage(e)
 		console.warn(
 			'[mystique] refreshHistory failed:',
 			workspaceStudio.historyError,
@@ -152,7 +152,7 @@ export async function loadOlderHistory() {
 		workspaceStudio.historyHasMore = page.hasMore
 	} catch (e) {
 		if (gen !== historyFetchGen) return
-		workspaceStudio.historyError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.historyError = errorMessage(e)
 	} finally {
 		if (gen === historyFetchGen) workspaceStudio.historyLoadingMore = false
 	}

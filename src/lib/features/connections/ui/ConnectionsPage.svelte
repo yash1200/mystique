@@ -7,9 +7,11 @@
 	} from '#core/contracts'
 	import { commands } from '#core/commands'
 	import {
+		errorMessage,
 		formatEngineConnectionUrl,
 		isTauri,
 		setNativeMenu,
+		sshHostKeyPrompt,
 		testEngineConnection,
 	} from '#core/ipc'
 	import { Button, EmptyState, Icon, Modal } from '#core/ui'
@@ -39,8 +41,7 @@
 	import SshHostKeyModal from './SshHostKeyModal.svelte'
 	import {
 		acceptSshHostKey,
-		invokeErrorMessage,
-		parseSshHostKey,
+		connectErrorMessage,
 		prettifyConnectError,
 		sshTunnelFromDraft,
 	} from '../ssh'
@@ -121,7 +122,7 @@
 		try {
 			await refreshList()
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		} finally {
 			listRefreshing = false
 		}
@@ -232,7 +233,7 @@
 				)
 			}
 		} catch (err) {
-			const prompt = parseSshHostKey(err)
+			const prompt = sshHostKeyPrompt(err)
 			if (prompt) {
 				sshHostKey = prompt
 				sshHostKeyRetry = () => handleTestConnection(draft)
@@ -240,7 +241,7 @@
 			}
 			reportTestResult(
 				false,
-				`Connection failed: ${prettifyConnectError(invokeErrorMessage(err))}`,
+				`Connection failed: ${connectErrorMessage(err)}`,
 			)
 		} finally {
 			testing = false
@@ -319,7 +320,7 @@
 			})
 			afterProfilesChange(saved.id)
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		} finally {
 			saving = false
 		}
@@ -352,7 +353,7 @@
 				showToast('danger', result.error || 'Could not copy connection URL.')
 			}
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		}
 	}
 
@@ -390,28 +391,13 @@
 		try {
 			await connectionProfiles.toggleFavorite(id)
 		} catch (err) {
-			showToast('danger', err instanceof Error ? err.message : String(err))
+			showToast('danger', errorMessage(err))
 		}
 	}
 
 	function cancelPendingDelete() {
 		if (deleting) return
 		pendingDelete = null
-	}
-
-	function formatInvokeError(err: unknown): string {
-		if (err instanceof Error) return err.message
-		if (typeof err === 'string') return err
-		if (err && typeof err === 'object') {
-			const o = err as Record<string, unknown>
-			if (typeof o.message === 'string') return o.message
-			try {
-				return JSON.stringify(err)
-			} catch {
-				/* fall through */
-			}
-		}
-		return String(err)
 	}
 
 	async function confirmDeleteSelected() {
@@ -424,7 +410,7 @@
 			// refreshList clears invalid selection → create mode.
 			pendingDelete = null
 		} catch (err) {
-			showToast('danger', formatInvokeError(err))
+			showToast('danger', errorMessage(err))
 		} finally {
 			deleting = false
 		}
@@ -526,7 +512,7 @@
 			)
 		} catch (err) {
 			if (isConnectCancelled(err)) return
-			const prompt = parseSshHostKey(err)
+			const prompt = sshHostKeyPrompt(err)
 			if (prompt) {
 				sshHostKey = prompt
 				sshHostKeyRetry = () => connectProfile(profile)
@@ -535,7 +521,7 @@
 			statusOverride = { ...statusOverride, [profile.id]: 'error' }
 			showToast(
 				'danger',
-				prettifyConnectError(invokeErrorMessage(err)),
+				connectErrorMessage(err),
 			)
 		} finally {
 			testing = false
@@ -577,7 +563,7 @@
 					loadError = null
 				}
 			} catch (err) {
-				loadError = err instanceof Error ? err.message : String(err)
+				loadError = errorMessage(err)
 			} finally {
 				loading = false
 			}
@@ -697,7 +683,7 @@
 				sshHostKeyRetry = null
 				await retry?.()
 			} catch (err) {
-				showToast('danger', err instanceof Error ? err.message : String(err))
+				showToast('danger', errorMessage(err))
 			}
 		}}
 	/>

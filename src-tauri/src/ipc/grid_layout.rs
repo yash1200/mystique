@@ -3,6 +3,7 @@ use std::sync::Arc;
 use mystique_core::{GridColumnLayoutRecord, GridSaveSummary};
 use tauri::State;
 
+use super::IpcError;
 use crate::AppState;
 
 #[tauri::command]
@@ -10,13 +11,13 @@ pub async fn get_grid_column_layout(
     state: State<'_, AppState>,
     connection_id: String,
     table_id: String,
-) -> Result<Option<GridColumnLayoutRecord>, String> {
+) -> Result<Option<GridColumnLayoutRecord>, IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
         services
             .grid_layout()
             .get_layout(&connection_id, &table_id)
-            .map_err(|err| err.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
@@ -25,13 +26,13 @@ pub async fn get_grid_column_layout(
 pub async fn save_grid_column_layout(
     state: State<'_, AppState>,
     layout: GridColumnLayoutRecord,
-) -> Result<(), String> {
+) -> Result<(), IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
         services
             .grid_layout()
             .save_layout(layout)
-            .map_err(|err| err.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
@@ -44,7 +45,7 @@ pub async fn latest_grid_save(
     database: Option<String>,
     schema: Option<String>,
     table: String,
-) -> Result<Option<GridSaveSummary>, String> {
+) -> Result<Option<GridSaveSummary>, IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
         services
@@ -55,7 +56,7 @@ pub async fn latest_grid_save(
                 schema.as_deref(),
                 &table,
             )
-            .map_err(|err| err.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }

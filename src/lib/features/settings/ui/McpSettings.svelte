@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isTauri } from '#core/ipc'
+	import { errorMessage, isTauri } from '#core/ipc'
 	import {
 		Button,
 		Checkbox,
@@ -63,7 +63,7 @@
 		try {
 			harnesses = await listMcpHarnesses()
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		}
 	}
 
@@ -80,7 +80,7 @@
 			await loadAccess()
 			await loadHarnesses()
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		}
 	}
 
@@ -91,7 +91,7 @@
 		try {
 			access = await setMcpAccess(policy, allowlist)
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err)
+			error = errorMessage(err)
 			await loadAccess()
 		} finally {
 			busy = false
@@ -118,7 +118,7 @@
 			mcp = await setMcpEnabled(on)
 			await loadHarnesses()
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err)
+			error = errorMessage(err)
 			await load()
 		} finally {
 			busy = false
@@ -133,7 +133,7 @@
 			mcp = await rotateMcpToken()
 			await loadHarnesses()
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err)
+			error = errorMessage(err)
 		} finally {
 			busy = false
 		}
@@ -148,7 +148,7 @@
 			const next = await installMcpHarness(id)
 			harnesses = harnesses.map((h) => (h.id === next.id ? next : h))
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err)
+			error = errorMessage(err)
 			await loadHarnesses()
 		} finally {
 			busy = false

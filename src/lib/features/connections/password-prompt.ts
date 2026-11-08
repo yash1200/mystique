@@ -1,11 +1,10 @@
 /**
  * Connect with a password prompt. A profile that does not save its password
- * fails the first connect of a session with `password_required`; we ask once,
+ * fails the first connect of a session with a `password_required` error; we ask once,
  * retry with what was typed, and the backend keeps it until the app quits.
  */
 import type { OpenSessionRequest } from '#core/contracts'
-
-export const PASSWORD_REQUIRED = 'password_required'
+import { isPasswordRequired } from '#core/ipc'
 
 export interface PasswordTarget {
 	/** Profile id. One prompt per id at a time. */
@@ -15,19 +14,6 @@ export interface PasswordTarget {
 
 /** Resolves to the typed password, or null when the user cancels. */
 export type AskPassword = (target: PasswordTarget) => Promise<string | null>
-
-function messageOf(err: unknown): string {
-	if (typeof err === 'string') return err
-	if (err instanceof Error) return err.message
-	if (err && typeof err === 'object' && 'message' in err) {
-		return String((err as { message: unknown }).message)
-	}
-	return ''
-}
-
-export function isPasswordRequired(err: unknown): boolean {
-	return messageOf(err).includes(PASSWORD_REQUIRED)
-}
 
 /** The user closed the prompt. Callers stay silent: no toast, no error UI. */
 export class ConnectCancelled extends Error {

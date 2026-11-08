@@ -2,8 +2,7 @@
  * Query history API (local app SQLite via Tauri IPC).
  * Used by every engine (Postgres / MySQL / Mongo / SQLite).
  */
-import { isTauri } from '#core/ipc'
-import { invoke } from '@tauri-apps/api/core'
+import { errorMessage, invoke, isTauri } from '#core/ipc'
 import type {
 	AppendHistoryInput,
 	QueryHistoryEntry,
@@ -213,7 +212,7 @@ export async function listQueryHistory(
 			})
 			return normalizePage(raw)
 		} catch (e2) {
-			const msg = e2 instanceof Error ? e2.message : String(e2 ?? e1)
+			const msg = errorMessage(e2 ?? e1)
 			throw new Error(`list_query_history failed: ${msg}`)
 		}
 	}

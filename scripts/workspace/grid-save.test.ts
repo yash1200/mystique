@@ -54,15 +54,16 @@ describe('undo', () => {
 
 	it('a stale refusal becomes a readable error', async () => {
 		const outcome = await undoSave(async () => {
-			throw new Error(
-				'policy: rollback_stale: The rows changed after this save. Rollback would overwrite newer data.',
-			)
+			throw {
+				kind: 'rollback_stale',
+				message: 'The rows changed after this save. Rollback would overwrite newer data.',
+			}
 		}, cancelled)
 		expect(outcome).toEqual({
 			ok: false,
 			message: 'Undo refused: the rows changed after this save.',
 		})
-		expect(undoErrorMessage(new Error('policy: This save was already rolled back'))).toBe(
+		expect(undoErrorMessage({ kind: 'policy', message: 'This save was already rolled back' })).toBe(
 			'This save was already rolled back',
 		)
 	})

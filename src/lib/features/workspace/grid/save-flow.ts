@@ -5,6 +5,7 @@
  * with the SQL that also unlocks the session). "Review before saving: always"
  * shows that same dialog first on every environment.
  */
+import { toIpcError } from '#core/ipc'
 import type { ApplyTableEditsResult, WriteGuardPrompt } from '#core/contracts'
 import type { ReviewBeforeSaving } from '#lib/app'
 
@@ -40,12 +41,9 @@ export function savedMessage(result: ApplyTableEditsResult): string {
 
 /** Readable rollback error; a stale save names what happened. */
 export function undoErrorMessage(err: unknown): string {
-	const raw = err instanceof Error ? err.message : String(err)
-	const text = raw.replace(/^policy:\s*/i, '')
-	if (/rollback_stale/.test(text)) {
-		return 'Undo refused: the rows changed after this save.'
-	}
-	return text
+	const e = toIpcError(err)
+	if (e.kind === 'rollback_stale') return 'Undo refused: the rows changed after this save.'
+	return e.message
 }
 
 /** `message` is null when the user closed the guard dialog. */

@@ -7,7 +7,7 @@
 	} from '#core/contracts'
 	import { commands, type CommandContext } from '#core/commands'
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
-	import { fetchEngineLargeValue, unlockEngineWrites } from '#core/ipc'
+	import { errorMessage, fetchEngineLargeValue, unlockEngineWrites } from '#core/ipc'
 	import { copyTextToClipboard, latestRun } from '#core/util'
 	import { showStatus, showToast } from '#features/toast'
 	import {
@@ -724,7 +724,7 @@
 	}
 
 	function reportGridError(err: unknown) {
-		showToast('danger', err instanceof Error ? err.message : String(err))
+		showToast('danger', errorMessage(err))
 	}
 
 	function notifyCopy(
@@ -2394,7 +2394,7 @@
 
 	function failSave(err: unknown) {
 		reportGridError(err)
-		settleSave({ ok: false, error: err instanceof Error ? err.message : String(err) })
+		settleSave({ ok: false, error: errorMessage(err) })
 	}
 
 	/** "Review before saving: always": the one dialog, shown before the save. */
@@ -2494,7 +2494,7 @@
 			sqlPanelError = null
 		},
 		onError: (err) => {
-			sqlPanelError = err instanceof Error ? err.message : String(err)
+			sqlPanelError = errorMessage(err)
 		},
 	})
 

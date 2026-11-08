@@ -1,4 +1,5 @@
 import type { ConnectionProfile } from '#core/contracts'
+import { errorMessage } from '#core/ipc'
 import { databaseFromUri, defaultCapabilitiesForEngine } from '#engines'
 import { configStr, pluginConfigForSession } from '#features/connections'
 /** Postgres / MySQL pools bind to one database; switching requires a new session. */
@@ -43,18 +44,8 @@ export function preferredDbForProfile(profile: {
 }
 
 /** Pool dropped, idle timeout, or the engine session was closed. */
-function errorText(err: unknown): string {
-	if (typeof err === 'string') return err
-	if (err instanceof Error) return err.message
-	if (err && typeof err === 'object' && 'message' in err) {
-		const message = (err as { message: unknown }).message
-		if (typeof message === 'string') return message
-	}
-	return String(err)
-}
-
 function isStaleEngineError(err: unknown): boolean {
-	const msg = errorText(err)
+	const msg = errorMessage(err)
 	return (
 		/session not found/i.test(msg) ||
 		/session closed/i.test(msg) ||

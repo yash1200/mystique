@@ -6,6 +6,7 @@
  * language), then one `register()` call. Connection chrome is Host/File/URI
  * in `engines/ui/` from `connectionKind`. Nothing else should learn the engine name.
  */
+import { errorMessage } from '#core/ipc'
 import type {
 	ConnectionFormDraft,
 	EngineCapabilities,
@@ -183,7 +184,7 @@ export function formatQuery(engine: string, text: string) {
 	try {
 		return adapterFor(engine).language.format(text)
 	} catch (e) {
-		const msg = e instanceof Error ? e.message : String(e)
+		const msg = errorMessage(e)
 		return { ok: false as const, error: msg || 'Format failed.', text }
 	}
 }

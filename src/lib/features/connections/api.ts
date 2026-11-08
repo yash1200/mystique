@@ -1,6 +1,5 @@
 import type { ConnectionProfile, SaveConnectionInput } from '#core/contracts'
-import { isTauri } from '#core/ipc'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '#core/ipc'
 import { asColorId, asEnvironment } from './model'
 
 const LS_KEY = 'mystique.profiles.v1'

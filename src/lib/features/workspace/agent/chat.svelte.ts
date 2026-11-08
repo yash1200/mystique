@@ -1,5 +1,6 @@
 /** Agent conversation cache. Survives query-tab remounts and pane close. */
 
+import { errorMessage } from '#core/ipc'
 import { ACTION_DISMISS_MS } from '#features/toast'
 import {
 	deleteAgentChat,
@@ -89,7 +90,7 @@ class AgentChatStore {
 			this.#loadedProviders.delete(provider)
 			this.models = []
 			this.modelsFor = provider
-			this.modelsError = e instanceof Error ? e.message : String(e)
+			this.modelsError = errorMessage(e)
 			throw e
 		} finally {
 			this.modelsLoading = false
@@ -121,7 +122,7 @@ class AgentChatStore {
 							[p]: [],
 						}
 						if (p === 'ollama') {
-							this.modelsError = e instanceof Error ? e.message : String(e)
+							this.modelsError = errorMessage(e)
 						}
 					}
 				}),
@@ -175,7 +176,7 @@ class AgentChatStore {
 		} catch (e) {
 			// Still on disk: let the next load show it again.
 			this.#chatsFor = null
-			this.#deleteFailed?.(e instanceof Error ? e.message : String(e))
+			this.#deleteFailed?.(errorMessage(e))
 		}
 	}
 

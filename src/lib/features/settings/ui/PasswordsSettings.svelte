@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isTauri } from '#core/ipc'
+	import { errorMessage, isTauri } from '#core/ipc'
 	import { Button, ControlGroup, ControlRow } from '#core/ui'
 	import { onMount } from 'svelte'
 	import {
@@ -46,7 +46,7 @@
 		try {
 			await work()
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			busy = false
 		}

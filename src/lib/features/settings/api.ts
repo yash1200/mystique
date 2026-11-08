@@ -1,5 +1,4 @@
-import { isTauri } from '#core/ipc'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '#core/ipc'
 import type { McpAccess, McpHarness, McpStatus, McpWritePolicy } from './mcp-types'
 export type { McpAccess, McpHarness, McpStatus, McpWritePolicy }
 

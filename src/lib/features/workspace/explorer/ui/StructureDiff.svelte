@@ -4,7 +4,7 @@
 	 * Apply runs on the other connection, through one write-guard decision.
 	 */
 	import type { RenamePair, SchemaMigration, TableDefinition, TableMeta } from '#core/contracts'
-	import { applyEngineSchemaDiff, listEngineTableDefinitions, planEngineSchemaDiff } from '#core/ipc'
+	import { errorMessage, applyEngineSchemaDiff, listEngineTableDefinitions, planEngineSchemaDiff } from '#core/ipc'
 	import { Alert, Button, Modal, Select } from '#core/ui'
 	import { runtimeFor } from '#engines'
 	import { showToast } from '#features/toast'
@@ -128,7 +128,7 @@
 			source = nextSource
 			target = nextTarget
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 			source = []
 			target = []
 		} finally {
@@ -160,7 +160,7 @@
 			migration = next
 			plannedKey = key
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			busy = false
 		}
@@ -205,7 +205,7 @@
 			onclose()
 		} catch (e) {
 			if (isWriteCancelled(e)) return
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			busy = false
 		}

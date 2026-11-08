@@ -10,12 +10,16 @@ import {
 	connectWithPassword,
 	createPasswordAsker,
 	isConnectCancelled,
-	isPasswordRequired,
 	type PasswordTarget,
 } from '../../src/lib/features/connections/password-prompt.ts'
+import { isPasswordRequired } from '../../src/lib/core/ipc/error.ts'
 
-const REQUIRED =
-	'password_required: This connection asks for its password once per session.'
+/** The IPC envelope for `AppError::PasswordRequired`. */
+const REQUIRED = {
+	kind: 'password_required',
+	message: 'This connection asks for its password once per session.',
+	prompt: { type: 'passwordRequired' },
+}
 
 function request(): OpenSessionRequest {
 	return {
@@ -107,8 +111,8 @@ test('C-06 other connect errors pass through without a prompt', async () => {
 	assert.equal(asked, 0)
 	assert.deepEqual(toasts, ['Error: connection refused'])
 	assert.equal(isPasswordRequired(REQUIRED), true)
-	assert.equal(isPasswordRequired(new Error(REQUIRED)), true)
 	assert.equal(isPasswordRequired('password authentication failed'), false)
+	assert.equal(isPasswordRequired({ kind: 'auth', message: 'password_required' }), false)
 })
 
 test('C-06 one prompt per connection; others wait their turn', async () => {

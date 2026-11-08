@@ -5,9 +5,9 @@ import {
 	editorEpoch,
 	noteEditorEdit,
 	placeDiagnostic,
-	readQueryFault,
 	tokenEnd,
 } from '../../src/lib/features/workspace/query/query-diagnostic'
+import { toIpcError } from '../../src/lib/core/ipc/error'
 import { submissionStart } from '../../src/lib/features/workspace/query/statement-span'
 
 describe('query diagnostics', () => {
@@ -39,13 +39,13 @@ describe('query diagnostics', () => {
 	})
 
 	it('returns no range when the engine sent no position', () => {
-		const fault = readQueryFault({ kind: 'query', message: 'no such table' })
-		expect(fault.position).toBeNull()
+		const fault = toIpcError({ kind: 'query', message: 'no such table' })
+		expect(fault.position).toBeUndefined()
 		expect(fault.message).toBe('no such table')
 	})
 
 	it('reads a positioned command error', () => {
-		const fault = readQueryFault({
+		const fault = toIpcError({
 			kind: 'query',
 			message: 'syntax',
 			position: { offset: 9, line: 1, column: 10 },

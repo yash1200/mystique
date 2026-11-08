@@ -21,7 +21,9 @@
 		pinnedTabStatus,
 		rollbackPinnedTab,
 		startTabRun,
+		toIpcError,
 		unpinQueryTab,
+		errorMessage,
 		type PinStatus,
 	} from '#core/ipc'
 	import { commands, type CommandContext } from '#core/commands'
@@ -57,7 +59,6 @@
 		editorEpoch,
 		noteEditorEdit,
 		placeDiagnostic,
-		readQueryFault,
 		type QueryDiagnostic,
 	} from '../query-diagnostic'
 	import type { RunState } from '../run-types'
@@ -383,7 +384,7 @@
 				)
 			}
 		} catch (e) {
-			showToast('danger', e instanceof Error ? e.message : String(e))
+			showToast('danger', errorMessage(e))
 		} finally {
 			exporting = null
 		}
@@ -454,14 +455,12 @@
 				persistRunCache({ status: 'idle' })
 				return
 			}
-			const fault = readQueryFault(e)
-			const msg = fault.message
+			const fault = toIpcError(e)
+			const isPolicy = fault.kind === 'policy'
 			const elapsedMs = Math.round(performance.now() - start)
-			const shown = /policy:/i.test(msg)
-				? msg.replace(/^policy:\s*/i, '')
-				: userFacingQueryError(msg)
+			const shown = isPolicy ? fault.message : userFacingQueryError(fault.message)
 			persistRunCache({
-				status: /policy:/i.test(msg) ? 'blocked' : 'error',
+				status: isPolicy ? 'blocked' : 'error',
 				message: shown,
 				mode,
 				elapsedMs,
@@ -615,13 +614,12 @@
 				persistRunCache({ status: 'idle' })
 				return
 			}
-			const fault = readQueryFault(e)
-			const msg = fault.message
-			const isPolicy = /policy:/i.test(msg) || /blocked/i.test(msg)
+			const fault = toIpcError(e)
+			const isPolicy = fault.kind === 'policy'
 			const elapsedMs = Math.round(performance.now() - start)
-			const shown = isPolicy
-				? msg.replace(/^policy:\s*/i, '')
-				: userFacingQueryError(msg)
+			const shown = isPolicy ? fault.message : userFacingQueryError(fault.message)
+			// A failed manual-commit run says whether its transaction survived.
+			if (fault.transactionOutcome) applyPinStatus(tabId, fault.transactionOutcome)
 			persistRunCache(
 				{
 					status: isPolicy ? 'blocked' : 'error',
@@ -690,7 +688,7 @@
 			})
 			if (!manual && status.rolledBack) showToast('info', 'Open transaction rolled back.')
 		} catch (e) {
-			showToast('danger', e instanceof Error ? e.message : String(e))
+			showToast('danger', errorMessage(e))
 		}
 	}
 
@@ -699,7 +697,7 @@
 			const status = await commitPinnedTab(tabId)
 			workspaceSession.setTabTxn(tabId, status)
 		} catch (e) {
-			showToast('danger', e instanceof Error ? e.message : String(e))
+			showToast('danger', errorMessage(e))
 			// A lost transaction leaves the toolbar showing one open.
 			void refreshPin()
 		}
@@ -710,7 +708,7 @@
 			const status = await rollbackPinnedTab(tabId)
 			workspaceSession.setTabTxn(tabId, status)
 		} catch (e) {
-			showToast('danger', e instanceof Error ? e.message : String(e))
+			showToast('danger', errorMessage(e))
 			// A lost transaction leaves the toolbar showing one open.
 			void refreshPin()
 		}

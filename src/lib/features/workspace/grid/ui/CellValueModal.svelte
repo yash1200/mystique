@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorMessage } from '#core/ipc'
 	import { Button, Kbd, Modal, Textarea } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import { onMount, untrack } from 'svelte'
@@ -110,7 +111,7 @@
 			text = mode === 'json' ? (prettyJson(full) ?? full) : full
 		} catch (err) {
 			if (!alive) return
-			loadError = err instanceof Error ? err.message : String(err)
+			loadError = errorMessage(err)
 		} finally {
 			if (alive) loading = false
 		}

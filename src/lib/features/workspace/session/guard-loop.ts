@@ -3,6 +3,7 @@
  * drive it with fake `ask` / `unlock`.
  */
 import type { WriteGuardPrompt } from '#core/contracts'
+import { writeGuardPrompt } from '#core/ipc'
 
 export type WriteGuardDecision = { ok: true; typedName?: string } | { ok: false }
 
@@ -29,28 +30,6 @@ export function isWriteCancelled(err: unknown): boolean {
 	return message === WRITE_CANCELLED
 }
 
-function errorText(err: unknown): string {
-	if (typeof err === 'string') return err
-	if (err instanceof Error) return err.message
-	if (err && typeof err === 'object' && 'message' in err) {
-		return String((err as { message: unknown }).message)
-	}
-	return String(err)
-}
-
-export function parseWriteGuard(err: unknown): WriteGuardPrompt | null {
-	const raw = errorText(err)
-	const start = raw.indexOf('{')
-	if (start < 0) return null
-	try {
-		const parsed = JSON.parse(raw.slice(start)) as WriteGuardPrompt
-		if (parsed?.code === 'writeGuard' && parsed.kind) return parsed
-	} catch {
-		/* not JSON */
-	}
-	return null
-}
-
 export async function guardLoop<T>(
 	run: (confirmObjectName?: string) => Promise<T>,
 	deps: {
@@ -64,7 +43,7 @@ export async function guardLoop<T>(
 		try {
 			return await run(confirmObjectName)
 		} catch (e) {
-			const prompt = parseWriteGuard(e)
+			const prompt = writeGuardPrompt(e)
 			if (!prompt) throw e
 			const decision = await deps.ask(
 				options.confirmLabel

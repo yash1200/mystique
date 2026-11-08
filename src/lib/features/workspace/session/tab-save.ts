@@ -1,3 +1,4 @@
+import { errorMessage } from '#core/ipc'
 /**
  * Save a table tab from outside its grid (close prompt, import prompt).
  * The mounted grid registers its save; only the active tab's grid is mounted.
@@ -47,6 +48,6 @@ export async function saveTableTab(tabId: string, timeoutMs?: number): Promise<S
 	try {
 		return await saver()
 	} catch (err) {
-		return { ok: false, error: err instanceof Error ? err.message : String(err) }
+		return { ok: false, error: errorMessage(err) }
 	}
 }

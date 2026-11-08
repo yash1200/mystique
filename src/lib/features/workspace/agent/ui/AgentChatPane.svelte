@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
-	import { isTauri } from '#core/ipc'
+	import { errorMessage, isTauri } from '#core/ipc'
 	import {
 		Alert,
 		Icon,
@@ -274,7 +274,7 @@
 			error = null
 			await hydrateMessages(next)
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		}
 	}
 
@@ -380,7 +380,7 @@
 			void loadChats(true)
 		} catch (e) {
 			if (gen !== sendGen) return
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 			await recoverFromDb(knownAssistantIds)
 		} finally {
 			clearInterval(tick)
@@ -492,7 +492,7 @@
 			agentChat.resetForConnection(id)
 			if (!desktop) return
 			void openConnectionChats().catch((e: unknown) => {
-				error = e instanceof Error ? e.message : String(e)
+				error = errorMessage(e)
 			})
 		})
 	})
@@ -548,7 +548,7 @@
 				await openConnectionChats()
 				void loadModels()
 			} catch (e) {
-				error = e instanceof Error ? e.message : String(e)
+				error = errorMessage(e)
 			}
 		})()
 	})

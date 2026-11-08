@@ -18,7 +18,7 @@ pub struct PoolStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshHostKeyPrompt {
-    /// Always `sshHostKey` so the UI can JSON.parse IPC errors.
+    /// Always `sshHostKey`. Kept on the wire for older readers.
     pub code: String,
     /// `unknown` (first connect) or `mismatch` (key changed).
     pub kind: String,
@@ -64,6 +64,21 @@ impl SshHostKeyPrompt {
             fingerprint,
             key_type,
             public_key,
+        }
+    }
+
+    /// Human text for the IPC envelope `message`.
+    pub fn summary(&self) -> String {
+        if self.kind == "mismatch" {
+            format!(
+                "The SSH host key for {}:{} changed. Check it before you trust it.",
+                self.host, self.port
+            )
+        } else {
+            format!(
+                "Trust the SSH host key for {}:{} to connect.",
+                self.host, self.port
+            )
         }
     }
 }

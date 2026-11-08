@@ -8,61 +8,6 @@ export type QueryDiagnostic = {
 	column: number
 }
 
-export type QueryFault = {
-	kind?: string
-	message: string
-	position?: SourcePosition | null
-	statementIndex?: number | null
-}
-
-function isPosition(value: unknown): value is SourcePosition {
-	if (!value || typeof value !== 'object') return false
-	const pos = value as SourcePosition
-	return (
-		typeof pos.offset === 'number' &&
-		typeof pos.line === 'number' &&
-		typeof pos.column === 'number'
-	)
-}
-
-/** Tauri rejects query commands with this object. Older strings still parse. */
-export function readQueryFault(err: unknown): QueryFault {
-	if (typeof err === 'string') return faultFromText(err)
-	if (err instanceof Error) return faultFromText(err.message)
-	if (err && typeof err === 'object' && 'message' in err) {
-		const record = err as {
-			kind?: unknown
-			message?: unknown
-			position?: unknown
-			statementIndex?: unknown
-		}
-		const message =
-			typeof record.message === 'string' ? record.message : String(err)
-		return {
-			kind: typeof record.kind === 'string' ? record.kind : undefined,
-			message,
-			position: isPosition(record.position) ? record.position : null,
-			statementIndex:
-				typeof record.statementIndex === 'number'
-					? record.statementIndex
-					: null,
-		}
-	}
-	return { message: String(err) }
-}
-
-function faultFromText(message: string): QueryFault {
-	const trimmed = message.trim()
-	if (trimmed.startsWith('{')) {
-		try {
-			return readQueryFault(JSON.parse(trimmed) as unknown)
-		} catch {
-			/* plain text */
-		}
-	}
-	return { message }
-}
-
 const editorEpochs = new Map<string, number>()
 
 /** Bumps when the editor document changes, including after a tab remount. */

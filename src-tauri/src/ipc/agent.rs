@@ -9,6 +9,7 @@ use mystique_core::{AgentChat, AgentMessage, AppServices, CreateAgentChatInput};
 use serde::Deserialize;
 use tauri::State;
 
+use super::IpcError;
 use crate::AppState;
 
 #[derive(Debug, serde::Serialize)]
@@ -25,12 +26,12 @@ pub struct AiSettingsView {
 fn read_ai_settings(
     services: &AppServices,
     secrets: &SecretStore,
-) -> Result<AiSettingsView, String> {
+) -> Result<AiSettingsView, IpcError> {
     let enabled = mystique_agent::runtime_enabled(services);
     let ollama_row = services
         .settings()
         .get(SETTING_OLLAMA_URL)
-        .map_err(|e| e.to_string())?;
+        .map_err(IpcError::from)?;
     let ollama_configured = ollama_row
         .as_ref()
         .map(|s| !s.value.trim().is_empty())
@@ -49,7 +50,7 @@ fn read_ai_settings(
 }
 
 #[tauri::command]
-pub async fn get_ai_settings(state: State<'_, AppState>) -> Result<AiSettingsView, String> {
+pub async fn get_ai_settings(state: State<'_, AppState>) -> Result<AiSettingsView, IpcError> {
     let services = Arc::clone(&state.services);
     let secrets = state.agent.secrets().clone();
     super::guard_blocking(move || read_ai_settings(&services, &secrets)).await
@@ -59,14 +60,14 @@ pub async fn get_ai_settings(state: State<'_, AppState>) -> Result<AiSettingsVie
 pub async fn set_ai_enabled(
     state: State<'_, AppState>,
     enabled: bool,
-) -> Result<AiSettingsView, String> {
+) -> Result<AiSettingsView, IpcError> {
     let services = Arc::clone(&state.services);
     let secrets = state.agent.secrets().clone();
     super::guard_blocking(move || {
         services
             .settings()
             .set(SETTING_AI_ENABLED, if enabled { "true" } else { "false" })
-            .map_err(|e| e.to_string())?;
+            .map_err(IpcError::from)?;
         read_ai_settings(&services, &secrets)
     })
     .await
@@ -76,7 +77,7 @@ pub async fn set_ai_enabled(
 pub async fn set_ai_ollama_url(
     state: State<'_, AppState>,
     url: String,
-) -> Result<AiSettingsView, String> {
+) -> Result<AiSettingsView, IpcError> {
     let services = Arc::clone(&state.services);
     let secrets = state.agent.secrets().clone();
     super::guard_blocking(move || {
@@ -87,7 +88,7 @@ pub async fn set_ai_ollama_url(
             services
                 .settings()
                 .set(SETTING_OLLAMA_URL, url)
-                .map_err(|e| e.to_string())?;
+                .map_err(IpcError::from)?;
         }
         read_ai_settings(&services, &secrets)
     })
@@ -99,12 +100,12 @@ pub async fn set_ai_api_key(
     state: State<'_, AppState>,
     provider: String,
     key: String,
-) -> Result<AiSettingsView, String> {
+) -> Result<AiSettingsView, IpcError> {
     let services = Arc::clone(&state.services);
     let secrets = state.agent.secrets().clone();
     super::guard_blocking(move || {
-        let p = parse_provider(&provider).map_err(|e| e.to_string())?;
-        secrets.set(p, &key).map_err(|e| e.to_string())?;
+        let p = parse_provider(&provider).map_err(IpcError::from)?;
+        secrets.set(p, &key).map_err(IpcError::from)?;
         read_ai_settings(&services, &secrets)
     })
     .await
@@ -112,7 +113,7 @@ pub async fn set_ai_api_key(
 
 /// Static catalog. Stays sync: no keychain and no SQLite. See `ipc/mod.rs`.
 #[tauri::command]
-pub fn list_agent_providers() -> Result<Vec<AgentProviderInfo>, String> {
+pub fn list_agent_providers() -> Result<Vec<AgentProviderInfo>, IpcError> {
     super::guard_sync(|| Ok(provider_catalog()))
 }
 
@@ -120,15 +121,15 @@ pub fn list_agent_providers() -> Result<Vec<AgentProviderInfo>, String> {
 pub async fn list_agent_models(
     state: State<'_, AppState>,
     provider: String,
-) -> Result<Vec<AgentModelInfo>, String> {
+) -> Result<Vec<AgentModelInfo>, IpcError> {
     super::guard(async move {
-        let p = parse_provider(&provider).map_err(|e| e.to_string())?;
+        let p = parse_provider(&provider).map_err(IpcError::from)?;
         let services = std::sync::Arc::clone(&state.services);
         let runtime = state.agent.runtime().clone();
         runtime
             .list_models(&services, p)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
@@ -137,13 +138,13 @@ pub async fn list_agent_models(
 pub async fn list_agent_chats(
     state: State<'_, AppState>,
     connection_id: String,
-) -> Result<Vec<AgentChat>, String> {
+) -> Result<Vec<AgentChat>, IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
         services
             .agent_chats()
             .list(&connection_id)
-            .map_err(|e| e.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
@@ -152,10 +153,10 @@ pub async fn list_agent_chats(
 pub async fn create_agent_chat(
     state: State<'_, AppState>,
     input: CreateAgentChatInput,
-) -> Result<AgentChat, String> {
+) -> Result<AgentChat, IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
-        let provider = parse_provider(&input.provider).map_err(|e| e.to_string())?;
+        let provider = parse_provider(&input.provider).map_err(IpcError::from)?;
         let model = if input.model.trim().is_empty() {
             default_model(provider)
         } else {
@@ -169,34 +170,28 @@ pub async fn create_agent_chat(
                 provider: provider.as_str().into(),
                 model,
             })
-            .map_err(|e| e.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn delete_agent_chat(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+pub async fn delete_agent_chat(state: State<'_, AppState>, id: String) -> Result<bool, IpcError> {
     let services = Arc::clone(&state.services);
-    super::guard_blocking(move || {
-        services
-            .agent_chats()
-            .delete(&id)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    super::guard_blocking(move || services.agent_chats().delete(&id).map_err(IpcError::from)).await
 }
 
 #[tauri::command]
 pub async fn list_agent_messages(
     state: State<'_, AppState>,
     chat_id: String,
-) -> Result<Vec<AgentMessage>, String> {
+) -> Result<Vec<AgentMessage>, IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
         services
             .agent_chats()
             .list_messages(&chat_id)
-            .map_err(|e| e.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
@@ -214,7 +209,7 @@ pub struct UpdateAgentChatInput {
 pub async fn update_agent_chat(
     state: State<'_, AppState>,
     input: UpdateAgentChatInput,
-) -> Result<AgentChat, String> {
+) -> Result<AgentChat, IpcError> {
     let services = Arc::clone(&state.services);
     super::guard_blocking(move || {
         services
@@ -225,7 +220,7 @@ pub async fn update_agent_chat(
                 input.provider.as_deref(),
                 input.model.as_deref(),
             )
-            .map_err(|e| e.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }
@@ -234,7 +229,7 @@ pub async fn update_agent_chat(
 pub async fn send_agent_message(
     state: State<'_, AppState>,
     request: SendAgentMessage,
-) -> Result<SendAgentResult, String> {
+) -> Result<SendAgentResult, IpcError> {
     super::guard(async move {
         let services = std::sync::Arc::clone(&state.services);
         let secrets = state.agent.secrets().clone();
@@ -242,7 +237,7 @@ pub async fn send_agent_message(
         runtime
             .send(&services, &secrets, request)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(IpcError::from)
     })
     .await
 }

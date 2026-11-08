@@ -1,5 +1,5 @@
 /** Saved-query library list + rename / delete / favorite. */
-import { isTauri } from '#core/ipc'
+import { errorMessage, isTauri } from '#core/ipc'
 import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 import { queryLanguageFor } from './policy'
 import {
@@ -79,7 +79,7 @@ class QueryLibrary {
 				})
 				await refreshSavedQueries(activeId, true)
 			} catch (e) {
-				alert(e instanceof Error ? e.message : String(e))
+				alert(errorMessage(e))
 			}
 			return
 		}
@@ -104,7 +104,7 @@ class QueryLibrary {
 					body: saved.body,
 				})
 			} catch (e) {
-				alert(e instanceof Error ? e.message : String(e))
+				alert(errorMessage(e))
 			}
 			return
 		}
@@ -152,7 +152,7 @@ class QueryLibrary {
 			this.renameOpen = false
 			this.renameId = null
 		} catch (e) {
-			this.renameError = e instanceof Error ? e.message : String(e)
+			this.renameError = errorMessage(e)
 		} finally {
 			this.renameBusy = false
 		}
@@ -183,7 +183,7 @@ class QueryLibrary {
 			this.deleteOpen = false
 			this.deleteId = null
 		} catch (e) {
-			alert(e instanceof Error ? e.message : String(e))
+			alert(errorMessage(e))
 		} finally {
 			this.deleteBusy = false
 		}

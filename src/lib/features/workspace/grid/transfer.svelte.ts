@@ -1,6 +1,7 @@
 /** Import / export a table. Owned by the grid. */
 import type { ImportEncoding, ImportFormat, TableMeta } from '#core/contracts'
 import {
+	errorMessage,
 	cancelTabRun,
 	exportEngineObject,
 	finishTabRun,
@@ -128,7 +129,7 @@ export async function loadImportPreview(
 		workspaceStudio.importPath = path
 		workspaceStudio.importFormat = format
 	} catch (e) {
-		workspaceStudio.importError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.importError = errorMessage(e)
 	} finally {
 		workspaceStudio.importBusy = false
 	}
@@ -188,7 +189,7 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 			void tablePreview.open(table)
 		}
 	} catch (e) {
-		workspaceStudio.importError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.importError = errorMessage(e)
 	} finally {
 		workspaceStudio.importBusy = false
 	}
@@ -231,7 +232,7 @@ export async function confirmExport(spec: ExportDataSpec) {
 		)
 		workspaceStudio.exportTable = null
 	} catch (e) {
-		workspaceStudio.exportError = e instanceof Error ? e.message : String(e)
+		workspaceStudio.exportError = errorMessage(e)
 	} finally {
 		finishTabRun(tabId, executionId)
 		if (exportRunTab === tabId) exportRunTab = null

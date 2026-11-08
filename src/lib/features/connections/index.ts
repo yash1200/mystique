@@ -21,11 +21,7 @@ export {
 	pluginConfigFromDraft,
 	saveInputFromDraft,
 } from './model'
-export {
-	ConnectCancelled,
-	isConnectCancelled,
-	isPasswordRequired,
-} from './password-prompt'
+export { ConnectCancelled, isConnectCancelled } from './password-prompt'
 export {
 	ensureSessionWithPassword,
 	openSessionWithPassword,
@@ -36,6 +32,6 @@ export * from './profiles.svelte'
 export { default as BrandMark } from './ui/BrandMark.svelte'
 export { default as EngineBadge } from './ui/EngineBadge.svelte'
 export { default as PasswordPromptModal } from './ui/PasswordPromptModal.svelte'
-export { acceptSshHostKey, parseSshHostKey } from './ssh'
+export { acceptSshHostKey } from './ssh'
 export { default as SshHostKeyModal } from './ui/SshHostKeyModal.svelte'
 export { validateDraftForSave, validateDraftForTest } from './validate'

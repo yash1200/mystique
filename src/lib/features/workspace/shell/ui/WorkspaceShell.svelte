@@ -7,11 +7,13 @@
 		TableMeta,
 	} from '#core/contracts'
 	import {
+		errorMessage,
 		closeEngineSession,
 		commitPinnedTab,
 		isTauri,
 		rollbackPinnedTab,
 		setNativeMenu,
+		sshHostKeyPrompt,
 	} from '#core/ipc'
 	import { commands } from '#core/commands'
 	import { closeTopDialog } from '#core/ui'
@@ -22,7 +24,6 @@
 		connectionProfiles,
 		ensureSessionWithPassword,
 		isConnectCancelled,
-		parseSshHostKey,
 		pluginConfigForSession,
 		SshHostKeyModal,
 		testSessionWithPassword,
@@ -179,7 +180,7 @@
 			// Unsaved query text is asked about next; otherwise close.
 			if (closeStep(tab, status) === 'close') closeNow(tab.id)
 		} catch (e) {
-			closeError = e instanceof Error ? e.message : String(e)
+			closeError = errorMessage(e)
 		} finally {
 			closePromptBusy = false
 		}
@@ -329,13 +330,13 @@
 			pickerOpen = false
 		} catch (e) {
 			if (isConnectCancelled(e)) return
-			const prompt = parseSshHostKey(e)
+			const prompt = sshHostKeyPrompt(e)
 			if (prompt) {
 				sshHostKey = prompt
 				sshHostKeyRetry = () => connectAdditional(profile)
 				return
 			}
-			pickerError = e instanceof Error ? e.message : String(e)
+			pickerError = errorMessage(e)
 		} finally {
 			pickerBusy = false
 		}
@@ -572,7 +573,7 @@
 				sshHostKeyRetry = null
 				await retry?.()
 			} catch (e) {
-				pickerError = e instanceof Error ? e.message : String(e)
+				pickerError = errorMessage(e)
 			}
 		}}
 	/>

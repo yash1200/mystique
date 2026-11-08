@@ -1,5 +1,6 @@
 /** AI provider settings. Shared by the settings modal and the agent pane. */
 
+import { errorMessage } from '#core/ipc'
 import {
 	getAiSettings,
 	setAiApiKey,
@@ -25,7 +26,7 @@ class AiSettingsStore {
 				return view
 			})
 			.catch((e) => {
-				this.error = e instanceof Error ? e.message : String(e)
+				this.error = errorMessage(e)
 				throw e
 			})
 			.finally(() => {

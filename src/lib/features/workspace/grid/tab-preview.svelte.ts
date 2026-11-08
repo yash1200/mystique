@@ -5,7 +5,7 @@ import type {
 	TablePreviewFilter,
 	TablePreviewSort,
 } from '#core/contracts'
-import { finishTabRun, isTauri, startTabRun } from '#core/ipc'
+import { errorMessage, finishTabRun, isTauri, startTabRun } from '#core/ipc'
 import {
 	applyPreviewStats,
 	loadTablePreview,
@@ -118,7 +118,7 @@ class TablePreview {
 		} catch (e) {
 			if (stillThis() && workspaceSession.activeTabId === tabId) {
 				workspaceStudio.setCatalogError(
-					e instanceof Error ? e.message : String(e),
+					errorMessage(e),
 				)
 			}
 		} finally {

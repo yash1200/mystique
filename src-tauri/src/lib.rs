@@ -47,8 +47,10 @@ pub struct AppState {
 
 /// Native menu. Stays sync: no keychain and no SQLite. See `ipc/mod.rs`.
 #[tauri::command]
-fn set_native_menu(app: tauri::AppHandle, state: NativeMenuState) -> Result<(), String> {
-    crate::ipc::guard_sync(|| menu::apply_menu(&app, &state).map_err(|e| e.to_string()))
+fn set_native_menu(app: tauri::AppHandle, state: NativeMenuState) -> ipc::IpcResult<()> {
+    crate::ipc::guard_sync(|| {
+        menu::apply_menu(&app, &state).map_err(|e| ipc::IpcError::internal(e.to_string()))
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

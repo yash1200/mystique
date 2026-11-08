@@ -1,13 +1,13 @@
 //! Write confirmation prompt (see [`crate::confirmation_for`]).
 //!
-//! Serialized as JSON in [`ConnectorError::WriteGuard`] so the UI can parse
-//! the IPC error string the same way as SSH host-key prompts.
+//! Travels to the UI as `IpcPrompt::WriteGuard` in the IPC error envelope
+//! (`crate::IpcError`). `Display` is JSON for MCP and logs.
 
 use serde::{Deserialize, Serialize};
 
 use crate::Confirmation;
 
-/// Always `writeGuard` so the UI can JSON.parse IPC errors.
+/// Always `writeGuard`. Kept on the wire for older readers.
 pub const WRITE_GUARD_CODE: &str = "writeGuard";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +61,14 @@ impl WriteGuardPrompt {
             statements,
             object_name,
         })
+    }
+
+    /// Human text for the IPC envelope `message`.
+    pub fn summary(&self) -> String {
+        format!(
+            "Confirm the write on {} ({}).",
+            self.connection_name, self.environment
+        )
     }
 }
 

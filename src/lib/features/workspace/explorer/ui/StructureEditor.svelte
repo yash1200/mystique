@@ -4,7 +4,7 @@
 	 * The SQL panel replans as you edit; Apply sends the draft and the server replans it.
 	 */
 	import type { TableDefinition, TableMeta } from '#core/contracts'
-	import { applyEngineDdl, describeEngineTableDefinition, planEngineDdl } from '#core/ipc'
+	import { errorMessage, applyEngineDdl, describeEngineTableDefinition, planEngineDdl } from '#core/ipc'
 	import { Alert, Button, EmptyState } from '#core/ui'
 	import { latestRun } from '#core/util'
 	import { showToast } from '#features/toast'
@@ -89,7 +89,7 @@
 			validatorText = loaded.validator ?? ''
 			plan = null
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			loading = false
 		}
@@ -109,7 +109,7 @@
 			planError = null
 		},
 		onError: (e) => {
-			planError = e instanceof Error ? e.message : String(e)
+			planError = errorMessage(e)
 		},
 	})
 
@@ -147,7 +147,7 @@
 			ondone?.()
 		} catch (e) {
 			if (isWriteCancelled(e)) return
-			error = e instanceof Error ? e.message : String(e)
+			error = errorMessage(e)
 		} finally {
 			busy = false
 		}

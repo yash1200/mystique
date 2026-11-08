@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorMessage } from '#core/ipc'
 	import type {
 		ConnectionFormDraft,
 		ConnectionProfile,
@@ -149,7 +150,7 @@
 		try {
 			await ontest?.(next)
 		} catch (e) {
-			formError = e instanceof Error ? e.message : String(e)
+			formError = errorMessage(e)
 		}
 	}
 
@@ -165,7 +166,7 @@
 		try {
 			await onsave?.(next)
 		} catch (err) {
-			formError = err instanceof Error ? err.message : String(err)
+			formError = errorMessage(err)
 		}
 	}
 </script>
