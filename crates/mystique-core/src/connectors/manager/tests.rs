@@ -1166,7 +1166,7 @@ async fn begin_is_refused_and_a_later_write_does_not_run() {
 }
 
 #[tokio::test]
-async fn syntax_error_names_form_and_runs_nothing() {
+async fn syntax_error_is_refused_in_read_mode_and_sent_to_the_engine_in_write_mode() {
     let path = temp_db("batch-syntax");
     let _ = std::fs::remove_file(&path);
     let mgr = ConnectionManager::bootstrap();
@@ -1178,14 +1178,11 @@ async fn syntax_error_names_form_and_runs_nothing() {
     .await
     .expect("seed");
 
+    // Read mode cannot prove a read from text it cannot parse.
     let sql = "SELECT 1; SELECT * FORM t";
     let err = mgr
         .execute_batch(
-            batch_req(
-                "batch-syntax",
-                sql,
-                mystique_connector_api::QueryMode::Write,
-            ),
+            batch_req("batch-syntax", sql, mystique_connector_api::QueryMode::Read),
             None,
         )
         .await
@@ -1205,6 +1202,25 @@ async fn syntax_error_names_form_and_runs_nothing() {
         }
         other => panic!("expected a positioned error, got {other}"),
     }
+    assert_eq!(count_rows(&mgr, "batch-syntax").await, 1);
+
+    // R-04: Write mode sends unparsed text to the engine as an opaque write.
+    let batch = mgr
+        .execute_batch(
+            batch_req(
+                "batch-syntax",
+                sql,
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect("engine reports the error");
+    assert_eq!(batch.stopped_at, Some(1));
+    let failed = batch.results.last().expect("statement 2");
+    assert_eq!(failed.kind, mystique_connector_api::StatementKind::Write);
+    let message = failed.error.as_deref().unwrap_or("");
+    assert!(message.contains("FORM"), "{message}");
     assert_eq!(count_rows(&mgr, "batch-syntax").await, 1);
 
     let _ = mgr.close_session("batch-syntax").await;
