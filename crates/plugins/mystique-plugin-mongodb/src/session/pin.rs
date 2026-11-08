@@ -80,10 +80,10 @@ impl PinnedSession for MongoPin {
                 .map(|stmt| stmt.params.clone())
                 .unwrap_or_default(),
         };
-        // The client session is the transaction. Editor commands on this tab
-        // run through it when the driver call accepts `.session`.
+        // The client session is the transaction. Every driver call on this
+        // tab runs through it; commands MongoDB refuses in a transaction fail.
         self.ensure_transaction().await?;
-        match query::execute_query(&self.host, &query).await {
+        match query::execute_in_transaction(&self.host, &query, &mut self.session).await {
             Ok(result) => {
                 let stmt = batch
                     .statements

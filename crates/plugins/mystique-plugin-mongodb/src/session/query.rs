@@ -1,9 +1,11 @@
 //! Mongo find, aggregate, count, distinct, and shell writes.
 
-use std::future::IntoFuture;
+use std::future::{Future, IntoFuture};
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use mongodb::bson::{Bson, Document};
+use mongodb::ClientSession;
 use mystique_connector_api::{
     json_u64, ConnectorError, ConnectorResult, QueryColumn, QueryControl, QueryMode, QueryResult,
     ValidatedQuery,
@@ -37,27 +39,88 @@ where
     }
 }
 
+/// The pinned tab's transaction. Every driver call takes it when present.
+type Txn<'a> = Option<&'a mut ClientSession>;
+
+fn reborrow<'a>(txn: &'a mut Txn<'_>) -> Txn<'a> {
+    txn.as_mut().map(|session| &mut **session)
+}
+
+/// Run a driver action, inside the pinned transaction when there is one.
+/// A macro because each action type has its own inherent `.session()`.
+macro_rules! in_txn {
+    ($control:expr, $txn:expr, $action:expr) => {{
+        let action = $action;
+        match reborrow($txn) {
+            Some(txn) => drive($control, boxed(action.session(txn))).await,
+            None => drive($control, action).await,
+        }
+    }};
+}
+
 pub(super) async fn execute_query(
     session: &MongoSession,
     query: &ValidatedQuery,
 ) -> ConnectorResult<QueryResult> {
     session.ensure_open()?;
     let start = Instant::now();
-    let text_key = normalize_meta_command(&query.text);
-
-    if matches!(
-        text_key.as_str(),
-        "listdatabases" | "showdatabases" | "showdbs"
-    ) {
-        return list_databases(session, query, start).await;
+    match listing(&query.text) {
+        Some(Listing::Databases) => list_databases(session, query, start).await,
+        Some(Listing::Collections) => {
+            let db_name = resolve_db_name(session, query)?;
+            list_collections(session, &db_name, query, start).await
+        }
+        None => {
+            let call = parse_mongo_call(&query.text)?;
+            dispatch_call(session, query, call, start, None).await
+        }
     }
-    if matches!(text_key.as_str(), "listcollections" | "showcollections") {
-        let db_name = resolve_db_name(session, query)?;
-        return list_collections(session, &db_name, query, start).await;
-    }
+}
 
+/// Run inside the pinned tab's transaction.
+pub(super) async fn execute_in_transaction(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    txn: &mut ClientSession,
+) -> ConnectorResult<QueryResult> {
+    session.ensure_open()?;
+    let start = Instant::now();
+    if let Some(listing) = listing(&query.text) {
+        return Err(not_in_transaction(listing.command()));
+    }
     let call = parse_mongo_call(&query.text)?;
-    dispatch_call(session, query, call, start).await
+    dispatch_call(session, query, call, start, Some(txn)).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Listing {
+    Databases,
+    Collections,
+}
+
+impl Listing {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Databases => "listDatabases",
+            Self::Collections => "listCollections",
+        }
+    }
+}
+
+fn listing(text: &str) -> Option<Listing> {
+    match normalize_meta_command(text).as_str() {
+        "listdatabases" | "showdatabases" | "showdbs" => Some(Listing::Databases),
+        "listcollections" | "showcollections" => Some(Listing::Collections),
+        _ => None,
+    }
+}
+
+/// MongoDB refuses these inside a transaction. Running them outside would
+/// look like part of it, so refuse instead.
+fn not_in_transaction(command: &str) -> ConnectorError {
+    ConnectorError::NotSupported(format!(
+        "{command} cannot run inside a transaction. Commit or roll back first."
+    ))
 }
 
 async fn dispatch_call(
@@ -65,27 +128,28 @@ async fn dispatch_call(
     query: &ValidatedQuery,
     call: MongoCall,
     start: Instant,
+    txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
     match call {
-        MongoCall::Find(parsed) => execute_find(session, query, parsed, start).await,
+        MongoCall::Find(parsed) => execute_find(session, query, parsed, start, txn).await,
         MongoCall::Aggregate(aggregate) => {
-            execute_aggregate(session, query, aggregate, start).await
+            execute_aggregate(session, query, aggregate, start, txn).await
         }
         MongoCall::Count { collection, filter } => {
-            execute_count(session, query, collection, filter, start).await
+            execute_count(session, query, collection, filter, start, txn).await
         }
         MongoCall::Distinct {
             collection,
             field,
             filter,
-        } => execute_distinct(session, query, collection, field, filter, start).await,
+        } => execute_distinct(session, query, collection, field, filter, start, txn).await,
         MongoCall::Write(write) => {
             if query.mode == QueryMode::Read {
                 return Err(ConnectorError::Policy(
                     "Write operation blocked. This connection is read-only.".into(),
                 ));
             }
-            execute_shell_write(session, query, write, start).await
+            execute_shell_write(session, query, write, start, txn).await
         }
     }
 }
@@ -95,6 +159,7 @@ async fn execute_find(
     query: &ValidatedQuery,
     parsed: ParsedFind,
     start: Instant,
+    txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
     let db_name = resolve_db_name(session, query)?;
     let coll_name = parsed
@@ -135,37 +200,14 @@ async fn execute_find(
     }
     let max_time = find_max_time(query.timeout_ms);
     let find = find.limit(limit).max_time(max_time);
-    let mut cursor = drive(&query.control, find).await?;
-
-    let mut docs = Vec::new();
-    let mut saw_doc = false;
-    loop {
-        let advanced = tokio::select! {
-            biased;
-            _ = query.control.token.cancelled() => {
-                drop(cursor);
-                return Err(ConnectorError::Query("Query cancelled.".into()));
-            }
-            _ = tokio::time::sleep(Duration::from_millis(mystique_connector_api::INACTIVITY_TIMEOUT_MS)), if saw_doc => {
-                query.control.cancel();
-                drop(cursor);
-                return Err(ConnectorError::Timeout(format!(
-                    "No rows arrived for {} ms.",
-                    mystique_connector_api::INACTIVITY_TIMEOUT_MS
-                )));
-            }
-            advanced = cursor.advance() => advanced.map_err(query_failed)?,
-        };
-        if !advanced {
-            break;
+    let cursor = match txn {
+        Some(txn) => {
+            let cursor = drive(&query.control, boxed(find.session(&mut *txn))).await?;
+            AnyCursor::Pinned(cursor, txn)
         }
-        saw_doc = true;
-        let d = cursor.deserialize_current().map_err(query_failed)?;
-        docs.push(d);
-        if docs.len() >= query.max_rows as usize {
-            break;
-        }
-    }
+        None => AnyCursor::Plain(drive(&query.control, find).await?),
+    };
+    let (docs, _) = drain_cursor(cursor, query).await?;
 
     // Flatten documents into a table: union of keys
     let mut key_set: Vec<String> = Vec::new();
@@ -251,6 +293,7 @@ async fn execute_aggregate(
     query: &ValidatedQuery,
     aggregate: crate::shell_query::ParsedAggregate,
     start: Instant,
+    txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
     reject_read_only_mutation(aggregate_effect(&aggregate.pipeline), query.mode)?;
     let db_name = resolve_db_name(session, query)?;
@@ -260,11 +303,17 @@ async fn execute_aggregate(
         .database(&db_name)
         .collection::<Document>(&coll_name);
     let batch = query.max_rows.clamp(1, 1_000);
-    let cursor = coll
+    let action = coll
         .aggregate(aggregate.pipeline)
         .batch_size(batch)
         .max_time(find_max_time(query.timeout_ms));
-    let cursor = drive(&query.control, cursor).await?;
+    let cursor = match txn {
+        Some(txn) => {
+            let cursor = drive(&query.control, boxed(action.session(&mut *txn))).await?;
+            AnyCursor::Pinned(cursor, txn)
+        }
+        None => AnyCursor::Plain(drive(&query.control, action).await?),
+    };
     let (docs, truncated) = drain_cursor(cursor, query).await?;
     docs_result(
         docs,
@@ -281,6 +330,7 @@ async fn execute_count(
     collection: Option<String>,
     filter: Document,
     start: Instant,
+    mut txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
     let db_name = resolve_db_name(session, query)?;
     let coll_name = collection_name(collection.as_deref(), query)?;
@@ -288,12 +338,12 @@ async fn execute_count(
         .client
         .database(&db_name)
         .collection::<Document>(&coll_name);
-    let count = drive(
+    let count = in_txn!(
         &query.control,
+        &mut txn,
         coll.count_documents(filter)
-            .max_time(find_max_time(query.timeout_ms)),
-    )
-    .await?;
+            .max_time(find_max_time(query.timeout_ms))
+    )?;
     Ok(QueryResult {
         engine: "mongodb".into(),
         mode: query.mode,
@@ -316,6 +366,7 @@ async fn execute_distinct(
     field: String,
     filter: Document,
     start: Instant,
+    mut txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
     let db_name = resolve_db_name(session, query)?;
     let coll_name = collection_name(collection.as_deref(), query)?;
@@ -323,12 +374,12 @@ async fn execute_distinct(
         .client
         .database(&db_name)
         .collection::<Document>(&coll_name);
-    let mut values = drive(
+    let mut values = in_txn!(
         &query.control,
+        &mut txn,
         coll.distinct(&field, filter)
-            .max_time(find_max_time(query.timeout_ms)),
-    )
-    .await?;
+            .max_time(find_max_time(query.timeout_ms))
+    )?;
     let truncated = values.len() as u32 > query.max_rows;
     if truncated {
         values.truncate(query.max_rows as usize);
@@ -358,6 +409,7 @@ async fn execute_shell_write(
     query: &ValidatedQuery,
     write: ShellWrite,
     start: Instant,
+    mut txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
     let db_name = resolve_db_name(session, query)?;
     let collection = match &write {
@@ -378,28 +430,28 @@ async fn execute_shell_write(
         .collection::<Document>(&coll_name);
     let message = match write {
         ShellWrite::InsertOne { document, .. } => {
-            let result = drive(&query.control, coll.insert_one(document)).await?;
+            let result = in_txn!(&query.control, &mut txn, coll.insert_one(document))?;
             format!(
                 "insertOne on {db_name}.{coll_name} id={:?}",
                 result.inserted_id
             )
         }
         ShellWrite::InsertMany { documents, .. } => {
-            let result = drive(&query.control, coll.insert_many(documents)).await?;
+            let result = in_txn!(&query.control, &mut txn, coll.insert_many(documents))?;
             format!(
                 "insertMany on {db_name}.{coll_name} inserted={}",
                 result.inserted_ids.len()
             )
         }
         ShellWrite::UpdateOne { filter, update, .. } => {
-            let result = drive(&query.control, coll.update_one(filter, update)).await?;
+            let result = in_txn!(&query.control, &mut txn, coll.update_one(filter, update))?;
             format!(
                 "updateOne on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
             )
         }
         ShellWrite::UpdateMany { filter, update, .. } => {
-            let result = drive(&query.control, coll.update_many(filter, update)).await?;
+            let result = in_txn!(&query.control, &mut txn, coll.update_many(filter, update))?;
             format!(
                 "updateMany on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
@@ -410,28 +462,36 @@ async fn execute_shell_write(
             replacement,
             ..
         } => {
-            let result = drive(&query.control, coll.replace_one(filter, replacement)).await?;
+            let result = in_txn!(
+                &query.control,
+                &mut txn,
+                coll.replace_one(filter, replacement)
+            )?;
             format!(
                 "replaceOne on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
             )
         }
         ShellWrite::DeleteOne { filter, .. } => {
-            let result = drive(&query.control, coll.delete_one(filter)).await?;
+            let result = in_txn!(&query.control, &mut txn, coll.delete_one(filter))?;
             format!(
                 "deleteOne on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
             )
         }
         ShellWrite::DeleteMany { filter, .. } => {
-            let result = drive(&query.control, coll.delete_many(filter)).await?;
+            let result = in_txn!(&query.control, &mut txn, coll.delete_many(filter))?;
             format!(
                 "deleteMany on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
             )
         }
         ShellWrite::FindOneAndUpdate { filter, update, .. } => {
-            let result = drive(&query.control, coll.find_one_and_update(filter, update)).await?;
+            let result = in_txn!(
+                &query.control,
+                &mut txn,
+                coll.find_one_and_update(filter, update)
+            )?;
             return match result {
                 Some(doc) => docs_result(
                     vec![doc],
@@ -448,7 +508,7 @@ async fn execute_shell_write(
             };
         }
         ShellWrite::Bulk { models, .. } => {
-            bulk_summary(query, &coll, &db_name, &coll_name, models).await?
+            bulk_summary(query, &coll, &db_name, &coll_name, models, txn).await?
         }
     };
     Ok(write_message(query.mode, start, message))
@@ -464,6 +524,7 @@ async fn bulk_summary(
     db_name: &str,
     coll_name: &str,
     models: Vec<BulkModel>,
+    mut txn: Txn<'_>,
 ) -> ConnectorResult<String> {
     let mut inserted = 0u64;
     let mut matched = 0u64;
@@ -472,16 +533,16 @@ async fn bulk_summary(
     for model in models {
         match model {
             BulkModel::InsertOne(document) => {
-                drive(&query.control, coll.insert_one(document)).await?;
+                in_txn!(&query.control, &mut txn, coll.insert_one(document))?;
                 inserted = inserted.saturating_add(1);
             }
             BulkModel::UpdateOne { filter, update } => {
-                let result = drive(&query.control, coll.update_one(filter, update)).await?;
+                let result = in_txn!(&query.control, &mut txn, coll.update_one(filter, update))?;
                 matched = matched.saturating_add(result.matched_count);
                 modified = modified.saturating_add(result.modified_count);
             }
             BulkModel::UpdateMany { filter, update } => {
-                let result = drive(&query.control, coll.update_many(filter, update)).await?;
+                let result = in_txn!(&query.control, &mut txn, coll.update_many(filter, update))?;
                 matched = matched.saturating_add(result.matched_count);
                 modified = modified.saturating_add(result.modified_count);
             }
@@ -489,16 +550,20 @@ async fn bulk_summary(
                 filter,
                 replacement,
             } => {
-                let result = drive(&query.control, coll.replace_one(filter, replacement)).await?;
+                let result = in_txn!(
+                    &query.control,
+                    &mut txn,
+                    coll.replace_one(filter, replacement)
+                )?;
                 matched = matched.saturating_add(result.matched_count);
                 modified = modified.saturating_add(result.modified_count);
             }
             BulkModel::DeleteOne(filter) => {
-                let result = drive(&query.control, coll.delete_one(filter)).await?;
+                let result = in_txn!(&query.control, &mut txn, coll.delete_one(filter))?;
                 deleted = deleted.saturating_add(result.deleted_count);
             }
             BulkModel::DeleteMany(filter) => {
-                let result = drive(&query.control, coll.delete_many(filter)).await?;
+                let result = in_txn!(&query.control, &mut txn, coll.delete_many(filter))?;
                 deleted = deleted.saturating_add(result.deleted_count);
             }
         }
@@ -508,8 +573,42 @@ async fn bulk_summary(
     ))
 }
 
+type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Box a session-bound driver call. Its future otherwise trips rustc's
+/// higher-ranked `Send` check inside `async_trait`.
+fn boxed<'a, F>(action: F) -> Boxed<'a, F::Output>
+where
+    F: IntoFuture + 'a,
+    F::IntoFuture: Send + 'a,
+{
+    Box::pin(action.into_future())
+}
+
+/// A plain cursor, or one bound to the pinned transaction.
+enum AnyCursor<'a> {
+    Plain(mongodb::Cursor<Document>),
+    Pinned(mongodb::SessionCursor<Document>, &'a mut ClientSession),
+}
+
+impl AnyCursor<'_> {
+    fn advance(&mut self) -> Boxed<'_, mongodb::error::Result<bool>> {
+        match self {
+            Self::Plain(cursor) => Box::pin(cursor.advance()),
+            Self::Pinned(cursor, txn) => Box::pin(cursor.advance(txn)),
+        }
+    }
+
+    fn deserialize_current(&self) -> mongodb::error::Result<Document> {
+        match self {
+            Self::Plain(cursor) => cursor.deserialize_current(),
+            Self::Pinned(cursor, _) => cursor.deserialize_current(),
+        }
+    }
+}
+
 async fn drain_cursor(
-    mut cursor: mongodb::Cursor<Document>,
+    mut cursor: AnyCursor<'_>,
     query: &ValidatedQuery,
 ) -> ConnectorResult<(Vec<Document>, bool)> {
     let mut docs = Vec::new();
@@ -709,7 +808,17 @@ mod tests {
 
     use mystique_connector_api::{clamp_timeout_ms, QueryControl, MAX_TIMEOUT_MS};
 
-    use super::find_max_time;
+    use super::{find_max_time, listing, not_in_transaction, Listing};
+
+    #[test]
+    fn listing_commands_are_known_so_a_transaction_can_refuse_them() {
+        assert_eq!(listing("show dbs"), Some(Listing::Databases));
+        assert_eq!(listing("show collections"), Some(Listing::Collections));
+        assert_eq!(listing("db.users.find({})"), None);
+        let err = not_in_transaction(Listing::Collections.command()).to_string();
+        assert!(err.contains("listCollections"), "{err}");
+        assert!(err.contains("transaction"), "{err}");
+    }
 
     struct Cursor {
         dropped: Arc<AtomicBool>,
