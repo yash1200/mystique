@@ -150,8 +150,10 @@ mod tests {
 
     #[test]
     fn sqlite_roundtrip_and_status() {
-        let app = Arc::new(AppServices::new(
+        let app = Arc::new(AppServices::with_secrets(
             mystique_core::AppDatabase::open_in_memory().unwrap(),
+            mystique_core::ConnectionManager::bootstrap(),
+            mystique_core::SecretStore::memory(),
         ));
         let store = SecretStore::new(app.clone());
         assert!(

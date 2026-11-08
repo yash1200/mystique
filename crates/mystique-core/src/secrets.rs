@@ -1,13 +1,15 @@
 //! OS keychain for connection passwords, with an in-process cache.
 //!
 //! SQLite stores only an opaque pointer. The renderer never sees a saved
-//! secret. Cache so macOS does not prompt on every read.
+//! secret. Cache so macOS does not prompt on every read. Misses are cached
+//! too, and concurrent reads of one account share a single OS read.
 //!
 //! Accounts (service `dev.mystique.db`):
 //! - `conn.<install-uuid>.<id>` password
 //! - `conn.<install-uuid>.<id>.ssh` bastion secret
 //! - `conn.<install-uuid>.<id>.tls` TLS client-key passphrase
-//! - `conn.<install-uuid>.<id>.user` Mongo/DocumentDB URI username
+//! - `conn.<install-uuid>.<id>.user` legacy Mongo username. New saves keep
+//!   the username in `plugin_config`; connect moves an old item there.
 //!
 //! Older rows keep the pointer they already stored (`conn.<id>`,
 //! `connection.<id>.password`). A null pointer is not a secret.
@@ -123,7 +125,10 @@ fn secret_store_err(err: impl std::fmt::Display) -> AppError {
 /// Connection-password store. Pointer in SQLite; bytes in the OS keychain.
 pub struct SecretStore {
     backend: Arc<dyn SecretBackend>,
-    cache: Mutex<HashMap<String, String>>,
+    /// `None` is a cached miss.
+    cache: Mutex<HashMap<String, Option<String>>>,
+    /// Per-account gate so parallel opens make one OS read.
+    reads: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl SecretStore {
@@ -143,11 +148,23 @@ impl SecretStore {
         Self {
             backend,
             cache: Mutex::new(HashMap::new()),
+            reads: Mutex::new(HashMap::new()),
         }
     }
 
-    fn cache_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+    fn cache_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<String>>> {
         self.cache.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn read_gate(&self, account: &str) -> Arc<Mutex<()>> {
+        let mut gates = self.reads.lock().unwrap_or_else(|p| p.into_inner());
+        Arc::clone(gates.entry(account.to_string()).or_default())
+    }
+
+    /// Drop cached hits and misses. Tests use it to prove a path reads nothing.
+    #[cfg(test)]
+    pub(crate) fn forget_cached(&self) {
+        self.cache_lock().clear();
     }
 
     pub fn get(&self, connection_id: &str) -> AppResult<Option<String>> {
@@ -242,28 +259,31 @@ impl SecretStore {
         }
     }
 
+    /// Errors are not cached, so a denied prompt can be retried.
     fn get_account(&self, account: &str) -> AppResult<Option<String>> {
-        if let Some(hit) = self.cache_lock().get(account).cloned() {
-            return Ok(Some(hit));
+        if let Some(cached) = self.cache_lock().get(account).cloned() {
+            return Ok(cached);
+        }
+        let gate = self.read_gate(account);
+        let _hold = gate.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(cached) = self.cache_lock().get(account).cloned() {
+            return Ok(cached);
         }
         let got = self.backend.get(account)?;
-        if let Some(ref secret) = got {
-            self.cache_lock()
-                .insert(account.to_string(), secret.clone());
-        }
+        self.cache_lock().insert(account.to_string(), got.clone());
         Ok(got)
     }
 
     fn set_account(&self, account: &str, secret: &str) -> AppResult<()> {
         self.backend.set(account, secret)?;
         self.cache_lock()
-            .insert(account.to_string(), secret.to_string());
+            .insert(account.to_string(), Some(secret.to_string()));
         Ok(())
     }
 
     fn delete_account(&self, account: &str) -> AppResult<()> {
         self.backend.delete(account)?;
-        self.cache_lock().remove(account);
+        self.cache_lock().insert(account.to_string(), None);
         Ok(())
     }
 }
@@ -277,9 +297,130 @@ pub fn is_legacy_plaintext_secret(secret_ref: &str) -> bool {
         && !is_legacy_keychain_pointer(t)
 }
 
+/// Fake keychain that counts OS reads per account.
+#[cfg(test)]
+pub(crate) mod counting {
+    use super::*;
+    use std::time::Duration;
+
+    #[derive(Default)]
+    pub(crate) struct CountingBackend {
+        map: Mutex<HashMap<String, String>>,
+        reads: Mutex<HashMap<String, usize>>,
+        /// Holds each read open so parallel callers overlap.
+        pub delay: Option<Duration>,
+    }
+
+    impl CountingBackend {
+        pub fn slow(delay: Duration) -> Self {
+            Self {
+                delay: Some(delay),
+                ..Self::default()
+            }
+        }
+
+        pub fn reads_of(&self, account: &str) -> usize {
+            let reads = self.reads.lock().unwrap_or_else(|p| p.into_inner());
+            reads.get(account).copied().unwrap_or(0)
+        }
+
+        pub fn total_reads(&self) -> usize {
+            let reads = self.reads.lock().unwrap_or_else(|p| p.into_inner());
+            reads.values().sum()
+        }
+
+        pub fn read_accounts(&self) -> Vec<String> {
+            let reads = self.reads.lock().unwrap_or_else(|p| p.into_inner());
+            let mut out: Vec<String> = reads.keys().cloned().collect();
+            out.sort();
+            out
+        }
+
+        pub fn reset_reads(&self) {
+            self.reads.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        }
+
+        pub fn contains(&self, account: &str) -> bool {
+            let map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            map.contains_key(account)
+        }
+    }
+
+    impl SecretBackend for CountingBackend {
+        fn get(&self, account: &str) -> AppResult<Option<String>> {
+            *self
+                .reads
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .entry(account.to_string())
+                .or_default() += 1;
+            if let Some(delay) = self.delay {
+                std::thread::sleep(delay);
+            }
+            let map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            Ok(map.get(account).cloned())
+        }
+
+        fn set(&self, account: &str, secret: &str) -> AppResult<()> {
+            let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            map.insert(account.to_string(), secret.to_string());
+            Ok(())
+        }
+
+        fn delete(&self, account: &str) -> AppResult<()> {
+            let mut map = self.map.lock().unwrap_or_else(|p| p.into_inner());
+            map.remove(account);
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::counting::CountingBackend;
     use super::*;
+
+    #[test]
+    fn a_miss_is_read_once() {
+        let backend = Arc::new(CountingBackend::default());
+        let store = SecretStore::from_backend(backend.clone());
+        assert!(store.get_named("conn.x.tls").unwrap().is_none());
+        assert!(store.get_named("conn.x.tls").unwrap().is_none());
+        assert_eq!(backend.reads_of("conn.x.tls"), 1);
+        store.set_named("conn.x.tls", "pp").unwrap();
+        assert_eq!(
+            store.get_named("conn.x.tls").unwrap().as_deref(),
+            Some("pp")
+        );
+        store.delete_named("conn.x.tls").unwrap();
+        assert!(store.get_named("conn.x.tls").unwrap().is_none());
+        assert_eq!(backend.reads_of("conn.x.tls"), 1);
+    }
+
+    #[test]
+    fn parallel_reads_of_one_account_make_one_os_read() {
+        let backend = Arc::new(CountingBackend::slow(std::time::Duration::from_millis(50)));
+        backend.set("conn.a", "pw").unwrap();
+        backend.set("conn.b", "pw-b").unwrap();
+        let store = Arc::new(SecretStore::from_backend(backend.clone()));
+        let started = std::time::Instant::now();
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let store = Arc::clone(&store);
+                std::thread::spawn(move || {
+                    let account = if i % 2 == 0 { "conn.a" } else { "conn.b" };
+                    store.get_named(account).unwrap()
+                })
+            })
+            .collect();
+        for h in handles {
+            assert!(h.join().unwrap().is_some());
+        }
+        assert_eq!(backend.reads_of("conn.a"), 1);
+        assert_eq!(backend.reads_of("conn.b"), 1);
+        // Different accounts do not wait on each other.
+        assert!(started.elapsed() < std::time::Duration::from_millis(400));
+    }
 
     #[test]
     fn memory_roundtrip_and_cache() {

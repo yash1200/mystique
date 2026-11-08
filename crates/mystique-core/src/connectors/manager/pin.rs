@@ -66,6 +66,15 @@ impl ConnectionManager {
         self.open_session_as(req, origin).await
     }
 
+    /// True when the pool is already open. Callers skip binding secrets then.
+    pub(crate) async fn reuse_live(&self, session_id: &str) -> bool {
+        if self.get_session(session_id).await.is_none() {
+            return false;
+        }
+        self.touch_session(session_id);
+        true
+    }
+
     pub async fn pin_tab(&self, session_id: &str, tab_id: &str) -> ConnectorResult<PinStatus> {
         self.pin_tab_for(session_id, tab_id, PIN_IDLE).await
     }

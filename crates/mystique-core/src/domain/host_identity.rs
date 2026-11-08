@@ -1,7 +1,8 @@
 //! Which plugin_config fields name the server a saved secret belongs to.
 //!
 //! Host identity is `host` + port, the hosts inside `uri`, or the SQLite
-//! file `path`. Database name, SSL mode, and username are not identity:
+//! file `path`, plus `tlsServerName` (Postgres dials that name when `host`
+//! is not an IP). Database name, SSL mode, and username are not identity:
 //! the client may override those. A different host does not reuse the
 //! saved secret.
 
@@ -12,6 +13,7 @@ use serde_json::Value as JsonValue;
 /// True when both configs dial the same server (or the same SQLite file).
 pub fn same_connection_target(engine: &str, stored: &JsonValue, client: &JsonValue) -> bool {
     target_of(engine, stored) == target_of(engine, client)
+        && tls_server_name(stored) == tls_server_name(client)
 }
 
 /// Stored config, plus client fields that do not change which server we dial.
@@ -35,8 +37,20 @@ pub fn overlay_non_host(stored: &JsonValue, client: &JsonValue) -> JsonValue {
 fn is_identity_key(key: &str) -> bool {
     matches!(
         key,
-        "host" | "port" | "uri" | "path" | "file" | "password" | "username" | "user"
+        "host"
+            | "port"
+            | "uri"
+            | "path"
+            | "file"
+            | "password"
+            | "username"
+            | "user"
+            | "tlsServerName"
     )
+}
+
+fn tls_server_name(config: &JsonValue) -> Option<String> {
+    text(config, "tlsServerName").map(|name| name.to_ascii_lowercase())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +215,21 @@ mod tests {
         let stored = json!({"uri": "mongodb://user:secret@127.0.0.1:27017/app?authSource=admin"});
         let client = json!({"uri": "mongodb://127.0.0.1/other"});
         assert!(same_connection_target("documentdb", &stored, &client));
+    }
+
+    #[test]
+    fn tls_server_name_is_part_of_the_target() {
+        let stored = json!({"host": "db.internal", "port": 5432});
+        let client = json!({"host": "db.internal", "port": 5432, "tlsServerName": "evil.example"});
+        assert!(!same_connection_target("postgres", &stored, &client));
+        let named = json!({"host": "10.0.0.5", "tlsServerName": "DB.internal"});
+        assert!(same_connection_target(
+            "postgres",
+            &named,
+            &json!({"host": "10.0.0.5", "tlsServerName": "db.internal", "database": "x"})
+        ));
+        let merged = overlay_non_host(&stored, &client);
+        assert!(merged.get("tlsServerName").is_none());
     }
 
     #[test]
