@@ -1,0 +1,58 @@
+# Signed + notarized macOS builds on a version tag (v*). Draft release only.
+#
+# Repository secrets:
+#   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD  password of that .p12
+#   APPLE_SIGNING_IDENTITY      "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID   notarization (app-specific password)
+name: release-macos
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.ref_name }}
+          releaseName: Mystique ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false

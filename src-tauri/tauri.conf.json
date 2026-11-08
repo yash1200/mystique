@@ -39,7 +39,8 @@
 		],
 		"macOS": {
 			"bundleName": "Mystique",
-			"signingIdentity": "-"
+			"signingIdentity": "-",
+			"hardenedRuntime": true
 		}
 	}
 }
