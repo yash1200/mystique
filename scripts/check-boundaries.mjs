@@ -34,17 +34,7 @@ const ROUTES = path.join(ROOT, 'src/routes')
  * root); it is left out of the cycle graph. Keep this empty if you can, and
  * say why for every entry.
  */
-const CYCLE_ALLOWLIST = [
-	{
-		from: 'src/lib/features/workspace/agent/ui/AgentChatPane.svelte',
-		to: 'src/lib/features/settings/index.ts',
-		why:
-			'Settings UI (AiSettings) reads agent provider state through #features/workspace/agent, ' +
-			'and the agent pane opens Settings through #features/settings; each index also exports ' +
-			'the other side’s UI. The pane only calls appSettingsUi.show(), so the D-04 command ' +
-			'registry ("open settings" command) removes this edge.',
-	},
-]
+const CYCLE_ALLOWLIST = []
 
 const KERNEL = 'workspace/session'
 const SHELL = 'workspace/shell'

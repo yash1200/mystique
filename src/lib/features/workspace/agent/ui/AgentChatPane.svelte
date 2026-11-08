@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { commands } from '#core/commands'
 	import { isTauri } from '#core/ipc'
 	import {
 		Alert,
@@ -9,7 +10,6 @@
 		Textarea,
 	} from '#core/ui'
 	import { cn } from '#core/util'
-	import { appSettingsUi } from '#features/settings'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { showToast } from '#features/toast'
 	import { workspaceSession } from '#features/workspace/session'
@@ -18,6 +18,7 @@
 		AGENT_CHAT_PANEL_WIDTH_MAX,
 		AGENT_CHAT_PANEL_WIDTH_MIN,
 		appPrefs,
+		cmd,
 	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import {
@@ -65,6 +66,11 @@
 	const sendChord = $derived(
 		`${labelForKey('mod', mac)}+${labelForKey('enter', mac)}`,
 	)
+
+	/** Through the registry: the settings feature already depends on this one. */
+	function openAiSettings() {
+		commands.run(cmd.settings, { section: 'ai' })
+	}
 
 	function comboKey(provider: string, model: string): string {
 		return `${provider}::${model}`
@@ -644,7 +650,7 @@
 					title="Agent is off"
 					description="Turn it on and add a provider key in Settings."
 					actionLabel="Open AI settings"
-					onaction={() => appSettingsUi.show('ai')}
+					onaction={openAiSettings}
 				/>
 			{:else if !hasProvider}
 				<AgentChatNotice
@@ -652,7 +658,7 @@
 					title="No provider set up"
 					description="Add an API key or Ollama in Settings. Only providers you add show up here."
 					actionLabel="Add a provider"
-					onaction={() => appSettingsUi.show('ai')}
+					onaction={openAiSettings}
 				/>
 			{:else if threadEmpty}
 				<AgentChatWelcome {sendChord} {loaf} onpick={useStarter} />
