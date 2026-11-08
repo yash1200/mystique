@@ -62,3 +62,18 @@ export function pendingLoss(
 export function hasPendingLoss(loss: PendingLoss): boolean {
 	return loss.dirty.length > 0 || loss.transactions.length > 0
 }
+
+/** `pendingLoss` where a table tab also counts its unsaved grid edits. */
+export function workspaceLoss(
+	tabs: readonly Pick<WorkspaceTab, 'id' | 'kind' | 'title' | 'dirty'>[],
+	txns: Readonly<Record<string, TabTxn | undefined>>,
+	gridEditsDirty: (tabId: string) => boolean,
+): PendingLoss {
+	return pendingLoss(
+		tabs.map((tab) => ({
+			...tab,
+			dirty: tab.dirty || (tab.kind === 'table' && gridEditsDirty(tab.id)),
+		})),
+		txns,
+	)
+}
