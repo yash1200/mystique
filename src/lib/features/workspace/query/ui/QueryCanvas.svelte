@@ -1,7 +1,8 @@
 <script lang="ts">
 	/**
 	 * Query space: Run → BE execute → results table.
-	 * Composes toolbar / editor / results; native paste via bind:value.
+	 * Composes editor / results / explain / params. Runs, cancel and the
+	 * pinned session live in `../run/run.svelte`, keyed by tab.
 	 */
 	import type {
 		CatalogColumnRow,
@@ -9,71 +10,47 @@
 		ExplainPlan,
 		QueryMode,
 	} from '#core/contracts'
-	import {
-		cancelTabRun,
-		commitPinnedTab,
-		executeEngineBatch,
-		executePinnedBatch,
-		explainEngineQuery,
-		finishTabRun,
-		isTauri,
-		pinQueryTab,
-		pinnedTabStatus,
-		rollbackPinnedTab,
-		startTabRun,
-		toIpcError,
-		unpinQueryTab,
-		errorMessage,
-		type PinStatus,
-	} from '#core/ipc'
+	import { isTauri, pinnedTabStatus } from '#core/ipc'
 	import { commands, type CommandContext } from '#core/commands'
 	import { Resizable } from '#core/ui'
-	import { copyTextToClipboard } from '#core/util'
 	import { connectionProfiles } from '#features/connections'
-	import { showToast } from '#features/toast'
 	import { catalogColumnsCache } from '#features/workspace/catalog'
-	import {
-		buildCsv,
-		buildJson,
-		exportFileBaseFromQuery,
-		exportRowsAsCsv,
-		exportRowsAsExcel,
-		exportRowsAsJson,
-	} from '#features/workspace/grid'
-	import {
-		isSessionMissingError,
-		isWriteCancelled,
-		runWithWriteGuard,
-		tabTxnView,
-		workspaceSession,
-	} from '#features/workspace/session'
+	import { identStyleFor } from '#features/workspace/grid'
+	import { tabTxnView, workspaceSession } from '#features/workspace/session'
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
-	import { initialActiveIndex } from '../results/batch-view'
-	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
-	import { userFacingQueryError } from '../display'
-	import type { QueryHistoryItem } from '../history/history-types'
-	import { scanQueryParams, type ParamSlot } from '../params/params'
-	import { queryLanguageFor, queryPlaceholder } from '../policy'
-	import {
-		editorEpoch,
-		noteEditorEdit,
-		placeDiagnostic,
-		type QueryDiagnostic,
-	} from '../editor/query-diagnostic'
-	import type { RunState } from '../run/run-types'
+	import { RESULT_PAGE_SIZE_DEFAULT } from '../constants'
+	import QueryEditor from '../editor/QueryEditor.svelte'
+	import { noteEditorEdit } from '../editor/query-diagnostic'
 	import {
 		splitDialectFor,
 		submissionStart,
 		textToRun,
 	} from '../editor/statement-span'
+	import { runExplain } from '../explain/explain'
 	import ExplainView from '../explain/ExplainView.svelte'
-	import QueryEditor from '../editor/QueryEditor.svelte'
+	import type { QueryHistoryItem } from '../history/history-types'
+	import type { ParamSlot } from '../params/params'
 	import QueryParamsDialog from '../params/QueryParamsDialog.svelte'
-	import { identStyleFor } from '#features/workspace/grid'
+	import { queryLanguageFor, queryPlaceholder } from '../policy'
+	import { canExportResult, exportResult } from '../results/export-results'
+	import { resultPage } from '../results/paging'
 	import QueryResultsPanel, {
 		type ResultExportAction,
 	} from '../results/QueryResultsPanel.svelte'
+	import {
+		applyPinStatus,
+		cancelRun as cancelTabQuery,
+		clearDiagnostic,
+		commitPin as commitTabPin,
+		rollbackPin as rollbackTabPin,
+		runQuery as runTabQuery,
+		selectStatement as selectTabStatement,
+		setManualCommit as setTabManualCommit,
+		setResultPage,
+		type RunTarget,
+	} from '../run/run.svelte'
+	import type { RunState } from '../run/run-types'
 
 	interface Props {
 		tabId: string
@@ -116,7 +93,6 @@
 	// does not drop it or start a second one. Rows stay unproxied in the Map.
 	const cachedRun = $derived(workspaceSession.getQueryRunCache(tabId))
 	const runState = $derived<RunState>(cachedRun?.runState ?? { status: 'idle' })
-	const resultPage = $derived(cachedRun?.resultPage ?? 0)
 	let collection = $state('')
 	const catalogColKey = $derived(
 		engineSessionId
@@ -130,7 +106,6 @@
 			? (catalogColumnsCache.byKey[catalogColKey] ?? noColumns)
 			: noColumns,
 	)
-	const resultPageSize = RESULT_PAGE_SIZE_DEFAULT
 	let editorSnap = $state({ doc: '', head: 0, anchor: 0 })
 	let exporting = $state<ResultExportAction | null>(null)
 	let locateNonce = $state(0)
@@ -224,169 +199,41 @@
 		noteEditorEdit(tabId)
 		localText = prop
 		lastEmitted = prop
-		if (workspaceSession.getQueryRunCache(tabId)?.diagnostic) {
-			persistRunCache(runState, resultPage, undefined, undefined, null)
-		}
+		clearDiagnostic(tabId)
 	})
 
 	const batchResults = $derived(
 		runState.status === 'ok' && runState.batch ? runState.batch.results : [],
 	)
 	const activeIndex = $derived(cachedRun?.activeIndex ?? 0)
-	const resultRows = $derived(
-		runState.status === 'ok' && runState.result ? runState.result.rows : [],
+	const result = $derived(
+		runState.status === 'ok' ? (runState.result ?? null) : null,
 	)
-	const resultColumns = $derived(
-		runState.status === 'ok' && runState.result ? runState.result.columns : [],
+	const page = $derived(
+		resultPage(result?.rows ?? [], cachedRun?.resultPage ?? 0, RESULT_PAGE_SIZE_DEFAULT),
 	)
-	const resultTotal = $derived(resultRows.length)
-	const resultTotalPages = $derived(
-		Math.max(1, Math.ceil(resultTotal / resultPageSize) || 1),
-	)
-	const resultSafePage = $derived(Math.min(resultPage, resultTotalPages - 1))
-	const resultPageStart = $derived(resultSafePage * resultPageSize)
-	const resultPageEnd = $derived(
-		Math.min(resultPageStart + resultPageSize, resultTotal),
-	)
-	const resultPageRows = $derived(
-		resultRows.slice(resultPageStart, resultPageEnd),
-	)
+	const canExport = $derived(canExportResult(result))
 
-	const canExport = $derived(
-		runState.status === 'ok' &&
-			!!runState.result &&
-			runState.result.columns.length > 0 &&
-			runState.result.rows.length > 0,
-	)
-
-	function tabStillOpen(): boolean {
-		return workspaceSession.hasOpenTab(tabId)
-	}
-
-	function persistRunCache(
-		state: RunState = runState,
-		page = resultPage,
-		submittedText?: string,
-		activeIndex = cachedRun?.activeIndex ?? 0,
-		diagnostic?: QueryDiagnostic | null,
-		submittedStart?: number,
-	) {
-		if (!tabStillOpen()) return
-		const prev = workspaceSession.getQueryRunCache(tabId)
-		workspaceSession.setQueryRunCache(tabId, {
-			runState: state,
-			resultPage: page,
-			submittedText: submittedText ?? prev?.submittedText,
-			activeIndex,
-			submittedStart: submittedStart ?? prev?.submittedStart,
-			diagnostic: diagnostic === undefined ? prev?.diagnostic : diagnostic,
-		})
-	}
-
-	function faultDiagnostic(
-		message: string,
-		position:
-			| { offset: number; line: number; column: number }
-			| null
-			| undefined,
-		start: number,
-		startedEpoch: number,
-	): QueryDiagnostic | null {
-		if (!position || editorEpoch(tabId) !== startedEpoch) return null
-		const doc = editorSnap.doc || currentQueryText()
-		return placeDiagnostic(doc, start, position, message)
-	}
-
-	function selectStatement(index: number) {
-		if (runState.status !== 'ok' || !runState.batch) return
-		const stmt = runState.batch.results[index]
-		if (!stmt) return
-		persistRunCache(
-			{
-				...runState,
-				message: stmt.error ? '' : (stmt.result?.message ?? '').trim(),
-				result: stmt.result ?? null,
-			},
-			0,
-			undefined,
-			index,
-		)
-	}
-
-	function emitText(value: string) {
-		localText = value
-		lastEmitted = value
-		ontextchange?.(value)
-		noteEditorEdit(tabId)
-		if (workspaceSession.getQueryRunCache(tabId)?.diagnostic) {
-			persistRunCache(runState, resultPage, undefined, undefined, null)
-		}
-	}
-
-	function goResultPrev() {
-		persistRunCache(runState, Math.max(0, resultSafePage - 1))
-	}
-
-	function goResultNext() {
-		persistRunCache(
-			runState,
-			Math.min(resultTotalPages - 1, resultSafePage + 1),
-		)
-	}
-
-	async function exportResults(action: ResultExportAction) {
-		if (exporting) return
-		if (runState.status !== 'ok' || !runState.result) return
-		const result = runState.result
-		if (result.columns.length === 0 || result.rows.length === 0) return
-		exporting = action
-		const cols = result.columns.map((c) => ({ name: c.name }))
-		const rows = result.rows
-		const fileBase = exportFileBaseFromQuery({
-			queryText: currentQueryText(),
+	/**
+	 * This tab's run settings, read now. A run keeps them to the end, so it
+	 * reports to its own tab even when the canvas has moved on to another.
+	 */
+	function runTarget(): RunTarget {
+		return {
+			tabId,
+			engine,
 			language,
-			connectionName,
-			collection: language === 'mql' ? collection : null,
-			database: language === 'mql' ? database : null,
-		})
-		const labels: Record<ResultExportAction, string> = {
-			'download-csv': 'CSV downloaded',
-			'download-json': 'JSON downloaded',
-			'download-excel': 'Excel downloaded',
-			'copy-csv': 'CSV copied',
-			'copy-json': 'JSON copied',
-		}
-		const copy = action === 'copy-csv' || action === 'copy-json'
-		try {
-			let res
-			switch (action) {
-				case 'download-csv':
-					res = await exportRowsAsCsv(cols, rows, fileBase)
-					break
-				case 'download-json':
-					res = await exportRowsAsJson(cols, rows, fileBase)
-					break
-				case 'download-excel':
-					res = await exportRowsAsExcel(cols, rows, fileBase)
-					break
-				case 'copy-csv':
-					res = await copyTextToClipboard(buildCsv(cols, rows))
-					break
-				case 'copy-json':
-					res = await copyTextToClipboard(buildJson(cols, rows, true))
-					break
-			}
-			if (res.ok) showToast('success', labels[action])
-			else if (!res.cancelled) {
-				showToast(
-					'danger',
-					res.error || (copy ? 'Copy failed' : 'Export failed'),
-				)
-			}
-		} catch (e) {
-			showToast('danger', errorMessage(e))
-		} finally {
-			exporting = null
+			mode: effectiveMode,
+			timeoutMs,
+			sessionId: engineSessionId,
+			database,
+			collection,
+			manualCommit,
+			transactions: showTransactions,
+			reconnect: onreconnect,
+			onhistory,
+			onstart: () => (explainPlan = null),
+			doc: () => editorSnap.doc || currentQueryText(),
 		}
 	}
 
@@ -394,323 +241,69 @@
 		return localText || text || ''
 	}
 
-	async function explainQuery() {
-		if (runState.status === 'running') return
-		const doc = editorSnap.doc || localText
-		const dialect = splitDialectFor(engine)
-		const sqlText = (
-			textToRun(doc, dialect, editorSnap.head, editorSnap.anchor, false) ?? ''
-		).trim()
-		if (!sqlText) return
-		const mode = effectiveMode
-		const start = performance.now()
-		explainPlan = null
-		persistRunCache({ status: 'running' }, 0, sqlText, 0, null)
-
-		if (!isTauri()) {
-			persistRunCache({
-				status: 'error',
-				message:
-					'Explain requires the Mystique desktop app. Connect and try again.',
-				mode,
-				elapsedMs: Math.round(performance.now() - start),
-			})
-			return
-		}
-		let sid = engineSessionId
-		if (!sid && onreconnect) sid = await onreconnect()
-		if (!sid) {
-			persistRunCache({
-				status: 'error',
-				message:
-					'No live engine session. Go Home → Connect so a pooled session is opened.',
-				mode,
-				elapsedMs: Math.round(performance.now() - start),
-			})
-			return
-		}
-		const executionId = startTabRun(tabId)
-		try {
-			const plan = await runWithWriteGuard(sid, (confirmObjectName) =>
-				explainEngineQuery({
-					sessionId: sid as string,
-					text: sqlText,
-					analyze,
-					mode,
-					timeoutMs,
-					confirmObjectName: confirmObjectName ?? null,
-					collection: language === 'mql' ? collection.trim() || null : null,
-					database:
-						language === 'mql' && database?.trim() ? database.trim() : null,
-					executionId,
-				}),
-			)
-			if (!tabStillOpen()) return
-			explainPlan = plan
-			persistRunCache({ status: 'idle' })
-		} catch (e) {
-			if (!tabStillOpen()) return
-			if (isWriteCancelled(e)) {
-				persistRunCache({ status: 'idle' })
-				return
-			}
-			const fault = toIpcError(e)
-			const isPolicy = fault.kind === 'policy'
-			const elapsedMs = Math.round(performance.now() - start)
-			const shown = isPolicy ? fault.message : userFacingQueryError(fault.message)
-			persistRunCache({
-				status: isPolicy ? 'blocked' : 'error',
-				message: shown,
-				mode,
-				elapsedMs,
-			})
-		} finally {
-			finishTabRun(tabId, executionId)
-		}
+	function emitText(value: string) {
+		localText = value
+		lastEmitted = value
+		ontextchange?.(value)
+		noteEditorEdit(tabId)
+		clearDiagnostic(tabId)
 	}
 
 	async function runQuery(body?: string, origin = 0, bound?: unknown[]) {
-		if (runState.status === 'running') return
-		const mode = effectiveMode
-		const sqlText = (body ?? currentQueryText()).trim()
-		if (!sqlText) return
-		if (bound === undefined && language !== 'mql') {
-			const scanned = scanQueryParams(sqlText, splitDialectFor(engine))
-			if (scanned.error) {
-				persistRunCache({
-					status: 'error',
-					message: scanned.error,
-					mode,
-					elapsedMs: 0,
-				})
-				return
-			}
-			if (scanned.slots.length > 0) {
-				paramPrompt = { text: sqlText, origin, slots: scanned.slots }
-				return
-			}
-			bound = []
-		}
-		explainPlan = null
-		const start = performance.now()
-		const startedEpoch = editorEpoch(tabId)
-		persistRunCache({ status: 'running' }, 0, sqlText, 0, null, origin)
-
-		if (!isTauri()) {
-			persistRunCache({
-				status: 'error',
-				message:
-					'Live query execute requires the Mystique desktop app. Connect and try again.',
-				mode,
-				elapsedMs: Math.round(performance.now() - start),
-			})
-			return
-		}
-
-		let sid = engineSessionId
-		if (!sid && onreconnect) {
-			sid = await onreconnect()
-		}
-		if (!sid) {
-			const elapsedMs = Math.round(performance.now() - start)
-			persistRunCache({
-				status: 'error',
-				message:
-					'No live engine session. Go Home → Connect so a pooled session is opened.',
-				mode,
-				elapsedMs,
-			})
-			return
-		}
-
-		const executionId = startTabRun(tabId)
-		try {
-			const request = {
-				sessionId: sid,
-				text: sqlText,
-				mode,
-				maxRows: QUERY_FETCH_MAX_ROWS,
-				timeoutMs,
-				collection: language === 'mql' ? collection.trim() || null : null,
-				database: database?.trim() ? database.trim() : null,
-				executionId,
-				params: bound ?? [],
-			}
-			const onProgress = (event: { index: number; total: number }) => {
-				if (!tabStillOpen()) return
-				const current = workspaceSession.getQueryRunCache(tabId)
-				if (!current || current.runState.status !== 'running') return
-				persistRunCache(
-					{
-						status: 'running',
-						progress: { index: event.index, total: event.total },
-					},
-					current.resultPage,
-					current.submittedText,
-					current.activeIndex ?? 0,
-				)
-			}
-			const runBatch = (
-				sessionId: string,
-				confirmObjectName: string | null,
-			) => {
-				const body = {
-					...request,
-					sessionId,
-					confirmObjectName,
-				}
-				return manualCommit
-					? executePinnedBatch(body, tabId, onProgress)
-					: executeEngineBatch(body, onProgress)
-			}
-			let batch
-			try {
-				batch = await runWithWriteGuard(sid, (confirmObjectName) =>
-					runBatch(sid, confirmObjectName ?? null),
-				)
-			} catch (e) {
-				// Read mode rolls back. A write may already have landed.
-				if (mode === 'write' || !onreconnect || !isSessionMissingError(e))
-					throw e
-				const next = await onreconnect()
-				if (!next) throw e
-				batch = await runWithWriteGuard(next, (confirmObjectName) =>
-					runBatch(next, confirmObjectName ?? null),
-				)
-			}
-			const elapsedMs = Math.round(performance.now() - start)
-			if (!tabStillOpen()) return
-			const index = initialActiveIndex(batch.results, batch.stoppedAt)
-			const active = batch.results[index]
-			const diagnostic = active?.error
-				? faultDiagnostic(
-						active.error,
-						active.errorPosition,
-						origin,
-						startedEpoch,
-					)
-				: null
-			persistRunCache(
-				{
-					status: 'ok',
-					message: active?.error ? '' : (active?.result?.message ?? '').trim(),
-					mode,
-					elapsedMs,
-					result: active?.result ?? null,
-					batch,
-				},
-				0,
-				sqlText,
-				index,
-				diagnostic,
-				origin,
-			)
-			onhistory?.(null)
-		} catch (e) {
-			if (!tabStillOpen()) return
-			if (isWriteCancelled(e)) {
-				persistRunCache({ status: 'idle' })
-				return
-			}
-			const fault = toIpcError(e)
-			const isPolicy = fault.kind === 'policy'
-			const elapsedMs = Math.round(performance.now() - start)
-			const shown = isPolicy ? fault.message : userFacingQueryError(fault.message)
-			// A failed manual-commit run says whether its transaction survived.
-			if (fault.transactionOutcome) applyPinStatus(tabId, fault.transactionOutcome)
-			persistRunCache(
-				{
-					status: isPolicy ? 'blocked' : 'error',
-					message: shown,
-					mode,
-					elapsedMs,
-				},
-				0,
-				sqlText,
-				fault.statementIndex ?? 0,
-				faultDiagnostic(shown, fault.position, origin, startedEpoch),
-				origin,
-			)
-			onhistory?.(null)
-		} finally {
-			finishTabRun(tabId, executionId)
-			if (manualCommit) void refreshPin()
-		}
-	}
-
-	function cancelRun() {
-		if (runState.status !== 'running') return
-		void cancelTabRun(tabId)
-	}
-
-	async function refreshPin() {
-		if (!showTransactions || !isTauri()) return
-		try {
-			const status = await pinnedTabStatus(tabId)
-			applyPinStatus(tabId, status)
-		} catch {
-			/* The toolbar keeps the last status. */
-		}
-	}
-
-	/** Tabs already told that the backend dropped their transaction. */
-	const rollbackNoticed = new Set<string>()
-
-	function applyPinStatus(tab: string, status: PinStatus) {
-		workspaceSession.setTabTxn(tab, status)
-		if (!status.rolledBack) {
-			rollbackNoticed.delete(tab)
-			return
-		}
-		if (rollbackNoticed.has(tab)) return
-		rollbackNoticed.add(tab)
-		showToast(
-			'warning',
-			'The open transaction was rolled back (idle timeout, lost connection, or the server ended it). Nothing in it was committed.',
+		const outcome = await runTabQuery(
+			runTarget(),
+			body ?? currentQueryText(),
+			origin,
+			bound,
 		)
+		if (outcome.kind === 'params') {
+			paramPrompt = { text: outcome.text, origin: outcome.origin, slots: outcome.slots }
+		}
 	}
 
-	async function setManualCommit(manual: boolean) {
-		if (!engineSessionId) {
-			showToast('danger', 'Connect before changing auto-commit.')
-			return
-		}
-		const tab = tabId
+	async function explainQuery() {
+		if (runState.status === 'running') return
+		const doc = editorSnap.doc || localText
+		const sqlText = textToRun(
+			doc,
+			splitDialectFor(engine),
+			editorSnap.head,
+			editorSnap.anchor,
+			false,
+		)
+		if (!sqlText?.trim()) return
+		const started = tabId
+		explainPlan = null
+		const plan = await runExplain(runTarget(), sqlText, analyze)
+		// The canvas may show another tab by now; that tab gets no plan.
+		if (plan && tabId === started) explainPlan = plan
+	}
+
+	async function exportResults(action: ResultExportAction) {
+		if (exporting || !result || !canExportResult(result)) return
+		exporting = action
 		try {
-			const status = manual
-				? await pinQueryTab(engineSessionId, tab)
-				: await unpinQueryTab(tab)
-			workspaceSession.setTabTxn(tab, {
-				pinned: manual ? status.pinned : false,
-				inTransaction: status.inTransaction,
+			await exportResult(action, result, {
+				queryText: currentQueryText(),
+				language,
+				connectionName,
+				collection: language === 'mql' ? collection : null,
+				database: language === 'mql' ? database : null,
 			})
-			if (!manual && status.rolledBack) showToast('info', 'Open transaction rolled back.')
-		} catch (e) {
-			showToast('danger', errorMessage(e))
+		} finally {
+			exporting = null
 		}
 	}
 
-	async function commitPin() {
-		try {
-			const status = await commitPinnedTab(tabId)
-			workspaceSession.setTabTxn(tabId, status)
-		} catch (e) {
-			showToast('danger', errorMessage(e))
-			// A lost transaction leaves the toolbar showing one open.
-			void refreshPin()
-		}
-	}
-
-	async function rollbackPin() {
-		try {
-			const status = await rollbackPinnedTab(tabId)
-			workspaceSession.setTabTxn(tabId, status)
-		} catch (e) {
-			showToast('danger', errorMessage(e))
-			// A lost transaction leaves the toolbar showing one open.
-			void refreshPin()
-		}
-	}
+	const cancelRun = () => cancelTabQuery(tabId)
+	const selectStatement = (index: number) => selectTabStatement(tabId, index)
+	const goResultPrev = () => setResultPage(tabId, Math.max(0, page.page - 1))
+	const goResultNext = () =>
+		setResultPage(tabId, Math.min(page.totalPages - 1, page.page + 1))
+	const setManualCommit = (manual: boolean) =>
+		setTabManualCommit(tabId, engineSessionId, manual)
+	const commitPin = () => commitTabPin(tabId, showTransactions)
+	const rollbackPin = () => rollbackTabPin(tabId, showTransactions)
 
 	function askAiAboutError(errorMessage: string) {
 		const error = errorMessage.trim()
@@ -836,13 +429,13 @@
 				<QueryResultsPanel
 					identStyle={identStyleFor(engine, capabilities?.sqlDialect ?? '')}
 					{runState}
-					{resultColumns}
-					{resultPageRows}
-					{resultTotal}
-					{resultPageStart}
-					{resultPageEnd}
-					{resultSafePage}
-					{resultTotalPages}
+					resultColumns={result?.columns ?? []}
+					resultPageRows={page.rows}
+					resultTotal={page.total}
+					resultPageStart={page.start}
+					resultPageEnd={page.end}
+					resultSafePage={page.page}
+					resultTotalPages={page.totalPages}
 					{canExport}
 					{exporting}
 					statements={batchResults}
