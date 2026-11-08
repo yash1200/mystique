@@ -17,7 +17,7 @@ export type ToastOptions = {
 /** Visible duration. Enter/exit motion is `DURATION.toast` in `#core/util`. */
 const DISMISS_MS = 3600
 /** A toast with an action stays long enough to reach the button. */
-const ACTION_DISMISS_MS = 8000
+export const ACTION_DISMISS_MS = 8000
 
 /** How long a toast stays, or `null` for until dismissed. */
 export function toastLifetime(
