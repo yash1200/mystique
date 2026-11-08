@@ -5,15 +5,15 @@ import {
 	CLONE_LARGE_REFUSED,
 	cloneRowValues,
 	type FetchChunk,
-} from '../../src/lib/features/workspace/grid/clone-row.ts'
-import type { GridColumnLayout } from '../../src/lib/features/workspace/grid/column-layout.ts'
+} from '../../src/lib/features/workspace/table/clone-row.ts'
+import type { GridColumnLayout } from '../../src/lib/features/workspace/data-grid/column-layout.ts'
 import {
 	columnRange,
 	columnsFrom,
 	inVisibleOrder,
 	stepColumn,
 	visibleColumns,
-} from '../../src/lib/features/workspace/grid/visible-columns.ts'
+} from '../../src/lib/features/workspace/data-grid/visible-columns.ts'
 
 const columns = ['id', 'a', 'b', 'c', 'd'].map((name) => ({ name }))
 

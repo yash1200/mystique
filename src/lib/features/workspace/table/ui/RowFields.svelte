@@ -7,8 +7,8 @@
 		selectOptionsForColumn,
 		usesSelectEditor,
 		valueToSelectDraft,
-	} from '../column-editor'
-	import { buildRowJson } from '../export'
+	} from '#features/workspace/data-grid'
+	import { buildRowJson } from '#features/workspace/data-grid'
 
 	interface Props {
 		tableTitle: string

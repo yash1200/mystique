@@ -18,7 +18,7 @@
 		DataGrid,
 		RowInspector,
 		tablePreview,
-	} from '#features/workspace/grid'
+	} from '#features/workspace/table'
 	import { ServerMetricsView } from '#features/workspace/metrics'
 	import {
 		prependHistoryItem,

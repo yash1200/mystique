@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Icon, IconButton, Input, Select } from '#core/ui'
-	import { opNeedsValue, opOptions } from '../filters'
-	import type { FilterMode, FilterOp, FilterRule } from '../types'
+	import { opNeedsValue, opOptions } from '../filters/filters'
+	import type { FilterMode, FilterOp, FilterRule } from '../filters/types'
 	interface Props {
 		filterMode: FilterMode
 		filterRules: FilterRule[]

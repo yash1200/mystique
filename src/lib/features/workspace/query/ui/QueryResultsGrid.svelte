@@ -31,7 +31,7 @@
 		type IdentStyle,
 		numericColumn,
 		valueToEditorText,
-	} from '#features/workspace/grid'
+	} from '#features/workspace/data-grid'
 	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import {

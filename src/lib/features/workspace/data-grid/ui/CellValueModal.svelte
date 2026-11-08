@@ -15,7 +15,7 @@
 		UNKEYED_LARGE_CELL,
 		type LargeCellPage,
 	} from '../large-cell'
-	import type { CellViewMode } from '../types'
+	import type { CellViewMode } from '../cell-view'
 	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
 
 	interface Props {

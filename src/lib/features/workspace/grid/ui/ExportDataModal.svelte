@@ -9,7 +9,7 @@
 		pickDirectory,
 		safeExportFileBase,
 	} from '#core/util'
-	import type { SelectOption } from '../column-editor'
+	import type { SelectOption } from '#features/workspace/data-grid'
 	export type ExportDataSpec = {
 		fileName: string
 		folder: string

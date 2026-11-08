@@ -1,0 +1,12 @@
+/** Table tab: the editable grid, filters, paging, saves, and the row inspector. */
+export * from './api'
+export * from './clone-row'
+export * from './edit-history'
+export * from './filters/column-complete'
+export * from './filters/filters'
+export type * from './filters/types'
+export * from './paste-batch'
+export * from './save-flow'
+export * from './tab-preview.svelte'
+export { default as DataGrid } from './ui/DataGrid.svelte'
+export { default as RowInspector } from './ui/RowInspector.svelte'

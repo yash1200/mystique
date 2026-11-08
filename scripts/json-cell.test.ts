@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { exactNumberText, numericColumn, parseDraft } from '../src/lib/features/workspace/grid/filters.ts'
+import { exactNumberText, numericColumn, parseDraft } from '../src/lib/features/workspace/data-grid/cell-value.ts'
 
 test('quoted int8 survives JSON.parse and an unquoted one does not', () => {
 	const quoted = JSON.parse('{"id":"9007199254740993"}') as { id: unknown }

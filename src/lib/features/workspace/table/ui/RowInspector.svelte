@@ -8,8 +8,7 @@
 	import { Icon, IconButton, Segmented, StatusBar } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import { onDestroy } from 'svelte'
-	import { buildRowJson } from '../export'
-	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
+	import { buildRowJson, JsonHighlightEditor } from '#features/workspace/data-grid'
 	import RowFields from './RowFields.svelte'
 
 	interface Props {

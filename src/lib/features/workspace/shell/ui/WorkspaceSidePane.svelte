@@ -13,7 +13,7 @@
 		ObjectExplorer,
 		onTableExplorerAction,
 	} from '#features/workspace/explorer'
-	import { tablePreview } from '#features/workspace/grid'
+	import { tablePreview } from '#features/workspace/table'
 	import {
 		clearHistorySearch,
 		loadOlderHistory,

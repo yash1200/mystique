@@ -1,23 +1,6 @@
-/** Table data grid: rows, filters, cell editing, import and export. */
-export * from './api'
-export * from './column-complete'
-export * from './column-layout'
-export * from './copy-as'
-export * from './edit-history'
-export * from './grid-keys'
-export * from './paste-batch'
-export * from './selection-stats'
-export * from './virtual'
-export * from './cell-view'
-export * from './column-editor'
+/** Table import and export. */
 export * from './export'
-export * from './filters'
-export * from './large-cell'
-export * from './tab-preview.svelte'
 export * from './transfer.svelte'
-export type * from './types'
-export { default as CellValueModal } from './ui/CellValueModal.svelte'
-export { default as DataGrid } from './ui/DataGrid.svelte'
 export {
 	default as ExportDataModal,
 	type ExportDataSpec,
@@ -28,4 +11,8 @@ export {
 	type ImportFileSpec,
 	type ImportRunSpec,
 } from './ui/ImportDataModal.svelte'
-export { default as RowInspector } from './ui/RowInspector.svelte'
+
+// Moved to `data-grid` and `table`. Re-exported until explorer, quick-open
+// and the query canvas import them from there.
+export { identStyleFor } from '#features/workspace/data-grid'
+export { tablePreview } from '#features/workspace/table'

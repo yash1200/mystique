@@ -23,7 +23,7 @@
 	import { appPrefs } from '#lib/app'
 	import { untrack } from 'svelte'
 	import { selectOptionsForColumn, usesSelectEditor } from '../column-editor'
-	import { numericColumn } from '../filters'
+	import { numericColumn } from '../cell-value'
 	import { isLargeCell, largeCellHint } from '../large-cell'
 	import { layoutColumns, type GridColumnLayout } from '../column-layout'
 	import {

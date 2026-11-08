@@ -34,7 +34,8 @@
 		ensureCatalogForActiveSession,
 		ensureLiveCatalog,
 	} from '#features/workspace/catalog'
-	import { GridTransferHost, tablePreview } from '#features/workspace/grid'
+	import { GridTransferHost } from '#features/workspace/grid'
+	import { tablePreview } from '#features/workspace/table'
 	import {
 		querySave,
 		QuerySaveHost,

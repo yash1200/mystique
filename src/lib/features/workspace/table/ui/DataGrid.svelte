@@ -24,6 +24,48 @@
 	import { appPrefs, cmd } from '#lib/app'
 	import { onMount, tick, untrack } from 'svelte'
 	import {
+		buildCsv,
+		buildInList,
+		buildInsertSql,
+		buildJson,
+		buildMarkdown,
+		buildTsv,
+		buildUpdateSql,
+		buildWhereSql,
+		CellValueModal,
+		cellText,
+		cellsIncludeLarge,
+		columnRange,
+		columnsFrom,
+		EMPTY_COLUMN_LAYOUT,
+		formatSelectionStats,
+		GridTable,
+		gridShortcutBlocked,
+		identStyleFor,
+		inVisibleOrder,
+		isLargeCell,
+		largeCellText,
+		moveColumn,
+		objectsToRows,
+		parseDraft,
+		PARTIAL_COPY_MESSAGE,
+		selectDraftToValue,
+		selectionStats,
+		stepColumn,
+		toggleFrozen,
+		toggleHidden,
+		usesSelectEditor,
+		valuesEqual,
+		valueToEditorText,
+		valueToSelectDraft,
+		visibleColumns,
+		withColumnWidth,
+		type CellRef,
+		type CopyColumn,
+		type GridColumnLayout,
+		type LargeCellLocator,
+	} from '#features/workspace/data-grid'
+	import {
 		distinctColumnValues,
 		loadColumnLayout,
 		loadLatestSaveId,
@@ -31,37 +73,7 @@
 		rollbackTableEdits,
 		saveColumnLayout,
 	} from '../api'
-	import {
-		columnCompletions,
-		distinctCacheKey,
-		readDistinctCache,
-		DISTINCT_TTL_MS,
-		type DistinctCacheEntry,
-	} from '../column-complete'
 	import { cloneRowValues, type FetchChunk } from '../clone-row'
-	import {
-		columnRange,
-		columnsFrom,
-		inVisibleOrder,
-		stepColumn,
-		visibleColumns,
-	} from '../visible-columns'
-	import {
-		EMPTY_COLUMN_LAYOUT,
-		moveColumn,
-		toggleFrozen,
-		toggleHidden,
-		withColumnWidth,
-		type GridColumnLayout,
-	} from '../column-layout'
-	import {
-		buildInList,
-		buildInsertSql,
-		buildUpdateSql,
-		buildWhereSql,
-		identStyleFor,
-		type CopyColumn,
-	} from '../copy-as'
 	import {
 		cloneSnapshot,
 		pushUndo,
@@ -69,51 +81,31 @@
 		undoEdit,
 		type GridEditSnapshot,
 	} from '../edit-history'
-	import { gridShortcutBlocked } from '../grid-keys'
-	import { applyCellBatch, type CellEdit } from '../paste-batch'
-	import { formatSelectionStats, selectionStats } from '../selection-stats'
-	import { valueToEditorText } from '../cell-view'
 	import {
-		cellsIncludeLarge,
-		isLargeCell,
-		largeCellText,
-		PARTIAL_COPY_MESSAGE,
-		type LargeCellLocator,
-	} from '../large-cell'
+		columnCompletions,
+		distinctCacheKey,
+		readDistinctCache,
+		DISTINCT_TTL_MS,
+		type DistinctCacheEntry,
+	} from '../filters/column-complete'
 	import {
-		selectDraftToValue,
-		usesSelectEditor,
-		valueToSelectDraft,
-	} from '../column-editor'
-	import {
-		buildCsv,
-		buildJson,
-		buildMarkdown,
-		buildTsv,
-		objectsToRows,
-	} from '../export'
-	import {
-		cellText,
 		looksLikeJsonFilter,
 		newRule,
 		opNeedsValue,
 		parseCodeFilters,
-		parseDraft,
 		rulesToCode,
-		valuesEqual,
-	} from '../filters'
-	import type { FilterMode, FilterOp, FilterRule } from '../types'
-	import CellValueModal from './CellValueModal.svelte'
-	import GridFilterBar from './GridFilterBar.svelte'
-	import GridStatusBar from './GridStatusBar.svelte'
-	import GridTable, { type CellRef } from './GridTable.svelte'
-	import GridSqlPanel from './GridSqlPanel.svelte'
+	} from '../filters/filters'
+	import type { FilterMode, FilterOp, FilterRule } from '../filters/types'
+	import { applyCellBatch, type CellEdit } from '../paste-batch'
 	import {
 		reviewPrompt,
 		reviewsEverySave,
 		savedMessage,
 		undoSave,
 	} from '../save-flow'
+	import GridFilterBar from './GridFilterBar.svelte'
+	import GridStatusBar from './GridStatusBar.svelte'
+	import GridSqlPanel from './GridSqlPanel.svelte'
 
 	interface Props {
 		table: TableMeta

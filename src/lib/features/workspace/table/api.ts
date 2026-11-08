@@ -17,8 +17,8 @@ import {
 	storedToLayout,
 	type GridColumnLayout,
 	type StoredColumnLayout,
-} from './column-layout'
-import { DISTINCT_LIMIT } from './column-complete'
+} from '#features/workspace/data-grid'
+import { DISTINCT_LIMIT } from './filters/column-complete'
 export type PersistResult = ApplyTableEditsResult
 export { identityCell } from './identity-cell'
 

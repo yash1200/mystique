@@ -1,5 +1,7 @@
 import { isLargeCell, largeCellText } from './large-cell'
-import type { CellViewMode } from './types'
+
+export type CellViewMode = 'text' | 'json' | 'html'
+
 export const CELL_VIEW_MODES: { id: CellViewMode; label: string }[] = [
 	{ id: 'text', label: 'Text' },
 	{ id: 'json', label: 'JSON' },

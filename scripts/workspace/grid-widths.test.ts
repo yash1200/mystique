@@ -9,7 +9,7 @@ import {
 	toggleHidden,
 	withColumnWidth,
 	type GridColumnLayout,
-} from '../../src/lib/features/workspace/grid/column-layout'
+} from '../../src/lib/features/workspace/data-grid/column-layout'
 import {
 	COL_W_AUTO_MAX,
 	COL_W_DEFAULT,
@@ -23,8 +23,8 @@ import {
 	fitColumnWidth,
 	headerWidth,
 	sampleRowIndexes,
-} from '../../src/lib/features/workspace/grid/column-widths'
-import { computeColumnWindow } from '../../src/lib/features/workspace/grid/virtual'
+} from '../../src/lib/features/workspace/data-grid/column-widths'
+import { computeColumnWindow } from '../../src/lib/features/workspace/data-grid/virtual'
 
 const columns = [
 	{ name: 'id', type: 'int4', pk: true },

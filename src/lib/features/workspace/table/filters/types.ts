@@ -1,5 +1,3 @@
-export type CellViewMode = 'text' | 'json' | 'html'
-
 export type FilterMode = 'ui' | 'code'
 
 export type FilterOp =

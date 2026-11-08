@@ -1,7 +1,7 @@
 /**
  * One paste assigns the row array once. Tests spy on `assign`.
  */
-import { valuesEqual } from './filters'
+import { valuesEqual } from '#features/workspace/data-grid'
 
 export type CellEdit = { row: number; col: string; value: unknown }
 

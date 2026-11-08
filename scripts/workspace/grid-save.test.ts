@@ -7,7 +7,7 @@ import {
 	savedMessage,
 	undoErrorMessage,
 	undoSave,
-} from '../../src/lib/features/workspace/grid/save-flow'
+} from '../../src/lib/features/workspace/table/save-flow'
 
 describe('review before saving', () => {
 	it('defaults to production and only "always" adds a dialog', () => {

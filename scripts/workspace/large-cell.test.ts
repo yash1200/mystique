@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { cellDisplay } from '../../src/lib/features/workspace/grid/virtual.ts'
+import { cellDisplay } from '../../src/lib/features/workspace/data-grid/virtual.ts'
 import {
 	cellText,
-} from '../../src/lib/features/workspace/grid/filters.ts'
+} from '../../src/lib/features/workspace/data-grid/cell-value.ts'
 import {
 	isLargeCell,
 	largeCellText,
 	PARTIAL_COPY_MESSAGE,
-} from '../../src/lib/features/workspace/grid/large-cell.ts'
+} from '../../src/lib/features/workspace/data-grid/large-cell.ts'
 
 const marker = {
 	$large: true as const,

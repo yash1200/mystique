@@ -1,6 +1,6 @@
 /**
  * Query-results virtualization.
- * The implementation lives in the grid feature so the table grid can reuse
+ * The implementation lives in the shared grid core so the table grid can reuse
  * it. This module re-exports that file; the row window, overscan, hysteresis,
  * and 512-character clip are unchanged.
  */
@@ -17,10 +17,10 @@ export {
 	computeColumnWindow,
 	computeResultWindow,
 	measureColLayout,
-} from '#features/workspace/grid'
+} from '#features/workspace/data-grid'
 
 export type {
 	ResultColLayout,
 	ResultColumn,
 	ResultWindow,
-} from '#features/workspace/grid'
+} from '#features/workspace/data-grid'

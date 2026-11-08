@@ -3,7 +3,7 @@ import { test } from 'vitest'
 
 import { chatAfterConnectionChange } from '../../src/lib/features/workspace/agent/connection-chat.ts'
 import { recordCatalogFailure } from '../../src/lib/features/workspace/catalog/failure.ts'
-import { identityCell } from '../../src/lib/features/workspace/grid/identity-cell.ts'
+import { identityCell } from '../../src/lib/features/workspace/table/identity-cell.ts'
 import {
 	adoptServerRows,
 	bufferIsDirty,

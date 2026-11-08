@@ -3,7 +3,7 @@
  * is fetched first. When it cannot be fetched the duplicate is refused rather
  * than inserting the `{"$large":true}` marker.
  */
-import { isLargeCell, type LargeCellLocator, type LargeCellPage } from './large-cell'
+import { isLargeCell, type LargeCellLocator, type LargeCellPage } from '#features/workspace/data-grid'
 
 export const CLONE_LARGE_REFUSED =
 	'Cannot duplicate: a large value in this row cannot be loaded without a primary key.'

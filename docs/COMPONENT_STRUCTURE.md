@@ -38,7 +38,9 @@ src/
     │       ├── shell/            # composition: panes, sessions rail, tabs, modals
     │       ├── catalog/          # live catalog, labels, icons
     │       ├── explorer/         # object tree, structure panel
-    │       ├── grid/             # data grid, filters, import/export
+    │       ├── data-grid/        # shared grid core: selection, keys, copy, windowing, GridTable
+    │       ├── table/            # table tab: editable grid, filters, paging, saves, row inspector
+    │       ├── grid/             # table import/export
     │       ├── query/            # editor, results, saved queries, history
     │       ├── er/               # canvas, layout, DBML, PNG export
     │       └── agent/            # chat pane, markdown
@@ -61,7 +63,7 @@ features/workspace/er/
 ```
 
 Inside a feature, import files directly (`../model`, `./ErCanvas.svelte`).
-Across features, import the barrel (`#features/workspace/grid`) — never a file
+Across features, import the barrel (`#features/workspace/table`) — never a file
 inside one.
 
 ## Boundary rules
@@ -137,7 +139,7 @@ import { Button, Field, Input, Select } from '#core/ui'
 import type { ConnectionProfile } from '#core/contracts'
 import { listEngineCatalog } from '#core/ipc'
 import { adapterFor, formatQuery } from '#engines'
-import { DataGrid } from '#features/workspace/grid'
+import { DataGrid } from '#features/workspace/table'
 import { workspaceSession } from '../session.svelte' // same feature
 ```
 

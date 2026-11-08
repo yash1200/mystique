@@ -7,7 +7,7 @@ import {
 	cellDisplay,
 	computeColumnWindow,
 	computeResultWindow,
-} from '../../src/lib/features/workspace/grid/virtual'
+} from '../../src/lib/features/workspace/data-grid/virtual'
 
 describe('table grid window', () => {
 	it('keeps the query-results row overscan and clip', () => {

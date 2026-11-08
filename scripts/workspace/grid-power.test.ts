@@ -9,21 +9,21 @@ import {
 	identStyleFor,
 	quoteIdent,
 	sqlLiteral,
-} from '../../src/lib/features/workspace/grid/copy-as.ts'
+} from '../../src/lib/features/workspace/data-grid/copy-as.ts'
 import {
 	layoutColumns,
 	moveColumn,
 	toggleFrozen,
 	type GridColumnLayout,
-} from '../../src/lib/features/workspace/grid/column-layout.ts'
-import { columnCompletions } from '../../src/lib/features/workspace/grid/column-complete.ts'
-import { pushUndo, undoEdit, type GridEditSnapshot } from '../../src/lib/features/workspace/grid/edit-history.ts'
-import { gridShortcutBlocked } from '../../src/lib/features/workspace/grid/grid-keys.ts'
-import { applyCellBatch } from '../../src/lib/features/workspace/grid/paste-batch.ts'
+} from '../../src/lib/features/workspace/data-grid/column-layout.ts'
+import { columnCompletions } from '../../src/lib/features/workspace/table/filters/column-complete.ts'
+import { pushUndo, undoEdit, type GridEditSnapshot } from '../../src/lib/features/workspace/table/edit-history.ts'
+import { gridShortcutBlocked } from '../../src/lib/features/workspace/data-grid/keyboard.ts'
+import { applyCellBatch } from '../../src/lib/features/workspace/table/paste-batch.ts'
 import {
 	formatSelectionStats,
 	selectionStats,
-} from '../../src/lib/features/workspace/grid/selection-stats.ts'
+} from '../../src/lib/features/workspace/data-grid/selection-stats.ts'
 
 const docs = [
 	{ name: 'id', dataType: 'int8', pk: true },
