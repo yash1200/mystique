@@ -5,7 +5,7 @@
 	import type { DataFamily } from '#core/contracts'
 	import { ContextMenu } from '#core/ui'
 	import { currentUiScale, exportPng, onUiScaleChange } from '#core/util'
-	import { showToast } from '#features/toast'
+	import { showStatus, showToast } from '#features/toast'
 	import { onMount, tick } from 'svelte'
 	import {
 		ER_HEADER_H_BASE,
@@ -613,7 +613,7 @@
 		const live = displayDiagram
 		const root = exportRoot
 		if (!live || live.nodes.length === 0 || !root) {
-			showToast('warning', 'Nothing to export.')
+			showStatus('Nothing to export.', 'warning')
 			return
 		}
 		exportingPng = true
@@ -658,7 +658,6 @@
 		try {
 			await navigator.clipboard.writeText(text)
 			dbmlCopied = true
-			showToast('success', 'DBML copied.')
 			setTimeout(() => {
 				dbmlCopied = false
 			}, 1600)
