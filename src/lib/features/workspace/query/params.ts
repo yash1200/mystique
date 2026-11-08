@@ -113,8 +113,13 @@ export function rememberParamValue(label: string, value: ParamMemory) {
 	localStorage.setItem(HISTORY_KEY, JSON.stringify(all))
 }
 
+/** An open `(` or `[` on Postgres. A `:` inside `expr[…]` is a slice. */
+type Nest = 'paren' | 'subscript' | 'bracket'
+
 function scanPlaces(sql: string, dialect: SplitDialect): RawPlace[] {
 	const found: RawPlace[] = []
+	const postgres = dialect === 'postgres'
+	const nests: Nest[] = []
 	let index = 0
 	while (index < sql.length) {
 		if (sql.startsWith('--', index)) {
@@ -158,7 +163,22 @@ function scanPlaces(sql: string, dialect: SplitDialect): RawPlace[] {
 				continue
 			}
 		}
-		if (sql.charCodeAt(index) === 63 && !questionOperator(sql, index)) {
+		if (postgres) {
+			const code = sql.charCodeAt(index)
+			if (code === 40) nests.push('paren')
+			else if (code === 91) nests.push(opensSubscript(sql, index) ? 'subscript' : 'bracket')
+			else if (code === 41 || code === 93) nests.pop()
+			else if (
+				code === 58 &&
+				sql.charCodeAt(index + 1) !== 58 &&
+				nests[nests.length - 1] === 'subscript'
+			) {
+				index += 1
+				continue
+			}
+		}
+		// Postgres has no `?` marker: `?`, `?|`, `?&` are jsonb operators.
+		if (sql.charCodeAt(index) === 63 && !postgres && !questionOperator(sql, index)) {
 			found.push({
 				start: index,
 				end: index + 1,
@@ -252,6 +272,19 @@ function dollarNumber(sql: string, start: number): { end: number; value: number 
 	}
 	if (number === 0) return null
 	return { end: index, value: number }
+}
+
+/** `[` right after an expression (`arr[`, `f(x)[`, `"col"[`), not `ARRAY[`. */
+function opensSubscript(sql: string, index: number): boolean {
+	let end = index
+	while (end > 0 && /\s/.test(sql.charAt(end - 1))) end -= 1
+	if (end === 0) return false
+	const prev = sql.charCodeAt(end - 1)
+	if (prev === 41 || prev === 93 || prev === 34) return true
+	if (!isIdentByte(prev)) return false
+	let word = end - 1
+	while (word > 0 && isIdentByte(sql.charCodeAt(word - 1))) word -= 1
+	return sql.slice(word, end).toLowerCase() !== 'array'
 }
 
 function questionOperator(sql: string, index: number): boolean {

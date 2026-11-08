@@ -9,7 +9,7 @@ use mystique_connector_api::{
     ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
     QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
-use tokio_postgres::types::{IsNull, ToSql, Type};
+use tokio_postgres::types::{Format, IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
@@ -592,33 +592,32 @@ fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
     params.iter().cloned().map(QBind).collect()
 }
 
+/// Sent in text format. The server parses it with the input function of the
+/// type it inferred for `$n` (int4, uuid, timestamptz, numeric, an enum, a
+/// domain), the same as a quoted literal. Binary would need an encoder per type.
 impl ToSql for QBind {
     fn to_sql(
         &self,
-        ty: &Type,
+        _ty: &Type,
         out: &mut bytes::BytesMut,
     ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
-        if self.0.is_null() {
-            return Ok(IsNull::Yes);
-        }
         match &self.0 {
-            serde_json::Value::Bool(flag) => flag.to_sql(ty, out),
-            serde_json::Value::Number(number) => {
-                if let Some(integer) = number.as_i64() {
-                    integer.to_sql(ty, out)
-                } else if let Some(real) = number.as_f64() {
-                    real.to_sql(ty, out)
-                } else {
-                    number.to_string().to_sql(ty, out)
-                }
+            serde_json::Value::Null => return Ok(IsNull::Yes),
+            serde_json::Value::String(text) => out.extend_from_slice(text.as_bytes()),
+            serde_json::Value::Bool(flag) => {
+                out.extend_from_slice(if *flag { b"true" } else { b"false" })
             }
-            serde_json::Value::String(text) => text.to_sql(ty, out),
-            other => other.to_string().to_sql(ty, out),
+            other => out.extend_from_slice(other.to_string().as_bytes()),
         }
+        Ok(IsNull::No)
     }
 
     fn accepts(_ty: &Type) -> bool {
         true
+    }
+
+    fn encode_format(&self, _ty: &Type) -> Format {
+        Format::Text
     }
 
     tokio_postgres::types::to_sql_checked!();

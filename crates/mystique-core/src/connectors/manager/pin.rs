@@ -439,7 +439,11 @@ impl ConnectionManager {
                 .await
         };
         if let Ok(batch_result) = result.as_mut() {
-            super::query::place_error_positions(&req.text, batch_result);
+            mystique_connector_api::place_error_positions(
+                &req.text,
+                SqlDialect::from_engine(&engine),
+                batch_result,
+            );
         }
         self.finish_run(&id).await;
         result

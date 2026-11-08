@@ -408,6 +408,25 @@ pub fn gate_sql_batch_in(
     })
 }
 
+/// Driver errors point into the statement the driver got, where `:name`
+/// became `$1` or `?`. Move each back onto the text the user typed, then set
+/// its line and column.
+pub fn place_error_positions(text: &str, dialect: SqlDialect, batch: &mut QueryBatchResult) {
+    let script = mystique_sql::ScriptParams::scan(text, dialect).ok();
+    for stmt in &mut batch.results {
+        let Some(position) = stmt.error_position.as_mut() else {
+            continue;
+        };
+        let start = usize::try_from(stmt.sql_range.start).unwrap_or(0);
+        let end = usize::try_from(stmt.sql_range.end).unwrap_or(0);
+        let mut offset = usize::try_from(position.offset).unwrap_or(usize::MAX);
+        if let (Some(script), Some(local)) = (&script, offset.checked_sub(start)) {
+            offset = start + script.source_offset(text, start, end, dialect, local);
+        }
+        *position = position_at(text, u32::try_from(offset).unwrap_or(u32::MAX));
+    }
+}
+
 fn display_index(index: u32) -> u64 {
     u64::from(index) + 1
 }
@@ -475,6 +494,39 @@ mod tests {
         assert!(msg.contains("Statement 1"), "{msg}");
         assert!(msg.contains("Nothing ran"), "{msg}");
         assert!(msg.to_ascii_lowercase().contains("transaction"), "{msg}");
+    }
+
+    #[test]
+    fn driver_error_offsets_land_on_the_typed_text() {
+        for dialect in [SqlDialect::Postgres, SqlDialect::Mysql] {
+            let text = "SELECT 1;\nSELECT :long_name, nosuchcol";
+            let plan = gate_sql_batch_in(text, dialect, QueryMode::Read, false, &[1.into()])
+                .expect("plan");
+            let stmt = plan.statements.last().expect("statement");
+            // What the driver reports: an offset in the SQL it received.
+            let local = stmt.sql.find("nosuchcol").expect("driver sql");
+            let err = ConnectorError::query_at(
+                "column does not exist",
+                crate::SourcePosition {
+                    offset: u32::try_from(local).expect("offset"),
+                    line: 1,
+                    column: 1,
+                },
+                None,
+            );
+            let mut batch = QueryBatchResult {
+                results: vec![StatementResult::failed(stmt, 0, &err)],
+                stopped_at: Some(stmt.index),
+            };
+            place_error_positions(text, dialect, &mut batch);
+            let position = batch.results[0].error_position.clone().expect("position");
+            assert_eq!(
+                text.get(position.offset as usize..),
+                Some("nosuchcol"),
+                "{dialect:?}"
+            );
+            assert_eq!((position.line, position.column), (2, 20), "{dialect:?}");
+        }
     }
 
     #[test]
