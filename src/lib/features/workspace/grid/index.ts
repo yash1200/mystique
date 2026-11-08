@@ -26,9 +26,6 @@ export { default as GridTransferHost } from './ui/GridTransferHost.svelte'
 export {
 	default as ImportDataModal,
 	type ImportFileSpec,
-} from './ui/ImportDataModal.svelte'
-export {
-	default as ImportPreviewModal,
 	type ImportRunSpec,
-} from './ui/ImportPreviewModal.svelte'
+} from './ui/ImportDataModal.svelte'
 export { default as RowInspector } from './ui/RowInspector.svelte'

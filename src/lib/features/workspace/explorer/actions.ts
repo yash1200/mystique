@@ -10,7 +10,9 @@ import {
 } from '#features/workspace/grid'
 import { openSqlInEditor } from '#features/workspace/query'
 import {
+	askWriteGuard,
 	currentDatabaseName,
+	isWriteCancelled,
 	requireActiveConnection,
 	structureCacheKey,
 	tableTabId,
@@ -19,6 +21,7 @@ import {
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/shell'
+import { menuDangerPrompt } from './danger'
 import { openObjectStructure } from './structure-live'
 import type { TableExplorerAction } from './ui/ObjectExplorer.svelte'
 
@@ -63,23 +66,44 @@ export async function onTableExplorerAction(
 
 	const op: TableAdminOp = action === 'create' ? 'createStatement' : action
 
+	// Drop / truncate: one dialog. Off production it is this one, and the run
+	// carries the name so the backend does not ask again.
+	let confirmed: string | undefined
+	if (action === 'drop' || action === 'truncate') {
+		const prompt = menuDangerPrompt({
+			action,
+			name: table.name,
+			noun: table.kind || 'table',
+			environment: session.profile.environment ?? 'local',
+			connectionName: session.profile.name,
+		})
+		if (prompt) {
+			const decision = await askWriteGuard(prompt)
+			if (!decision.ok) return
+			confirmed = table.name
+		}
+	}
+
 	try {
 		workspaceStudio.setCatalogError(null)
 		const result = await withLiveSession(
 			id,
 			(sid) =>
-				runWithWriteGuard(sid, (confirmObjectName) =>
-					applyEngineTableAdmin({
-						sessionId: sid,
-						op,
-						name: table.name,
-						schema: table.schema || null,
-						database: table.database || currentDatabaseName(),
-						kind: table.kind,
-						newName,
-						profileReadOnly: !!session.profile.readOnly,
-						confirmObjectName: confirmObjectName ?? null,
-					}),
+				runWithWriteGuard(
+					sid,
+					(confirmObjectName) =>
+						applyEngineTableAdmin({
+							sessionId: sid,
+							op,
+							name: table.name,
+							schema: table.schema || null,
+							database: table.database || currentDatabaseName(),
+							kind: table.kind,
+							newName,
+							profileReadOnly: !!session.profile.readOnly,
+							confirmObjectName: confirmObjectName ?? null,
+						}),
+					{ confirmObjectName: confirmed },
 				),
 			{ replay: false },
 		)
@@ -120,6 +144,7 @@ export async function onTableExplorerAction(
 		}
 		await refreshCurrentTables()
 	} catch (e) {
+		if (isWriteCancelled(e)) return
 		workspaceStudio.setCatalogError(
 			e instanceof Error ? e.message : String(e),
 		)
