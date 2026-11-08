@@ -16,7 +16,7 @@ use crate::settings::DEFAULT_MCP_PORT;
 
 use self::http::{router, HttpState};
 
-pub(crate) use token::ensure_token;
+pub(crate) use token::{ensure_token, TokenGate};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,7 +45,7 @@ impl McpStatus {
 
 struct Running {
     port: u16,
-    token: String,
+    token: TokenGate,
     shutdown: Option<oneshot::Sender<()>>,
 }
 
@@ -67,13 +67,18 @@ impl McpController {
                 running: true,
                 port: Some(r.port),
                 url: Some(format!("http://127.0.0.1:{}/mcp", r.port)),
-                token: Some(r.token.clone()),
+                token: r.token.peek(),
             },
             None => McpStatus::stopped(enabled),
         }
     }
 
-    pub async fn start(&self, tools: AgentTools, port: u16, token: String) -> AppResult<McpStatus> {
+    pub async fn start(
+        &self,
+        tools: AgentTools,
+        port: u16,
+        token: TokenGate,
+    ) -> AppResult<McpStatus> {
         self.stop().await;
         let bind_port = if port == 0 { DEFAULT_MCP_PORT } else { port };
         let listener = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], bind_port))).await
@@ -115,7 +120,7 @@ impl McpController {
             running: true,
             port: Some(actual),
             url: Some(format!("http://127.0.0.1:{actual}/mcp")),
-            token: Some(token),
+            token: token.peek(),
         })
     }
 

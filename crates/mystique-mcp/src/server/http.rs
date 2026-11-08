@@ -10,11 +10,12 @@ use mystique_core::AgentTools;
 use serde_json::{json, Value as JsonValue};
 
 use super::rpc::{handle_method, json_rpc_error};
+use super::TokenGate;
 
 #[derive(Clone)]
 pub(super) struct HttpState {
     pub tools: AgentTools,
-    pub token: String,
+    pub token: TokenGate,
 }
 
 pub(super) fn router(state: HttpState) -> Router {
@@ -69,7 +70,17 @@ async fn mcp_post(
     Query(query): Query<HashMap<String, String>>,
     body: Bytes,
 ) -> Response {
-    if !authorized(&headers, &query, &state.token) {
+    // Loaded from the vault on the first request, without keychain UI.
+    let token = match state.token.get().await {
+        Ok(token) => token,
+        Err(message) => {
+            return cors(
+                StatusCode::SERVICE_UNAVAILABLE,
+                json_rpc_error(None, -32001, &message).to_string(),
+            );
+        }
+    };
+    if !authorized(&headers, &query, &token) {
         return cors(StatusCode::UNAUTHORIZED, "unauthorized");
     }
     let text = String::from_utf8_lossy(&body);
