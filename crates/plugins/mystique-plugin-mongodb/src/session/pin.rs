@@ -9,12 +9,20 @@ use async_trait::async_trait;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, PinnedSession, PlannedStatement, QueryBatchResult, QueryMode,
-    SqlRange, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery,
+    ConnectorError, ConnectorResult, EngineQueryPolicy, MongoQueryPolicy, PinnedSession,
+    PlannedStatement, QueryBatchResult, QueryMode, SqlRange, StatementKind, StatementResult,
+    ValidatedBatch, ValidatedQuery, WriteRisk,
 };
 
+use super::error::{transaction_aborted, TXN_ABORTED};
 use super::query;
 use super::MongoSession;
+
+/// Manual commit opens a transaction before a write. Unparsed text counts as
+/// a write, the same way the production guard reads it.
+fn opens_transaction(text: &str) -> bool {
+    MongoQueryPolicy.classify(text) != WriteRisk::Read
+}
 
 pub(crate) fn hello_supports_transactions(hello: &Document) -> bool {
     match hello.get("setName") {
@@ -80,10 +88,25 @@ impl PinnedSession for MongoPin {
                 .map(|stmt| stmt.params.clone())
                 .unwrap_or_default(),
         };
-        // The client session is the transaction. Every driver call on this
-        // tab runs through it; commands MongoDB refuses in a transaction fail.
-        self.ensure_transaction().await?;
-        match query::execute_in_transaction(&self.host, &query, &mut self.session).await {
+        // The first write opens the transaction, as on the SQL engines. Reads
+        // before it run on the session without one. Once it is open, every
+        // call on this tab runs inside it.
+        if !self.open.load(Ordering::SeqCst) && opens_transaction(&query.text) {
+            self.ensure_transaction().await?;
+        }
+        let ran = if self.open.load(Ordering::SeqCst) {
+            query::execute_in_transaction(&self.host, &query, &mut self.session).await
+        } else {
+            query::execute_on_session(&self.host, &query, &mut self.session).await
+        };
+        if let Err(ConnectorError::Query(msg)) = &ran {
+            if msg.ends_with(TXN_ABORTED) {
+                // The server already dropped it. Reset the driver's state.
+                let _ = self.session.abort_transaction().await;
+                self.open.store(false, Ordering::SeqCst);
+            }
+        }
+        match ran {
             Ok(result) => {
                 let stmt = batch
                     .statements
@@ -120,12 +143,20 @@ impl PinnedSession for MongoPin {
 
     async fn commit(&mut self) -> ConnectorResult<()> {
         if !self.open.load(Ordering::SeqCst) {
-            return Ok(());
+            return Err(ConnectorError::Query(
+                "No open transaction. Nothing was committed.".into(),
+            ));
         }
-        self.session
-            .commit_transaction()
-            .await
-            .map_err(|err| ConnectorError::Query(err.to_string()))?;
+        if let Err(err) = self.session.commit_transaction().await {
+            if transaction_aborted(&err) {
+                let _ = self.session.abort_transaction().await;
+                self.open.store(false, Ordering::SeqCst);
+                return Err(ConnectorError::Query(format!(
+                    "{TXN_ABORTED} Nothing in it was committed."
+                )));
+            }
+            return Err(ConnectorError::Query(err.to_string()));
+        }
         self.open.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -170,8 +201,20 @@ pub(super) async fn probe_transactions(client: &Client) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::hello_supports_transactions;
+    use super::{hello_supports_transactions, opens_transaction};
     use mongodb::bson::{doc, Document};
+
+    #[test]
+    fn only_a_write_opens_the_transaction() {
+        assert!(!opens_transaction("db.users.find({})"));
+        assert!(!opens_transaction(
+            "db.users.countDocuments({ name: 'delete' })"
+        ));
+        assert!(!opens_transaction("show collections"));
+        assert!(opens_transaction("db.users.insertOne({ a: 1 })"));
+        assert!(opens_transaction("db.users.deleteMany({})"));
+        assert!(opens_transaction("db.users.aggregate([{ $out: 'x' }])"));
+    }
 
     #[test]
     fn a_standalone_hello_hides_transactions() {

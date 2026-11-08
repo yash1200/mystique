@@ -63,8 +63,22 @@ fn push_unique(parts: &mut Vec<String>, msg: &str) {
     }
 }
 
+/// Ends a query error when the server aborted the open transaction.
+pub(crate) const TXN_ABORTED: &str = "MongoDB aborted the open transaction.";
+
 pub(crate) fn query_failed(err: MongoError) -> ConnectorError {
-    ConnectorError::Query(format_query_error(&err))
+    let msg = format_query_error(&err);
+    if transaction_aborted(&err) {
+        return ConnectorError::Query(format!("{msg} {TXN_ABORTED}"));
+    }
+    ConnectorError::Query(msg)
+}
+
+/// The server dropped the transaction (write conflict, lifetime limit, no
+/// such transaction). Nothing in it was committed.
+pub(crate) fn transaction_aborted(err: &MongoError) -> bool {
+    err.contains_label(mongodb::error::TRANSIENT_TRANSACTION_ERROR)
+        || matches!(err.kind.as_ref(), ErrorKind::Command(cmd) if cmd.code == 251)
 }
 
 /// Privilege denial (code 13) or Atlas “not authorized on admin”.

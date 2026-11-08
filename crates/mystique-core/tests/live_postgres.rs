@@ -1,4 +1,5 @@
-//! Live Postgres checks for tool paging (R-08) and early cancel (R-20).
+//! Live Postgres checks for tool paging (R-08), early cancel (R-20), and
+//! "no timeout" (B-08).
 //!
 //! `cargo test -p mystique-core --test live_postgres -- --ignored`
 //!
@@ -57,6 +58,7 @@ async fn paging_an_insert_returning_inserts_once() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         })
         .unwrap();
     let tools = app.agent_tools();
@@ -142,4 +144,104 @@ async fn a_cancel_sent_before_the_run_starts_is_honoured() {
     assert!(err.to_string().contains("cancelled"), "{err}");
     assert!(started.elapsed() < Duration::from_secs(1), "the sleep ran");
     mgr.close_session("s1-cancel").await.unwrap();
+}
+
+fn sleep_req(session_id: &str, mode: QueryMode, timeout_ms: u64) -> ExecuteQueryRequest {
+    ExecuteQueryRequest {
+        session_id: session_id.into(),
+        text: "SELECT pg_sleep(2)".into(),
+        mode,
+        max_rows: Some(1),
+        timeout_ms: Some(timeout_ms),
+        profile_read_only: false,
+        confirm_object_name: None,
+        collection: None,
+        database: None,
+        execution_id: None,
+        params: Vec::new(),
+    }
+}
+
+/// B-08: a profile timeout of 0 means none. The canvas path (batch, both
+/// modes, and a pinned tab) must let a 2s sleep finish; a 1s limit stops it.
+#[tokio::test]
+#[ignore = "needs local Postgres"]
+async fn a_zero_timeout_lets_pg_sleep_run_past_the_limit() {
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(OpenSessionRequest {
+        engine: "postgres".into(),
+        plugin_config: pg_config(),
+        password: None,
+        pool: Some(PoolConfig {
+            max_size: 2,
+            min_idle: 0,
+            acquire_timeout_ms: 5_000,
+            idle_timeout_secs: 0,
+        }),
+        session_id: Some("b4-timeout".into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: None,
+        connection_name: None,
+        profile_read_only: false,
+        use_saved_ssh: true,
+    })
+    .await
+    .unwrap();
+
+    // pg_sleep is not a proven read, so the canvas runs it in Write mode.
+    let mode = QueryMode::Write;
+    let started = Instant::now();
+    let limited = mgr
+        .execute_batch(sleep_req("b4-timeout", mode, 1_000), None)
+        .await;
+    let message = match &limited {
+        Err(err) => err.to_string(),
+        Ok(ran) => ran
+            .results
+            .iter()
+            .find_map(|stmt| stmt.error.clone())
+            .expect("a 1s limit let a 2s sleep finish"),
+    };
+    let message = message.to_ascii_lowercase();
+    assert!(
+        message.contains("timeout") || message.contains("exceeded"),
+        "{message}"
+    );
+    assert!(started.elapsed() < Duration::from_millis(1_900));
+
+    let started = Instant::now();
+    let ran = mgr
+        .execute_batch(sleep_req("b4-timeout", mode, 0), None)
+        .await
+        .unwrap_or_else(|err| panic!("no timeout still stopped: {err}"));
+    assert!(
+        ran.results.iter().all(|stmt| stmt.error.is_none()),
+        "{:?}",
+        ran.results
+    );
+    assert!(started.elapsed() >= Duration::from_secs(2));
+
+    // 0 reaches the server as "off", not as a default limit.
+    for (timeout_ms, want) in [(0, "0"), (1_000, "1s")] {
+        let mut req = sleep_req("b4-timeout", QueryMode::Read, timeout_ms);
+        req.text = "SHOW statement_timeout".into();
+        let ran = mgr.execute_batch(req, None).await.expect("show");
+        let cell = ran.results[0].result.as_ref().expect("rows").rows[0][0].clone();
+        assert_eq!(cell, json!(want), "timeout_ms {timeout_ms}");
+    }
+
+    mgr.pin_tab("b4-timeout", "b4-tab").await.unwrap();
+    let ran = mgr
+        .execute_pinned_batch(
+            sleep_req("b4-timeout", QueryMode::Write, 0),
+            "b4-tab".into(),
+            None,
+        )
+        .await
+        .expect("pinned run with no timeout");
+    assert!(ran.results.iter().all(|stmt| stmt.error.is_none()));
+    let _ = mgr.rollback_tab("b4-tab").await;
+    mgr.close_session("b4-timeout").await.unwrap();
 }

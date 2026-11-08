@@ -2,7 +2,7 @@
 //!
 //! `cargo test -p mystique-plugin-postgres --test pinned_txn -- --ignored`
 //!
-//! Uses the local `postgres` database. Tables and roles are prefixed `s3_`
+//! Uses the local `postgres` database. Tables and roles are prefixed `s3_` or `b4_`
 //! and dropped at the end.
 
 use mystique_connector_api::{
@@ -267,8 +267,10 @@ async fn unpin_resets_session_state_for_the_next_pool_user() {
         ))
         .await
         .expect("session state"));
-    assert!(!pin.in_transaction());
-    pin.rollback().await.expect("unpin");
+    // CREATE TEMP TABLE is a write, so it opened a transaction. Commit so the
+    // session state outlives it and the unpin has to reset it.
+    assert!(pin.in_transaction());
+    pin.commit().await.expect("commit");
     drop(pin);
 
     let state = session
@@ -329,4 +331,70 @@ async fn read_mode_advisory_lock_does_not_stay_on_the_pooled_connection() {
         json!(true),
         "advisory lock stayed on the pooled connection"
     );
+}
+
+/// B-09: with auto-commit off, the first write opens the transaction.
+#[tokio::test]
+#[ignore = "needs local Postgres"]
+async fn a_write_with_no_begin_waits_for_commit_or_rollback() {
+    let session = connect(2).await;
+    let observer = connect(1).await;
+    run(
+        &*observer,
+        "DROP TABLE IF EXISTS b4_pin_auto; CREATE TABLE b4_pin_auto (id int PRIMARY KEY)",
+    )
+    .await;
+    let count = || scalar(&*observer, "SELECT count(*)::int FROM b4_pin_auto");
+
+    let mut pin = session.begin_pinned().await.expect("pin");
+    scalar_on_pin(&mut pin, "SELECT count(*)::int FROM b4_pin_auto").await;
+    assert!(!pin.in_transaction(), "a read opened a transaction");
+
+    ok(pin
+        .execute(&batch(
+            "INSERT INTO b4_pin_auto VALUES (1)",
+            QueryMode::Write,
+        ))
+        .await
+        .expect("insert"));
+    assert!(pin.in_transaction(), "the write did not open a transaction");
+    let before_rollback = count().await;
+    pin.rollback().await.expect("rollback");
+    let after_rollback = count().await;
+
+    ok(pin
+        .execute(&batch(
+            "INSERT INTO b4_pin_auto VALUES (2)",
+            QueryMode::Write,
+        ))
+        .await
+        .expect("insert"));
+    let before_commit = count().await;
+    pin.commit().await.expect("commit");
+    let after_commit = count().await;
+
+    // A typed BEGIN still works and is not doubled: one COMMIT ends it.
+    ok(pin
+        .execute(&batch(
+            "BEGIN; INSERT INTO b4_pin_auto VALUES (3); COMMIT",
+            QueryMode::Write,
+        ))
+        .await
+        .expect("typed transaction"));
+    assert!(!pin.in_transaction());
+    let typed = count().await;
+    drop(pin);
+
+    run(&*observer, "DROP TABLE IF EXISTS b4_pin_auto").await;
+    assert_eq!(
+        before_rollback,
+        json!(0),
+        "the write was visible before commit"
+    );
+    assert_eq!(after_rollback, json!(0), "rollback kept the row");
+    assert_eq!(before_commit, json!(0));
+    assert_eq!(after_commit, json!(1), "commit lost the row");
+    assert_eq!(typed, json!(2));
+    let _ = observer.close().await;
+    let _ = session.close().await;
 }

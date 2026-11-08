@@ -58,7 +58,7 @@ pub use large_cell::{
 };
 pub use metrics::*;
 pub use object_structure::*;
-pub use pin::{PinStatus, PinnedSession};
+pub use pin::{opens_transaction, PinStatus, PinnedSession};
 pub use policy::*;
 pub use pool::*;
 pub use products::{

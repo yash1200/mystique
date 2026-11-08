@@ -8,7 +8,7 @@ use mongodb::bson::{Bson, Document};
 use mongodb::ClientSession;
 use mystique_connector_api::{
     json_u64, ConnectorError, ConnectorResult, QueryColumn, QueryControl, QueryMode, QueryResult,
-    ValidatedQuery,
+    ValidatedQuery, NO_TIMEOUT,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -20,9 +20,17 @@ use crate::shell_query::{
     ShellWrite,
 };
 
-/// `find` is sent with `maxTimeMS` equal to this duration (the clamped timeout).
-pub(super) fn find_max_time(timeout_ms: u64) -> Duration {
-    Duration::from_millis(timeout_ms.max(1))
+/// `maxTimeMS` for a read. `None` for a run with no timeout.
+pub(super) fn find_max_time(timeout_ms: u64) -> Option<Duration> {
+    (timeout_ms != NO_TIMEOUT).then(|| Duration::from_millis(timeout_ms))
+}
+
+/// Set `maxTimeMS` on a driver action unless the run has no timeout.
+fn with_max_time<A>(action: A, timeout_ms: u64, set: impl FnOnce(A, Duration) -> A) -> A {
+    match find_max_time(timeout_ms) {
+        Some(limit) => set(action, limit),
+        None => action,
+    }
 }
 
 /// Dropping `fut` is what aborts a Mongo command. Unlike SQL drivers, there is
@@ -90,6 +98,22 @@ pub(super) async fn execute_in_transaction(
     }
     let call = parse_mongo_call(&query.text)?;
     dispatch_call(session, query, call, start, Some(txn)).await
+}
+
+/// A pinned tab with no open transaction: calls still use the tab's session,
+/// and listings run as usual.
+pub(super) async fn execute_on_session(
+    session: &MongoSession,
+    query: &ValidatedQuery,
+    client_session: &mut ClientSession,
+) -> ConnectorResult<QueryResult> {
+    session.ensure_open()?;
+    if listing(&query.text).is_some() {
+        return execute_query(session, query).await;
+    }
+    let start = Instant::now();
+    let call = parse_mongo_call(&query.text)?;
+    dispatch_call(session, query, call, start, Some(client_session)).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,8 +222,7 @@ async fn execute_find(
     if let Some(skip) = parsed.skip {
         find = find.skip(skip);
     }
-    let max_time = find_max_time(query.timeout_ms);
-    let find = find.limit(limit).max_time(max_time);
+    let find = with_max_time(find.limit(limit), query.timeout_ms, |a, t| a.max_time(t));
     let cursor = match txn {
         Some(txn) => {
             let cursor = drive(&query.control, boxed(find.session(&mut *txn))).await?;
@@ -303,10 +326,11 @@ async fn execute_aggregate(
         .database(&db_name)
         .collection::<Document>(&coll_name);
     let batch = query.max_rows.clamp(1, 1_000);
-    let action = coll
-        .aggregate(aggregate.pipeline)
-        .batch_size(batch)
-        .max_time(find_max_time(query.timeout_ms));
+    let action = with_max_time(
+        coll.aggregate(aggregate.pipeline).batch_size(batch),
+        query.timeout_ms,
+        |a, t| a.max_time(t),
+    );
     let cursor = match txn {
         Some(txn) => {
             let cursor = drive(&query.control, boxed(action.session(&mut *txn))).await?;
@@ -341,8 +365,8 @@ async fn execute_count(
     let count = in_txn!(
         &query.control,
         &mut txn,
-        coll.count_documents(filter)
-            .max_time(find_max_time(query.timeout_ms))
+        with_max_time(coll.count_documents(filter), query.timeout_ms, |a, t| a
+            .max_time(t))
     )?;
     Ok(QueryResult {
         engine: "mongodb".into(),
@@ -377,8 +401,8 @@ async fn execute_distinct(
     let mut values = in_txn!(
         &query.control,
         &mut txn,
-        coll.distinct(&field, filter)
-            .max_time(find_max_time(query.timeout_ms))
+        with_max_time(coll.distinct(&field, filter), query.timeout_ms, |a, t| a
+            .max_time(t))
     )?;
     let truncated = values.len() as u32 > query.max_rows;
     if truncated {
@@ -621,7 +645,7 @@ async fn drain_cursor(
                 drop(cursor);
                 return Err(ConnectorError::Query("Query cancelled.".into()));
             }
-            _ = tokio::time::sleep(Duration::from_millis(mystique_connector_api::INACTIVITY_TIMEOUT_MS)), if saw_doc => {
+            _ = tokio::time::sleep(Duration::from_millis(mystique_connector_api::INACTIVITY_TIMEOUT_MS)), if saw_doc && query.timeout_ms != NO_TIMEOUT => {
                 query.control.cancel();
                 drop(cursor);
                 return Err(ConnectorError::Timeout(format!(
@@ -806,7 +830,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use mystique_connector_api::{clamp_timeout_ms, QueryControl, MAX_TIMEOUT_MS};
+    use mystique_connector_api::{clamp_timeout_ms, QueryControl, MAX_TIMEOUT_MS, NO_TIMEOUT};
 
     use super::{find_max_time, listing, not_in_transaction, Listing};
 
@@ -837,12 +861,14 @@ mod tests {
         // the command. No live MongoDB is required for this check.
         assert_eq!(
             find_max_time(clamp_timeout_ms(Some(120_000))),
-            Duration::from_millis(MAX_TIMEOUT_MS)
+            Some(Duration::from_millis(120_000))
         );
         assert_eq!(
-            find_max_time(clamp_timeout_ms(Some(9_000_000))),
-            Duration::from_millis(MAX_TIMEOUT_MS)
+            find_max_time(clamp_timeout_ms(Some(u64::MAX))),
+            Some(Duration::from_millis(MAX_TIMEOUT_MS))
         );
+        // No timeout sends no maxTimeMS at all.
+        assert_eq!(find_max_time(clamp_timeout_ms(Some(NO_TIMEOUT))), None);
 
         let control = QueryControl::new();
         let dropped = Arc::new(AtomicBool::new(false));

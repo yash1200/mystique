@@ -86,20 +86,24 @@ pub const DEFAULT_MAX_ROWS: u32 = 500;
 /// Hard ceiling for a single query fetch (query canvas uses up to this).
 pub const HARD_MAX_ROWS: u32 = 50_000;
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-/// Floor. A client cannot ask for a 0 ms timeout.
+/// `timeout_ms` of 0: no statement timeout and no client deadline.
+pub const NO_TIMEOUT: u64 = 0;
+/// Floor for a timeout that is not [`NO_TIMEOUT`].
 pub const MIN_TIMEOUT_MS: u64 = 1_000;
-/// Global ceiling. The query canvas sends this. Longer values are clamped.
-/// There is no per-profile timeout column yet; this cap is process-wide.
-pub const MAX_TIMEOUT_MS: u64 = 120_000;
+/// Ceiling for a timeout that is not [`NO_TIMEOUT`] (one day).
+pub const MAX_TIMEOUT_MS: u64 = 86_400_000;
+/// Fixed deadline for grid previews and large-cell fetches.
+pub const FETCH_TIMEOUT_MS: u64 = 120_000;
 
-/// `None` and `0` use [`DEFAULT_TIMEOUT_MS`], not "run forever".
-/// The agent passes 30s and stays there. The canvas passes [`MAX_TIMEOUT_MS`].
+/// `None` uses [`DEFAULT_TIMEOUT_MS`]. `Some(0)` is [`NO_TIMEOUT`], which the
+/// canvas sends when the profile or the global setting says "none".
+/// The agent and MCP pass 30s.
 pub fn clamp_timeout_ms(requested: Option<u64>) -> u64 {
-    let raw = match requested {
-        None | Some(0) => DEFAULT_TIMEOUT_MS,
-        Some(ms) => ms,
-    };
-    raw.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
+    match requested {
+        None => DEFAULT_TIMEOUT_MS,
+        Some(NO_TIMEOUT) => NO_TIMEOUT,
+        Some(ms) => ms.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS),
+    }
 }
 
 /// Validated payload handed to the plugin (never skip policy).
@@ -135,16 +139,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zero_and_missing_timeouts_use_the_default_not_forever() {
+    fn missing_timeout_uses_the_default_and_zero_means_none() {
         assert_eq!(clamp_timeout_ms(None), DEFAULT_TIMEOUT_MS);
-        assert_eq!(clamp_timeout_ms(Some(0)), DEFAULT_TIMEOUT_MS);
+        assert_eq!(clamp_timeout_ms(Some(0)), NO_TIMEOUT);
     }
 
     #[test]
     fn timeout_is_clamped_to_the_global_window() {
         assert_eq!(clamp_timeout_ms(Some(1)), MIN_TIMEOUT_MS);
         assert_eq!(clamp_timeout_ms(Some(30_000)), 30_000);
-        assert_eq!(clamp_timeout_ms(Some(120_000)), MAX_TIMEOUT_MS);
-        assert_eq!(clamp_timeout_ms(Some(9_000_000)), MAX_TIMEOUT_MS);
+        // Longer than the old 120s cap is kept.
+        assert_eq!(clamp_timeout_ms(Some(600_000)), 600_000);
+        assert_eq!(clamp_timeout_ms(Some(u64::MAX)), MAX_TIMEOUT_MS);
     }
 }

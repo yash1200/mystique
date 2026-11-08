@@ -2115,3 +2115,248 @@ async fn bound_parameter_is_not_spliced_into_history() {
     let _ = mgr.close_session("bind-hist").await;
     let _ = std::fs::remove_file(&path);
 }
+
+fn pinned_write(session_id: &str, text: &str) -> mystique_connector_api::ExecuteQueryRequest {
+    batch_req(session_id, text, mystique_connector_api::QueryMode::Write)
+}
+
+#[tokio::test]
+async fn manual_commit_opens_a_transaction_on_the_first_write() {
+    let path = temp_db("pin-auto-begin");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "pin-ab").await;
+    open_local(&mgr, &path, "pin-ab-other").await;
+    mgr.execute_query(write_req(
+        "pin-ab",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER); INSERT INTO t (id, a) VALUES (1, 0)",
+    ))
+    .await
+    .expect("seed");
+    mgr.pin_tab("pin-ab", "tab-ab").await.expect("pin");
+
+    // A read does not open one.
+    mgr.execute_pinned_batch(
+        pinned_write("pin-ab", "SELECT a FROM t"),
+        "tab-ab".into(),
+        None,
+    )
+    .await
+    .expect("read");
+    assert!(!mgr.pin_status("tab-ab").await.in_transaction);
+
+    // A write with no BEGIN does, and rollback discards it.
+    mgr.execute_pinned_batch(
+        pinned_write("pin-ab", "UPDATE t SET a = 1 WHERE id = 1"),
+        "tab-ab".into(),
+        None,
+    )
+    .await
+    .expect("update");
+    assert!(mgr.pin_status("tab-ab").await.in_transaction);
+    assert_eq!(
+        cell(&mgr, "pin-ab-other", "SELECT a FROM t").await,
+        json!(0)
+    );
+    let status = mgr.rollback_open_tab("tab-ab").await.expect("rollback");
+    assert!(status.pinned && !status.in_transaction);
+    assert_eq!(
+        cell(&mgr, "pin-ab-other", "SELECT a FROM t").await,
+        json!(0)
+    );
+
+    // Commit keeps it.
+    mgr.execute_pinned_batch(
+        pinned_write("pin-ab", "UPDATE t SET a = 2 WHERE id = 1"),
+        "tab-ab".into(),
+        None,
+    )
+    .await
+    .expect("update");
+    mgr.commit_tab("tab-ab").await.expect("commit");
+    assert_eq!(
+        cell(&mgr, "pin-ab-other", "SELECT a FROM t").await,
+        json!(2)
+    );
+
+    // A typed BEGIN … COMMIT still works and is not doubled.
+    mgr.execute_pinned_batch(
+        pinned_write("pin-ab", "BEGIN; UPDATE t SET a = 3 WHERE id = 1; COMMIT"),
+        "tab-ab".into(),
+        None,
+    )
+    .await
+    .expect("typed transaction");
+    assert!(!mgr.pin_status("tab-ab").await.in_transaction);
+    assert_eq!(
+        cell(&mgr, "pin-ab-other", "SELECT a FROM t").await,
+        json!(3)
+    );
+
+    // Commit with nothing open does not claim success.
+    let err = mgr.commit_tab("tab-ab").await.expect_err("nothing open");
+    assert!(err.to_string().contains("Nothing was committed"), "{err}");
+
+    let _ = mgr.rollback_tab("tab-ab").await;
+    let _ = mgr.close_session("pin-ab").await;
+    let _ = mgr.close_session("pin-ab-other").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A pin whose transaction the "server" drops when a statement says `boom`.
+struct DroppingPin {
+    open: bool,
+}
+
+fn ok_result() -> mystique_connector_api::QueryResult {
+    mystique_connector_api::QueryResult {
+        engine: "sqlite".into(),
+        mode: mystique_connector_api::QueryMode::Write,
+        columns: Vec::new(),
+        rows: Vec::new(),
+        row_count: 0,
+        truncated: false,
+        duration_ms: 0,
+        message: None,
+    }
+}
+
+#[async_trait::async_trait]
+impl mystique_connector_api::PinnedSession for DroppingPin {
+    async fn execute(
+        &mut self,
+        batch: &mystique_connector_api::ValidatedBatch,
+    ) -> ConnectorResult<mystique_connector_api::QueryBatchResult> {
+        let mut results = Vec::new();
+        for stmt in &batch.statements {
+            if stmt.sql.contains("boom") {
+                self.open = false;
+                let err = mystique_connector_api::ConnectorError::Query("deadlock".into());
+                results.push(mystique_connector_api::StatementResult::failed(
+                    stmt, 0, &err,
+                ));
+                return Ok(mystique_connector_api::QueryBatchResult {
+                    results,
+                    stopped_at: Some(stmt.index),
+                });
+            }
+            self.open = true;
+            results.push(mystique_connector_api::StatementResult::success(
+                stmt,
+                0,
+                ok_result(),
+                None,
+                Vec::new(),
+            ));
+        }
+        Ok(mystique_connector_api::QueryBatchResult {
+            results,
+            stopped_at: None,
+        })
+    }
+
+    async fn commit(&mut self) -> ConnectorResult<()> {
+        self.open = false;
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> ConnectorResult<()> {
+        self.open = false;
+        Ok(())
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.open
+    }
+}
+
+struct DroppingSession;
+
+#[async_trait::async_trait]
+impl ConnectorSession for DroppingSession {
+    fn engine_id(&self) -> &str {
+        "sqlite"
+    }
+
+    fn capabilities(&self) -> EngineCapabilities {
+        EngineCapabilities::sqlite_defaults()
+    }
+
+    async fn ping(&self) -> ConnectorResult<()> {
+        Ok(())
+    }
+
+    fn pool_status(&self) -> Option<PoolStatus> {
+        None
+    }
+
+    async fn close(&self) -> ConnectorResult<()> {
+        Ok(())
+    }
+
+    async fn begin_pinned(
+        &self,
+    ) -> ConnectorResult<Box<dyn mystique_connector_api::PinnedSession + Send>> {
+        Ok(Box::new(DroppingPin { open: false }))
+    }
+}
+
+#[tokio::test]
+async fn a_transaction_the_server_dropped_is_reported_and_commit_refuses() {
+    let mgr = ConnectionManager::bootstrap();
+    mgr.sessions.write().await.insert(
+        "drop".into(),
+        LiveSession {
+            session: std::sync::Arc::new(DroppingSession),
+            display_name: "drop".into(),
+            opened_at: String::new(),
+            product_id: "sqlite".into(),
+            _tunnel: None,
+            environment: "local".into(),
+            read_only: false,
+            connection_name: "drop".into(),
+            origin: super::SessionOrigin::Ui,
+            profile_id: None,
+            last_used: std::sync::Mutex::new(std::time::Instant::now()),
+        },
+    );
+    mgr.pin_tab("drop", "tab-drop").await.expect("pin");
+    mgr.execute_pinned_batch(
+        pinned_write("drop", "UPDATE t SET a = 1"),
+        "tab-drop".into(),
+        None,
+    )
+    .await
+    .expect("write");
+    assert!(mgr.pin_status("tab-drop").await.in_transaction);
+
+    mgr.execute_pinned_batch(
+        pinned_write("drop", "UPDATE t SET a = boom"),
+        "tab-drop".into(),
+        None,
+    )
+    .await
+    .expect("batch with a failed statement");
+    let status = mgr.pin_status("tab-drop").await;
+    assert!(status.pinned && !status.in_transaction);
+    assert!(status.rolled_back, "the dropped transaction was silent");
+
+    let err = mgr.commit_tab("tab-drop").await.expect_err("commit");
+    assert!(err.to_string().contains("rolled back"), "{err}");
+    assert!(
+        !mgr.pin_status("tab-drop").await.rolled_back,
+        "reported once"
+    );
+
+    // A plain failure inside an open transaction is not a lost transaction.
+    mgr.execute_pinned_batch(
+        pinned_write("drop", "UPDATE t SET a = 2"),
+        "tab-drop".into(),
+        None,
+    )
+    .await
+    .expect("write");
+    mgr.rollback_open_tab("tab-drop").await.expect("rollback");
+    assert!(!mgr.pin_status("tab-drop").await.rolled_back);
+    let _ = mgr.rollback_tab("tab-drop").await;
+}
