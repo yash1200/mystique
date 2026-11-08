@@ -9,6 +9,7 @@ use mystique_connector_api::{
     ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
     QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
+use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Format, IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
@@ -93,7 +94,7 @@ pub(super) async fn execute_batch(
         {
             return end_read_only_txn(client, Err(query_failed(err))).await;
         }
-        let result = run_planned_batch(&client, batch, true).await;
+        let result = run_planned_batch(&client, batch, true, true).await;
         end_read_only_txn(client, result).await
     } else {
         execute_held(session, &client, batch).await
@@ -111,19 +112,22 @@ pub(super) async fn execute_held(
     let _ = client
         .batch_execute(&format!("SET statement_timeout = {timeout}"))
         .await;
-    let result = run_planned_batch(client, batch, false).await;
+    let result = run_planned_batch(client, batch, false, false).await;
     let _ = client.batch_execute("RESET statement_timeout").await;
     result
 }
 
+/// `in_txn` is whether a transaction block is already open. A cursor SELECT
+/// is wrapped in its own BEGIN … COMMIT only when none is.
 pub(super) async fn run_planned_batch(
     client: &Client,
     batch: &ValidatedBatch,
     locked: bool,
+    in_txn: bool,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
-    let mut in_txn = locked;
+    let mut in_txn = locked || in_txn;
     for stmt in &batch.statements {
         if batch.control.is_cancelled() {
             return Err(ConnectorError::Query("Query cancelled.".into()));
@@ -131,6 +135,12 @@ pub(super) async fn run_planned_batch(
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
         let outcome = run_planned(client, batch, stmt, &mut in_txn).await?;
         let failed = outcome.error.is_some();
+        if stmt.txn_boundary && !locked && !failed {
+            in_txn = match transaction_state(client).await {
+                Some(state) => state != TxnState::Idle,
+                None => txn_mark(&stmt.sql) == Some(TxnMark::Begin),
+            };
+        }
         let index = outcome.index;
         results.push(outcome);
         emit_progress(&batch.progress, index, total, BatchPhase::Finished);
@@ -322,11 +332,20 @@ fn postgres_statement_error(
     }
 }
 
+/// Session advisory locks outlive ROLLBACK. A read that took one (the
+/// classifier missed it) would leave it on the pooled connection.
 pub(super) async fn end_read_only_txn<T>(
     client: deadpool_postgres::Object,
     result: ConnectorResult<T>,
 ) -> ConnectorResult<T> {
-    match client.batch_execute("ROLLBACK").await {
+    let mut ended = client
+        .batch_execute("ROLLBACK; SELECT pg_advisory_unlock_all()")
+        .await;
+    if ended.is_err() {
+        // A server without advisory locks fails the unlock, not the ROLLBACK.
+        ended = client.batch_execute("ROLLBACK").await;
+    }
+    match ended {
         Ok(()) => result,
         Err(err) => {
             // A failed ROLLBACK would hand the next checkout an open transaction.
@@ -479,6 +498,39 @@ fn txn_mark(sql: &str) -> Option<TxnMark> {
         "commit" | "end" => Some(TxnMark::End),
         "rollback" | "abort" if second != "to" => Some(TxnMark::End),
         _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TxnState {
+    Idle,
+    Open,
+    /// A statement failed. Only ROLLBACK is accepted; COMMIT also rolls back.
+    Failed,
+}
+
+/// Whether the session is inside a transaction block.
+///
+/// tokio-postgres drops the ReadyForQuery status byte. Outside a block the
+/// probe runs in its own implicit transaction, so its start time equals the
+/// statement's (one simple-protocol message). After BEGIN the transaction
+/// started at BEGIN, at least one round trip earlier. An aborted block
+/// refuses the probe. `None` when the probe could not run.
+pub(super) async fn transaction_state(client: &Client) -> Option<TxnState> {
+    let probe = "SELECT transaction_timestamp() <> statement_timestamp()";
+    match client.simple_query(probe).await {
+        Ok(messages) => messages.iter().find_map(|message| match message {
+            SimpleQueryMessage::Row(row) => match row.get(0) {
+                Some("t") => Some(TxnState::Open),
+                Some(_) => Some(TxnState::Idle),
+                None => None,
+            },
+            _ => None,
+        }),
+        Err(err) if err.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION) => {
+            Some(TxnState::Failed)
+        }
+        Err(_) => None,
     }
 }
 

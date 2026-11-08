@@ -1,21 +1,19 @@
 //! One pooled Postgres connection held for a manual-commit tab.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use async_trait::async_trait;
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, InterruptGuard, PinnedSession, QueryBatchResult, QueryControl,
     ValidatedBatch,
 };
 
-use super::query::run_planned_batch;
+use super::query::{run_planned_batch, transaction_state, TxnState};
 use super::query_failed;
 use super::{PgCancelTls, PostgresSession};
 
 pub struct PostgresPin {
     client: Option<deadpool_postgres::Object>,
     cancel_tls: PgCancelTls,
-    open: AtomicBool,
+    state: TxnState,
 }
 
 impl PostgresPin {
@@ -23,33 +21,19 @@ impl PostgresPin {
         Self {
             client: Some(client),
             cancel_tls,
-            open: AtomicBool::new(false),
-        }
-    }
-
-    fn note(&self, batch: &ValidatedBatch) {
-        for stmt in &batch.statements {
-            if !stmt.txn_boundary {
-                continue;
-            }
-            let head = stmt
-                .sql
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            let open = head != "commit" && head != "rollback";
-            self.open.store(open, Ordering::SeqCst);
+            state: TxnState::Idle,
         }
     }
 
     async fn refresh(&mut self) {
         let Some(client) = self.client.as_ref() else {
-            self.open.store(false, Ordering::SeqCst);
+            self.state = TxnState::Idle;
             return;
         };
-        if let Some(open) = probe_transaction(client).await {
-            self.open.store(open, Ordering::SeqCst);
+        if let Some(state) = transaction_state(client).await {
+            self.state = state;
+        } else if client.is_closed() {
+            self.state = TxnState::Idle;
         }
     }
 
@@ -87,9 +71,11 @@ impl PinnedSession for PostgresPin {
         let _ = client
             .batch_execute(&format!("SET statement_timeout = {timeout}"))
             .await;
-        let result = run_planned_batch(client, batch, false).await;
+        // Inside the user's transaction a cursor is declared directly. Its own
+        // BEGIN … COMMIT would commit their open writes.
+        let in_txn = self.state != TxnState::Idle;
+        let result = run_planned_batch(client, batch, false, in_txn).await;
         let _ = client.batch_execute("RESET statement_timeout").await;
-        self.note(batch);
         self.refresh().await;
         result
     }
@@ -103,30 +89,41 @@ impl PinnedSession for PostgresPin {
     }
 
     fn in_transaction(&self) -> bool {
-        self.open.load(Ordering::SeqCst)
+        self.state != TxnState::Idle
     }
 }
 
 impl PostgresPin {
     async fn finish(&mut self, commit: bool) -> ConnectorResult<()> {
         self.refresh().await;
-        if !self.open.load(Ordering::SeqCst) {
-            return Ok(());
+        let state = self.state;
+        if state == TxnState::Idle {
+            return if commit {
+                Err(ConnectorError::Query(
+                    "No open transaction. Nothing was committed.".into(),
+                ))
+            } else {
+                Ok(())
+            };
         }
         let client = self.client()?;
-        let sql = if commit { "COMMIT" } else { "ROLLBACK" };
-        match client.batch_execute(sql).await {
-            Ok(()) => {
-                self.open.store(false, Ordering::SeqCst);
-                Ok(())
-            }
-            Err(err) if commit => {
-                let _ = client.batch_execute("ROLLBACK").await;
-                self.open.store(false, Ordering::SeqCst);
-                Err(query_failed(err))
-            }
-            Err(err) => Err(query_failed(err)),
+        // COMMIT of a failed transaction rolls back without an error. Say so.
+        let commit_sql = commit && state == TxnState::Open;
+        let ended = client
+            .batch_execute(if commit_sql { "COMMIT" } else { "ROLLBACK" })
+            .await;
+        if ended.is_err() && commit_sql {
+            let _ = client.batch_execute("ROLLBACK").await;
         }
+        self.refresh().await;
+        ended.map_err(query_failed)?;
+        if commit && !commit_sql {
+            return Err(ConnectorError::Query(
+                "A statement in the transaction failed, so it was rolled back. Nothing was committed."
+                    .into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -135,25 +132,31 @@ impl Drop for PostgresPin {
         let Some(client) = self.client.take() else {
             return;
         };
-        if !self.open.load(Ordering::SeqCst) {
-            return;
-        }
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            // No runtime to reset it on. Close it rather than pool it.
+            drop(deadpool_postgres::Object::take(client));
             return;
         };
         handle.spawn(async move {
-            let _ = client.batch_execute("ROLLBACK").await;
+            if reset_session(&client).await.is_err() {
+                drop(deadpool_postgres::Object::take(client));
+            }
         });
     }
 }
 
-async fn probe_transaction(client: &deadpool_postgres::Object) -> Option<bool> {
-    let rows = client
-        .query("SELECT txid_current_if_assigned() IS NOT NULL", &[])
-        .await
-        .ok()?;
-    let row = rows.first()?;
-    row.try_get(0).ok()
+/// Leave nothing for the next pool user: an open transaction, `SET`, role,
+/// temp tables, advisory locks, prepared statements. DISCARD ALL refuses to run
+/// inside a transaction block, so on failure roll back and run it again.
+async fn reset_session(client: &deadpool_postgres::Object) -> Result<(), tokio_postgres::Error> {
+    if client.batch_execute("DISCARD ALL").await.is_err() {
+        client.batch_execute("ROLLBACK").await?;
+        client.batch_execute("DISCARD ALL").await?;
+    }
+    // DISCARD ALL also drops the statements the driver cached for type lookups.
+    client.clear_type_cache();
+    client.statement_cache.clear();
+    Ok(())
 }
 
 impl PostgresSession {

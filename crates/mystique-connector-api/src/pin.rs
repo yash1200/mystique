@@ -28,6 +28,9 @@ pub trait PinnedSession: Send {
 pub struct PinStatus {
     pub pinned: bool,
     pub in_transaction: bool,
+    /// An open transaction was rolled back: on unpin, or without the user
+    /// asking (idle timeout, disconnect). Nothing in it was committed.
+    pub rolled_back: bool,
 }
 
 impl PinStatus {
@@ -35,6 +38,15 @@ impl PinStatus {
         Self {
             pinned: false,
             in_transaction: false,
+            rolled_back: false,
+        }
+    }
+
+    pub const fn pinned(in_transaction: bool) -> Self {
+        Self {
+            pinned: true,
+            in_transaction,
+            rolled_back: false,
         }
     }
 }

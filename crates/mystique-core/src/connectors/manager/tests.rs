@@ -1474,8 +1474,14 @@ async fn closing_the_pin_rolls_the_update_back() {
     )
     .await
     .expect("update");
-    mgr.rollback_tab("tab-rb").await.expect("unpin");
-    assert!(!mgr.pin_status("tab-rb").await.pinned);
+    let unpinned = mgr.rollback_tab("tab-rb").await.expect("unpin");
+    assert!(
+        unpinned.rolled_back,
+        "unpin dropped an open transaction silently"
+    );
+    let status = mgr.pin_status("tab-rb").await;
+    assert!(!status.pinned);
+    assert!(!status.rolled_back, "the unpin already reported it");
     assert_eq!(
         cell(&mgr, "pin-rb-other", "SELECT a FROM t WHERE id = 1").await,
         json!(0)
@@ -1518,11 +1524,55 @@ async fn idle_pin_rolls_back() {
     .expect("update");
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     mgr.reap_idle().await;
-    assert!(!mgr.pin_status("tab-idle").await.pinned);
+    let status = mgr.pin_status("tab-idle").await;
+    assert!(!status.pinned);
+    assert!(status.rolled_back, "idle rollback was silent");
     assert_eq!(
         cell(&mgr, "pin-idle-other", "SELECT a FROM t WHERE id = 1").await,
         json!(0)
     );
+
+    // Commit after the reap must not report success.
+    let err = mgr.commit_tab("tab-idle").await.expect_err("commit");
+    assert!(err.to_string().contains("rolled back"), "{err}");
+
+    // The next run is refused once, so it does not run outside the lost transaction.
+    mgr.reap_idle().await;
+    mgr.pin_tab_for("pin-idle", "tab-idle", std::time::Duration::from_millis(1))
+        .await
+        .expect("pin");
+    mgr.execute_pinned_batch(
+        batch_req(
+            "pin-idle",
+            "BEGIN; UPDATE t SET a = 2 WHERE id = 1",
+            mystique_connector_api::QueryMode::Write,
+        ),
+        "tab-idle".into(),
+        None,
+    )
+    .await
+    .expect("update");
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    mgr.reap_idle().await;
+    let run = || {
+        mgr.execute_pinned_batch(
+            batch_req(
+                "pin-idle",
+                "UPDATE t SET a = 3 WHERE id = 1",
+                mystique_connector_api::QueryMode::Write,
+            ),
+            "tab-idle".into(),
+            None,
+        )
+    };
+    let err = run().await.expect_err("first run after the reap");
+    assert!(err.to_string().contains("Nothing ran"), "{err}");
+    assert_eq!(
+        cell(&mgr, "pin-idle-other", "SELECT a FROM t WHERE id = 1").await,
+        json!(0)
+    );
+    run().await.expect("second run");
+    let _ = mgr.rollback_tab("tab-idle").await;
     let _ = mgr.close_session("pin-idle").await;
     let _ = mgr.close_session("pin-idle-other").await;
     let _ = std::fs::remove_file(&path);
