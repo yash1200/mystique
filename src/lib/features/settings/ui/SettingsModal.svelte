@@ -6,6 +6,7 @@
 	import AiSettings from './AiSettings.svelte'
 	import AppearanceSettings from './AppearanceSettings.svelte'
 	import McpSettings from './McpSettings.svelte'
+	import PasswordsSettings from './PasswordsSettings.svelte'
 	import WorkspaceSettings from './WorkspaceSettings.svelte'
 
 	interface Props {
@@ -35,6 +36,13 @@
 			title: 'Workspace',
 			icon: 'table',
 			description: 'Applies to the workspace.',
+		},
+		{
+			id: 'passwords',
+			label: 'Passwords',
+			title: 'Saved passwords',
+			icon: 'plug',
+			description: 'How Mystique protects the passwords you save.',
 		},
 		{
 			id: 'ai',
@@ -159,6 +167,8 @@
 						<AppearanceSettings />
 					{:else if appSettingsUi.section === 'workspace'}
 						<WorkspaceSettings />
+					{:else if appSettingsUi.section === 'passwords'}
+						<PasswordsSettings />
 					{:else if appSettingsUi.section === 'ai'}
 						<AiSettings />
 					{:else}

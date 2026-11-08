@@ -165,6 +165,9 @@ pub fn run() {
             ipc::settings::set_setting,
             ipc::settings::list_settings,
             ipc::settings::delete_setting,
+            ipc::settings::get_vault_status,
+            ipc::settings::retry_vault_unlock,
+            ipc::settings::purge_keychain_items,
             // MCP (external clients). In-app agents must call AgentTools, not HTTP.
             ipc::mcp::get_mcp_status,
             ipc::mcp::set_mcp_enabled,

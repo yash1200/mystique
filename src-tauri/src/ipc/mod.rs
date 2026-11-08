@@ -7,7 +7,8 @@
 //! Moved to `async` + [`blocking`] in 4.5.13 (keychain or metadata SQLite):
 //! - profiles: `list_profiles`, `get_profile`, `save_profile`, `delete_profile`,
 //!   `touch_profile_connected`
-//! - settings: `get_setting`, `set_setting`, `list_settings`, `delete_setting`
+//! - settings: `get_setting`, `set_setting`, `list_settings`, `delete_setting`,
+//!   `get_vault_status`, `retry_vault_unlock`, `purge_keychain_items`
 //! - queries: `list_saved_queries`, `save_query`, `delete_saved_query`
 //! - tabs: `list_workspace_tabs`, `replace_workspace_tabs`, `delete_workspace_tab`
 //! - history: `append_query_history`, `list_query_history`,

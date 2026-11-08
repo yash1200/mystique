@@ -67,3 +67,38 @@ export function mcpClientSnippet(status: McpStatus): string {
 		2,
 	)
 }
+
+/** The one vault key that seals saved passwords. */
+export interface VaultStatus {
+	/** `keychain` in release builds, `file` in development builds. */
+	source: 'keychain' | 'file' | 'memory'
+	/** `idle` until the first saved password is needed. */
+	state: 'idle' | 'unlocked' | 'denied'
+	message?: string
+}
+
+export interface KeychainCleanup {
+	/** False when this build does not use the keychain. */
+	supported: boolean
+	deleted: number
+	/** Items that would have needed a keychain prompt to delete. */
+	skipped: number
+}
+
+/** Never unlocks: safe to call when the pane opens. */
+export async function getVaultStatus(): Promise<VaultStatus> {
+	requireTauri()
+	return invoke('get_vault_status')
+}
+
+/** Forget a denied keychain prompt and ask again. */
+export async function retryVaultUnlock(): Promise<VaultStatus> {
+	requireTauri()
+	return invoke('retry_vault_unlock')
+}
+
+/** Delete keychain items older versions left behind. Never prompts. */
+export async function cleanUpKeychain(): Promise<KeychainCleanup> {
+	requireTauri()
+	return invoke('purge_keychain_items')
+}
