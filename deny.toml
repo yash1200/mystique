@@ -1,0 +1,66 @@
+# cargo-deny: https://embarkstudios.github.io/cargo-deny/
+# CI runs `cargo deny check` (advisories, bans, licenses, sources).
+# Advisories here replace a separate `cargo audit` job: same RustSec database.
+
+[graph]
+# Check every platform the app ships on, so a macOS-only or Linux-only
+# dependency is not skipped.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+all-features = false
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+# Unmaintained crates fail only when a workspace crate depends on them
+# directly; transitive ones (gtk-rs and zbus under Tauri) are upstream's call.
+unmaintained = "workspace"
+# Add `{ id = "RUSTSEC-…", reason = "…" }` entries only with a reason and an
+# issue to remove them.
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# Every license that is the only choice somewhere in today's graph (from
+# `cargo metadata`). An `A OR B` crate passes when either side is listed.
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0", # webpki-roots
+    "ISC",
+    "MPL-2.0",             # cssparser, selectors (Tauri), option-ext (dirs)
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[licenses.private]
+# Workspace crates are `publish = false` and carry the repository's MIT LICENSE.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

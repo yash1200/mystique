@@ -1,0 +1,121 @@
+# Checks for every push to main and every pull request.
+# No live databases: plugin integration tests that need a server are #[ignore]d.
+#
+# Jobs:
+#   frontend      pnpm check (svelte-kit sync, zone boundaries, svelte-check) + vitest
+#   rust          cargo test for every crate except the Tauri shell
+#   layers        crate dependency direction (scripts/check-crate-layers.mjs)
+#   deny          cargo deny: licenses, bans (duplicate versions warn), sources
+#   audit         cargo deny: RustSec advisories (stands in for cargo audit; non-blocking for now)
+#   tauri-smoke   the desktop shell builds on macOS (debug, no bundle)
+#   lint          clippy + rustfmt, non-blocking until the warnings are fixed
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # rust-toolchain.toml lists both macOS targets for local release builds.
+  # CI builds for the runner's host only, so plain stable is enough.
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # keyring's Secret Service backend links libdbus.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `mystique` is the Tauri shell: it needs WebKitGTK on Linux and is
+      # covered by tauri-smoke.
+      - run: cargo test --workspace --exclude mystique --locked
+
+  layers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-crate-layers.mjs
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses sources
+
+  audit:
+    runs-on: ubuntu-latest
+    # Non-blocking for now: the lockfile has open RustSec advisories (rustls,
+    # rustls-webpki, webpki-roots, tokio, libz-sys, crypto-bigint, ctutils)
+    # that need a dependency update. Drop this line once they are cleared.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
+
+  tauri-smoke:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tauri-smoke
+      - run: pnpm install --frozen-lockfile
+      # Runs beforeBuildCommand (pnpm check && pnpm build), then compiles the
+      # shell with the frontend embedded. No signing, no .app/.dmg.
+      - run: pnpm tauri build --debug --no-bundle
+
+  lint:
+    runs-on: ubuntu-latest
+    # Non-blocking until the existing warnings are fixed; then this becomes
+    # `cargo clippy ... -- -D warnings` and loses continue-on-error.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+        continue-on-error: true
+      - run: cargo clippy --workspace --exclude mystique --all-targets --locked

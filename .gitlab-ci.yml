@@ -1,3 +1,4 @@
+# GitHub Actions (.github/workflows/ci.yml) is the primary CI now; this file is kept for the GitLab mirror.
 # P0.2 — typecheck + unit tests on main and merge requests.
 # No live databases. Tauri/GTK is excluded (no tests in src-tauri).
 

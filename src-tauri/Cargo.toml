@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Mystique desktop shell (Tauri)"
 authors = ["you"]
 edition = "2021"
+publish = false
 
 # Release panic policy lives on the workspace `[profile.release]` in ../Cargo.toml
 # (`panic = "unwind"`). This shell catches a plugin panic in `src/ipc/mod.rs`
