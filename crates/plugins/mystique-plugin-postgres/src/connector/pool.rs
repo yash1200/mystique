@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use deadpool_postgres::{Config as PoolCfg, ManagerConfig, RecyclingMethod, Runtime, SslMode};
 use mystique_connector_api::{
-    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult, SslMode as MystSslMode,
-    TlsSettings,
+    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult,
 };
+use mystique_tls::{SslMode as MystSslMode, TlsSettings};
 use tokio_postgres::error::{DbError, SqlState};
 use tokio_postgres::NoTls;
 

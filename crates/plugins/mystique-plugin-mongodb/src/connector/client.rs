@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use mongodb::options::{ClientOptions, ServerAddress, Tls, TlsOptions};
 use mongodb::Client;
-use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult, TlsSettings};
+use mystique_connector_api::{ConnectionConfig, ConnectorError, ConnectorResult};
+use mystique_tls::TlsSettings;
 
 use super::url::database_from_mongo_uri;
 
@@ -71,7 +72,7 @@ pub(super) async fn build_client(
 
     let tls = TlsSettings::from_config(config);
     tls.check(&config.engine)?;
-    if tls.mode == mystique_connector_api::SslMode::VerifyFull {
+    if tls.mode == mystique_tls::SslMode::VerifyFull {
         if let Some(message) = mongo_verify_full_tunnel_error(config) {
             return Err(ConnectorError::InvalidConfig(message));
         }

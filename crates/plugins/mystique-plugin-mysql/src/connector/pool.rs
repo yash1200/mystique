@@ -1,7 +1,8 @@
 use mysql_async::{ClientIdentity, OptsBuilder, Pool, PoolConstraints, PoolOpts, SslOpts};
 use mystique_connector_api::{
-    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult, TlsSettings,
+    prettify_sql_error, ConnectionConfig, ConnectorError, ConnectorResult,
 };
+use mystique_tls::TlsSettings;
 
 pub(crate) fn format_error(err: &mysql_async::Error) -> String {
     match err {

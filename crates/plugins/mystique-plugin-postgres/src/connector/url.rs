@@ -102,7 +102,7 @@ pub(crate) fn format_postgres_url(
         .clone()
         .or_else(|| config.str_field("password"))
         .filter(|s| !s.is_empty());
-    let ssl_mode = mystique_connector_api::SslMode::from_config(config);
+    let ssl_mode = mystique_tls::SslMode::from_config(config);
 
     // Keep host readable (IPv4 / hostnames); encode user/pass/db.
     let mut authority = format!("{host}:{port}");

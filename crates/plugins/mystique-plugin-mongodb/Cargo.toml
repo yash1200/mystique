@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 mystique-connector-api = { path = "../../mystique-connector-api" }
+mystique-tls = { path = "../../mystique-tls" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 mongodb = { version = "3", default-features = true, features = ["cert-key-password"] }

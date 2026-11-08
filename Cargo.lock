@@ -6392,7 +6392,7 @@ dependencies = [
  "csv",
  "encoding_rs",
  "mystique-sql",
- "native-tls",
+ "mystique-tls",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -6451,6 +6451,7 @@ dependencies = [
  "chrono",
  "mongodb",
  "mystique-connector-api",
+ "mystique-tls",
  "serde",
  "serde_json",
  "tokio",
@@ -6464,6 +6465,7 @@ dependencies = [
  "chrono",
  "mysql_async",
  "mystique-connector-api",
+ "mystique-tls",
  "serde_json",
  "tokio",
 ]
@@ -6478,6 +6480,7 @@ dependencies = [
  "deadpool-postgres",
  "futures-util",
  "mystique-connector-api",
+ "mystique-tls",
  "native-tls",
  "postgres-native-tls",
  "serde_json",
@@ -6505,6 +6508,15 @@ name = "mystique-sql"
 version = "0.1.0"
 dependencies = [
  "sqlparser 0.58.0",
+]
+
+[[package]]
+name = "mystique-tls"
+version = "0.1.0"
+dependencies = [
+ "native-tls",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

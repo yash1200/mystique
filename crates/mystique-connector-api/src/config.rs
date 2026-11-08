@@ -135,3 +135,9 @@ impl ConnectionConfig {
             .ok_or_else(|| ConnectorError::InvalidConfig(format!("missing `{key}`")))
     }
 }
+
+impl mystique_tls::TlsConfigSource for ConnectionConfig {
+    fn plugin_config(&self) -> &JsonValue {
+        &self.plugin_config
+    }
+}
