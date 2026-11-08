@@ -1,12 +1,14 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '#core/contracts'
+	import { commands } from '#core/commands'
 	import { Button, Kbd } from '#core/ui'
 	import {
-		APP_SHORTCUT_GROUPS,
 		isMacPlatform,
 		labelForKey,
+		shortcutItem,
 		type ShortcutItem,
 	} from '#features/shortcuts'
+	import { cmd } from '#lib/app'
 	interface Props {
 		profile: ConnectionProfile
 		onnewquery?: () => void
@@ -16,26 +18,18 @@
 
 	const mac = isMacPlatform()
 
-	const FEATURED_IDS = [
-		'new-query',
-		'close-tab',
-		'save',
-		'run',
-		'format',
-		'reset',
-	] as const
+	const FEATURED = [
+		cmd.newQuery,
+		cmd.closeTab,
+		cmd.save,
+		cmd.run,
+		cmd.format,
+		cmd.reset,
+	]
 
-	const featured = $derived.by((): ShortcutItem[] => {
-		const byId = new Map(
-			APP_SHORTCUT_GROUPS.flatMap((g) => g.items).map((item) => [
-				item.id,
-				item,
-			]),
-		)
-		return FEATURED_IDS.map((id) => byId.get(id)).filter(
-			(item): item is ShortcutItem => item != null,
-		)
-	})
+	const featured = FEATURED.map((spec) =>
+		shortcutItem(commands.get(spec.id) ?? spec, mac),
+	).filter((item): item is ShortcutItem => item != null)
 </script>
 
 <div

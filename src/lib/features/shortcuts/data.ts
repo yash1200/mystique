@@ -1,9 +1,22 @@
+/**
+ * Keyboard shortcuts shown in the Help dialog, read from the command
+ * registry so the list is always what the keys do.
+ */
+import {
+	bindingsFor,
+	commands,
+	keyLabel,
+	keyTokens,
+	type CommandSpec,
+} from '#core/commands'
 import { isMacPlatform } from '#core/util'
-/** Keyboard shortcuts shown in the Help modal. Tokens: `mod` `shift` `alt` `enter` `delete` `backspace`. */
+// The keymap file alone: the app barrel pulls in rune state.
+import { COMMAND_GROUPS } from '#lib/app/commands.js'
 
 export type ShortcutItem = {
 	id: string
 	label: string
+	/** Tokens such as `Mod`, `Shift`, `T`; see `labelForKey`. */
 	keys: string[]
 	/** Alternate chord shown after “or”. */
 	orKeys?: string[]
@@ -16,146 +29,35 @@ export type ShortcutGroup = {
 }
 
 export function labelForKey(token: string, mac = isMacPlatform()): string {
-	switch (token.toLowerCase()) {
-		case 'mod':
-			return mac ? 'Cmd' : 'Ctrl'
-		case 'shift':
-			return 'Shift'
-		case 'alt':
-			return mac ? 'Option' : 'Alt'
-		case 'enter':
-			return 'Enter'
-		case 'delete':
-			return 'Delete'
-		case 'backspace':
-			return 'Backspace'
-		case 'esc':
-			return 'Esc'
-		case 'tab':
-			return 'Tab'
-		case 'up':
-			return 'Up'
-		case 'down':
-			return 'Down'
-		case 'left':
-			return 'Left'
-		case 'right':
-			return 'Right'
-		default:
-			return token
+	return keyLabel(token, mac)
+}
+
+/** One row for a command, or null when it has no keys on this platform. */
+export function shortcutItem(spec: CommandSpec, mac = isMacPlatform()): ShortcutItem | null {
+	if (spec.display) return { id: spec.id, label: spec.title, keys: [...spec.display] }
+	const [first, second] = bindingsFor(spec.keys, mac)
+	if (!first) return null
+	return {
+		id: spec.id,
+		label: spec.title,
+		keys: keyTokens(first),
+		orKeys: second ? keyTokens(second) : undefined,
 	}
 }
 
-export const APP_SHORTCUT_GROUPS: ShortcutGroup[] = [
-	{
-		id: 'app',
-		title: 'App',
-		items: [
-			{ id: 'settings', label: 'Open settings', keys: ['mod', ','] },
-			{
-				id: 'reset',
-				label: 'Close connections and return home',
-				keys: ['mod', 'shift', 'R'],
-			},
-			{ id: 'zoom-in', label: 'Increase UI scale', keys: ['mod', '+'] },
-			{ id: 'zoom-out', label: 'Decrease UI scale', keys: ['mod', '−'] },
-			{ id: 'zoom-reset', label: 'Reset UI scale', keys: ['mod', '0'] },
-		],
-	},
-	{
-		id: 'home',
-		title: 'Home',
-		items: [
-			{
-				id: 'back-to-new',
-				label: 'Back to new connection',
-				keys: ['esc'],
-			},
-		],
-	},
-	{
-		id: 'workspace',
-		title: 'Workspace',
-		items: [
-			{ id: 'quick-open', label: 'Quick open', keys: ['mod', 'K'] },
-			{ id: 'new-query', label: 'New query tab', keys: ['mod', 'T'] },
-			{ id: 'close-tab', label: 'Close dialog, or tab if none is open', keys: ['mod', 'W'] },
-			{ id: 'reopen-tab', label: 'Reopen closed tab', keys: ['mod', 'shift', 'T'] },
-			{ id: 'toggle-rail', label: 'Toggle session rail', keys: ['mod', 'B'] },
-			{
-				id: 'focus-filter',
-				label: 'Focus object filter (outside the editor)',
-				keys: ['mod', 'L'],
-			},
-			{ id: 'focus-tab', label: 'Focus workspace tab 1–9', keys: ['mod', '1'] },
-			{ id: 'prev-connection', label: 'Previous connection', keys: ['mod', 'shift', '['] },
-			{ id: 'next-connection', label: 'Next connection', keys: ['mod', 'shift', ']'] },
-			{ id: 'save', label: 'Save query or table', keys: ['mod', 'S'] },
-			{
-				id: 'open-connection',
-				label: 'Open another connection',
-				keys: ['mod', 'O'],
-			},
-		],
-	},
-	{
-		id: 'query',
-		title: 'Query editor',
-		items: [
-			{
-				id: 'run',
-				label: 'Run statement at cursor',
-				keys: ['mod', 'enter'],
-			},
-			{
-				id: 'run-all',
-				label: 'Run all statements',
-				keys: ['mod', 'shift', 'enter'],
-			},
-			{ id: 'find', label: 'Find in query', keys: ['mod', 'F'] },
-			{ id: 'find-next', label: 'Find next', keys: ['mod', 'G'] },
-			{ id: 'format', label: 'Format query', keys: ['mod', 'shift', 'F'] },
-			{ id: 'save-query', label: 'Save query', keys: ['mod', 'S'] },
-		],
-	},
-	{
-		id: 'grid',
-		title: 'Table',
-		items: [
-			{ id: 'save-grid', label: 'Save changes', keys: ['mod', 'S'] },
-			{
-				id: 'refresh',
-				label: 'Reload this page of rows (press twice to discard edits)',
-				keys: ['mod', 'R'],
-			},
-			{ id: 'new-row', label: 'New row', keys: ['mod', 'N'] },
-			{ id: 'dup-row', label: 'Duplicate row', keys: ['mod', 'D'] },
-			{ id: 'del-row', label: 'Delete row', keys: ['mod', 'delete'] },
-			{ id: 'copy', label: 'Copy cell', keys: ['mod', 'C'] },
-			{ id: 'paste', label: 'Paste', keys: ['mod', 'V'] },
-			{ id: 'edit', label: 'Edit cell', keys: ['Enter'], orKeys: ['F2'] },
-			{ id: 'expand', label: 'Open cell editor', keys: ['shift', 'enter'] },
-			{ id: 'null', label: 'Set cell to NULL', keys: ['delete'] },
-			{
-				id: 'nav',
-				label: 'Move selection',
-				keys: ['up', 'down', 'left', 'right'],
-			},
-		],
-	},
-	{
-		id: 'model',
-		title: 'Model',
-		items: [
-			{ id: 'layout', label: 'Auto-layout', keys: ['mod', 'shift', 'L'] },
-			{
-				id: 'download-png',
-				label: 'Download ERD as PNG',
-				keys: ['mod', 'shift', 'E'],
-			},
-			{ id: 'select-all', label: 'Select all tables', keys: ['mod', 'A'] },
-		],
-	},
-]
+/** Commands with keys, by group, in keymap order. */
+export function shortcutGroups(
+	mac = isMacPlatform(),
+	specs: readonly CommandSpec[] = commands.list(),
+): ShortcutGroup[] {
+	return COMMAND_GROUPS.map((group) => ({
+		id: group.id,
+		title: group.title,
+		items: specs
+			.filter((spec) => spec.group === group.id)
+			.map((spec) => shortcutItem(spec, mac))
+			.filter((item): item is ShortcutItem => item != null),
+	})).filter((group) => group.items.length > 0)
+}
 
 export { isMacPlatform }

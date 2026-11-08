@@ -2,9 +2,9 @@
 	import { Icon, IconButton, Input, Kbd, Modal, type IconName } from '#core/ui'
 	import { cn } from '#core/util'
 	import {
-		APP_SHORTCUT_GROUPS,
 		isMacPlatform,
 		labelForKey,
+		shortcutGroups,
 		type ShortcutItem,
 	} from '../data'
 	interface Props {
@@ -15,7 +15,9 @@
 	let { open, onclose }: Props = $props()
 
 	const mac = isMacPlatform()
-	let activeId = $state(APP_SHORTCUT_GROUPS[0]?.id ?? 'app')
+	// The keymap is declared at startup and does not change after.
+	const groups = shortcutGroups(mac)
+	let activeId = $state(groups[0]?.id ?? 'app')
 	let query = $state('')
 
 	const GROUP_ICONS: Record<string, IconName> = {
@@ -28,8 +30,7 @@
 	}
 
 	const current = $derived(
-		APP_SHORTCUT_GROUPS.find((g) => g.id === activeId) ??
-			APP_SHORTCUT_GROUPS[0]!,
+		groups.find((g) => g.id === activeId) ?? groups[0]!,
 	)
 
 	const filtering = $derived(query.trim().length > 0)
@@ -39,7 +40,7 @@
 		if (!q) {
 			return current.items.map((item) => ({ group: current.title, item }))
 		}
-		return APP_SHORTCUT_GROUPS.flatMap((g) =>
+		return groups.flatMap((g) =>
 			g.items
 				.filter(
 					(item) =>
@@ -106,7 +107,7 @@
 			Shortcuts
 		</p>
 		<div class="flex flex-col gap-0.5">
-			{#each APP_SHORTCUT_GROUPS as group (group.id)}
+			{#each groups as group (group.id)}
 				{@const active = !filtering && activeId === group.id}
 				<button
 					type="button"

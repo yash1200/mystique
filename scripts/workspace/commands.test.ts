@@ -427,3 +427,23 @@ describe('keymap', () => {
 		expect(all).not.toContain('Mod+P')
 	})
 })
+
+describe('shortcuts view', () => {
+	it('lists every command that has keys, once, under its group', async () => {
+		const { shortcutGroups } = await import('../../src/lib/features/shortcuts/data')
+		const groups = shortcutGroups(true, KEYMAP)
+		const listed = groups.flatMap((g) => g.items.map((i) => i.id))
+		const keyed = KEYMAP.filter((s) => s.group && bindingsFor(s.keys, true).length > 0)
+		expect(new Set(listed).size).toBe(listed.length)
+		expect([...listed].sort()).toEqual(keyed.map((s) => s.id).sort())
+		const app = groups.find((g) => g.id === 'app')!
+		expect(app.items.find((i) => i.id === 'app.settings')?.keys).toEqual(['Mod', ','])
+		const grid = groups.find((g) => g.id === 'grid')!
+		expect(grid.items.find((i) => i.id === 'grid.edit')).toMatchObject({
+			keys: ['Enter'],
+			orKeys: ['F2'],
+		})
+		// Menu-only commands have nothing to press.
+		expect(listed).not.toContain('home.connect')
+	})
+})
