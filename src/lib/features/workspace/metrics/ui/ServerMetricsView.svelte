@@ -5,7 +5,7 @@
 		ServerMetricsSnapshot,
 	} from '#core/contracts'
 	import { Button, EmptyState } from '#core/ui'
-	import { cn, randomLoadingPun } from '#core/util'
+	import { cn } from '#core/util'
 	import { resolveCapabilities } from '#engines'
 	import { showToast } from '#features/toast'
 	import { fetchServerMetrics, terminateBackendSession } from '../api'
@@ -52,7 +52,6 @@
 	let ending = $state(false)
 	let sessionFilter = $state('')
 	let slowFilter = $state('')
-	const loadingPun = randomLoadingPun()
 
 	const skeletonSpans = [
 		'col-span-12 sm:col-span-6 lg:col-span-5',
@@ -163,7 +162,7 @@
 			</div>
 		{:else if loading && !snapshot}
 			<div aria-busy="true">
-				<p class="mb-3 text-caption text-fg-muted">{loadingPun}</p>
+				<p class="mb-3 text-caption text-fg-muted">Loading…</p>
 				<div class="grid grid-cols-12 gap-3">
 					{#each skeletonSpans as span (span)}
 						<div

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ServerMetricsSnapshot } from '#core/contracts'
 	import { StatusBar } from '#core/ui'
-	import { fetchedLabel, randomLoadingPun } from '#core/util'
+	import { fetchedLabel } from '#core/util'
 
 	interface Props {
 		fetchedAt: number | null
@@ -11,7 +11,6 @@
 	}
 
 	let { fetchedAt, now, live, snapshot }: Props = $props()
-	const loadingPun = randomLoadingPun()
 </script>
 
 <StatusBar ariaLabel="Metrics status">
@@ -20,7 +19,7 @@
 			{#if fetchedAt}
 				Collected {fetchedLabel(fetchedAt, now).toLowerCase()}
 			{:else}
-				{loadingPun}
+				Loading…
 			{/if}
 		</span>
 		{#if live}

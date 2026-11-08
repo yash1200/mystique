@@ -11,7 +11,7 @@
 		StatusBar,
 		type ContextMenuItem,
 	} from '#core/ui'
-	import { cn, copyTextToClipboard, randomLoadingPun } from '#core/util'
+	import { cn, copyTextToClipboard } from '#core/util'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { statementChipLabel, statementChipTitle } from '../batch-view'
 	import type { RunState } from '../run-types'
@@ -77,16 +77,9 @@
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
-	let loadingPun = $state(randomLoadingPun())
 	let copiedError = $state(false)
 	let copiedErrorTimer: ReturnType<typeof setTimeout> | null = null
-	let wasRunning = false
 
-	$effect(() => {
-		const running = runState.status === 'running'
-		if (running && !wasRunning) loadingPun = randomLoadingPun()
-		wasRunning = running
-	})
 
 	const exportItems: ContextMenuItem[] = [
 		{ id: 'download-csv', label: 'Download as CSV', icon: 'download' },
@@ -216,9 +209,6 @@
 						Statement {runState.progress.index + 1} of {runState.progress.total}
 					</p>
 				{/if}
-				<p class="mt-1 mb-0 text-caption text-fg-muted">
-					{loadingPun}
-				</p>
 			</div>
 		{:else if runState.status === 'ok'}
 			{#if statements.length > 0}

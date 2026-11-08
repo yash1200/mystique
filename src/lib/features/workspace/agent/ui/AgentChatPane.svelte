@@ -8,7 +8,7 @@
 		Select,
 		Textarea,
 	} from '#core/ui'
-	import { cn, randomLoadingPun } from '#core/util'
+	import { cn } from '#core/util'
 	import { appSettingsUi } from '#features/settings'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { workspaceSession } from '#features/workspace/shell'
@@ -55,7 +55,6 @@
 	const settings = $derived(aiSettings.view)
 	let sending = $state(false)
 	let elapsedSec = $state(0)
-	let sendPun = $state(randomLoadingPun())
 	let sendGen = $state(0)
 	let error = $state<string | null>(null)
 	let listEl = $state<HTMLDivElement | null>(null)
@@ -153,7 +152,7 @@
 	const workingLabel = $derived.by(() => {
 		if (!sending) return ''
 		const who = agentChat.provider === 'ollama' ? 'Ollama' : 'the model'
-		if (elapsedSec < 8) return `${sendPun} ${elapsedSec}s`
+		if (elapsedSec < 8) return `Working… ${elapsedSec}s`
 		if (elapsedSec < 25) return `Waiting on ${who}… ${elapsedSec}s`
 		return `Still waiting on ${who}… ${elapsedSec}s`
 	})
@@ -316,7 +315,6 @@
 	async function send(preset?: string) {
 		const text = (preset ?? agentChat.draft).trim()
 		if (!text || sending) return
-		sendPun = randomLoadingPun()
 		snapProvider()
 		if (
 			!configuredProviders(aiSettings.view).some(

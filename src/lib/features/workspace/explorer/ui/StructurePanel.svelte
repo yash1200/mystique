@@ -17,7 +17,6 @@
 		cn,
 		copyTextToClipboard,
 		fetchedLabel,
-		randomLoadingPun,
 	} from '#core/util'
 	import { showToast } from '#features/toast'
 	import type { CatalogIconName } from '#features/workspace/catalog'
@@ -70,7 +69,6 @@
 
 	let activeSection = $state<string | null>(null)
 	let filter = $state('')
-	const loadingPun = randomLoadingPun()
 	const expandedCells = new SvelteSet<string>()
 
 	const section = $derived(
@@ -317,7 +315,7 @@
 			</div>
 			<StatusBar ariaLabel="Structure status">
 				{#snippet left()}
-					<span class="text-fg-muted">{loadingPun}</span>
+					<span class="text-fg-muted">Loading…</span>
 				{/snippet}
 			</StatusBar>
 		</div>
