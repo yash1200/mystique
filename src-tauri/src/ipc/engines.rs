@@ -116,9 +116,7 @@ pub async fn open_engine_session(
 ) -> Result<SessionInfo, String> {
     super::guard(async move {
         let services = Arc::clone(&state.services);
-        let request = with_resolved_password(Arc::clone(&services), request).await?;
         services
-            .connections()
             .open_session(request)
             .await
             .map_err(|e| e.to_string())
