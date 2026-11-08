@@ -13,7 +13,6 @@ import {
 	currentDatabaseName,
 	dropEditBuffer,
 	requireActiveConnection,
-	runWithWriteGuard,
 	saveTableTab,
 	tabEditsAreDirty,
 	tableTabId,
@@ -23,8 +22,7 @@ import {
 } from '#features/workspace/shell'
 import { resolveImportGate, type ImportGateChoice } from './import-gate'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
-import type { ImportFileSpec } from './ui/ImportDataModal.svelte'
-import type { ImportRunSpec } from './ui/ImportPreviewModal.svelte'
+import type { ImportFileSpec, ImportRunSpec } from './ui/ImportDataModal.svelte'
 
 export function closeImport() {
 	if (workspaceStudio.importBusy) return
@@ -142,6 +140,8 @@ export async function confirmImportFile(spec: ImportFileSpec) {
 		workspaceStudio.importError = 'Import requires the desktop app.'
 		return
 	}
+	// A new file replaces the old mapping.
+	workspaceStudio.importPreview = null
 	await loadImportPreview(
 		workspaceStudio.importTable,
 		spec.path,
@@ -157,24 +157,23 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 	workspaceStudio.importBusy = true
 	workspaceStudio.importError = null
 	try {
+		// The import dialog is the confirmation, production included.
 		await withLiveSession(
 			active.id,
 			(sid) =>
-				runWithWriteGuard(sid, () =>
-					importEngineObject({
-						sessionId: sid,
-						name: table.name,
-						schema: table.schema || null,
-						database: table.database || currentDatabaseName(),
-						kind: table.kind,
-						path: workspaceStudio.importPath,
-						format: workspaceStudio.importFormat,
-						encoding: spec.encoding,
-						mapping: spec.mapping,
-						onDuplicate: spec.onDuplicate,
-						profileReadOnly: !!active.session.profile.readOnly,
-					}),
-				),
+				importEngineObject({
+					sessionId: sid,
+					name: table.name,
+					schema: table.schema || null,
+					database: table.database || currentDatabaseName(),
+					kind: table.kind,
+					path: workspaceStudio.importPath,
+					format: workspaceStudio.importFormat,
+					encoding: spec.encoding,
+					mapping: spec.mapping,
+					onDuplicate: spec.onDuplicate,
+					profileReadOnly: !!active.session.profile.readOnly,
+				}),
 			{ replay: false },
 		)
 		workspaceStudio.importTable = null

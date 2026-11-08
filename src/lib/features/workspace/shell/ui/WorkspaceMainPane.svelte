@@ -425,6 +425,8 @@
 							).supportsDistinctValues !== false}
 							sessionId={activeSession.engineSessionId}
 							profileReadOnly={!!activeSession.profile.readOnly}
+							production={activeSession.profile.environment === 'production'}
+							connectionName={activeSession.profile.name}
 							onreload={(opts) => tablePreview.reload(opts)}
 							onreconnect={reconnectActiveSession}
 							{seedFilters}

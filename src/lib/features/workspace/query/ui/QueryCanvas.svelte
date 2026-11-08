@@ -38,6 +38,7 @@
 	} from '#features/workspace/grid'
 	import {
 		isSessionMissingError,
+		isWriteCancelled,
 		runWithWriteGuard,
 		tabTxnView,
 		workspaceSession,
@@ -366,9 +367,7 @@
 					break
 			}
 			if (res.ok) showToast('success', labels[action])
-			else if (res.cancelled) {
-				showToast('info', copy ? 'Copy cancelled' : 'Export cancelled')
-			} else {
+			else if (!res.cancelled) {
 				showToast(
 					'danger',
 					res.error || (copy ? 'Copy failed' : 'Export failed'),
@@ -442,6 +441,10 @@
 			persistRunCache({ status: 'idle' })
 		} catch (e) {
 			if (!tabStillOpen()) return
+			if (isWriteCancelled(e)) {
+				persistRunCache({ status: 'idle' })
+				return
+			}
 			const fault = readQueryFault(e)
 			const msg = fault.message
 			const elapsedMs = Math.round(performance.now() - start)
@@ -599,6 +602,10 @@
 			onhistory?.(null)
 		} catch (e) {
 			if (!tabStillOpen()) return
+			if (isWriteCancelled(e)) {
+				persistRunCache({ status: 'idle' })
+				return
+			}
 			const fault = readQueryFault(e)
 			const msg = fault.message
 			const isPolicy = /policy:/i.test(msg) || /blocked/i.test(msg)

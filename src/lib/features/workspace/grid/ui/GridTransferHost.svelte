@@ -14,7 +14,6 @@
 	} from '../transfer.svelte'
 	import ExportDataModal from './ExportDataModal.svelte'
 	import ImportDataModal from './ImportDataModal.svelte'
-	import ImportPreviewModal from './ImportPreviewModal.svelte'
 
 	const activeSession = $derived(workspaceSession.activeSession)
 	const formats = $derived(
@@ -58,21 +57,15 @@
 </Modal>
 
 <ImportDataModal
-	open={!!workspaceStudio.importTable && !workspaceStudio.importPreview}
+	open={!!workspaceStudio.importTable}
+	objectName={workspaceStudio.importTable?.name ?? ''}
 	{objectLabel}
 	{formats}
-	busy={workspaceStudio.importBusy}
-	error={workspaceStudio.importError}
-	onconfirm={(spec) => void confirmImportFile(spec)}
-	oncancel={closeImport}
-/>
-
-<ImportPreviewModal
-	open={!!workspaceStudio.importTable && !!workspaceStudio.importPreview}
-	objectName={workspaceStudio.importTable?.name ?? ''}
+	production={activeSession?.profile.environment === 'production'}
 	preview={workspaceStudio.importPreview}
 	busy={workspaceStudio.importBusy}
 	error={workspaceStudio.importError}
+	onfile={(spec) => void confirmImportFile(spec)}
 	onencoding={(enc) => {
 		if (!workspaceStudio.importTable || !workspaceStudio.importPath) return
 		void loadImportPreview(
@@ -83,11 +76,6 @@
 		)
 	}}
 	onconfirm={(spec) => void confirmImportRun(spec)}
-	onback={() => {
-		if (workspaceStudio.importBusy) return
-		workspaceStudio.importPreview = null
-		workspaceStudio.importError = null
-	}}
 	oncancel={closeImport}
 />
 

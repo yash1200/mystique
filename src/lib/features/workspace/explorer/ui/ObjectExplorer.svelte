@@ -5,11 +5,9 @@
 		TableMeta,
 	} from '#core/contracts'
 	import {
-		Button,
 		ContextMenu,
 		Icon,
 		IconButton,
-		Modal,
 		Select,
 		type ContextMenuItem,
 	} from '#core/ui'
@@ -385,10 +383,6 @@
 		action: 'rename' | 'duplicate'
 		table: TableMeta
 	} | null>(null)
-	let confirmPrompt = $state<{
-		action: 'drop' | 'truncate'
-		table: TableMeta
-	} | null>(null)
 
 	const admin = $derived(caps.tableAdmin)
 	const showModel = $derived(caps.supportsModelView || caps.supportsErDiagram)
@@ -502,8 +496,9 @@
 			namePrompt = { action: 'duplicate', table }
 			return
 		}
+		// The write dialog asks once (type-to-confirm on production).
 		if (id === 'drop' || id === 'truncate') {
-			confirmPrompt = { action: id, table }
+			ontableaction(id, table)
 		}
 	}
 
@@ -514,12 +509,6 @@
 		ontableaction(prompt.action, prompt.table, name)
 	}
 
-	function confirmDanger() {
-		const prompt = confirmPrompt
-		confirmPrompt = null
-		if (!prompt || !ontableaction) return
-		ontableaction(prompt.action, prompt.table)
-	}
 </script>
 
 <aside
@@ -723,31 +712,3 @@
 		namePrompt = null
 	}}
 />
-
-<Modal
-	open={!!confirmPrompt}
-	onclose={() => {
-		confirmPrompt = null
-	}}
-	title={confirmPrompt
-		? `${confirmPrompt.action === 'drop' ? 'Drop' : 'Truncate'} ${noun}`
-		: undefined}
-	description={confirmPrompt
-		? confirmPrompt.action === 'drop'
-			? `Drop “${confirmPrompt.table.name}”? This runs on the database and cannot be undone.`
-			: `Truncate “${confirmPrompt.table.name}”? This deletes all rows on the database and cannot be undone.`
-		: undefined}
->
-	{#snippet footer()}
-		<Button
-			variant="ghost"
-			size="sm"
-			onclick={() => {
-				confirmPrompt = null
-			}}>Cancel</Button
-		>
-		<Button variant="danger" size="sm" onclick={confirmDanger}>
-			{confirmPrompt?.action === 'drop' ? 'Drop' : 'Truncate'}
-		</Button>
-	{/snippet}
-</Modal>

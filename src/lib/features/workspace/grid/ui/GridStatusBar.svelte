@@ -25,6 +25,9 @@
 		onUndo?: () => void
 		onRedo?: () => void
 		onRollback?: () => void
+		/** Live "Show SQL" side panel. */
+		sqlPanelOpen?: boolean
+		onToggleSql?: () => void
 	}
 
 	let {
@@ -49,6 +52,8 @@
 		onUndo,
 		onRedo,
 		onRollback,
+		sqlPanelOpen = false,
+		onToggleSql,
 	}: Props = $props()
 
 	const hasChanges = $derived(dirtyCount > 0)
@@ -120,6 +125,18 @@
 		>
 			<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 		</IconButton>
+		{#if onToggleSql && !readOnly}
+			<Button
+				variant="ghost"
+				size="sm"
+				aria-pressed={sqlPanelOpen}
+				class={cn(sqlPanelOpen && 'text-accent')}
+				onclick={onToggleSql}
+				title={sqlPanelOpen ? 'Hide pending SQL' : 'Show pending SQL'}
+			>
+				SQL
+			</Button>
+		{/if}
 		{#if canUndo && onUndo}
 			<Button variant="ghost" size="sm" disabled={saving} onclick={onUndo} title="Undo pending edit">
 				Undo

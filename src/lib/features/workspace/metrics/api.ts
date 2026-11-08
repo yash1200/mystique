@@ -5,7 +5,6 @@ import type {
 	TerminateSessionResult,
 } from '#core/contracts'
 import { fetchEngineServerMetrics, terminateEngineSession } from '#core/ipc'
-import { runWithWriteGuard } from '#features/workspace/shell'
 
 export function fetchServerMetrics(
 	request: FetchServerMetricsRequest,
@@ -13,10 +12,9 @@ export function fetchServerMetrics(
 	return fetchEngineServerMetrics(request)
 }
 
+/** The End session dialog is the only confirmation; the backend never unlocks for this. */
 export function terminateBackendSession(
 	request: TerminateSessionRequest,
 ): Promise<TerminateSessionResult> {
-	return runWithWriteGuard(request.sessionId, () =>
-		terminateEngineSession(request),
-	)
+	return terminateEngineSession(request)
 }

@@ -84,7 +84,7 @@ impl AgentTools {
                 "Mystique is a desktop database studio. Reads plus INSERT/UPDATE on allowlisted connections. DELETE, DROP, and DDL are blocked. Use list_connections first. Never ask the user to paste schema.".into()
             }
             AgentWritePolicy::HighRiskWrite => {
-                "Mystique is a desktop database studio. Writes including DDL/DROP are allowed on allowlisted connections. Production and staging still need an in-app write unlock. Use list_connections first. Never ask the user to paste schema.".into()
+                "Mystique is a desktop database studio. Writes including DDL/DROP are allowed on allowlisted connections. Production still needs an in-app write unlock. Use list_connections first. Never ask the user to paste schema.".into()
             }
         }
     }

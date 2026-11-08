@@ -7,9 +7,10 @@ use mystique_connector_api::{
     clamp_timeout_ms, explain_rejection, gate_sql_batch, sql_analyze_guard_risk,
     sql_destructive_object_name_for, sql_explain_subject, sql_is_proven_read, ConnectorError,
     ConnectorResult, ExplainPlan, ExplainQueryRequest, QueryMode, SqlDialect, ValidatedQuery,
-    WriteRisk, EXPLAIN_NOT_EXECUTED,
+    WriteAction, WriteRisk, EXPLAIN_NOT_EXECUTED,
 };
 
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -48,14 +49,14 @@ impl ConnectionManager {
             prepare_sql_explain(&req, &engine, mode)?
         };
 
-        self.enforce_write_guard(
-            &req.session_id,
-            prepared.guard,
-            &req.text,
-            prepared.destructive_name.as_deref(),
-            req.confirm_object_name.as_deref(),
-            read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: req.text.clone(),
+            statements: vec![req.text.clone()],
+            object_name: prepared.destructive_name.as_deref(),
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: read_only,
+            ..WriteCheck::new(&req.session_id, WriteAction::Query, prepared.guard)
+        })
         .await?;
 
         let validated = ValidatedQuery {

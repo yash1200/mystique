@@ -6,12 +6,14 @@
 		TablePreviewSortDir,
 	} from '#core/contracts'
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
-	import { fetchEngineLargeValue } from '#core/ipc'
-	import { copyTextToClipboard } from '#core/util'
+	import { fetchEngineLargeValue, unlockEngineWrites } from '#core/ipc'
+	import { copyTextToClipboard, latestRun } from '#core/util'
 	import { showStatus, showToast } from '#features/toast'
 	import {
 		adoptServerRows,
+		askWriteGuard,
 		getEditBuffer,
+		isWriteCancelled,
 		registerTabSaver,
 		rememberEditBuffer,
 		shouldRestoreEditBuffer,
@@ -104,7 +106,13 @@
 	import GridFilterBar from './GridFilterBar.svelte'
 	import GridStatusBar from './GridStatusBar.svelte'
 	import GridTable, { type CellRef } from './GridTable.svelte'
-	import SaveStatementsModal from './SaveStatementsModal.svelte'
+	import GridSqlPanel from './GridSqlPanel.svelte'
+	import {
+		reviewPrompt,
+		reviewsEverySave,
+		savedMessage,
+		undoSave,
+	} from '../save-flow'
 
 	interface Props {
 		table: TableMeta
@@ -151,6 +159,9 @@
 		connectionId?: string | null
 		sqlDialect?: string
 		supportsDistinct?: boolean
+		/** Profile environment is production (save review dialog copy). */
+		production?: boolean
+		connectionName?: string
 	}
 
 	let {
@@ -177,6 +188,8 @@
 		connectionId = null,
 		sqlDialect = '',
 		supportsDistinct = true,
+		production = false,
+		connectionName = '',
 	}: Props = $props()
 
 	let seed = $state<Record<string, unknown>[]>([])
@@ -233,7 +246,9 @@
 	let lastSaveId = $state<string | null>(null)
 	let undoStack = $state<GridEditSnapshot[]>([])
 	let redoStack = $state<GridEditSnapshot[]>([])
-	let savePreview = $state<string[] | null>(null)
+	/** Live "Show SQL" panel contents. */
+	let sqlPanelStatements = $state<string[]>([])
+	let sqlPanelError = $state<string | null>(null)
 	let codeCompletions = $state<string[]>([])
 	let completionStart = $state(0)
 	let distinctValues = $state<string[]>([])
@@ -718,8 +733,7 @@
 	) {
 		if (res.ok && partial) showToast('warning', okMsg)
 		else if (res.ok) showStatus(okMsg)
-		else if (res.cancelled) showToast('info', 'Copy cancelled')
-		else showToast('danger', res.error || 'Copy failed')
+		else if (!res.cancelled) showToast('danger', res.error || 'Copy failed')
 	}
 
 	function assertWritable(): boolean {
@@ -2382,8 +2396,23 @@
 		settleSave({ ok: false, error: err instanceof Error ? err.message : String(err) })
 	}
 
+	/** "Review before saving: always": the one dialog, shown before the save. */
+	async function reviewSave(sid: string): Promise<'save' | 'empty' | 'cancel'> {
+		const planned = await persistTableEdits(editPayload(sid, true))
+		const statements = planned.statements ?? []
+		if (statements.length === 0) return 'empty'
+		const decision = await askWriteGuard(
+			reviewPrompt({ production, connectionName, statements }),
+		)
+		if (!decision.ok) return 'cancel'
+		// Production: this dialog is also the unlock, so the backend asks nothing more.
+		if (production) await unlockEngineWrites(sid)
+		return 'save'
+	}
+
+	/** Saves straight away. Production asks once per session (the backend guard). */
 	async function saveChanges() {
-		if (saving || savePreview) return
+		if (saving) return
 		if (!assertWritable()) {
 			settleSave({ ok: false, error: 'Connection is read-only' })
 			return
@@ -2395,41 +2424,19 @@
 		}
 		saving = true
 		try {
-			const preview = await persistTableEdits({
-				...editPayload(await liveSessionId(), true),
-			})
-			const statements = preview.statements ?? []
-			if (statements.length === 0) {
-				showToast('info', 'Nothing to save')
-				settleSave({ ok: true })
-				return
+			const sid = await liveSessionId()
+			if (reviewsEverySave(appPrefs.reviewBeforeSaving)) {
+				const step = await reviewSave(sid)
+				if (step !== 'save') {
+					settleSave(step === 'empty' ? { ok: true } : { ok: false, error: null })
+					return
+				}
 			}
-			savePreview = statements
-		} catch (err) {
-			failSave(err)
-		} finally {
-			saving = false
-		}
-	}
-
-	function cancelSavePreview() {
-		savePreview = null
-		settleSave({ ok: false, error: null })
-	}
-
-	async function confirmSave() {
-		if (saving || !savePreview) return
-		if (!assertWritable()) {
-			settleSave({ ok: false, error: 'Connection is read-only' })
-			return
-		}
-		saving = true
-		try {
 			const pendingDbDeletes = [...deletedIndices].filter(
 				(i) => !newRowIndices.has(i),
 			).length
 			// Do not retry after a dropped connection: the save may have landed.
-			const result = await persistTableEdits(editPayload(await liveSessionId(), false))
+			const result = await persistTableEdits(editPayload(sid, false))
 			if (pendingDbDeletes > 0 && (result.deleted ?? 0) < pendingDbDeletes) {
 				throw new Error(
 					'Delete did not apply. Restart Mystique and try the delete again.',
@@ -2438,7 +2445,6 @@
 			lastSaveId = result.saveId ?? null
 			undoStack = []
 			redoStack = []
-			savePreview = null
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
@@ -2456,22 +2462,51 @@
 				newRowIndices = new Set()
 				deletedIndices = new Set()
 			}
-			const bits = []
-			if (result.updated) bits.push(`${result.updated} updated`)
-			if (result.inserted) bits.push(`${result.inserted} inserted`)
-			if (result.deleted) bits.push(`${result.deleted} deleted`)
+			const saveId = result.saveId
 			showToast(
 				'success',
-				bits.length > 0 ? `Saved (${bits.join(', ')})` : 'Saved',
+				savedMessage(result),
+				saveId
+					? { action: { label: 'Undo', run: () => rollbackSave(saveId) } }
+					: undefined,
 			)
 			onbaselinechange?.()
 			settleSave({ ok: true })
 		} catch (err) {
-			failSave(err)
+			if (isWriteCancelled(err)) settleSave({ ok: false, error: null })
+			else failSave(err)
 		} finally {
 			saving = false
 		}
 	}
+
+	const sqlPanel = latestRun({
+		delayMs: 300,
+		run: async () => {
+			const sid = sessionId ?? ''
+			if (dirtyCount === 0 || !sid) return []
+			const planned = await persistTableEdits(editPayload(sid, true))
+			return planned.statements ?? []
+		},
+		onResult: (statements) => {
+			sqlPanelStatements = statements
+			sqlPanelError = null
+		},
+		onError: (err) => {
+			sqlPanelError = err instanceof Error ? err.message : String(err)
+		},
+	})
+
+	$effect(() => {
+		if (!appPrefs.gridSqlPanel) return
+		// Replan whenever the pending edits change.
+		void rows
+		void dirtyKeys
+		void newRowIndices
+		void deletedIndices
+		sqlPanel.schedule()
+		return () => sqlPanel.cancel()
+	})
 
 	const columnMenuItems = $derived.by((): ContextMenuItem[] => {
 		const name = columnMenu?.column
@@ -2535,19 +2570,24 @@
 			.catch(() => {})
 	}
 
-	async function rollbackLastSave() {
-		const saveId = lastSaveId
-		if (saving || !saveId) return
+	/** Undo one save by its backend id (Rollback button and the Undo toast). */
+	async function rollbackSave(saveId: string) {
+		if (saving) return
 		if (!assertWritable()) return
 		saving = true
 		try {
-			await rollbackTableEdits({
-				sessionId: await liveSessionId(),
-				saveId,
-				profileReadOnly,
-			})
-			lastSaveId = null
+			const sid = await liveSessionId()
+			const outcome = await undoSave(
+				() => rollbackTableEdits({ sessionId: sid, saveId, profileReadOnly }),
+				isWriteCancelled,
+			)
+			// A stale or used save is gone on the backend; offer the next one.
 			refreshLatestSave()
+			if (!outcome.ok) {
+				if (outcome.message) showToast('danger', outcome.message)
+				return
+			}
+			if (lastSaveId === saveId) lastSaveId = null
 			undoStack = []
 			redoStack = []
 			if (onreload) {
@@ -2555,12 +2595,10 @@
 				loadFromTable(true)
 				markServerPreviewApplied()
 			}
-			showToast('success', 'Rolled back the last save')
+			showToast('success', 'Rolled back the save')
 			onbaselinechange?.()
 		} catch (err) {
 			reportGridError(err)
-			// A stale or used save is gone on the backend; offer the next one.
-			refreshLatestSave()
 		} finally {
 			saving = false
 		}
@@ -2584,7 +2622,7 @@
 			)
 			if (
 				gridShortcutBlocked({
-					modalOpen: cellModal != null || savePreview != null,
+					modalOpen: cellModal != null,
 					inCellEditor,
 					tagName: target?.tagName,
 					contentEditable: target?.isContentEditable,
@@ -2687,6 +2725,7 @@
 		distinctValues={supportsDistinct ? distinctValues : []}
 	/>
 
+	<div class="flex min-h-0 min-w-0 flex-1">
 	<!-- tabindex so arrow/copy/paste work when grid is focused -->
 	<div
 		bind:this={gridShellEl}
@@ -2737,14 +2776,14 @@
 				changeLayout(withColumnWidth(columnLayout, column, width))}
 		/>
 	</div>
-
-	<SaveStatementsModal
-		open={savePreview != null}
-		statements={savePreview ?? []}
-		busy={saving}
-		onconfirm={() => void confirmSave()}
-		oncancel={cancelSavePreview}
-	/>
+	{#if appPrefs.gridSqlPanel}
+		<GridSqlPanel
+			statements={sqlPanelStatements}
+			error={sqlPanelError}
+			onclose={() => appPrefs.setGridSqlPanel(false)}
+		/>
+	{/if}
+	</div>
 
 	{#if cellModal}
 		{@const locator = cellModal.locator}
@@ -2817,6 +2856,10 @@
 		canRollback={lastSaveId != null && !profileReadOnly}
 		onUndo={undoPending}
 		onRedo={redoPending}
-		onRollback={() => void rollbackLastSave()}
+		onRollback={() => {
+			if (lastSaveId) void rollbackSave(lastSaveId)
+		}}
+		sqlPanelOpen={appPrefs.gridSqlPanel}
+		onToggleSql={() => appPrefs.setGridSqlPanel(!appPrefs.gridSqlPanel)}
 	/>
 </div>

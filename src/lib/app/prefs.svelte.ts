@@ -1,13 +1,21 @@
 import { isMacPlatform } from '#core/util'
 import { INSPECT_ON_ROW_CLICK_DEFAULT, parseBoolPref } from './prefs-defaults'
-import type {
-	ConnectionListSort,
-	DensityPref,
-	SavedQueryListSort,
-	ThemePref,
+import {
+	parseReviewBeforeSaving,
+	type ConnectionListSort,
+	type DensityPref,
+	type ReviewBeforeSaving,
+	type SavedQueryListSort,
+	type ThemePref,
 } from './prefs-types'
 
-export type { ConnectionListSort, DensityPref, SavedQueryListSort, ThemePref }
+export type {
+	ConnectionListSort,
+	DensityPref,
+	ReviewBeforeSaving,
+	SavedQueryListSort,
+	ThemePref,
+}
 
 /**
  * Appearance + session prefs. State is reactive; values persist to localStorage.
@@ -23,6 +31,8 @@ const EXPLORER_WIDTH_KEY = 'mystique-explorer-panel-width'
 const HOME_SIDEBAR_WIDTH_KEY = 'mystique-home-sidebar-width'
 const AGENT_CHAT_OPEN_KEY = 'mystique-agent-chat-open'
 const AGENT_CHAT_WIDTH_KEY = 'mystique-agent-chat-panel-width'
+const REVIEW_SAVE_KEY = 'mystique-review-before-saving'
+const GRID_SQL_PANEL_KEY = 'mystique-grid-sql-panel'
 
 export const EXPLORER_PANEL_WIDTH_DEFAULT = 240
 export const EXPLORER_PANEL_WIDTH_MIN = 180
@@ -157,6 +167,11 @@ class AppPrefsStore {
 	agentChatOpen = $state(false)
 	agentChatPanelWidth = $state(readAgentChatWidth())
 	systemDark = $state(systemPrefersDark())
+	reviewBeforeSaving = $state<ReviewBeforeSaving>(
+		parseReviewBeforeSaving(lsGet(REVIEW_SAVE_KEY)),
+	)
+	/** Grid side panel with the pending statements. */
+	gridSqlPanel = $state(readBool(GRID_SQL_PANEL_KEY, false))
 
 	get resolvedTheme(): 'light' | 'dark' {
 		if (this.theme === 'system') return this.systemDark ? 'dark' : 'light'
@@ -229,6 +244,16 @@ class AppPrefsStore {
 	setAgentChatPanelWidth(px: number, persist = true) {
 		this.agentChatPanelWidth = clampAgentChatPanelWidth(px)
 		if (persist) lsSet(AGENT_CHAT_WIDTH_KEY, String(this.agentChatPanelWidth))
+	}
+
+	setReviewBeforeSaving(pref: ReviewBeforeSaving) {
+		this.reviewBeforeSaving = pref
+		lsSet(REVIEW_SAVE_KEY, pref)
+	}
+
+	setGridSqlPanel(on: boolean) {
+		this.gridSqlPanel = on
+		lsSet(GRID_SQL_PANEL_KEY, on ? '1' : '0')
 	}
 
 	watchSystemTheme(): () => void {

@@ -7,11 +7,12 @@ use mystique_connector_api::{
     FetchLargeValueRequest, FetchLargeValueResult, FetchTablePreviewRequest,
     FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
     PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableDefinition, TablePreviewResult, TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS,
-    HARD_MAX_ROWS, MAX_TIMEOUT_MS,
+    TableDefinition, TablePreviewResult, TablePreviewStats, WriteAction, WriteRisk,
+    DEFAULT_MAX_ROWS, HARD_MAX_ROWS, MAX_TIMEOUT_MS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 impl ConnectionManager {
@@ -23,27 +24,37 @@ impl ConnectionManager {
         if req.updates.is_empty() && req.inserts.is_empty() && req.deletes.is_empty() {
             return Ok(ApplyTableEditsResult::empty());
         }
-        if !req.dry_run {
-            let preview = format!(
+        let session = self.session(&req.session_id).await?;
+        let session_id = req.session_id.clone();
+        let check = WriteCheck {
+            preview: format!(
                 "Save {} update(s), {} insert(s), {} delete(s) on {}",
                 req.updates.len(),
                 req.inserts.len(),
                 req.deletes.len(),
                 req.table
-            );
-            self.enforce_write_guard(
-                &req.session_id,
-                WriteRisk::Write,
-                &preview,
-                Some(req.table.as_str()),
-                req.confirm_object_name.as_deref(),
-                req.profile_read_only,
-            )
-            .await?;
-        }
-        let session = self.session(&req.session_id).await?;
-        let session_id = req.session_id.clone();
+            ),
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: req.profile_read_only,
+            ..WriteCheck::new(&session_id, WriteAction::GridSave, WriteRisk::Write)
+        };
+        let prompt = if req.dry_run {
+            None
+        } else {
+            self.write_prompt(check).await?
+        };
         let input = ApplyTableEditsInput::from(req);
+        if let Some(mut prompt) = prompt {
+            // The dialog shows the SQL this save would run.
+            let plan = ApplyTableEditsInput {
+                dry_run: true,
+                ..input
+            };
+            if let Ok(planned) = session.apply_table_edits(&plan).await {
+                prompt.statements = planned.statements;
+            }
+            return Err(ConnectorError::WriteGuard(prompt));
+        }
         let mut result = session.apply_table_edits(&input).await?;
         self.remember_save(
             &session_id,
@@ -127,15 +138,13 @@ impl ConnectionManager {
             _ => WriteRisk::Write,
         };
         if risk != WriteRisk::Read {
-            let preview = format!("{:?} {}", req.op, req.name);
-            self.enforce_write_guard(
-                &req.session_id,
-                risk,
-                &preview,
-                Some(req.name.as_str()),
-                req.confirm_object_name.as_deref(),
-                req.profile_read_only,
-            )
+            self.enforce_write_guard(WriteCheck {
+                preview: admin_preview(req.op, &req.name, req.new_name.as_deref()),
+                object_name: Some(req.name.as_str()),
+                confirm_object_name: req.confirm_object_name.as_deref(),
+                profile_read_only: req.profile_read_only,
+                ..WriteCheck::new(&req.session_id, WriteAction::ObjectAdmin, risk)
+            })
             .await?;
         } else if req.profile_read_only && req.op != TableAdminOp::CreateStatement {
             return Err(ConnectorError::Policy(
@@ -231,14 +240,18 @@ impl ConnectionManager {
                 message: "Nothing to change.".into(),
             });
         }
-        self.enforce_write_guard(
-            &req.session_id,
-            mystique_connector_api::ddl_risk(&req.draft),
-            &format!("Structure change {}", req.draft.name),
-            Some(req.draft.name.as_str()),
-            req.confirm_object_name.as_deref(),
-            req.profile_read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: format!("Structure change {}", req.draft.name),
+            statements: plan.statements.clone(),
+            object_name: Some(req.draft.name.as_str()),
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: req.profile_read_only,
+            ..WriteCheck::new(
+                &req.session_id,
+                WriteAction::Structure,
+                mystique_connector_api::ddl_risk(&req.draft),
+            )
+        })
         .await?;
         meta.session.apply_ddl(&plan, &req.draft).await
     }
@@ -300,18 +313,22 @@ impl ConnectionManager {
             })
             .map(|change| change.name.as_str())
             .unwrap_or("schema");
-        self.enforce_write_guard(
-            &req.session_id,
-            if destructive {
-                WriteRisk::Destructive
-            } else {
-                WriteRisk::Write
-            },
-            "Schema diff",
-            Some(object),
-            req.confirm_object_name.as_deref(),
-            req.profile_read_only,
-        )
+        let risk = if destructive {
+            WriteRisk::Destructive
+        } else {
+            WriteRisk::Write
+        };
+        self.enforce_write_guard(WriteCheck {
+            preview: "Schema diff".into(),
+            statements: changes
+                .iter()
+                .flat_map(|change| change.plan.statements.iter().cloned())
+                .collect(),
+            object_name: Some(object),
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: req.profile_read_only,
+            ..WriteCheck::new(&req.session_id, WriteAction::Structure, risk)
+        })
         .await?;
         let mut applied = Vec::new();
         for change in &changes {
@@ -342,4 +359,17 @@ fn dialect_of(meta: &super::SessionMeta) -> DdlDialect {
         meta.product_id.as_str()
     };
     DdlDialect::from_engine(engine, &meta.caps.sql_dialect)
+}
+
+/// What the guard dialog says for a menu action.
+fn admin_preview(op: TableAdminOp, name: &str, new_name: Option<&str>) -> String {
+    let new_name = new_name.map(str::trim).unwrap_or("");
+    match op {
+        TableAdminOp::Drop => format!("Drop {name}"),
+        TableAdminOp::Truncate => format!("Delete every row in {name}"),
+        TableAdminOp::Rename => format!("Rename {name} to {new_name}"),
+        TableAdminOp::Duplicate => format!("Duplicate {name} as {new_name}"),
+        TableAdminOp::CreateGroup | TableAdminOp::CreateObject => format!("Create {name}"),
+        TableAdminOp::CreateStatement => format!("Show the CREATE statement for {name}"),
+    }
 }

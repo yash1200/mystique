@@ -3,13 +3,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mystique_connector_api::{clamp_timeout_ms, ConnectorError, ConnectorResult, ProgressPump};
+use mystique_connector_api::{
+    clamp_timeout_ms, ConnectorError, ConnectorResult, ProgressPump, WriteAction,
+};
 use mystique_connector_api::{
     gate_sql_batch_in, PinStatus, PinnedSession, PlannedStatement, QueryBatchResult, QueryMode,
     SqlDialect, SqlRange, StatementKind, ValidatedBatch, DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
 };
 use tokio::sync::Mutex as AsyncMutex;
 
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 pub(super) const PIN_IDLE: Duration = Duration::from_secs(5 * 60);
@@ -451,14 +454,19 @@ impl ConnectionManager {
             tab_id.is_some(),
             &req.params,
         )?;
-        self.enforce_write_guard(
-            &req.session_id,
-            plan.worst.write_risk(),
-            &req.text,
-            plan.destructive_name.as_deref(),
-            req.confirm_object_name.as_deref(),
-            read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: req.text.clone(),
+            statements: plan
+                .statements
+                .iter()
+                .map(|stmt| stmt.sql.clone())
+                .collect(),
+            object_name: plan.destructive_name.as_deref(),
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: read_only,
+            pinned: tab_id.is_some(),
+            ..WriteCheck::new(&req.session_id, WriteAction::Query, plan.worst.write_risk())
+        })
         .await?;
 
         if let Some(tab) = tab_id.as_deref() {

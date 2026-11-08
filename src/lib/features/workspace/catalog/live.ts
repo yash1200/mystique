@@ -7,6 +7,7 @@ import {
 	isSessionMissingError,
 	reopenEngineSession,
 	requireActiveConnection,
+	isWriteCancelled,
 	runWithWriteGuard,
 	sessionDatabase,
 	systemDbNames,
@@ -280,9 +281,11 @@ export async function createCatalogGroup(name: string) {
 		)
 		await refreshCurrentTables()
 	} catch (e) {
-		workspaceStudio.setCatalogError(
-			e instanceof Error ? e.message : String(e),
-		)
+		if (!isWriteCancelled(e)) {
+			workspaceStudio.setCatalogError(
+				e instanceof Error ? e.message : String(e),
+			)
+		}
 	} finally {
 		workspaceStudio.createBusy = false
 	}
@@ -343,9 +346,11 @@ export async function createCatalogObject(name: string, group?: string) {
 		)
 		await refreshCurrentTables()
 	} catch (e) {
-		workspaceStudio.setCatalogError(
-			e instanceof Error ? e.message : String(e),
-		)
+		if (!isWriteCancelled(e)) {
+			workspaceStudio.setCatalogError(
+				e instanceof Error ? e.message : String(e),
+			)
+		}
 	} finally {
 		workspaceStudio.createBusy = false
 	}

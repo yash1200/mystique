@@ -4,6 +4,8 @@ use mystique_connector_api::{
 };
 use serde_json::json;
 
+use mystique_connector_api::ConnectorError;
+
 use super::{ConnectionManager, LiveSession, OpenSessionRequest};
 
 #[test]
@@ -595,7 +597,7 @@ async fn count_rows(mgr: &ConnectionManager, session_id: &str) -> i64 {
 }
 
 #[tokio::test]
-async fn import_into_production_requires_unlock_before_apply() {
+async fn import_into_production_needs_no_extra_prompt() {
     let db_path = temp_db("import-prod");
     let csv_path = db_path.with_extension("csv");
     let _ = std::fs::remove_file(&db_path);
@@ -611,27 +613,209 @@ async fn import_into_production_requires_unlock_before_apply() {
         .expect("create");
     mgr.close_session("seed").await.expect("close seed");
 
+    // The import dialog's "Import into production" step is the confirmation.
     mgr.open_session(sqlite_open(&db_path, "prod", "production", false))
         .await
         .expect("open prod");
-    let err = mgr
-        .import_object(import_req("prod", &csv_path.to_string_lossy(), false))
-        .await
-        .expect_err("production import prompts");
-    let msg = err.to_string();
-    assert!(msg.contains("writeGuard"), "{msg}");
-    assert!(msg.contains("unlock"), "{msg}");
-    assert_eq!(count_rows(&mgr, "prod").await, 0);
-
-    mgr.unlock_writes("prod").await.expect("unlock");
     mgr.import_object(import_req("prod", &csv_path.to_string_lossy(), false))
         .await
-        .expect("import after unlock");
+        .expect("import");
     assert_eq!(count_rows(&mgr, "prod").await, 1);
 
     let _ = mgr.close_session("prod").await;
     let _ = std::fs::remove_file(&db_path);
     let _ = std::fs::remove_file(&csv_path);
+}
+
+fn guard_prompt(err: ConnectorError) -> mystique_connector_api::WriteGuardPrompt {
+    match err {
+        ConnectorError::WriteGuard(prompt) => prompt,
+        other => panic!("expected a write guard prompt, got {other:?}"),
+    }
+}
+
+fn confirmed(
+    mut req: mystique_connector_api::ExecuteQueryRequest,
+    name: &str,
+) -> mystique_connector_api::ExecuteQueryRequest {
+    req.confirm_object_name = Some(name.into());
+    req
+}
+
+async fn seeded(path: &std::path::Path, sql: &str) -> ConnectionManager {
+    let _ = std::fs::remove_file(path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(path, "seed", "local", false))
+        .await
+        .expect("open seed");
+    mgr.execute_query(write_req("seed", sql))
+        .await
+        .expect("seed");
+    mgr.close_session("seed").await.expect("close seed");
+    mgr
+}
+
+#[tokio::test]
+async fn staging_writes_like_local_and_asks_once_for_a_drop() {
+    let path = temp_db("staging");
+    let mgr = seeded(&path, "CREATE TABLE t (id INTEGER PRIMARY KEY)").await;
+    mgr.open_session(sqlite_open(&path, "stage", "staging", false))
+        .await
+        .expect("open");
+    mgr.execute_query(write_req("stage", "INSERT INTO t VALUES (1)"))
+        .await
+        .expect("staging write runs with no unlock");
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("stage", "DROP TABLE t"))
+            .await
+            .expect_err("drop asks"),
+    );
+    assert_eq!(prompt.kind, "confirm");
+    assert_eq!(prompt.object_name.as_deref(), Some("t"));
+    assert_eq!(prompt.statements, vec!["DROP TABLE t".to_string()]);
+    assert_eq!(count_rows(&mgr, "stage").await, 1);
+
+    mgr.execute_query(confirmed(write_req("stage", "DROP TABLE t"), "t"))
+        .await
+        .expect("drop after the dialog");
+    let _ = mgr.close_session("stage").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn production_prompts_carry_sql_and_a_typed_drop_unlocks() {
+    let path = temp_db("prod-policy");
+    let mgr = seeded(
+        &path,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); CREATE TABLE u (id INTEGER)",
+    )
+    .await;
+    mgr.open_session(sqlite_open(&path, "prod", "production", false))
+        .await
+        .expect("open prod");
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req(
+            "prod",
+            "INSERT INTO t VALUES (1); INSERT INTO t VALUES (2)",
+        ))
+        .await
+        .expect_err("first write asks"),
+    );
+    assert_eq!(prompt.kind, "unlock");
+    assert_eq!(
+        prompt.statements,
+        vec![
+            "INSERT INTO t VALUES (1)".to_string(),
+            "INSERT INTO t VALUES (2)".to_string()
+        ]
+    );
+
+    // A destructive statement asks for the name straight away: one dialog.
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "DROP TABLE u"))
+            .await
+            .expect_err("drop asks for the name"),
+    );
+    assert_eq!(prompt.kind, "typeConfirm");
+    assert_eq!(prompt.object_name.as_deref(), Some("u"));
+    mgr.execute_query(confirmed(write_req("prod", "DROP TABLE u"), "u"))
+        .await
+        .expect("typed drop runs");
+
+    // The typed confirmation also allowed later writes.
+    mgr.execute_query(write_req("prod", "INSERT INTO t VALUES (1)"))
+        .await
+        .expect("write after typed confirm");
+    assert_eq!(count_rows(&mgr, "prod").await, 1);
+    let _ = mgr.close_session("prod").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn production_manual_commit_tab_skips_the_unlock() {
+    let path = temp_db("prod-pin");
+    let mgr = seeded(&path, "CREATE TABLE t (id INTEGER PRIMARY KEY)").await;
+    mgr.open_session(sqlite_open(&path, "prod", "production", false))
+        .await
+        .expect("open prod");
+    mgr.pin_tab("prod", "tab-1").await.expect("pin");
+    mgr.execute_pinned_batch(
+        batch_req(
+            "prod",
+            "BEGIN; INSERT INTO t VALUES (1)",
+            mystique_connector_api::QueryMode::Write,
+        ),
+        "tab-1".into(),
+        None,
+    )
+    .await
+    .expect("Commit is the decision in a manual-commit tab");
+    mgr.commit_tab("tab-1").await.expect("commit");
+    assert_eq!(count_rows(&mgr, "prod").await, 1);
+
+    // Outside the pinned tab the session is still locked.
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "INSERT INTO t VALUES (2)"))
+            .await
+            .expect_err("unpinned write asks"),
+    );
+    assert_eq!(prompt.kind, "unlock");
+    let _ = mgr.close_session("prod").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn production_grid_save_prompt_shows_the_save_sql() {
+    let path = temp_db("prod-grid");
+    let mgr = seeded(&path, "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER)").await;
+    mgr.open_session(sqlite_open(&path, "prod", "production", false))
+        .await
+        .expect("open prod");
+    let column = |name: &str, pk: bool| mystique_connector_api::TableEditColumn {
+        name: name.into(),
+        data_type: "integer".into(),
+        nullable: true,
+        pk,
+    };
+    let save = mystique_connector_api::ApplyTableEditsRequest {
+        session_id: "prod".into(),
+        table: "t".into(),
+        schema: None,
+        database: None,
+        columns: vec![column("id", true), column("n", false)],
+        updates: Vec::new(),
+        inserts: vec![mystique_connector_api::TableRowInsert {
+            values: [("id".into(), json!(1)), ("n".into(), json!(5))]
+                .into_iter()
+                .collect(),
+        }],
+        deletes: Vec::new(),
+        profile_read_only: false,
+        confirm_object_name: None,
+        dry_run: false,
+    };
+    let prompt = guard_prompt(
+        mgr.apply_table_edits(save.clone())
+            .await
+            .expect_err("first production save asks"),
+    );
+    assert_eq!(prompt.kind, "unlock");
+    assert!(
+        prompt.statements.iter().any(|sql| sql.contains("INSERT")),
+        "{:?}",
+        prompt.statements
+    );
+    assert_eq!(count_rows(&mgr, "prod").await, 0);
+
+    mgr.unlock_writes("prod").await.expect("unlock");
+    mgr.apply_table_edits(save)
+        .await
+        .expect("save after unlock");
+    assert_eq!(count_rows(&mgr, "prod").await, 1);
+    let _ = mgr.close_session("prod").await;
+    let _ = std::fs::remove_file(&path);
 }
 
 #[tokio::test]

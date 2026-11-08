@@ -140,12 +140,15 @@ export async function persistTableEdits(input: {
 		if (input.dryRun) {
 			return await applyEngineTableEdits({ ...request, dryRun: true })
 		}
-		return await runWithWriteGuard(input.sessionId, (confirmObjectName) =>
-			applyEngineTableEdits({
-				...request,
-				dryRun: false,
-				confirmObjectName: confirmObjectName ?? null,
-			}),
+		return await runWithWriteGuard(
+			input.sessionId,
+			(confirmObjectName) =>
+				applyEngineTableEdits({
+					...request,
+					dryRun: false,
+					confirmObjectName: confirmObjectName ?? null,
+				}),
+			{ confirmLabel: 'Save' },
 		)
 	} catch (err) {
 		throw new Error(invokeError(err))

@@ -8,14 +8,15 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    ApplyTableEditsResult, ConnectorError, ConnectorResult, RollbackTableEditsRequest, WriteRisk,
-    ROLLBACK_STALE,
+    ApplyTableEditsResult, ConnectorError, ConnectorResult, RollbackTableEditsRequest, WriteAction,
+    WriteRisk, ROLLBACK_STALE,
 };
 use uuid::Uuid;
 
 use crate::domain::{grid_table_key, now_iso, GridSaveRecord};
 use crate::error::AppResult;
 
+use super::guard::WriteCheck;
 use super::ConnectionManager;
 
 pub(crate) trait GridSaveStore: Send + Sync {
@@ -98,15 +99,13 @@ impl ConnectionManager {
                 "This save belongs to another connection.".into(),
             ));
         }
-        let preview = format!("Roll back a grid save:\n{}", save.undo.inverse.join(";\n"));
-        self.enforce_write_guard(
-            &req.session_id,
-            WriteRisk::Write,
-            &preview,
-            None,
-            req.confirm_object_name.as_deref(),
-            req.profile_read_only,
-        )
+        self.enforce_write_guard(WriteCheck {
+            preview: "Roll back a grid save".into(),
+            statements: save.undo.inverse.clone(),
+            confirm_object_name: req.confirm_object_name.as_deref(),
+            profile_read_only: req.profile_read_only,
+            ..WriteCheck::new(&req.session_id, WriteAction::GridSave, WriteRisk::Write)
+        })
         .await?;
         let session = self.session(&req.session_id).await?;
         let claim = Arc::clone(&store);
@@ -305,7 +304,12 @@ mod tests {
         open(&mgr, &path, "s2", "p1", "production").await;
         match mgr.rollback_table_edits(rollback("s2", &save_id)).await {
             Err(ConnectorError::WriteGuard(prompt)) => {
-                assert!(prompt.preview.contains("UPDATE"), "{}", prompt.preview);
+                assert_eq!(prompt.kind, "unlock");
+                assert!(
+                    prompt.statements.iter().any(|sql| sql.contains("UPDATE")),
+                    "{:?}",
+                    prompt.statements
+                );
             }
             other => panic!("expected the write guard, got {other:?}"),
         }

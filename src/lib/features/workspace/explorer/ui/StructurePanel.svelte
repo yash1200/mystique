@@ -202,8 +202,7 @@
 		okMsg: string,
 	) {
 		if (res.ok) showToast('success', okMsg)
-		else if (res.cancelled) showToast('info', 'Copy cancelled')
-		else showToast('danger', res.error || 'Copy failed')
+		else if (!res.cancelled) showToast('danger', res.error || 'Copy failed')
 	}
 
 	async function copyWithToast(okMsg: string, text: string) {

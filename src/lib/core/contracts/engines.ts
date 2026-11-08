@@ -45,13 +45,23 @@ export type SshHostKeyPrompt = {
 	publicKey?: string
 }
 
+/**
+ * `unlock`: allow writes this session. `confirm`: one dialog, the retry sends
+ * `objectName` back. `typeConfirm`: type `objectName`. `review`: a save the
+ * frontend asked to show first.
+ */
 export type WriteGuardPrompt = {
 	code: 'writeGuard' | string
-	kind: 'unlock' | 'typeConfirm' | string
+	kind: 'unlock' | 'confirm' | 'typeConfirm' | 'review' | string
 	environment: string
 	connectionName: string
 	preview: string
+	/** Statements the write will run, when known. */
+	statements?: string[]
 	objectName?: string | null
+	/** Frontend only: dialog title and confirm button label. */
+	title?: string
+	confirmLabel?: string
 }
 export interface EngineDescriptor {
 	id: string
