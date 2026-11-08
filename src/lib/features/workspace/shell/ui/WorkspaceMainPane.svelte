@@ -209,7 +209,10 @@
 	onMount(() =>
 		commands.register({
 			...cmd.cancelLoad,
-			when: () => workspaceStudio.loadingTabId != null,
+			// An open context menu takes Esc first.
+			when: () =>
+				workspaceStudio.loadingTabId != null &&
+				!document.querySelector('[role="menu"]'),
 			run: () => {
 				const loading = workspaceStudio.loadingTabId
 				if (loading) void cancelTabRun(loading, 'preview')
