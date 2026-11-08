@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    plan_schema_diff, plan_table_alter, validate_rollback_statements, ApplyDdlRequest,
-    ApplyDdlResult, ApplySchemaDiffRequest, ApplyTableEditsInput, ApplyTableEditsRequest,
-    ApplyTableEditsResult, ConnectorError, ConnectorResult, DdlDialect,
-    DescribeTableDefinitionRequest, DistinctColumnValuesRequest, FetchLargeValueRequest,
-    FetchLargeValueResult, FetchTablePreviewRequest, FetchTablePreviewStatsRequest,
-    ListTableDefinitionsRequest, PlanDdlRequest, PlanSchemaDiffRequest, RollbackTableEditsRequest,
-    SchemaMigration, SqlDialect, TableAdminOp, TableAdminRequest, TableAdminResult,
+    plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
+    ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
+    ConnectorResult, DdlDialect, DescribeTableDefinitionRequest, DistinctColumnValuesRequest,
+    FetchLargeValueRequest, FetchLargeValueResult, FetchTablePreviewRequest,
+    FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
+    PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
     TableDefinition, TablePreviewResult, TablePreviewStats, WriteRisk, DEFAULT_MAX_ROWS,
     HARD_MAX_ROWS, MAX_TIMEOUT_MS,
 };
@@ -43,32 +42,18 @@ impl ConnectionManager {
             .await?;
         }
         let session = self.session(&req.session_id).await?;
+        let session_id = req.session_id.clone();
         let input = ApplyTableEditsInput::from(req);
-        session.apply_table_edits(&input).await
-    }
-
-    /// Inverse DML from a previous save. Each statement must be one row write.
-    pub async fn rollback_table_edits(
-        &self,
-        req: RollbackTableEditsRequest,
-    ) -> ConnectorResult<()> {
-        let meta = self.session_meta(&req.session_id).await?;
-        validate_rollback_statements(&req.statements, SqlDialect::from_engine(&meta.product_id))?;
-        let preview = format!(
-            "Roll back {} statement(s) on {}",
-            req.statements.len(),
-            req.table
-        );
-        self.enforce_write_guard(
-            &req.session_id,
-            WriteRisk::Write,
-            &preview,
-            Some(req.table.as_str()),
-            req.confirm_object_name.as_deref(),
-            req.profile_read_only,
+        let mut result = session.apply_table_edits(&input).await?;
+        self.remember_save(
+            &session_id,
+            input.database.as_deref(),
+            input.schema.as_deref(),
+            &input.table,
+            &mut result,
         )
-        .await?;
-        meta.session.apply_rollback_sql(&req.statements).await
+        .await;
+        Ok(result)
     }
 
     pub async fn distinct_column_values(

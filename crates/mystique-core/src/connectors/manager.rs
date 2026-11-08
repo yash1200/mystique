@@ -15,6 +15,7 @@ use uuid::Uuid;
 mod catalog;
 mod depth;
 mod explain;
+mod grid_save;
 mod guard;
 mod history;
 mod metrics;
@@ -24,6 +25,7 @@ mod run;
 mod table;
 mod transfer;
 
+pub(crate) use grid_save::GridSaveStore;
 pub(crate) use history::QueryHistoryWriter;
 
 use super::ssh::{
@@ -132,6 +134,8 @@ pub struct ConnectionManager {
     open_gates: Mutex<HashMap<String, std::sync::Arc<Mutex<()>>>>,
     /// App SQLite history. Empty in unit tests that never open the app database.
     history: std::sync::Mutex<Option<std::sync::Arc<dyn history::QueryHistoryWriter>>>,
+    /// App SQLite rollback store. Empty when the app database is not open.
+    grid_saves: std::sync::Mutex<Option<std::sync::Arc<dyn grid_save::GridSaveStore>>>,
 }
 
 impl ConnectionManager {
@@ -146,6 +150,7 @@ impl ConnectionManager {
             rolled_back: Mutex::new(HashSet::new()),
             open_gates: Mutex::new(HashMap::new()),
             history: std::sync::Mutex::new(None),
+            grid_saves: std::sync::Mutex::new(None),
         }
     }
 

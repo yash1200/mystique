@@ -3,13 +3,14 @@
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits,
-    ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult, EditPlan,
-    SqlIdentStyle, SqlPlaceholder,
+    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, rollback_stale,
+    rows_hash, ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult,
+    EditPlan, GridUndo, SqlIdentStyle, SqlPlaceholder,
 };
 use serde_json::Value as JsonValue;
 
 use super::catalog;
+use super::encode::value_json;
 use super::query_failed;
 use super::MysqlSession;
 
@@ -29,14 +30,10 @@ pub(super) async fn apply_table_edits(
     overlay_catalog_pk(&mut owned.columns, &described);
     let plan = plan_table_edits(SqlIdentStyle::Mysql, SqlPlaceholder::Question, &owned)?;
     let previews = plan.previews();
-    let rollback_sql = plan.rollback_sql();
     if edits.dry_run {
         return Ok(ApplyTableEditsResult {
-            updated: 0,
-            inserted: 0,
-            deleted: 0,
             statements: previews,
-            rollback_sql,
+            ..ApplyTableEditsResult::empty()
         });
     }
     let mut conn = session.conn().await?;
@@ -47,6 +44,7 @@ pub(super) async fn apply_table_edits(
         let _ = conn.query_drop("ROLLBACK").await;
         return Err(err);
     }
+    let undo = read_undo(&mut conn, &plan).await;
     if let Err(err) = conn.query_drop("COMMIT").await {
         let _ = conn.query_drop("ROLLBACK").await;
         return Err(query_failed(err));
@@ -56,35 +54,77 @@ pub(super) async fn apply_table_edits(
         inserted: owned.inserts.len() as u32,
         deleted: owned.deletes.len() as u32,
         statements: previews,
-        rollback_sql,
+        save_id: None,
+        undo,
     })
 }
 
-pub(super) async fn apply_rollback_sql(
+pub(super) async fn apply_grid_undo(
     session: &MysqlSession,
-    statements: &[String],
+    undo: &GridUndo,
 ) -> ConnectorResult<()> {
     session.ensure_open()?;
     let mut conn = session.conn().await?;
     conn.query_drop("START TRANSACTION")
         .await
         .map_err(query_failed)?;
-    for sql in statements {
-        if let Err(err) = conn.exec_drop(sql.as_str(), ()).await {
-            let _ = conn.query_drop("ROLLBACK").await;
-            return Err(query_failed(err));
-        }
-        let changed = conn.affected_rows();
-        if changed != 1 {
-            let _ = conn.query_drop("ROLLBACK").await;
-            return Err(affected_mismatch("rollback", changed));
-        }
+    if let Err(err) = run_undo(&mut conn, undo).await {
+        let _ = conn.query_drop("ROLLBACK").await;
+        return Err(err);
     }
     if let Err(err) = conn.query_drop("COMMIT").await {
         let _ = conn.query_drop("ROLLBACK").await;
         return Err(query_failed(err));
     }
     Ok(())
+}
+
+/// Post-save rows for the undo. `None` means the save has no rollback.
+async fn read_undo(conn: &mut mysql_async::Conn, plan: &EditPlan) -> Option<GridUndo> {
+    plan.rollback_sql()?;
+    let mut rows = Vec::new();
+    for edit in &plan.edits {
+        rows.push(
+            read_rows(conn, &edit.check.sql, &edit.check.params)
+                .await
+                .ok()?,
+        );
+    }
+    plan.undo(&rows)
+}
+
+async fn run_undo(conn: &mut mysql_async::Conn, undo: &GridUndo) -> ConnectorResult<()> {
+    for check in &undo.checks {
+        let rows = read_rows(conn, &check.sql, &check.params).await?;
+        if rows_hash(&rows) != check.hash {
+            return Err(rollback_stale());
+        }
+    }
+    for sql in &undo.inverse {
+        conn.exec_drop(sql.as_str(), ())
+            .await
+            .map_err(query_failed)?;
+        let changed = conn.affected_rows();
+        if changed != 1 {
+            return Err(affected_mismatch("rollback", changed));
+        }
+    }
+    Ok(())
+}
+
+async fn read_rows(
+    conn: &mut mysql_async::Conn,
+    sql: &str,
+    params: &[JsonValue],
+) -> ConnectorResult<Vec<Vec<JsonValue>>> {
+    let rows: Vec<mysql_async::Row> = conn
+        .exec(sql, mysql_params(params))
+        .await
+        .map_err(query_failed)?;
+    Ok(rows
+        .into_iter()
+        .map(|row| row.unwrap().into_iter().map(value_json).collect())
+        .collect())
 }
 
 async fn apply_plan(conn: &mut mysql_async::Conn, plan: &EditPlan) -> ConnectorResult<()> {

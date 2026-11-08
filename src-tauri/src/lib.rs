@@ -148,8 +148,7 @@ pub fn run() {
             // workspace tabs (restored on reconnect)
             ipc::grid_layout::get_grid_column_layout,
             ipc::grid_layout::save_grid_column_layout,
-            ipc::grid_layout::latest_grid_edit_history,
-            ipc::grid_layout::append_grid_edit_history,
+            ipc::grid_layout::latest_grid_save,
             ipc::workspace_tabs::list_workspace_tabs,
             ipc::workspace_tabs::replace_workspace_tabs,
             ipc::workspace_tabs::upsert_workspace_tab,

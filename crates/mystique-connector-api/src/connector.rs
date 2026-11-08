@@ -258,10 +258,11 @@ pub trait ConnectorSession: Send + Sync {
         )))
     }
 
-    /// Apply inverse DML from a previous save, in one transaction.
-    async fn apply_rollback_sql(&self, _statements: &[String]) -> ConnectorResult<()> {
+    /// Roll back a previous save in one transaction. Refuses with
+    /// [`crate::rollback_stale`] when a checked row changed since the save.
+    async fn apply_grid_undo(&self, _undo: &crate::GridUndo) -> ConnectorResult<()> {
         Err(crate::ConnectorError::NotSupported(format!(
-            "apply_rollback_sql not implemented for engine `{}`",
+            "apply_grid_undo not implemented for engine `{}`",
             self.engine_id()
         )))
     }

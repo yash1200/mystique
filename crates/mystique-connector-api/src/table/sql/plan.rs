@@ -3,15 +3,19 @@
 //! Each changed row still compiles to its own INSERT, UPDATE, or DELETE.
 //! Placeholders carry the values. `preview` is the same statement with
 //! bound-safe literals so the confirm dialog can show it. `inverse` is the
-//! statement that puts that row back, also with literals.
+//! statement that puts that row back, also with literals. `check` reads the
+//! row as it stands after the save, so rollback can tell if it changed since.
 
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 
-use super::super::edits::{ApplyTableEditsInput, TableRowDelete, TableRowInsert, TableRowUpdate};
+use super::super::edits::{
+    rows_hash, ApplyTableEditsInput, GridUndo, RowCheck, TableRowDelete, TableRowInsert,
+    TableRowUpdate,
+};
 use super::{col_type, is_empty_value, qualify_table, quote_ident, sql_literal, SqlIdentStyle};
 use crate::error::{ConnectorError, ConnectorResult};
-use crate::large_cell::SqlPlaceholder;
+use crate::large_cell::{is_large_marker, SqlPlaceholder};
 use crate::ColumnInfo;
 
 /// `SELECT COUNT(*)` that must return 1 before a keyless write.
@@ -21,13 +25,32 @@ pub struct PlannedCount {
     pub params: Vec<JsonValue>,
 }
 
+/// `SELECT *` that finds one row after the save.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlannedRead {
+    pub sql: String,
+    pub params: Vec<JsonValue>,
+}
+
+impl PlannedRead {
+    pub fn checked(&self, rows: &[Vec<JsonValue>]) -> RowCheck {
+        RowCheck {
+            sql: self.sql.clone(),
+            params: self.params.clone(),
+            hash: rows_hash(rows),
+        }
+    }
+}
+
 /// One row write. `sql` is what runs. `preview` is what the user reads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedEdit {
     pub sql: String,
     pub params: Vec<JsonValue>,
     pub preview: String,
-    pub inverse: String,
+    /// Puts the row back. `None` when a value is only a large-cell preview.
+    pub inverse: Option<String>,
+    pub check: PlannedRead,
     pub uniqueness: Option<PlannedCount>,
 }
 
@@ -41,13 +64,29 @@ impl EditPlan {
         self.edits.iter().map(|edit| edit.preview.clone()).collect()
     }
 
-    /// Inverse statements in reverse apply order.
-    pub fn rollback_sql(&self) -> Vec<String> {
+    /// Inverse statements in reverse apply order. `None` when any row cannot be put back.
+    pub fn rollback_sql(&self) -> Option<Vec<String>> {
         self.edits
             .iter()
             .rev()
             .map(|edit| edit.inverse.clone())
             .collect()
+    }
+
+    /// Undo for a committed save. `rows[i]` is what `edits[i].check` returned
+    /// inside the save transaction.
+    pub fn undo(&self, rows: &[Vec<Vec<JsonValue>>]) -> Option<GridUndo> {
+        let inverse = self.rollback_sql()?;
+        if rows.len() != self.edits.len() {
+            return None;
+        }
+        let checks = self
+            .edits
+            .iter()
+            .zip(rows)
+            .map(|(edit, rows)| edit.check.checked(rows))
+            .collect();
+        Some(GridUndo { checks, inverse })
     }
 }
 
@@ -144,11 +183,21 @@ fn plan_update(
         .map(|(name, value)| (name, value))
         .collect();
     let old = assign_list(style, placeholder, input, &old_pairs, 1)?;
-    let old_pred = row_predicate(style, placeholder, input, &update.original, 1)?;
-    let inverse = format!(
-        "UPDATE {target} SET {} WHERE {}",
-        old.preview, old_pred.preview
-    );
+    // The row is found by its values after the save (a keyless row or a new key).
+    let mut after = update.original.clone();
+    for (name, value) in &update.values {
+        after.insert(name.clone(), value.clone());
+    }
+    let after_pred = row_predicate(style, placeholder, input, &after, 1)?;
+    let restorable = !any_large(old_owned.iter().map(|(_, value)| value))
+        && !any_large(after_pred.params.iter());
+    let inverse = restorable.then(|| {
+        format!(
+            "UPDATE {target} SET {} WHERE {}",
+            old.preview, after_pred.preview
+        )
+    });
+    let check = read_row(&target, &after_pred);
     let mut params = set.params;
     params.extend(pred.params);
     Ok(PlannedEdit {
@@ -156,6 +205,7 @@ fn plan_update(
         params,
         preview,
         inverse,
+        check,
         uniqueness,
     })
 }
@@ -202,12 +252,15 @@ fn plan_insert(
         .map(|(name, value)| ((*name).clone(), (*value).clone()))
         .collect();
     let inverse_pred = predicate(style, placeholder, input, &owned, 1)?;
-    let inverse = format!("DELETE FROM {target} WHERE {}", inverse_pred.preview);
+    let inverse = (!any_large(owned.iter().map(|(_, value)| value)))
+        .then(|| format!("DELETE FROM {target} WHERE {}", inverse_pred.preview));
+    let check = read_row(&target, &inverse_pred);
     Ok(PlannedEdit {
         sql,
         params,
         preview,
         inverse,
+        check,
         uniqueness: None,
     })
 }
@@ -223,12 +276,18 @@ fn plan_delete(
     let uniqueness = keyless_count(style, placeholder, input, &delete.original)?;
     let sql = format!("DELETE FROM {target} WHERE {}", pred.sql);
     let preview = format!("DELETE FROM {target} WHERE {}", pred.preview);
-    let inverse = insert_original(style, input, &delete.original)?;
+    let inverse = if any_large(delete.original.values()) {
+        None
+    } else {
+        Some(insert_original(style, input, &delete.original)?)
+    };
+    let check = read_row(&target, &pred);
     Ok(PlannedEdit {
         sql,
         params: pred.params,
         preview,
         inverse,
+        check,
         uniqueness,
     })
 }
@@ -398,6 +457,17 @@ fn insert_original(
     ))
 }
 
+fn read_row(target: &str, pred: &Piece) -> PlannedRead {
+    PlannedRead {
+        sql: format!("SELECT * FROM {target} WHERE {}", pred.sql),
+        params: pred.params.clone(),
+    }
+}
+
+fn any_large<'a>(values: impl IntoIterator<Item = &'a JsonValue>) -> bool {
+    values.into_iter().any(is_large_marker)
+}
+
 fn target(style: SqlIdentStyle, input: &ApplyTableEditsInput) -> String {
     qualify_table(
         style,
@@ -523,8 +593,14 @@ mod tests {
         assert!(!plan.edits[0].sql.contains("DROP"));
         assert_eq!(plan.edits[0].params, vec![json!("a"), json!(1)]);
         assert!(plan.edits[0].uniqueness.is_none());
-        assert_eq!(plan.rollback_sql().len(), 2);
-        assert!(plan.rollback_sql()[0].contains("WHERE \"id\" = 2"));
+        let rollback = plan.rollback_sql().expect("rollback");
+        assert_eq!(rollback.len(), 2);
+        assert!(rollback[0].contains("WHERE \"id\" = 2"));
+        assert_eq!(
+            plan.edits[0].check.sql,
+            "SELECT * FROM \"docs\" WHERE \"id\" = $1"
+        );
+        assert_eq!(plan.edits[0].check.params, vec![json!(1)]);
     }
 
     #[test]
@@ -567,6 +643,71 @@ mod tests {
         assert!(count.sql.contains("`n` = ?"));
         assert!(plan.edits[0].sql.contains("`n` = ?"));
         assert!(!plan.edits[0].sql.contains("= 2"));
+    }
+
+    #[test]
+    fn a_keyless_inverse_finds_the_row_by_its_saved_values() {
+        let plan = plan_table_edits(
+            SqlIdentStyle::Mysql,
+            SqlPlaceholder::Question,
+            &input(
+                vec![column("name", "text", false), column("n", "int", false)],
+                vec![TableRowUpdate {
+                    original: BTreeMap::from([("name".into(), json!("a")), ("n".into(), json!(1))]),
+                    values: BTreeMap::from([("n".into(), json!(2))]),
+                }],
+            ),
+        )
+        .expect("plan");
+        let inverse = plan.edits[0].inverse.clone().expect("inverse");
+        assert_eq!(
+            inverse,
+            "UPDATE `docs` SET `n` = 1 WHERE `n` = 2 AND `name` = 'a'"
+        );
+        assert_eq!(plan.edits[0].check.params, vec![json!(2), json!("a")]);
+    }
+
+    #[test]
+    fn a_deleted_row_with_a_large_preview_has_no_undo() {
+        let mut edits = input(
+            vec![column("id", "int", true), column("body", "text", false)],
+            Vec::new(),
+        );
+        edits.deletes = vec![crate::table::edits::TableRowDelete {
+            original: BTreeMap::from([
+                ("id".into(), json!(1)),
+                (
+                    "body".into(),
+                    json!({ "$large": true, "preview": "abc", "totalChars": 99999 }),
+                ),
+            ]),
+        }];
+        let plan = plan_table_edits(SqlIdentStyle::Postgres, SqlPlaceholder::Dollar, &edits)
+            .expect("plan");
+        assert!(plan.edits[0].inverse.is_none());
+        assert!(plan.rollback_sql().is_none());
+        assert!(plan.undo(&[Vec::new()]).is_none());
+    }
+
+    #[test]
+    fn undo_pairs_each_check_with_its_rows() {
+        let plan = plan_table_edits(
+            SqlIdentStyle::Postgres,
+            SqlPlaceholder::Dollar,
+            &input(
+                vec![column("id", "int8", true), column("body", "text", false)],
+                vec![TableRowUpdate {
+                    original: BTreeMap::from([("id".into(), json!(1))]),
+                    values: BTreeMap::from([("body".into(), json!("a"))]),
+                }],
+            ),
+        )
+        .expect("plan");
+        let rows = vec![vec![vec![json!(1), json!("a")]]];
+        let undo = plan.undo(&rows).expect("undo");
+        assert_eq!(undo.checks.len(), 1);
+        assert_eq!(undo.checks[0].hash, rows_hash(&rows[0]));
+        assert!(plan.undo(&[]).is_none());
     }
 
     #[test]

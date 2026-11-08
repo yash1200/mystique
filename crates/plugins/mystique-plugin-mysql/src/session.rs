@@ -151,8 +151,11 @@ impl ConnectorSession for MysqlSession {
         edits::apply_table_edits(self, edits).await
     }
 
-    async fn apply_rollback_sql(&self, statements: &[String]) -> ConnectorResult<()> {
-        edits::apply_rollback_sql(self, statements).await
+    async fn apply_grid_undo(
+        &self,
+        undo: &mystique_connector_api::GridUndo,
+    ) -> ConnectorResult<()> {
+        edits::apply_grid_undo(self, undo).await
     }
 
     async fn distinct_column_values(

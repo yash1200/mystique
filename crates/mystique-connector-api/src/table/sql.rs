@@ -11,7 +11,7 @@ use super::edits::TableEditColumn;
 pub use dml::{compile_delete, compile_insert, compile_update, compile_upsert};
 pub use plan::{
     affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, EditPlan,
-    PlannedCount, PlannedEdit, AFFECTED_MISMATCH, KEYLESS_AMBIGUOUS,
+    PlannedCount, PlannedEdit, PlannedRead, AFFECTED_MISMATCH, KEYLESS_AMBIGUOUS,
 };
 
 #[derive(Debug, Clone, Copy)]

@@ -38,6 +38,7 @@
 	import {
 		isSessionMissingError,
 		runWithWriteGuard,
+		tabTxnView,
 		workspaceSession,
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
@@ -128,8 +129,10 @@
 	let editorSnap = $state({ doc: '', head: 0, anchor: 0 })
 	let exporting = $state<ResultExportAction | null>(null)
 	let locateNonce = $state(0)
-	let manualCommit = $state(false)
-	let transactionOpen = $state(false)
+	// Per-tab, from the store: correct on the first frame after a tab switch.
+	const txn = $derived(tabTxnView(workspaceSession.tabTxn, tabId))
+	const manualCommit = $derived(txn.manualCommit)
+	const transactionOpen = $derived(txn.transactionOpen)
 	let analyze = $state(false)
 	let explainPlan = $state<ExplainPlan | null>(null)
 	let paramPrompt = $state<{ text: string; origin: number; slots: ParamSlot[] } | null>(
@@ -158,11 +161,7 @@
 		const enabled = showTransactions
 		if (!enabled || !isTauri()) return
 		void pinnedTabStatus(tab)
-			.then((status) => {
-				if (tab !== tabId) return
-				manualCommit = status.pinned
-				transactionOpen = status.inTransaction
-			})
+			.then((status) => workspaceSession.setTabTxn(tab, status))
 			.catch(() => {})
 	})
 
@@ -192,8 +191,6 @@
 		explainPlan = null
 		analyze = false
 		collection = ''
-		manualCommit = false
-		transactionOpen = false
 		paramPrompt = null
 		editorSharePct = SPLIT_DEFAULT
 		const next = text ?? ''
@@ -637,8 +634,7 @@
 		if (!showTransactions || !isTauri()) return
 		try {
 			const status = await pinnedTabStatus(tabId)
-			manualCommit = status.pinned
-			transactionOpen = status.inTransaction
+			workspaceSession.setTabTxn(tabId, status)
 		} catch {
 			/* The toolbar keeps the last status. */
 		}
@@ -650,12 +646,15 @@
 			return
 		}
 		const wasOpen = transactionOpen
+		const tab = tabId
 		try {
 			const status = manual
-				? await pinQueryTab(engineSessionId, tabId)
-				: await unpinQueryTab(tabId)
-			manualCommit = manual ? status.pinned : false
-			transactionOpen = status.inTransaction
+				? await pinQueryTab(engineSessionId, tab)
+				: await unpinQueryTab(tab)
+			workspaceSession.setTabTxn(tab, {
+				pinned: manual ? status.pinned : false,
+				inTransaction: status.inTransaction,
+			})
 			if (!manual && wasOpen) showToast('info', 'Open transaction rolled back.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
@@ -665,7 +664,7 @@
 	async function commitPin() {
 		try {
 			const status = await commitPinnedTab(tabId)
-			transactionOpen = status.inTransaction
+			workspaceSession.setTabTxn(tabId, status)
 			showToast('success', 'Committed.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
@@ -675,7 +674,7 @@
 	async function rollbackPin() {
 		try {
 			const status = await rollbackPinnedTab(tabId)
-			transactionOpen = status.inTransaction
+			workspaceSession.setTabTxn(tabId, status)
 			showToast('info', 'Rolled back.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))

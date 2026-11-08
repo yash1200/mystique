@@ -14,11 +14,14 @@ import {
 	dropEditBuffer,
 	requireActiveConnection,
 	runWithWriteGuard,
+	saveTableTab,
+	tabEditsAreDirty,
 	tableTabId,
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/shell'
+import { resolveImportGate, type ImportGateChoice } from './import-gate'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
 import type { ImportFileSpec } from './ui/ImportDataModal.svelte'
 import type { ImportRunSpec } from './ui/ImportPreviewModal.svelte'
@@ -36,7 +39,65 @@ export function beginExport(table: TableMeta) {
 	workspaceStudio.exportError = null
 }
 
+/** Set while import asks about the table's pending grid edits. */
+export const importGate = $state({
+	table: null as TableMeta | null,
+	tabId: '',
+	/** The grid's save dialogs are up; the gate hides meanwhile. */
+	saving: false,
+	error: null as string | null,
+})
+
+function tabHasEdits(tabId: string): boolean {
+	const tab = workspaceSession.openTabs.find((t) => t.id === tabId)
+	return !!tab && (tab.dirty || tabEditsAreDirty(tabId))
+}
+
 export function beginImport(table: TableMeta) {
+	const active = requireActiveConnection()
+	const tabId = active ? tableTabId(active.id, table.id) : ''
+	if (tabId && tabHasEdits(tabId)) {
+		importGate.table = table
+		importGate.tabId = tabId
+		importGate.error = null
+		return
+	}
+	openImport(table)
+}
+
+export async function answerImportGate(choice: ImportGateChoice) {
+	const table = importGate.table
+	const tabId = importGate.tabId
+	if (!table || importGate.saving) return
+	importGate.error = null
+	if (choice === 'save') {
+		// Only the active tab's grid is mounted, and it owns the save.
+		workspaceSession.setActiveTab(tabId)
+		importGate.saving = true
+	}
+	const result = await resolveImportGate(choice, {
+		save: () => saveTableTab(tabId),
+		discard: () => discardTabEdits(table, tabId),
+	})
+	importGate.saving = false
+	if (!result.proceed) {
+		if (choice === 'cancel') importGate.table = null
+		else importGate.error = result.error
+		return
+	}
+	importGate.table = null
+	openImport(table)
+}
+
+async function discardTabEdits(table: TableMeta, tabId: string) {
+	dropEditBuffer(tabId)
+	workspaceSession.setTabDirty(tabId, false)
+	workspaceStudio.baselineEpoch += 1
+	const { tablePreview } = await import('./tab-preview.svelte')
+	await tablePreview.open(table)
+}
+
+function openImport(table: TableMeta) {
 	workspaceStudio.importTable = table
 	workspaceStudio.importError = null
 	workspaceStudio.importPreview = null

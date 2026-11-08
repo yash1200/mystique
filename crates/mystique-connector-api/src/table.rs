@@ -25,6 +25,6 @@ pub use import::{
 pub use sql::{
     affected_mismatch, compile_delete, compile_insert, compile_update, compile_upsert,
     distinct_values_sql, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, qualify_table,
-    quote_ident, sql_literal, EditPlan, PlannedCount, PlannedEdit, SqlIdentStyle,
+    quote_ident, sql_literal, EditPlan, PlannedCount, PlannedEdit, PlannedRead, SqlIdentStyle,
     AFFECTED_MISMATCH, KEYLESS_AMBIGUOUS,
 };

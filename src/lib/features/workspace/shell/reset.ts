@@ -1,6 +1,7 @@
 /**
  * Close every engine session, clear workspace state, and hard-load Home.
- * Used by ⌘/Ctrl+Shift+R.
+ * ⌘/Ctrl+Shift+R goes through `resetGuard` first, which asks when edits or
+ * transactions would be lost.
  */
 import { resolve } from '$app/paths'
 import { closeEngineSession, isTauri, listEngineSessions } from '#core/ipc'

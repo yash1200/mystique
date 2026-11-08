@@ -311,7 +311,7 @@ fn marker(value: &JsonValue, locator: Option<LargeCellLocator>) -> JsonValue {
     JsonValue::Object(map)
 }
 
-fn is_large_marker(value: &JsonValue) -> bool {
+pub(crate) fn is_large_marker(value: &JsonValue) -> bool {
     value
         .get("$large")
         .and_then(JsonValue::as_bool)

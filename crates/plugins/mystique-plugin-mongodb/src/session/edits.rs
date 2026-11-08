@@ -30,7 +30,8 @@ pub(super) async fn apply_table_edits(
             inserted: 0,
             deleted: 0,
             statements,
-            rollback_sql: Vec::new(),
+            save_id: None,
+            undo: None,
         });
     }
     let transactional = session.transactions.load(Ordering::SeqCst);
@@ -77,7 +78,8 @@ fn result(counts: Counts, statements: Vec<String>) -> ApplyTableEditsResult {
         inserted: counts.inserted,
         deleted: counts.deleted,
         statements,
-        rollback_sql: Vec::new(),
+        save_id: None,
+        undo: None,
     }
 }
 

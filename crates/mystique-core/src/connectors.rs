@@ -8,5 +8,5 @@ mod registry;
 mod ssh;
 
 pub use manager::{ConnectionManager, OpenSessionRequest};
-pub(crate) use manager::{QueryHistoryWriter, SessionOrigin};
+pub(crate) use manager::{GridSaveStore, QueryHistoryWriter, SessionOrigin};
 pub use registry::ConnectorRegistry;

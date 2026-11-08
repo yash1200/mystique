@@ -1,14 +1,15 @@
 //! Grid insert / update / delete. One transaction, one statement per row.
 
 use mystique_connector_api::{
-    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits,
-    ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult, SqlIdentStyle,
-    SqlPlaceholder,
+    affected_mismatch, keyless_ambiguous, overlay_catalog_pk, plan_table_edits, rollback_stale,
+    rows_hash, ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult,
+    GridUndo, SqlIdentStyle, SqlPlaceholder,
 };
 use rusqlite::types::{ToSql, ToSqlOutput, Value as SqlValue};
 use serde_json::Value as JsonValue;
 
 use super::catalog;
+use super::encode::value_ref_json;
 use super::interrupt::map_err;
 use super::SqliteSession;
 
@@ -28,14 +29,10 @@ pub(super) async fn apply_table_edits(
     overlay_catalog_pk(&mut owned.columns, &described);
     let plan = plan_table_edits(SqlIdentStyle::Postgres, SqlPlaceholder::Question, &owned)?;
     let previews = plan.previews();
-    let rollback_sql = plan.rollback_sql();
     if edits.dry_run {
         return Ok(ApplyTableEditsResult {
-            updated: 0,
-            inserted: 0,
-            deleted: 0,
             statements: previews,
-            rollback_sql,
+            ..ApplyTableEditsResult::empty()
         });
     }
     let updated = owned.updates.len() as u32;
@@ -49,16 +46,17 @@ pub(super) async fn apply_table_edits(
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(query_failed_plain)?;
-            let run = apply_plan(&conn, &plan);
+            let run = apply_plan(&conn, &plan).and_then(|()| read_undo(&conn, &plan));
             match run {
-                Ok(()) => {
+                Ok(undo) => {
                     conn.execute_batch("COMMIT").map_err(query_failed_plain)?;
                     Ok(ApplyTableEditsResult {
                         updated,
                         inserted,
                         deleted,
                         statements: previews,
-                        rollback_sql,
+                        save_id: None,
+                        undo,
                     })
                 }
                 Err(err) => {
@@ -70,12 +68,12 @@ pub(super) async fn apply_table_edits(
         .await
 }
 
-pub(super) async fn apply_rollback_sql(
+pub(super) async fn apply_grid_undo(
     session: &SqliteSession,
-    statements: &[String],
+    undo: &GridUndo,
 ) -> ConnectorResult<()> {
     session.ensure_open()?;
-    let statements = statements.to_vec();
+    let undo = undo.clone();
     let pool = session.pool();
     session
         .blocking(move || -> ConnectorResult<()> {
@@ -84,23 +82,75 @@ pub(super) async fn apply_rollback_sql(
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(query_failed_plain)?;
-            for sql in &statements {
-                let changed = match conn.execute(sql, []) {
-                    Ok(changed) => changed,
-                    Err(err) => {
-                        let _ = conn.execute_batch("ROLLBACK");
-                        return Err(query_failed_plain(err));
-                    }
-                };
-                if changed != 1 {
+            match run_undo(&conn, &undo) {
+                Ok(()) => {
+                    conn.execute_batch("COMMIT").map_err(query_failed_plain)?;
+                    Ok(())
+                }
+                Err(err) => {
                     let _ = conn.execute_batch("ROLLBACK");
-                    return Err(affected_mismatch("rollback", changed as u64));
+                    Err(err)
                 }
             }
-            conn.execute_batch("COMMIT").map_err(query_failed_plain)?;
-            Ok(())
         })
         .await
+}
+
+/// Post-save rows for the undo. `None` when a row cannot be put back.
+fn read_undo(
+    conn: &rusqlite::Connection,
+    plan: &mystique_connector_api::EditPlan,
+) -> ConnectorResult<Option<GridUndo>> {
+    if plan.rollback_sql().is_none() {
+        return Ok(None);
+    }
+    let mut rows = Vec::new();
+    for edit in &plan.edits {
+        match read_rows(conn, &edit.check.sql, &edit.check.params) {
+            Ok(found) => rows.push(found),
+            Err(_) => return Ok(None),
+        }
+    }
+    Ok(plan.undo(&rows))
+}
+
+fn run_undo(conn: &rusqlite::Connection, undo: &GridUndo) -> ConnectorResult<()> {
+    for check in &undo.checks {
+        let rows = read_rows(conn, &check.sql, &check.params)?;
+        if rows_hash(&rows) != check.hash {
+            return Err(rollback_stale());
+        }
+    }
+    for sql in &undo.inverse {
+        let changed = conn.execute(sql, []).map_err(query_failed_plain)?;
+        if changed != 1 {
+            return Err(affected_mismatch("rollback", changed as u64));
+        }
+    }
+    Ok(())
+}
+
+fn read_rows(
+    conn: &rusqlite::Connection,
+    sql: &str,
+    params: &[JsonValue],
+) -> ConnectorResult<Vec<Vec<JsonValue>>> {
+    let binds = json_binds(params);
+    let mut stmt = conn.prepare(sql).map_err(query_failed_plain)?;
+    let width = stmt.column_count();
+    let mut rows = stmt
+        .query(rusqlite::params_from_iter(binds.iter()))
+        .map_err(query_failed_plain)?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().map_err(query_failed_plain)? {
+        let mut cells = Vec::with_capacity(width);
+        for index in 0..width {
+            let value = row.get_ref(index).map_err(query_failed_plain)?;
+            cells.push(value_ref_json(value));
+        }
+        out.push(cells);
+    }
+    Ok(out)
 }
 
 fn apply_plan(
@@ -382,7 +432,9 @@ mod tests {
         };
         assert_eq!(saved.updated, 2);
         assert_eq!(saved.statements.len(), 2);
-        assert!(saved.rollback_sql.len() == 2);
+        let undo = saved.undo.clone().expect("undo");
+        assert_eq!(undo.inverse.len(), 2);
+        assert_eq!(undo.checks.len(), 2);
         let read_n = |sql: &str| {
             let sql = sql.to_string();
             let session = session.as_ref();
@@ -406,7 +458,7 @@ mod tests {
         let after = read_n("SELECT n FROM docs ORDER BY id").await;
         assert_eq!(after.first().and_then(|row| row.first()), Some(&json!(11)));
         assert_eq!(after.get(1).and_then(|row| row.first()), Some(&json!(21)));
-        if let Err(err) = session.apply_rollback_sql(&saved.rollback_sql).await {
+        if let Err(err) = session.apply_grid_undo(&undo).await {
             panic!("rollback: {err}");
         }
         let restored = read_n("SELECT n FROM docs ORDER BY id").await;
@@ -418,6 +470,140 @@ mod tests {
             restored.get(1).and_then(|row| row.first()),
             Some(&json!(20))
         );
+        let again = session.apply_grid_undo(&undo).await;
+        assert!(
+            again
+                .as_ref()
+                .is_err_and(|err| err.to_string().contains("rollback_stale")),
+            "{again:?}"
+        );
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    fn docs_columns() -> Vec<mystique_connector_api::TableEditColumn> {
+        ["id", "n"]
+            .into_iter()
+            .map(|name| mystique_connector_api::TableEditColumn {
+                name: name.into(),
+                data_type: "integer".into(),
+                nullable: name != "id",
+                pk: false,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn rollback_is_refused_once_a_saved_row_changed() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = session_at(&path).await;
+        exec(
+            session.as_ref(),
+            "CREATE TABLE docs (id INTEGER PRIMARY KEY, n INTEGER); INSERT INTO docs VALUES (1, 10);",
+            QueryMode::Write,
+        )
+        .await;
+        let edits = ApplyTableEditsInput {
+            table: "docs".into(),
+            schema: None,
+            database: None,
+            columns: docs_columns(),
+            updates: vec![mystique_connector_api::TableRowUpdate {
+                original: [("id".into(), json!(1)), ("n".into(), json!(10))]
+                    .into_iter()
+                    .collect(),
+                values: [("n".into(), json!(11))].into_iter().collect(),
+            }],
+            inserts: Vec::new(),
+            deletes: Vec::new(),
+            dry_run: false,
+        };
+        let undo = match session.apply_table_edits(&edits).await {
+            Ok(saved) => saved.undo.expect("undo"),
+            Err(err) => panic!("save: {err}"),
+        };
+        exec(
+            session.as_ref(),
+            "UPDATE docs SET n = 12 WHERE id = 1",
+            QueryMode::Write,
+        )
+        .await;
+        let err = match session.apply_grid_undo(&undo).await {
+            Ok(()) => panic!("stale rollback ran"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("rollback_stale"), "{err}");
+        let check = ValidatedQuery {
+            text: "SELECT n FROM docs WHERE id = 1".into(),
+            mode: QueryMode::Read,
+            max_rows: 5,
+            timeout_ms: 5_000,
+            collection: None,
+            database: None,
+            control: QueryControl::new(),
+            params: Vec::new(),
+        };
+        let rows = match session.execute_query(&check).await {
+            Ok(result) => result.rows,
+            Err(err) => panic!("read: {err}"),
+        };
+        assert_eq!(rows.first().and_then(|row| row.first()), Some(&json!(12)));
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn rollback_restores_a_deleted_row_and_removes_an_inserted_one() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = session_at(&path).await;
+        exec(
+            session.as_ref(),
+            "CREATE TABLE docs (id INTEGER PRIMARY KEY, n INTEGER); INSERT INTO docs VALUES (1, 10);",
+            QueryMode::Write,
+        )
+        .await;
+        let edits = ApplyTableEditsInput {
+            table: "docs".into(),
+            schema: None,
+            database: None,
+            columns: docs_columns(),
+            updates: Vec::new(),
+            inserts: vec![mystique_connector_api::TableRowInsert {
+                values: [("id".into(), json!(2)), ("n".into(), json!(20))]
+                    .into_iter()
+                    .collect(),
+            }],
+            deletes: vec![mystique_connector_api::TableRowDelete {
+                original: [("id".into(), json!(1)), ("n".into(), json!(10))]
+                    .into_iter()
+                    .collect(),
+            }],
+            dry_run: false,
+        };
+        let undo = match session.apply_table_edits(&edits).await {
+            Ok(saved) => saved.undo.expect("undo"),
+            Err(err) => panic!("save: {err}"),
+        };
+        if let Err(err) = session.apply_grid_undo(&undo).await {
+            panic!("rollback: {err}");
+        }
+        let check = ValidatedQuery {
+            text: "SELECT id, n FROM docs ORDER BY id".into(),
+            mode: QueryMode::Read,
+            max_rows: 5,
+            timeout_ms: 5_000,
+            collection: None,
+            database: None,
+            control: QueryControl::new(),
+            params: Vec::new(),
+        };
+        let rows = match session.execute_query(&check).await {
+            Ok(result) => result.rows,
+            Err(err) => panic!("read: {err}"),
+        };
+        assert_eq!(rows, vec![vec![json!(1), json!(10)]]);
         let _ = session.close().await;
         let _ = fs::remove_file(&path);
     }

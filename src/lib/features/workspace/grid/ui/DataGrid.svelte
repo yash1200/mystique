@@ -12,20 +12,21 @@
 	import {
 		adoptServerRows,
 		getEditBuffer,
+		registerTabSaver,
 		rememberEditBuffer,
 		shouldRestoreEditBuffer,
 		tabEditsAreDirty,
+		type SaveOutcome,
 	} from '#features/workspace/shell'
 	import { appPrefs } from '#lib/app'
 	import { onMount, tick, untrack } from 'svelte'
 	import {
 		distinctColumnValues,
 		loadColumnLayout,
-		loadRollbackSql,
+		loadLatestSaveId,
 		persistTableEdits,
 		rollbackTableEdits,
 		saveColumnLayout,
-		storeRollbackSql,
 	} from '../api'
 	import {
 		columnCompletions,
@@ -34,6 +35,14 @@
 		DISTINCT_TTL_MS,
 		type DistinctCacheEntry,
 	} from '../column-complete'
+	import { cloneRowValues, type FetchChunk } from '../clone-row'
+	import {
+		columnRange,
+		columnsFrom,
+		inVisibleOrder,
+		stepColumn,
+		visibleColumns,
+	} from '../visible-columns'
 	import {
 		EMPTY_COLUMN_LAYOUT,
 		moveColumn,
@@ -217,7 +226,10 @@
 	let refreshArmed = $state(false)
 	let saving = $state(false)
 	let columnLayout = $state<GridColumnLayout>({ ...EMPTY_COLUMN_LAYOUT })
-	let rollbackSql = $state<string[]>([])
+	/** Visible order (frozen, then the rest; no hidden). Every grid operation maps through this. */
+	const visible = $derived(visibleColumns(table.columns, columnLayout))
+	/** Backend id of the save the Rollback button undoes. */
+	let lastSaveId = $state<string | null>(null)
 	let undoStack = $state<GridEditSnapshot[]>([])
 	let redoStack = $state<GridEditSnapshot[]>([])
 	let savePreview = $state<string[] | null>(null)
@@ -687,7 +699,7 @@
 			flashStatus('Select a row to duplicate')
 			return
 		}
-		cloneRows(targets)
+		void cloneRows(targets)
 	}
 
 	function flashStatus(msg: string) {
@@ -752,12 +764,12 @@
 				if (sep < 0) continue
 				const row = Number(key.slice(0, sep))
 				const col = key.slice(sep + 2)
-				if (Number.isFinite(row) && col) out.push({ row, col })
+				if (Number.isFinite(row) && visible.names.includes(col)) out.push({ row, col })
 			}
 			return out
 		}
 		if (selKind === 'rows' && selectedRows.size > 0) {
-			const cols = colNames()
+			const cols = visible.names
 			const out: { row: number; col: string }[] = []
 			for (const row of selectedRowList()) {
 				for (const col of cols) out.push({ row, col })
@@ -874,20 +886,13 @@
 	function selectCellRect(toRow: number, toCol: string) {
 		selKind = 'cells'
 		clearRowSelection()
-		const cols = colNames()
 		const from = cellAnchor ?? selectedCell ?? { row: toRow, col: toCol }
-		const fromC = cols.indexOf(from.col)
-		const toC = cols.indexOf(toCol)
+		const names = columnRange(visible, from.col, toCol)
 		const r0 = Math.min(from.row, toRow)
 		const r1 = Math.max(from.row, toRow)
-		const c0 = Math.min(fromC < 0 ? 0 : fromC, toC < 0 ? 0 : toC)
-		const c1 = Math.max(fromC < 0 ? 0 : fromC, toC < 0 ? 0 : toC)
 		const next = new Set<string>()
 		for (let r = r0; r <= r1; r++) {
-			for (let c = c0; c <= c1; c++) {
-				const name = cols[c]
-				if (name) next.add(selCellKey(r, name))
-			}
+			for (const name of names) next.add(selCellKey(r, name))
 		}
 		selectedCells = next
 		selectedCell = { row: toRow, col: toCol }
@@ -908,28 +913,18 @@
 		count: number
 	} | null {
 		if (selKind !== 'cells' || selectedCells.size === 0) return null
-		const cols = colNames()
-		const parsed: { row: number; ci: number }[] = []
-		for (const key of selectedCells) {
-			const sep = key.indexOf('::')
-			if (sep < 0) continue
-			const row = Number(key.slice(0, sep))
-			const col = key.slice(sep + 2)
-			const ci = cols.indexOf(col)
-			if (!Number.isFinite(row) || ci < 0) continue
-			parsed.push({ row, ci })
-		}
+		const parsed = actionCells()
 		if (parsed.length === 0) return null
 		const rowIdx = [...new Set(parsed.map((p) => p.row))].sort((a, b) => a - b)
-		const colIdx = [...new Set(parsed.map((p) => p.ci))].sort((a, b) => a - b)
-		const columns = colIdx.map((i) => ({ name: cols[i]! }))
+		const names = inVisibleOrder(
+			visible,
+			parsed.map((p) => p.col),
+		)
+		const columns = names.map((name) => ({ name }))
 		const cells = rowIdx.map((r) =>
-			colIdx.map((c) => {
-				const name = cols[c]!
-				return selectedCells.has(selCellKey(r, name))
-					? (rows[r]?.[name] ?? '')
-					: ''
-			}),
+			names.map((name) =>
+				selectedCells.has(selCellKey(r, name)) ? (rows[r]?.[name] ?? '') : '',
+			),
 		)
 		return { columns, cells, count: parsed.length }
 	}
@@ -1064,33 +1059,31 @@
 		await copyRowAs(fallbackRows ?? actionRows(), kind)
 	}
 
-	function snapshotClone(index: number): Record<string, unknown> | null {
-		const src = rows[index]
-		if (!src) return null
-		const row: Record<string, unknown> = { ...src }
-		for (const col of table.columns) {
-			if (
-				col.pk ||
-				col.name === 'id' ||
-				col.name === '_id' ||
-				col.name === 'rowid'
-			) {
-				row[col.name] = null
-			}
-		}
-		return row
-	}
-
-	function cloneRows(indices: number[]) {
+	async function cloneRows(indices: number[]) {
 		if (profileReadOnly) {
 			flashStatus('Connection is read-only')
 			return
 		}
 		if (editing) commitEdit()
-		const snaps = [...new Set(indices)]
+		const sid = sessionId
+		const fetchChunk: FetchChunk | null = sid
+			? (locator, offset) => fetchEngineLargeValue({ sessionId: sid, locator, offset })
+			: null
+		const sources = [...new Set(indices)]
 			.sort((a, b) => a - b)
-			.map((i) => snapshotClone(i))
+			.map((i) => rows[i])
 			.filter((r): r is Record<string, unknown> => !!r)
+		let snaps: Record<string, unknown>[]
+		try {
+			snaps = await Promise.all(
+				sources.map((row) =>
+					cloneRowValues({ row, columns: table.columns, fetchChunk }),
+				),
+			)
+		} catch (err) {
+			reportGridError(err)
+			return
+		}
 		if (snaps.length === 0) return
 		noteEdit()
 		for (let i = snaps.length - 1; i >= 0; i--) {
@@ -1106,7 +1099,7 @@
 	}
 
 	function cloneRow(index: number) {
-		cloneRows([index])
+		void cloneRows([index])
 	}
 
 	function remapAfterRemove(index: number, i: number): number | null {
@@ -1347,7 +1340,7 @@
 			return
 		}
 		if (id === 'clone') {
-			cloneRows(targets)
+			void cloneRows(targets)
 			return
 		}
 		if (id === 'delete')
@@ -1523,7 +1516,7 @@
 			return
 		}
 		if (id === 'clone') {
-			cloneRows(targetRows(row))
+			void cloneRows(targetRows(row))
 			return
 		}
 		if (id === 'delete') {
@@ -1693,10 +1686,6 @@
 		return table.columns.find((c) => c.name === name)
 	}
 
-	function colNames(): string[] {
-		return table.columns.map((c) => c.name)
-	}
-
 	function focusGridShell() {
 		// Defer so we don't steal focus mid-edit open.
 		queueMicrotask(() => {
@@ -1741,8 +1730,7 @@
 	function scrollCellIntoView(row: number, col: string) {
 		const scroller = gridScrollEl()
 		if (!scroller) return
-		const cols = colNames()
-		const colIdx = cols.indexOf(col)
+		const colIdx = visible.names.indexOf(col)
 		const rowH = appPrefs.gridRowHeightPx
 		const root =
 			parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
@@ -1757,47 +1745,47 @@
 		else if (top + rowH > viewTop + viewSpan) {
 			scroller.scrollTop = Math.max(0, top + rowH - viewSpan)
 		}
-		// First data column: snap fully left so the # gutter is not left off-screen
-		// after scrolling in from the right. Geometry, not the cell node — a
-		// windowed cell is not mounted until this scroll lands.
-		if (colIdx <= 0) {
+		// Frozen columns never scroll sideways.
+		if (colIdx >= 0 && colIdx < visible.frozen) return
+		// First scrolling column: snap fully left so the # gutter is not left
+		// off-screen after scrolling in from the right. Geometry, not the cell
+		// node — a windowed cell is not mounted until this scroll lands.
+		if (colIdx <= visible.frozen) {
 			pinScrollToRowGutter()
 			return
 		}
+		const pinnedW = indexW + visible.frozen * colW
 		const left = indexW + colIdx * colW
 		const right = left + colW
 		const viewLeft = scroller.scrollLeft
 		const viewRight = viewLeft + scroller.clientWidth
-		if (left < viewLeft + indexW) scroller.scrollLeft = Math.max(0, left - indexW)
+		if (left < viewLeft + pinnedW) scroller.scrollLeft = Math.max(0, left - pinnedW)
 		else if (right > viewRight) scroller.scrollLeft = right - scroller.clientWidth
 	}
 
 	/** Current page is already fetched from the server; just scroll. */
 	function ensureRowVisible(absoluteRow: number) {
-		const col = selectedCell?.col ?? colNames()[0]
+		const col = selectedCell?.col ?? visible.names[0]
 		if (col) scrollCellIntoView(absoluteRow, col)
 	}
 
 	function moveSelection(dRow: number, dCol: number, extend = false) {
-		const cols = colNames()
-		if (cols.length === 0 || pageEntries.length === 0) return
+		const nextCol = stepColumn(visible, selectedCell?.col, dCol)
+		if (!nextCol || pageEntries.length === 0) return
 
 		let row =
 			selectedCell?.row ??
 			highlightRow ??
 			selectionAnchor ??
 			pageEntries[0]!.index
-		let colIdx = selectedCell ? Math.max(0, cols.indexOf(selectedCell.col)) : 0
 
 		// Map absolute row → position in the current engine page
 		let filterIdx = pageEntries.findIndex((e) => e.index === row)
 		if (filterIdx < 0) filterIdx = 0
 
 		filterIdx = Math.max(0, Math.min(pageEntries.length - 1, filterIdx + dRow))
-		colIdx = Math.max(0, Math.min(cols.length - 1, colIdx + dCol))
 
 		const nextAbs = pageEntries[filterIdx]!.index
-		const nextCol = cols[colIdx]!
 		ensureRowVisible(nextAbs)
 		highlightRow = nextAbs
 		if (selKind === 'rows' || !selectedCell) {
@@ -2037,7 +2025,7 @@
 
 	function pasteIntoGrid(text: string) {
 		if (!assertWritable()) return
-		const cols = colNames()
+		const cols = visible.names
 		if (cols.length === 0) return
 
 		const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
@@ -2072,8 +2060,7 @@
 					: null) ??
 				(selectedCell ? { row: selectedCell.row, col: selectedCell.col } : null)
 			if (!start) return
-			const startColIdx = cols.indexOf(start.col)
-			if (startColIdx < 0) return
+			if (!cols.includes(start.col)) return
 
 			let filterIdx = pageEntries.findIndex((e) => e.index === start.row)
 			if (filterIdx < 0) filterIdx = 0
@@ -2084,15 +2071,14 @@
 				if (!cells || !entry) break
 				const absRow = entry.index
 				if (deletedIndices.has(absRow)) continue
-				for (let c = 0; c < cells.length; c++) {
-					const colName = cols[startColIdx + c]
-					if (!colName) break
+				// Visible columns only: a hidden column is skipped, never written.
+				columnsFrom(visible, start.col, cells.length).forEach((colName, c) => {
 					edits.push({
 						row: absRow,
 						col: colName,
 						value: draftToValue(absRow, colName, cells[c] ?? ''),
 					})
-				}
+				})
 			}
 		}
 		if (edits.length === 0) return
@@ -2398,11 +2384,39 @@
 		return sid ?? ''
 	}
 
+	/** Waiting close/import prompt. Settled when the save commits, fails, or is cancelled. */
+	let saveWaiter: ((outcome: SaveOutcome) => void) | null = null
+
+	function settleSave(outcome: SaveOutcome) {
+		const waiter = saveWaiter
+		saveWaiter = null
+		waiter?.(outcome)
+	}
+
+	function saveForPrompt(): Promise<SaveOutcome> {
+		settleSave({ ok: false, error: null })
+		return new Promise((resolve) => {
+			saveWaiter = resolve
+			void saveChanges()
+		})
+	}
+
+	function failSave(err: unknown) {
+		reportGridError(err)
+		settleSave({ ok: false, error: err instanceof Error ? err.message : String(err) })
+	}
+
 	async function saveChanges() {
 		if (saving || savePreview) return
-		if (!assertWritable()) return
+		if (!assertWritable()) {
+			settleSave({ ok: false, error: 'Connection is read-only' })
+			return
+		}
 		if (editing) commitEdit()
-		if (dirtyCount === 0) return
+		if (dirtyCount === 0) {
+			settleSave({ ok: true })
+			return
+		}
 		saving = true
 		try {
 			const preview = await persistTableEdits({
@@ -2411,19 +2425,28 @@
 			const statements = preview.statements ?? []
 			if (statements.length === 0) {
 				showToast('info', 'Nothing to save')
+				settleSave({ ok: true })
 				return
 			}
 			savePreview = statements
 		} catch (err) {
-			reportGridError(err)
+			failSave(err)
 		} finally {
 			saving = false
 		}
 	}
 
+	function cancelSavePreview() {
+		savePreview = null
+		settleSave({ ok: false, error: null })
+	}
+
 	async function confirmSave() {
 		if (saving || !savePreview) return
-		if (!assertWritable()) return
+		if (!assertWritable()) {
+			settleSave({ ok: false, error: 'Connection is read-only' })
+			return
+		}
 		saving = true
 		try {
 			const pendingDbDeletes = [...deletedIndices].filter(
@@ -2436,13 +2459,10 @@
 					'Delete did not apply. Restart Mystique and try the delete again.',
 				)
 			}
-			rollbackSql = result.rollbackSql ?? []
+			lastSaveId = result.saveId ?? null
 			undoStack = []
 			redoStack = []
 			savePreview = null
-			if (connectionId && rollbackSql.length > 0) {
-				void storeRollbackSql(connectionId, table.id, rollbackSql).catch(() => {})
-			}
 			if (onreload) {
 				await onreload(reloadOpts(page * PAGE_SIZE))
 				loadFromTable(true)
@@ -2469,8 +2489,9 @@
 				bits.length > 0 ? `Saved (${bits.join(', ')})` : 'Saved',
 			)
 			onbaselinechange?.()
+			settleSave({ ok: true })
 		} catch (err) {
-			reportGridError(err)
+			failSave(err)
 		} finally {
 			saving = false
 		}
@@ -2522,26 +2543,34 @@
 				columnLayout = layout
 			})
 			.catch(() => {})
-		void loadRollbackSql(id, tableId)
-			.then((sql) => {
-				if (loadedLayoutKey !== key) return
-				rollbackSql = sql
-			})
-			.catch(() => {})
+		lastSaveId = null
+		refreshLatestSave(key)
 	})
 
+	function refreshLatestSave(key = loadedLayoutKey) {
+		const id = connectionId
+		if (!id) return
+		void loadLatestSaveId(id, table)
+			.then((saveId) => {
+				if (loadedLayoutKey !== key) return
+				lastSaveId = saveId
+			})
+			.catch(() => {})
+	}
+
 	async function rollbackLastSave() {
-		if (saving || rollbackSql.length === 0) return
+		const saveId = lastSaveId
+		if (saving || !saveId) return
 		if (!assertWritable()) return
 		saving = true
 		try {
 			await rollbackTableEdits({
 				sessionId: await liveSessionId(),
-				table: table.name,
-				statements: rollbackSql,
+				saveId,
 				profileReadOnly,
 			})
-			rollbackSql = []
+			lastSaveId = null
+			refreshLatestSave()
 			undoStack = []
 			redoStack = []
 			if (onreload) {
@@ -2553,6 +2582,8 @@
 			onbaselinechange?.()
 		} catch (err) {
 			reportGridError(err)
+			// A stale or used save is gone on the backend; offer the next one.
+			refreshLatestSave()
 		} finally {
 			saving = false
 		}
@@ -2624,9 +2655,12 @@
 		}
 		window.addEventListener('keydown', onKey, true)
 		window.addEventListener('mystique:save-table', onMenuSave)
+		const unregisterSaver = tabId ? registerTabSaver(tabId, saveForPrompt) : null
 		return () => {
 			window.removeEventListener('keydown', onKey, true)
 			window.removeEventListener('mystique:save-table', onMenuSave)
+			unregisterSaver?.()
+			settleSave({ ok: false, error: null })
 		}
 	})
 
@@ -2729,7 +2763,7 @@
 		statements={savePreview ?? []}
 		busy={saving}
 		onconfirm={() => void confirmSave()}
-		oncancel={() => (savePreview = null)}
+		oncancel={cancelSavePreview}
 	/>
 
 	{#if cellModal}
@@ -2800,7 +2834,7 @@
 		{selectionLabel}
 		canUndo={undoStack.length > 0}
 		canRedo={redoStack.length > 0}
-		canRollback={rollbackSql.length > 0 && !profileReadOnly}
+		canRollback={lastSaveId != null && !profileReadOnly}
 		onUndo={undoPending}
 		onRedo={redoPending}
 		onRollback={() => void rollbackLastSave()}

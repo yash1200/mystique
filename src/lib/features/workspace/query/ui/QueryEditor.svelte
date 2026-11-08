@@ -12,7 +12,6 @@
 	import { indentWithTab } from '@codemirror/commands'
 	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'
 	import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
-	import { setDiagnostics } from '@codemirror/lint'
 	import {
 		EditorState,
 		Prec,
@@ -28,8 +27,9 @@
 		keymap,
 	} from '@codemirror/view'
 	import { basicSetup } from 'codemirror'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import { mystiqueSearch } from '../cm-search-panel'
+	import { markDiagnostic, revealDiagnostic } from '../diagnostic-view'
 	import {
 		editorCompartments,
 		holdEditorState,
@@ -140,6 +140,7 @@
 	let view: EditorView | null = null
 	let editorReady = $state(0)
 	let scrolledKey = ''
+	let revealedNonce = untrack(() => locateNonce)
 	let mountedTab = ''
 	let appliedLang = ''
 	let extensions: Extension[] = []
@@ -507,33 +508,18 @@
 		const nonce = locateNonce
 		const v = view
 		if (!v) return
-		const length = v.state.doc.length
-		const from = range ? Math.min(range.from, length) : 0
-		const to = range ? Math.min(Math.max(range.to, from), length) : 0
-		const marks =
-			range && to > from
-				? [
-						{
-							from,
-							to,
-							severity: 'error' as const,
-							message: range.message,
-						},
-					]
-				: []
-		v.dispatch(setDiagnostics(v.state, marks))
-		const key = range && to > from ? `${nonce}:${from}:${to}` : ''
-		if (!key) {
+		const placed = markDiagnostic(v, range)
+		if (!placed) {
 			scrolledKey = ''
 			return
 		}
+		const key = `${nonce}:${placed.from}:${placed.to}`
 		if (key === scrolledKey) return
 		scrolledKey = key
-		v.dispatch({
-			selection: { anchor: from, head: to },
-			scrollIntoView: true,
-		})
-		v.focus()
+		// Locate is the only time the editor takes focus.
+		const located = nonce !== revealedNonce
+		revealedNonce = nonce
+		revealDiagnostic(v, placed.from, located)
 	})
 
 	// Rebuild the SQL schema only when the catalog contents change.

@@ -106,9 +106,12 @@ pub struct ApplyTableEditsResult {
     /// Literal SQL the confirm dialog shows. One statement per changed row.
     #[serde(default)]
     pub statements: Vec<String>,
-    /// Inverse statements, last write first.
-    #[serde(default)]
-    pub rollback_sql: Vec<String>,
+    /// Backend id for rolling back this save. Set by the manager once the undo is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_id: Option<String>,
+    /// Inverse of a committed save. Stays in the backend.
+    #[serde(skip)]
+    pub undo: Option<GridUndo>,
 }
 
 impl ApplyTableEditsResult {
@@ -118,9 +121,57 @@ impl ApplyTableEditsResult {
             inserted: 0,
             deleted: 0,
             statements: Vec::new(),
-            rollback_sql: Vec::new(),
+            save_id: None,
+            undo: None,
         }
     }
+}
+
+/// One saved row read back after the save. `hash` covers every column.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowCheck {
+    pub sql: String,
+    pub params: Vec<JsonValue>,
+    pub hash: String,
+}
+
+/// Inverse of one committed grid save. Built by the plugin from its own plan.
+/// Rollback refuses when any `checks` hash no longer matches.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GridUndo {
+    pub checks: Vec<RowCheck>,
+    /// Inverse statements, last write first.
+    pub inverse: Vec<String>,
+}
+
+/// Stable hash of rows read for a [`RowCheck`]. Row order does not matter.
+pub fn rows_hash(rows: &[Vec<JsonValue>]) -> String {
+    let mut encoded: Vec<String> = rows
+        .iter()
+        .map(|row| serde_json::to_string(row).unwrap_or_default())
+        .collect();
+    encoded.sort();
+    // FNV-1a 64: stable across builds, unlike `DefaultHasher`.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in encoded.len().to_le_bytes().into_iter().chain(
+        encoded
+            .iter()
+            .flat_map(|row| row.bytes().chain(std::iter::once(0xff))),
+    ) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+pub const ROLLBACK_STALE: &str = "rollback_stale";
+
+pub fn rollback_stale() -> crate::ConnectorError {
+    crate::ConnectorError::Query(format!(
+        "{ROLLBACK_STALE}: The rows changed after this save. Rollback would overwrite newer data."
+    ))
 }
 
 fn default_distinct_limit() -> u32 {
@@ -164,16 +215,61 @@ impl From<DistinctColumnValuesRequest> for DistinctColumnValuesInput {
     }
 }
 
-/// Run the inverse statements from a previous save.
+/// Roll back one grid save. The backend owns the inverse SQL; the client
+/// sends only the id it got back from the save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RollbackTableEditsRequest {
     pub session_id: String,
-    pub table: String,
-    #[serde(default)]
-    pub statements: Vec<String>,
+    pub save_id: String,
     #[serde(default)]
     pub profile_read_only: bool,
     #[serde(default)]
     pub confirm_object_name: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn rollback_request_has_no_sql_field() {
+        let ok: Result<RollbackTableEditsRequest, _> =
+            serde_json::from_value(json!({ "sessionId": "s", "saveId": "id" }));
+        assert!(ok.is_ok());
+        let with_sql: Result<RollbackTableEditsRequest, _> = serde_json::from_value(json!({
+            "sessionId": "s",
+            "saveId": "id",
+            "statements": ["DELETE FROM accounts"],
+        }));
+        assert!(with_sql.is_err());
+    }
+
+    #[test]
+    fn the_undo_never_reaches_the_frontend() {
+        let mut result = ApplyTableEditsResult::empty();
+        result.undo = Some(GridUndo {
+            checks: Vec::new(),
+            inverse: vec!["DELETE FROM t".into()],
+        });
+        let text = serde_json::to_string(&result).unwrap_or_default();
+        assert!(!text.contains("DELETE"), "{text}");
+        assert!(!text.contains("rollbackSql"), "{text}");
+    }
+
+    #[test]
+    fn rows_hash_ignores_order_and_sees_any_change() {
+        let a = vec![json!(1), json!("x")];
+        let b = vec![json!(2), json!("y")];
+        assert_eq!(
+            rows_hash(&[a.clone(), b.clone()]),
+            rows_hash(&[b.clone(), a.clone()])
+        );
+        assert_ne!(
+            rows_hash(&[a.clone()]),
+            rows_hash(&[vec![json!(1), json!("z")]])
+        );
+        assert_ne!(rows_hash(&[]), rows_hash(&[a]));
+    }
 }
