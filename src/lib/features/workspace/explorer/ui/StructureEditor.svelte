@@ -1,14 +1,17 @@
 <script lang="ts">
 	/**
 	 * Edit a table definition. The server plans the SQL; this view only edits the draft.
+	 * The SQL panel replans as you edit; Apply sends the draft and the server replans it.
 	 */
 	import type { TableDefinition, TableMeta } from '#core/contracts'
 	import { applyEngineDdl, describeEngineTableDefinition, planEngineDdl } from '#core/ipc'
 	import { Alert, Button, EmptyState } from '#core/ui'
+	import { latestRun } from '#core/util'
 	import { showToast } from '#features/toast'
 	import { refreshCurrentTables } from '#features/workspace/catalog'
 	import {
 		currentDatabaseName,
+		isWriteCancelled,
 		runWithWriteGuard,
 		withLiveSession,
 	} from '#features/workspace/shell'
@@ -20,6 +23,7 @@
 		addIndex,
 		columnListText,
 		draftFingerprint,
+		draftToSend,
 		dropColumn,
 		dropForeignKey,
 		dropIndex,
@@ -58,31 +62,11 @@
 	let busy = $state(false)
 	let error = $state<string | null>(null)
 	let plan = $state<Awaited<ReturnType<typeof planEngineDdl>> | null>(null)
-	let previewKey = $state('')
+	let planError = $state<string | null>(null)
 	let validatorText = $state('')
 
 	const collection = $derived(draft ? isCollection(draft) : false)
-	const fingerprint = $derived(draft ? draftFingerprint(draft) : '')
-	const previewFresh = $derived(!!plan && previewKey === fingerprint)
-	const canApply = $derived(
-		!readOnly &&
-			!busy &&
-			previewFresh &&
-			!!plan &&
-			plan.warnings.length === 0 &&
-			plan.statements.length > 0,
-	)
-	const applyTitle = $derived(
-		readOnly
-			? 'This connection is read-only.'
-			: !plan || !previewFresh
-				? 'Preview the change first.'
-				: plan.warnings.length > 0
-					? 'Resolve the warnings before applying.'
-					: plan.statements.length === 0
-						? 'Nothing to change.'
-						: 'Apply this change',
-	)
+	const canApply = $derived(!readOnly && !busy && !!draft)
 
 	onMount(() => {
 		void load()
@@ -104,7 +88,6 @@
 			draft = loaded
 			validatorText = loaded.validator ?? ''
 			plan = null
-			previewKey = ''
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e)
 		} finally {
@@ -112,37 +95,36 @@
 		}
 	}
 
-	function syncValidator() {
-		if (!draft || !collection) return
-		const text = validatorText.trim()
-		draft.validator = text ? validatorText : null
-	}
-
-	async function preview() {
-		if (!draft || busy) return
-		syncValidator()
-		const key = draftFingerprint(draft)
-		busy = true
-		error = null
-		try {
-			const next = await withLiveSession(connectionId, (sessionId) =>
-				planEngineDdl({ sessionId, draft: draft! }),
+	const autoPlan = latestRun({
+		delayMs: 300,
+		run: () => {
+			const next = draft ? draftToSend(draft, validatorText) : null
+			if (!next) return Promise.resolve(null)
+			return withLiveSession(connectionId, (sessionId) =>
+				planEngineDdl({ sessionId, draft: next }),
 			)
-			if (!draft || draftFingerprint(draft) !== key) return
+		},
+		onResult: (next) => {
 			plan = next
-			previewKey = key
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
-		} finally {
-			busy = false
-		}
-	}
+			planError = null
+		},
+		onError: (e) => {
+			planError = e instanceof Error ? e.message : String(e)
+		},
+	})
+
+	$effect(() => {
+		if (!draft) return
+		// Replan whenever the draft or the validator text changes.
+		void draftFingerprint(draft)
+		void validatorText
+		autoPlan.schedule()
+		return () => autoPlan.cancel()
+	})
 
 	async function apply() {
 		if (!draft || !canApply) return
-		syncValidator()
-		if (draftFingerprint(draft) !== previewKey) return
-		const snapshot = JSON.parse(draftFingerprint(draft)) as TableDefinition
+		const snapshot = draftToSend(draft, validatorText)
 		busy = true
 		error = null
 		try {
@@ -164,12 +146,8 @@
 			await refreshCurrentTables()
 			ondone?.()
 		} catch (e) {
-			const message = e instanceof Error ? e.message : String(e)
-			if (message === 'Write cancelled.') {
-				showToast('info', message)
-				return
-			}
-			error = message
+			if (isWriteCancelled(e)) return
+			error = e instanceof Error ? e.message : String(e)
 		} finally {
 			busy = false
 		}
@@ -186,15 +164,12 @@
 		<Button variant="ghost" size="sm" onclick={() => ondone?.()} disabled={busy}>
 			Cancel
 		</Button>
-		<Button variant="secondary" size="sm" onclick={() => void preview()} disabled={busy || !draft}>
-			Preview
-		</Button>
 		<Button
 			variant="primary"
 			size="sm"
 			onclick={() => void apply()}
 			disabled={!canApply}
-			title={applyTitle}
+			title={readOnly ? 'This connection is read-only.' : 'Apply this change'}
 		>
 			Apply
 		</Button>
@@ -409,10 +384,12 @@
 				{#if plan?.note}
 					<p class="mt-0 mb-2 text-caption text-fg-muted">{plan.note}</p>
 				{/if}
-				{#if plan && previewFresh && plan.statements.length > 0}
+				{#if planError}
+					<p class="m-0 text-caption text-danger">{planError}</p>
+				{:else if plan && plan.statements.length > 0}
 					<pre class="m-0 overflow-auto rounded-md border border-line bg-input p-2 font-mono text-label text-fg whitespace-pre-wrap">{plan.statements.join('\n')}</pre>
 				{:else}
-					<p class="m-0 text-caption text-fg-muted">Preview shows the statements that Apply will run.</p>
+					<p class="m-0 text-caption text-fg-muted">No changes yet.</p>
 				{/if}
 			</section>
 		</div>

@@ -13,6 +13,15 @@ export function draftFingerprint(draft: TableDefinition): string {
 	return JSON.stringify(draft)
 }
 
+/** Plain copy of the draft to plan or apply, with the collection validator text. */
+export function draftToSend(draft: TableDefinition, validatorText: string): TableDefinition {
+	const copy = JSON.parse(draftFingerprint(draft)) as TableDefinition
+	if ((copy.kind ?? '').toLowerCase() === 'collection') {
+		copy.validator = validatorText.trim() ? validatorText : null
+	}
+	return copy
+}
+
 export function columnListText(columns: string[] | undefined): string {
 	return (columns ?? []).join(', ')
 }
