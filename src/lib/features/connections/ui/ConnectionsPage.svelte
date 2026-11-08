@@ -6,7 +6,6 @@
 		SshHostKeyPrompt,
 	} from '#core/contracts'
 	import {
-		ensureEngineSession,
 		formatEngineConnectionUrl,
 		isTauri,
 		listenNativeMenu,
@@ -25,6 +24,11 @@
 		pluginConfigFromDraft,
 		saveInputFromDraft,
 	} from '../model'
+	import {
+		ensureSessionWithPassword,
+		testSessionWithPassword,
+	} from '../password-prompt.svelte'
+	import { isConnectCancelled } from '../password-prompt'
 	import { connectionProfiles } from '../profiles.svelte'
 	import ConnectionDetail from './ConnectionDetail.svelte'
 	import type { ConnectionMenuAction } from './ConnectionSidebar.svelte'
@@ -315,6 +319,7 @@
 						: null,
 				sshConfig: profile.ssh,
 				queryTimeoutSecs: profile.queryTimeoutSecs ?? null,
+				savePassword: profile.savePassword !== false,
 			})
 			afterProfilesChange(saved.id)
 		} catch (err) {
@@ -478,12 +483,13 @@
 		try {
 			const pluginConfig = pluginConfigForSession(profile)
 
-			const result = await testEngineConnection({
+			// Asks once for a password the profile does not save.
+			const result = await testSessionWithPassword({
 				engine: String(profile.engine),
 				pluginConfig,
 				profileId: profile.id,
 				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
-			})
+			}, profile.name)
 
 			if (result.sshHostKey) {
 				sshHostKey = result.sshHostKey
@@ -504,13 +510,13 @@
 			const { [profile.id]: _ok, ...rest } = statusOverride
 			statusOverride = rest
 
-			const session = await ensureEngineSession({
+			const session = await ensureSessionWithPassword({
 				engine: String(profile.engine),
 				pluginConfig,
 				profileId: profile.id,
 				pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
 				sessionId: profile.id,
-			})
+			}, profile.name)
 
 			const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
 			testResult = {
@@ -523,6 +529,7 @@
 				session.capabilities,
 			)
 		} catch (err) {
+			if (isConnectCancelled(err)) return
 			const prompt = parseSshHostKey(err)
 			if (prompt) {
 				sshHostKey = prompt
