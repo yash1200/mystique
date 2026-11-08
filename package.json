@@ -56,6 +56,7 @@
 	},
 	"imports": {
 		"#core/contracts": "./src/lib/core/contracts/index.js",
+		"#core/commands": "./src/lib/core/commands/index.js",
 		"#core/ipc": "./src/lib/core/ipc/index.js",
 		"#core/ui": "./src/lib/core/ui/index.js",
 		"#core/util": "./src/lib/core/util/index.js",
