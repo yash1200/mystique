@@ -8,16 +8,17 @@ use mongodb::bson::{Bson, Document};
 use mongodb::ClientSession;
 use mystique_connector_api::{
     json_u64, ConnectorError, ConnectorResult, QueryColumn, QueryControl, QueryMode, QueryResult,
-    ValidatedQuery, NO_TIMEOUT,
+    ValidatedQuery, WriteRisk, NO_TIMEOUT,
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::encode::{bson_to_json, bson_type_label, normalize_meta_command, resolve_db_name};
+use super::encode::{bson_to_json, bson_type_label, resolve_db_name};
 use super::query_failed;
 use super::MongoSession;
-use crate::shell_query::{
-    aggregate_effect, parse_mongo_call, AggregateEffect, BulkModel, MongoCall, ParsedFind,
-    ShellWrite,
+use crate::shell::parse::lower;
+use crate::shell::policy::statement_risk;
+use crate::shell::{
+    parse, BulkModel, Executable, FindSpec, Listing, MongoCall, MongoOp, ShellWrite, Target,
 };
 
 /// `maxTimeMS` for a read. `None` for a run with no timeout.
@@ -72,16 +73,13 @@ pub(super) async fn execute_query(
 ) -> ConnectorResult<QueryResult> {
     session.ensure_open()?;
     let start = Instant::now();
-    match listing(&query.text) {
-        Some(Listing::Databases) => list_databases(session, query, start).await,
-        Some(Listing::Collections) => {
+    match executable(query)? {
+        Executable::Listing(Listing::Databases) => list_databases(session, query, start).await,
+        Executable::Listing(Listing::Collections) => {
             let db_name = resolve_db_name(session, query)?;
             list_collections(session, &db_name, query, start).await
         }
-        None => {
-            let call = parse_mongo_call(&query.text)?;
-            dispatch_call(session, query, call, start, None).await
-        }
+        Executable::Call(call) => dispatch_call(session, query, call, start, None).await,
     }
 }
 
@@ -93,11 +91,10 @@ pub(super) async fn execute_in_transaction(
 ) -> ConnectorResult<QueryResult> {
     session.ensure_open()?;
     let start = Instant::now();
-    if let Some(listing) = listing(&query.text) {
-        return Err(not_in_transaction(listing.command()));
+    match executable(query)? {
+        Executable::Listing(listing) => Err(not_in_transaction(listing.command())),
+        Executable::Call(call) => dispatch_call(session, query, call, start, Some(txn)).await,
     }
-    let call = parse_mongo_call(&query.text)?;
-    dispatch_call(session, query, call, start, Some(txn)).await
 }
 
 /// A pinned tab with no open transaction: calls still use the tab's session,
@@ -108,35 +105,25 @@ pub(super) async fn execute_on_session(
     client_session: &mut ClientSession,
 ) -> ConnectorResult<QueryResult> {
     session.ensure_open()?;
-    if listing(&query.text).is_some() {
-        return execute_query(session, query).await;
-    }
     let start = Instant::now();
-    let call = parse_mongo_call(&query.text)?;
-    dispatch_call(session, query, call, start, Some(client_session)).await
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Listing {
-    Databases,
-    Collections,
-}
-
-impl Listing {
-    fn command(self) -> &'static str {
-        match self {
-            Self::Databases => "listDatabases",
-            Self::Collections => "listCollections",
+    match executable(query)? {
+        Executable::Listing(_) => execute_query(session, query).await,
+        Executable::Call(call) => {
+            dispatch_call(session, query, call, start, Some(client_session)).await
         }
     }
 }
 
-fn listing(text: &str) -> Option<Listing> {
-    match normalize_meta_command(text).as_str() {
-        "listdatabases" | "showdatabases" | "showdbs" => Some(Listing::Databases),
-        "listcollections" | "showcollections" => Some(Listing::Collections),
-        _ => None,
+/// Parse once, refuse a write in Read mode with the policy's own risk, then
+/// lower to the call to run.
+fn executable(query: &ValidatedQuery) -> ConnectorResult<Executable> {
+    let stmt = parse(&query.text)?;
+    if query.mode == QueryMode::Read && statement_risk(&stmt) != WriteRisk::Read {
+        return Err(ConnectorError::Policy(
+            "Write operation blocked. This connection is read-only.".into(),
+        ));
     }
+    lower(&stmt)
 }
 
 /// MongoDB refuses these inside a transaction. Running them outside would
@@ -154,60 +141,55 @@ async fn dispatch_call(
     start: Instant,
     txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
-    match call {
-        MongoCall::Find(parsed) => execute_find(session, query, parsed, start, txn).await,
-        MongoCall::Aggregate(aggregate) => {
-            execute_aggregate(session, query, aggregate, start, txn).await
+    let MongoCall { target, op } = call;
+    let db_name = match target.database.as_deref() {
+        Some(db) => db.to_string(),
+        None => resolve_db_name(session, query)?,
+    };
+    let coll_name = collection_name(&target, query)?;
+    let at = At {
+        session,
+        query,
+        db_name: &db_name,
+        coll_name: &coll_name,
+    };
+    match op {
+        MongoOp::Find(spec) => execute_find(&at, spec, start, txn).await,
+        MongoOp::Aggregate(pipeline) => execute_aggregate(&at, pipeline, start, txn).await,
+        MongoOp::Count(filter) => execute_count(&at, filter, start, txn).await,
+        MongoOp::Distinct { field, filter } => {
+            execute_distinct(&at, field, filter, start, txn).await
         }
-        MongoCall::Count { collection, filter } => {
-            execute_count(session, query, collection, filter, start, txn).await
-        }
-        MongoCall::Distinct {
-            collection,
-            field,
-            filter,
-        } => execute_distinct(session, query, collection, field, filter, start, txn).await,
-        MongoCall::Write(write) => {
-            if query.mode == QueryMode::Read {
-                return Err(ConnectorError::Policy(
-                    "Write operation blocked. This connection is read-only.".into(),
-                ));
-            }
-            execute_shell_write(session, query, write, start, txn).await
-        }
+        MongoOp::Write(write) => execute_shell_write(&at, write, start, txn).await,
+    }
+}
+
+/// Where a parsed call runs.
+struct At<'a> {
+    session: &'a MongoSession,
+    query: &'a ValidatedQuery,
+    db_name: &'a str,
+    coll_name: &'a str,
+}
+
+impl At<'_> {
+    fn collection(&self) -> mongodb::Collection<Document> {
+        self.session
+            .client
+            .database(self.db_name)
+            .collection::<Document>(self.coll_name)
     }
 }
 
 async fn execute_find(
-    session: &MongoSession,
-    query: &ValidatedQuery,
-    parsed: ParsedFind,
+    at: &At<'_>,
+    parsed: FindSpec,
     start: Instant,
     txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
-    let db_name = resolve_db_name(session, query)?;
-    let coll_name = parsed
-        .collection
-        .clone()
-        .or_else(|| {
-            query
-                .collection
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-        })
-        .ok_or_else(|| {
-            ConnectorError::InvalidConfig(
-                "Mongo queries need a collection (use the Collection field or db.collection.find(...))."
-                    .into(),
-            )
-        })?;
-
-    let coll = session
-        .client
-        .database(&db_name)
-        .collection::<Document>(&coll_name);
+    let query = at.query;
+    let (db_name, coll_name) = (at.db_name, at.coll_name);
+    let coll = at.collection();
     let limit = parsed
         .limit
         .unwrap_or(query.max_rows as i64)
@@ -281,8 +263,10 @@ async fn execute_find(
     })
 }
 
-fn collection_name(parsed: Option<&str>, query: &ValidatedQuery) -> ConnectorResult<String> {
-    parsed
+fn collection_name(target: &Target, query: &ValidatedQuery) -> ConnectorResult<String> {
+    target
+        .collection
+        .as_deref()
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_string)
@@ -302,32 +286,18 @@ fn collection_name(parsed: Option<&str>, query: &ValidatedQuery) -> ConnectorRes
         })
 }
 
-fn reject_read_only_mutation(effect: AggregateEffect, mode: QueryMode) -> ConnectorResult<()> {
-    if mode == QueryMode::Read && effect != AggregateEffect::Read {
-        return Err(ConnectorError::Policy(
-            "Write operation blocked. This connection is read-only.".into(),
-        ));
-    }
-    Ok(())
-}
-
 async fn execute_aggregate(
-    session: &MongoSession,
-    query: &ValidatedQuery,
-    aggregate: crate::shell_query::ParsedAggregate,
+    at: &At<'_>,
+    pipeline: Vec<Document>,
     start: Instant,
     txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
-    reject_read_only_mutation(aggregate_effect(&aggregate.pipeline), query.mode)?;
-    let db_name = resolve_db_name(session, query)?;
-    let coll_name = collection_name(aggregate.collection.as_deref(), query)?;
-    let coll = session
-        .client
-        .database(&db_name)
-        .collection::<Document>(&coll_name);
+    let query = at.query;
+    let (db_name, coll_name) = (at.db_name, at.coll_name);
+    let coll = at.collection();
     let batch = query.max_rows.clamp(1, 1_000);
     let action = with_max_time(
-        coll.aggregate(aggregate.pipeline).batch_size(batch),
+        coll.aggregate(pipeline).batch_size(batch),
         query.timeout_ms,
         |a, t| a.max_time(t),
     );
@@ -349,19 +319,14 @@ async fn execute_aggregate(
 }
 
 async fn execute_count(
-    session: &MongoSession,
-    query: &ValidatedQuery,
-    collection: Option<String>,
+    at: &At<'_>,
     filter: Document,
     start: Instant,
     mut txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
-    let db_name = resolve_db_name(session, query)?;
-    let coll_name = collection_name(collection.as_deref(), query)?;
-    let coll = session
-        .client
-        .database(&db_name)
-        .collection::<Document>(&coll_name);
+    let query = at.query;
+    let (db_name, coll_name) = (at.db_name, at.coll_name);
+    let coll = at.collection();
     let count = in_txn!(
         &query.control,
         &mut txn,
@@ -384,20 +349,15 @@ async fn execute_count(
 }
 
 async fn execute_distinct(
-    session: &MongoSession,
-    query: &ValidatedQuery,
-    collection: Option<String>,
+    at: &At<'_>,
     field: String,
     filter: Document,
     start: Instant,
     mut txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
-    let db_name = resolve_db_name(session, query)?;
-    let coll_name = collection_name(collection.as_deref(), query)?;
-    let coll = session
-        .client
-        .database(&db_name)
-        .collection::<Document>(&coll_name);
+    let query = at.query;
+    let (db_name, coll_name) = (at.db_name, at.coll_name);
+    let coll = at.collection();
     let mut values = in_txn!(
         &query.control,
         &mut txn,
@@ -429,52 +389,37 @@ async fn execute_distinct(
 }
 
 async fn execute_shell_write(
-    session: &MongoSession,
-    query: &ValidatedQuery,
+    at: &At<'_>,
     write: ShellWrite,
     start: Instant,
     mut txn: Txn<'_>,
 ) -> ConnectorResult<QueryResult> {
-    let db_name = resolve_db_name(session, query)?;
-    let collection = match &write {
-        ShellWrite::InsertOne { collection, .. }
-        | ShellWrite::InsertMany { collection, .. }
-        | ShellWrite::UpdateOne { collection, .. }
-        | ShellWrite::UpdateMany { collection, .. }
-        | ShellWrite::ReplaceOne { collection, .. }
-        | ShellWrite::DeleteOne { collection, .. }
-        | ShellWrite::DeleteMany { collection, .. }
-        | ShellWrite::FindOneAndUpdate { collection, .. }
-        | ShellWrite::Bulk { collection, .. } => collection.as_deref(),
-    };
-    let coll_name = collection_name(collection, query)?;
-    let coll = session
-        .client
-        .database(&db_name)
-        .collection::<Document>(&coll_name);
+    let query = at.query;
+    let (db_name, coll_name) = (at.db_name, at.coll_name);
+    let coll = at.collection();
     let message = match write {
-        ShellWrite::InsertOne { document, .. } => {
+        ShellWrite::InsertOne(document) => {
             let result = in_txn!(&query.control, &mut txn, coll.insert_one(document))?;
             format!(
                 "insertOne on {db_name}.{coll_name} id={:?}",
                 result.inserted_id
             )
         }
-        ShellWrite::InsertMany { documents, .. } => {
+        ShellWrite::InsertMany(documents) => {
             let result = in_txn!(&query.control, &mut txn, coll.insert_many(documents))?;
             format!(
                 "insertMany on {db_name}.{coll_name} inserted={}",
                 result.inserted_ids.len()
             )
         }
-        ShellWrite::UpdateOne { filter, update, .. } => {
+        ShellWrite::UpdateOne { filter, update } => {
             let result = in_txn!(&query.control, &mut txn, coll.update_one(filter, update))?;
             format!(
                 "updateOne on {db_name}.{coll_name} matched={} modified={}",
                 result.matched_count, result.modified_count
             )
         }
-        ShellWrite::UpdateMany { filter, update, .. } => {
+        ShellWrite::UpdateMany { filter, update } => {
             let result = in_txn!(&query.control, &mut txn, coll.update_many(filter, update))?;
             format!(
                 "updateMany on {db_name}.{coll_name} matched={} modified={}",
@@ -484,7 +429,6 @@ async fn execute_shell_write(
         ShellWrite::ReplaceOne {
             filter,
             replacement,
-            ..
         } => {
             let result = in_txn!(
                 &query.control,
@@ -496,21 +440,21 @@ async fn execute_shell_write(
                 result.matched_count, result.modified_count
             )
         }
-        ShellWrite::DeleteOne { filter, .. } => {
+        ShellWrite::DeleteOne(filter) => {
             let result = in_txn!(&query.control, &mut txn, coll.delete_one(filter))?;
             format!(
                 "deleteOne on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
             )
         }
-        ShellWrite::DeleteMany { filter, .. } => {
+        ShellWrite::DeleteMany(filter) => {
             let result = in_txn!(&query.control, &mut txn, coll.delete_many(filter))?;
             format!(
                 "deleteMany on {db_name}.{coll_name} deleted={}",
                 result.deleted_count
             )
         }
-        ShellWrite::FindOneAndUpdate { filter, update, .. } => {
+        ShellWrite::FindOneAndUpdate { filter, update } => {
             let result = in_txn!(
                 &query.control,
                 &mut txn,
@@ -531,8 +475,8 @@ async fn execute_shell_write(
                 )),
             };
         }
-        ShellWrite::Bulk { models, .. } => {
-            bulk_summary(query, &coll, &db_name, &coll_name, models, txn).await?
+        ShellWrite::Bulk(models) => {
+            bulk_summary(query, &coll, db_name, coll_name, models, txn).await?
         }
     };
     Ok(write_message(query.mode, start, message))
@@ -832,7 +776,15 @@ mod tests {
 
     use mystique_connector_api::{clamp_timeout_ms, QueryControl, MAX_TIMEOUT_MS, NO_TIMEOUT};
 
-    use super::{find_max_time, listing, not_in_transaction, Listing};
+    use super::{find_max_time, not_in_transaction};
+    use crate::shell::{parse_executable, Executable, Listing};
+
+    fn listing(text: &str) -> Option<Listing> {
+        match parse_executable(text) {
+            Ok(Executable::Listing(listing)) => Some(listing),
+            _ => None,
+        }
+    }
 
     #[test]
     fn listing_commands_are_known_so_a_transaction_can_refuse_them() {

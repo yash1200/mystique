@@ -33,6 +33,26 @@ pub trait EngineQueryPolicy: Send + Sync {
             WriteRisk::Write
         }
     }
+
+    /// INSERT / UPDATE only: the MCP / agent `safe_write` tier.
+    /// Default: nothing is, so an engine has to opt in.
+    fn is_safe_dml(&self, _text: &str) -> bool {
+        false
+    }
+
+    /// Short name for the write-guard prompt. Default: the text, compacted.
+    fn op_preview(&self, text: &str) -> String {
+        let compact: String = text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .take(80)
+            .collect();
+        if compact.is_empty() {
+            "write".into()
+        } else {
+            compact
+        }
+    }
 }
 
 pub struct SqlQueryPolicy {
@@ -60,5 +80,9 @@ impl EngineQueryPolicy for SqlQueryPolicy {
 
     fn classify(&self, text: &str) -> WriteRisk {
         classify_sql_statement_for(text, self.dialect())
+    }
+
+    fn is_safe_dml(&self, text: &str) -> bool {
+        sql_is_safe_dml_for(text, self.dialect())
     }
 }

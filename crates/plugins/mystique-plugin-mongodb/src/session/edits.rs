@@ -15,7 +15,7 @@ use serde_json::{json, Value as JsonValue};
 use super::encode::{coerce_mongo_json, mongo_id_json};
 use super::query_failed;
 use super::MongoSession;
-use crate::shell_filter::json_to_document;
+use crate::shell::json_to_document;
 
 pub(super) async fn apply_table_edits(
     session: &MongoSession,

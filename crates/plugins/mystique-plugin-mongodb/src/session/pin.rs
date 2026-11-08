@@ -9,9 +9,8 @@ use async_trait::async_trait;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, EngineQueryPolicy, MongoQueryPolicy, PinnedSession,
-    PlannedStatement, QueryBatchResult, QueryMode, SqlRange, StatementKind, StatementResult,
-    ValidatedBatch, ValidatedQuery, WriteRisk,
+    ConnectorError, ConnectorResult, PinnedSession, PlannedStatement, QueryBatchResult, QueryMode,
+    SqlRange, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery, WriteRisk,
 };
 
 use super::error::{transaction_aborted, TXN_ABORTED};
@@ -21,7 +20,7 @@ use super::MongoSession;
 /// Manual commit opens a transaction before a write. Unparsed text counts as
 /// a write, the same way the production guard reads it.
 fn opens_transaction(text: &str) -> bool {
-    MongoQueryPolicy.classify(text) != WriteRisk::Read
+    crate::shell::policy::classify(text) != WriteRisk::Read
 }
 
 pub(crate) fn hello_supports_transactions(hello: &Document) -> bool {

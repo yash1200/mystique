@@ -76,14 +76,6 @@ pub(super) fn bson_type_label(sample: Option<&Bson>) -> String {
     }
 }
 
-pub(super) fn normalize_meta_command(text: &str) -> String {
-    text.trim()
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>()
-        .to_ascii_lowercase()
-}
-
 pub(super) fn resolve_db_name(
     session: &MongoSession,
     query: &ValidatedQuery,

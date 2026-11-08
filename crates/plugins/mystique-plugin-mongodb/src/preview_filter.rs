@@ -4,7 +4,7 @@ use mongodb::bson::oid::ObjectId;
 use mongodb::bson::{doc, Bson, Document, Regex};
 use mystique_connector_api::{ConnectorError, ConnectorResult, TableFilter};
 
-use crate::shell_filter::parse_filter_object;
+use crate::shell::parse_document as parse_filter_object;
 
 /// UI rules plus optional raw code-filter (JSON document or `col = val`).
 pub fn compile_mongo_preview_predicate(

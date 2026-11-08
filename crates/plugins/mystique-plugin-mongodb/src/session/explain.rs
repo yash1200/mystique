@@ -9,59 +9,66 @@ use serde_json::Value;
 use super::encode::{bson_to_json, resolve_db_name};
 use super::query::drive;
 use super::MongoSession;
-use crate::shell_filter::json_to_document;
-use crate::shell_query::{parse_aggregate, parse_read_query};
+use crate::shell::{parse_executable, Executable, FindSpec, MongoOp, ShellWrite};
 
+/// Explain the same parsed call the executor would run. Writes are sent as
+/// the `delete` / `update` / `findAndModify` command inside `explain`, which
+/// plans them without applying them.
 pub(super) async fn explain_query(
     session: &MongoSession,
     query: &ValidatedQuery,
     analyze: bool,
 ) -> ConnectorResult<ExplainPlan> {
     session.ensure_open()?;
-    let text = query.text.trim();
-    if let Some(aggregate) = parse_aggregate(text)? {
-        let coll = collection_name(aggregate.collection.as_deref(), query)?;
-        let db_name = resolve_db_name(session, query)?;
-        let spec = doc! {
-            "aggregate": coll,
-            "pipeline": aggregate.pipeline,
-            "cursor": {},
-        };
-        return run_explain(session, &db_name, spec, analyze, query, false).await;
-    }
-    if text.starts_with('{') {
-        if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(text) {
-            if let Some(op) = cmd.get("op").and_then(Value::as_str) {
-                let coll = collection_name(None, query)?;
-                let db_name = resolve_db_name(session, query)?;
-                let spec = write_spec(op, &coll, &cmd)?;
-                return run_explain(session, &db_name, spec, analyze, query, true).await;
-            }
+    let call = match parse_executable(&query.text)? {
+        Executable::Call(call) => call,
+        Executable::Listing(listing) => {
+            return Err(ConnectorError::Query(format!(
+                "`{}` has no query plan. Explain a find, an aggregate, or a write.",
+                listing.command()
+            )))
         }
-    }
-    if mystique_connector_api::mongo_is_write_command(text) {
-        return Err(ConnectorError::Query(
-            "Explain a find, an aggregate, or a JSON write { op, filter }. The write was not run."
-                .into(),
-        ));
-    }
-    let parsed = parse_read_query(text)?;
-    let coll = collection_name(parsed.collection.as_deref(), query)?;
-    let db_name = resolve_db_name(session, query)?;
-    let mut spec = doc! { "find": coll, "filter": parsed.filter };
-    if let Some(projection) = parsed.projection {
+    };
+    let coll = collection_name(call.target.collection.as_deref(), query)?;
+    let db_name = match call.target.database {
+        Some(db) => db,
+        None => resolve_db_name(session, query)?,
+    };
+    let (spec, write) = match call.op {
+        MongoOp::Aggregate(pipeline) => (
+            doc! {
+                "aggregate": coll,
+                "pipeline": pipeline,
+                "cursor": {},
+            },
+            false,
+        ),
+        MongoOp::Find(find) => (find_spec(coll, find), false),
+        MongoOp::Write(write) => (write_spec(&coll, write)?, true),
+        MongoOp::Count(_) | MongoOp::Distinct { .. } => {
+            return Err(ConnectorError::Query(
+                "Explain a find, an aggregate, or a write. Nothing ran.".into(),
+            ))
+        }
+    };
+    run_explain(session, &db_name, spec, analyze, query, write).await
+}
+
+fn find_spec(coll: String, find: FindSpec) -> Document {
+    let mut spec = doc! { "find": coll, "filter": find.filter };
+    if let Some(projection) = find.projection {
         spec.insert("projection", projection);
     }
-    if let Some(sort) = parsed.sort {
+    if let Some(sort) = find.sort {
         spec.insert("sort", sort);
     }
-    if let Some(limit) = parsed.limit {
+    if let Some(limit) = find.limit {
         spec.insert("limit", limit);
     }
-    if let Some(skip) = parsed.skip {
+    if let Some(skip) = find.skip {
         spec.insert("skip", skip as i64);
     }
-    run_explain(session, &db_name, spec, analyze, query, false).await
+    spec
 }
 
 fn collection_name(parsed: Option<&str>, query: &ValidatedQuery) -> ConnectorResult<String> {
@@ -85,39 +92,39 @@ fn collection_name(parsed: Option<&str>, query: &ValidatedQuery) -> ConnectorRes
         })
 }
 
-fn write_spec(op: &str, coll: &str, cmd: &Value) -> ConnectorResult<Document> {
-    let op = op.to_ascii_lowercase();
-    let filter = match cmd.get("filter") {
-        Some(value) => json_to_document(value)?,
-        None => Document::new(),
+fn write_spec(coll: &str, write: ShellWrite) -> ConnectorResult<Document> {
+    let update = |q: Document, u: Document, multi: bool| {
+        doc! {
+            "update": coll,
+            "updates": [{ "q": q, "u": u, "multi": multi }],
+        }
     };
-    match op.as_str() {
-        "deleteone" => Ok(doc! {
+    match write {
+        ShellWrite::DeleteOne(filter) => Ok(doc! {
             "delete": coll,
             "deletes": [{ "q": filter, "limit": 1 }],
         }),
-        "deletemany" | "remove" | "delete" => Ok(doc! {
+        ShellWrite::DeleteMany(filter) => Ok(doc! {
             "delete": coll,
             "deletes": [{ "q": filter, "limit": 0 }],
         }),
-        "updateone" | "updatemany" | "update" | "replaceone" => {
-            let update = match cmd.get("update") {
-                Some(value) => json_to_document(value)?,
-                None => {
-                    return Err(ConnectorError::Query(
-                        "update explain requires `update`.".into(),
-                    ))
-                }
-            };
-            let limit = if op == "updatemany" { 0 } else { 1 };
-            Ok(doc! {
-                "update": coll,
-                "updates": [{ "q": filter, "u": update, "limit": limit }],
-            })
+        ShellWrite::UpdateOne { filter, update: u } => Ok(update(filter, u, false)),
+        ShellWrite::UpdateMany { filter, update: u } => Ok(update(filter, u, true)),
+        ShellWrite::ReplaceOne {
+            filter,
+            replacement,
+        } => Ok(update(filter, replacement, false)),
+        ShellWrite::FindOneAndUpdate { filter, update: u } => Ok(doc! {
+            "findAndModify": coll,
+            "query": filter,
+            "update": u,
+        }),
+        ShellWrite::InsertOne(_) | ShellWrite::InsertMany(_) | ShellWrite::Bulk(_) => {
+            Err(ConnectorError::NotSupported(
+                "Mongo explain covers find, aggregate, update, replace and delete. The write was not run."
+                    .into(),
+            ))
         }
-        other => Err(ConnectorError::NotSupported(format!(
-            "Mongo explain does not cover `{other}`. The write was not run."
-        ))),
     }
 }
 
