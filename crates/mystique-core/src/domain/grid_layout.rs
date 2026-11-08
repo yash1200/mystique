@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+
 use mystique_connector_api::GridUndo;
 use serde::{Deserialize, Serialize};
 
-/// Frozen, hidden, and ordered columns for one table on one connection.
+/// Frozen, hidden, ordered, and resized columns for one table on one connection.
+/// `table_id` is `database.schema.name`, so the key covers all four parts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GridColumnLayoutRecord {
@@ -13,6 +16,9 @@ pub struct GridColumnLayoutRecord {
     pub hidden: Vec<String>,
     #[serde(default)]
     pub frozen: Vec<String>,
+    /// Widths the user set, by column name, in unscaled CSS pixels.
+    #[serde(default)]
+    pub widths: BTreeMap<String, u32>,
 }
 
 /// One committed grid save that can still be rolled back. Only the backend reads `undo`.

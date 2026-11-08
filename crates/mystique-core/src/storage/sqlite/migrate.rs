@@ -10,12 +10,13 @@ const V4_SQL: &str = include_str!("../../../migrations/004_ssh_tunnel.sql");
 const V5_SQL: &str = include_str!("../../../migrations/005_grid_layout.sql");
 const V6_SQL: &str = include_str!("../../../migrations/006_query_history.sql");
 const V7_SQL: &str = include_str!("../../../migrations/007_grid_saves.sql");
+const V8_SQL: &str = include_str!("../../../migrations/008_grid_column_widths.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-const SCHEMA_VERSION: i32 = 7;
+const SCHEMA_VERSION: i32 = 8;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -116,6 +117,15 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         stamp(conn, 7)?;
     }
 
+    if current < 8 {
+        if table_exists(conn, "grid_column_layout")?
+            && !column_exists(conn, "grid_column_layout", "widths")?
+        {
+            conn.execute_batch(V8_SQL)?;
+        }
+        stamp(conn, 8)?;
+    }
+
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
@@ -186,7 +196,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
         assert!(table_exists(&conn, "grid_saves").unwrap());
         assert!(!table_exists(&conn, "grid_edit_history").unwrap());
         assert!(column_exists(&conn, "query_history", "source").unwrap());
@@ -258,11 +268,11 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 7);
+        assert_eq!(n, 8);
     }
 
     #[test]
@@ -308,7 +318,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -344,7 +354,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -390,6 +400,42 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
+    }
+
+    #[test]
+    fn migrate_adds_grid_column_widths_on_v7() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch(V5_SQL).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE schema_migrations (
+              version INTEGER PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_migrations (version, applied_at)
+              VALUES (1, 't'), (2, 't'), (3, 't'), (4, 't'), (5, 't'), (6, 't'), (7, 't');
+            INSERT INTO grid_column_layout (connection_id, table_id, updated_at)
+              VALUES ('c1', 'db.public.users', 'now');
+            ",
+        )
+        .unwrap();
+        assert!(!column_exists(&conn, "grid_column_layout", "widths").unwrap());
+        // A stamp of 6 needs `query_history.source` to count as current.
+        if !column_exists(&conn, "query_history", "source").unwrap() {
+            conn.execute_batch(V6_SQL).unwrap();
+        }
+        migrate(&conn).unwrap();
+        let widths: String = conn
+            .query_row("SELECT widths FROM grid_column_layout", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(widths, "{}");
+        let version: i32 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 8);
     }
 }
