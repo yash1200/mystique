@@ -138,7 +138,7 @@ let exportRunTab: string | null = null
 
 export function cancelActiveExport() {
 	if (!exportRunTab) return
-	void cancelTabRun(exportRunTab)
+	void cancelTabRun(exportRunTab, 'export')
 }
 
 export async function confirmExport(spec: ExportDataSpec) {
@@ -153,7 +153,7 @@ export async function confirmExport(spec: ExportDataSpec) {
 	workspaceStudio.exportError = null
 	const tabId = tableTabId(active.id, table.id)
 	exportRunTab = tabId
-	const executionId = startTabRun(tabId)
+	const executionId = startTabRun(tabId, 'export')
 	try {
 		const { join } = await import('@tauri-apps/api/path')
 		const path = await join(spec.folder, spec.fileName)

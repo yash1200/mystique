@@ -13,6 +13,19 @@ impl ConnectionManager {
         &self,
         req: ExportObjectRequest,
     ) -> ConnectorResult<ExportObjectResult> {
+        let (id, control) = self
+            .begin_run(&req.session_id, req.execution_id.clone())
+            .await;
+        let result = self.export_registered(req, &control).await;
+        self.finish_run(&id).await;
+        result
+    }
+
+    async fn export_registered(
+        &self,
+        req: ExportObjectRequest,
+        control: &Arc<mystique_connector_api::QueryControl>,
+    ) -> ConnectorResult<ExportObjectResult> {
         if req.name.trim().is_empty() {
             return Err(ConnectorError::InvalidConfig(
                 "Object name is required.".into(),
@@ -31,16 +44,10 @@ impl ConnectionManager {
                 "this engine does not export {format} files"
             )));
         }
-        let session_id = req.session_id.clone();
-        let execution_id = req.execution_id.clone();
         let mut input = req.into_input();
-        let (id, control) = self.begin_run(&session_id, execution_id).await;
-        input.control = Arc::clone(&control);
-        let result = self
-            .drive_until_cancel(&control, session.export_object(&input))
-            .await;
-        self.finish_run(&id).await;
-        result
+        input.control = Arc::clone(control);
+        self.drive_until_cancel(control, session.export_object(&input))
+            .await
     }
 
     pub async fn preview_import(

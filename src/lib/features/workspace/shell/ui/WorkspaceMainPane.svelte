@@ -242,7 +242,7 @@
 			const loading = workspaceStudio.loadingTabId
 			if (!loading) return
 			e.preventDefault()
-			void cancelTabRun(loading)
+			void cancelTabRun(loading, 'preview')
 		}
 		window.addEventListener('keydown', onKey, true)
 		return () => window.removeEventListener('keydown', onKey, true)

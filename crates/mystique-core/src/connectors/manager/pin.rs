@@ -351,15 +351,25 @@ impl ConnectionManager {
     /// result unchanged.
     pub(super) async fn execute_batch_in(
         &self,
-        req: mystique_connector_api::ExecuteQueryRequest,
+        mut req: mystique_connector_api::ExecuteQueryRequest,
         progress: Option<ProgressPump>,
         tab_id: Option<String>,
     ) -> ConnectorResult<QueryBatchResult> {
+        // Register first so a cancel sent while we plan or wait is not lost.
+        let (run_id, control) = self
+            .begin_run(&req.session_id, req.execution_id.take())
+            .await;
         let started = std::time::Instant::now();
         let ctx = self.history_context(&req.session_id).await;
         let text = req.text.clone();
         let database = req.database.clone();
-        let outcome = self.execute_batch_inner(req, progress, tab_id).await;
+        let outcome = if control.is_cancelled() {
+            Err(super::run::cancelled_error())
+        } else {
+            self.execute_batch_inner(req, progress, tab_id, control)
+                .await
+        };
+        self.finish_run(&run_id).await;
         if let Some(ctx) = ctx {
             let rows = super::history::rows_from_outcome(
                 &ctx,
@@ -378,6 +388,7 @@ impl ConnectionManager {
         req: mystique_connector_api::ExecuteQueryRequest,
         progress: Option<ProgressPump>,
         tab_id: Option<String>,
+        control: Arc<mystique_connector_api::QueryControl>,
     ) -> ConnectorResult<QueryBatchResult> {
         let (session, live_read_only) = self.session_and_read_only(&req.session_id).await?;
         let engine = session.engine_id().to_string();
@@ -393,7 +404,7 @@ impl ConnectionManager {
         if engine.eq_ignore_ascii_case("mongodb") {
             return self
                 .execute_document_batch(
-                    session, req, mode, max_rows, timeout_ms, read_only, progress, tab_id,
+                    session, req, mode, max_rows, timeout_ms, read_only, progress, tab_id, control,
                 )
                 .await;
         }
@@ -419,7 +430,6 @@ impl ConnectionManager {
             self.ensure_tab_pin(&req.session_id, tab).await?;
         }
 
-        let (id, control) = self.begin_run(&req.session_id, req.execution_id).await;
         let batch = ValidatedBatch {
             statements: plan.statements,
             mode,
@@ -441,7 +451,6 @@ impl ConnectionManager {
         if let Ok(batch_result) = result.as_mut() {
             super::query::place_error_positions(&req.text, batch_result);
         }
-        self.finish_run(&id).await;
         result
     }
 }
