@@ -18,6 +18,7 @@
 		DataGrid,
 		RowInspector,
 		tablePreview,
+		tableSync,
 	} from '#features/workspace/table'
 	import { ServerMetricsView } from '#features/workspace/metrics'
 	import {
@@ -170,9 +171,6 @@
 				)
 			: null,
 	)
-	const rowSyncTick = $derived(workspaceStudio.rowSyncTick)
-	const tablePreviewTick = $derived(workspaceStudio.tablePreviewTick)
-	const baselineEpoch = $derived(workspaceStudio.baselineEpoch)
 	const querysaving = $derived(workspaceStudio.querySaving)
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
@@ -197,7 +195,7 @@
 		const i = rowSelectionIndex
 		const current = gridTable.rows[i] ?? {}
 		gridTable.rows[i] = { ...current, [column]: value }
-		workspaceStudio.rowSyncTick += 1
+		if (activeTabId) tableSync.rowsEdited(activeTabId)
 	}
 
 	$effect(() => {
@@ -399,11 +397,6 @@
 							tabId={activeTab.id}
 							table={gridTable}
 							selectedRowIndex={rowSelectionIndex}
-							{rowSyncTick}
-							{tablePreviewTick}
-							onbaselinechange={() => {
-								workspaceStudio.baselineEpoch += 1
-							}}
 							onselectrow={onSelectRow}
 							engine={String(activeSession.profile.engine)}
 							connectionId={activeSession.profile.id}
@@ -455,7 +448,7 @@
 						row={inspectorData.row}
 						rowIndex={inspectorData.rowIndex}
 						savedRow={gridOriginals[inspectorData.rowIndex] ?? null}
-						{baselineEpoch}
+						tabId={activeTab.id}
 						readOnly={!!activeSession.profile.readOnly}
 						onclose={() => workspaceSession.clearRowSelection()}
 						onchange={onInspectorChange}

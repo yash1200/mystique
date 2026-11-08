@@ -106,15 +106,12 @@
 	import GridFilterBar from './GridFilterBar.svelte'
 	import GridStatusBar from './GridStatusBar.svelte'
 	import GridSqlPanel from './GridSqlPanel.svelte'
+	import { tableSync } from '../sync.svelte'
 
 	interface Props {
 		table: TableMeta
 		selectedRowIndex: number | null
 		onselectrow: (index: number) => void
-		rowSyncTick?: number
-		/** Server replaced the preview page. Adopt as the new saved baseline. */
-		tablePreviewTick?: number
-		onbaselinechange?: () => void
 		/** Notify parent when unsaved edit count changes (for tab dirty indicator). */
 		ondirtychange?: (dirty: boolean) => void
 		/** Last saved row snapshots — bound so the inspector can mark dirty fields. */
@@ -161,9 +158,6 @@
 		table,
 		selectedRowIndex,
 		onselectrow,
-		rowSyncTick = 0,
-		tablePreviewTick = 0,
-		onbaselinechange,
 		ondirtychange,
 		originals = $bindable<Record<string, unknown>[]>([]),
 		engine = '',
@@ -249,8 +243,11 @@
 	const distinctCache = new Map<string, DistinctCacheEntry>()
 	let restoringHistory = false
 	let loadedTableId = $state<string | null>(null)
-	let appliedSyncTick = $state(0)
-	let appliedPreviewTick = $state(0)
+	/** Inspector writes and server pages for this tab (see `tableSync`). */
+	const rowsVersion = $derived(tableSync.rowsVersion(tabId))
+	const previewVersion = $derived(tableSync.previewVersion(tabId))
+	let appliedRowsVersion = $state(0)
+	let appliedPreviewVersion = $state(0)
 	let appliedSeedSig = $state<string | null>(null)
 
 	let filterMode = $state<FilterMode>('ui')
@@ -414,7 +411,7 @@
 
 	$effect(() => {
 		void table.id
-		void tablePreviewTick
+		void previewVersion
 		lastFetchedAt = Date.now()
 	})
 
@@ -437,9 +434,14 @@
 		filterMode = mode
 	}
 
+	/** The saved baseline moved: the inspector reseeds its drafts. */
+	function baselineChanged() {
+		if (tabId) tableSync.baselineChanged(tabId)
+	}
+
 	function markServerPreviewApplied() {
-		appliedPreviewTick = tablePreviewTick
-		appliedSyncTick = rowSyncTick
+		appliedPreviewVersion = previewVersion
+		appliedRowsVersion = rowsVersion
 	}
 
 	async function reloadFromEngine(offset: number) {
@@ -1586,16 +1588,16 @@
 			if (shouldRestoreEditBuffer(existing, table.rows.length)) {
 				restoreBuffer(existing)
 				applySeedState()
-				appliedSyncTick = rowSyncTick
-				appliedPreviewTick = tablePreviewTick
+				appliedRowsVersion = rowsVersion
+				appliedPreviewVersion = previewVersion
 				return
 			}
 		}
 		loadFromTable(true)
 		page = 0
 		applySeedState()
-		appliedSyncTick = -1
-		appliedPreviewTick = tablePreviewTick
+		appliedRowsVersion = -1
+		appliedPreviewVersion = previewVersion
 	})
 
 	$effect(() => {
@@ -1628,30 +1630,30 @@
 	})
 
 	$effect(() => {
-		const tick = rowSyncTick
+		const version = rowsVersion
 		const tableId = table.id
 		if (loadedTableId !== tableId) return
-		if (tick === appliedSyncTick) return
+		if (version === appliedRowsVersion) return
 		if (editing) return
-		appliedSyncTick = tick
+		appliedRowsVersion = version
 		loadFromTable(false)
 	})
 
 	// Filter / sort / page / open replace the preview page. That is a new
 	// saved baseline, not an in-place inspector edit.
 	$effect(() => {
-		const tick = tablePreviewTick
+		const version = previewVersion
 		const tableId = table.id
 		if (loadedTableId !== tableId) return
-		if (tick === appliedPreviewTick) return
+		if (version === appliedPreviewVersion) return
 		if (editing) return
 		if (tabId && tabEditsAreDirty(tabId)) {
-			appliedPreviewTick = tick
+			appliedPreviewVersion = version
 			return
 		}
-		appliedPreviewTick = tick
+		appliedPreviewVersion = version
 		loadFromTable(true)
-		appliedSyncTick = rowSyncTick
+		appliedRowsVersion = rowsVersion
 	})
 
 	$effect(() => {
@@ -2338,7 +2340,7 @@
 				if (tabId) adoptServerRows(tabId, cloned, keepPage)
 			}
 			page = keepPage
-			onbaselinechange?.()
+			baselineChanged()
 		} catch (err) {
 			reportGridError(err)
 		} finally {
@@ -2462,7 +2464,7 @@
 					? { action: { label: 'Undo', run: () => rollbackSave(saveId) } }
 					: undefined,
 			)
-			onbaselinechange?.()
+			baselineChanged()
 			settleSave({ ok: true })
 		} catch (err) {
 			if (isWriteCancelled(err)) settleSave({ ok: false, error: null })
@@ -2588,7 +2590,7 @@
 				markServerPreviewApplied()
 			}
 			showToast('success', 'Rolled back the save')
-			onbaselinechange?.()
+			baselineChanged()
 		} catch (err) {
 			reportGridError(err)
 		} finally {
@@ -2658,7 +2660,7 @@
 		table.rows.splice(0, table.rows.length, ...restored.map((r) => ({ ...r })))
 		dirtyKeys = new Set()
 		selectedCell = null
-		onbaselinechange?.()
+		baselineChanged()
 	}
 </script>
 

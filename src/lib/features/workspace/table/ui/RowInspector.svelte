@@ -8,6 +8,7 @@
 	import { Icon, IconButton, Segmented, StatusBar } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import { onDestroy } from 'svelte'
+	import { tableSync } from '../sync.svelte'
 	import { buildRowJson, JsonHighlightEditor } from '#features/workspace/data-grid'
 	import RowFields from './RowFields.svelte'
 
@@ -19,7 +20,8 @@
 		savedRow?: Record<string, unknown> | null
 		onclose: () => void
 		onchange?: (column: string, value: unknown) => void
-		baselineEpoch?: number
+		/** Tab whose saved baseline resets the field drafts. */
+		tabId: string
 		readOnly?: boolean
 	}
 
@@ -31,7 +33,7 @@
 		savedRow = null,
 		onclose,
 		onchange,
-		baselineEpoch = 0,
+		tabId,
 		readOnly = false,
 	}: Props = $props()
 
@@ -145,7 +147,7 @@
 				{rowIndex}
 				{savedRow}
 				{onchange}
-				{baselineEpoch}
+				baselineVersion={tableSync.baselineVersion(tabId)}
 				{readOnly}
 				bind:jsonText={fieldsJson}
 				bind:dirtyCount

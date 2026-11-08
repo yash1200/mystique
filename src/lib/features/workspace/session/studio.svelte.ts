@@ -71,10 +71,6 @@ class WorkspaceStudio {
 	structureLoading = $state(false)
 	structureError = $state<string | null>(null)
 
-	rowSyncTick = $state(0)
-	tablePreviewTick = $state(0)
-	baselineEpoch = $state(0)
-
 	exportTable = $state<TableMeta | null>(null)
 	exportBusy = $state(false)
 	exportError = $state<string | null>(null)

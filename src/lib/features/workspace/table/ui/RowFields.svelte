@@ -17,7 +17,8 @@
 		rowIndex: number
 		savedRow: Record<string, unknown> | null
 		onchange?: (column: string, value: unknown) => void
-		baselineEpoch: number
+		/** Bumps when the saved baseline moves; drafts reseed. */
+		baselineVersion: number
 		readOnly: boolean
 		jsonText?: string
 		dirtyCount?: number
@@ -31,7 +32,7 @@
 		rowIndex,
 		savedRow,
 		onchange,
-		baselineEpoch,
+		baselineVersion,
 		readOnly,
 		jsonText = $bindable(''),
 		dirtyCount = $bindable(0),
@@ -172,7 +173,7 @@
 	})
 
 	$effect(() => {
-		const key = `${tableTitle}::${rowIndex}::${baselineEpoch}`
+		const key = `${tableTitle}::${rowIndex}::${baselineVersion}`
 		if (key === lastBaselineKey) return
 		lastBaselineKey = key
 		drafts = seedDrafts()

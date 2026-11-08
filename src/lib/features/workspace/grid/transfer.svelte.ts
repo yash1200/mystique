@@ -21,6 +21,7 @@ import {
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
+import { tableSync } from '#features/workspace/table'
 import { resolveImportGate, type ImportGateChoice } from './import-gate'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
 import type { ImportFileSpec, ImportRunSpec } from './ui/ImportDataModal.svelte'
@@ -91,7 +92,7 @@ export async function answerImportGate(choice: ImportGateChoice) {
 async function discardTabEdits(table: TableMeta, tabId: string) {
 	dropEditBuffer(tabId)
 	workspaceSession.setTabDirty(tabId, false)
-	workspaceStudio.baselineEpoch += 1
+	tableSync.baselineChanged(tabId)
 	const { tablePreview } = await import('#features/workspace/table')
 	await tablePreview.open(table)
 }

@@ -35,7 +35,7 @@
 		ensureLiveCatalog,
 	} from '#features/workspace/catalog'
 	import { GridTransferHost } from '#features/workspace/grid'
-	import { tablePreview } from '#features/workspace/table'
+	import { tablePreview, tableSync } from '#features/workspace/table'
 	import {
 		querySave,
 		QuerySaveHost,
@@ -254,7 +254,7 @@
 					}
 				}
 				workspaceSession.setTabDirty(tab.id, false)
-				workspaceStudio.baselineEpoch += 1
+				tableSync.baselineChanged(tab.id)
 			} else {
 				workspaceSession.setTabDirty(tab.id, false)
 			}

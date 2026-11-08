@@ -26,6 +26,7 @@ import {
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
+import { tableSync } from './sync.svelte'
 
 class TablePreview {
 	hydratedTabs = $state<Record<string, boolean>>({})
@@ -92,7 +93,7 @@ class TablePreview {
 				loaded,
 			)
 			if (workspaceSession.activeTabId === tabId) {
-				workspaceStudio.tablePreviewTick += 1
+				tableSync.previewLoaded(tabId)
 			}
 
 			void withLiveSession(id, (sid) =>
