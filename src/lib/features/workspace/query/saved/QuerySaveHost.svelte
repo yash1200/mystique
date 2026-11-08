@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Button, Modal } from '#core/ui'
-	import { workspaceStudio } from '#features/workspace/session'
 	import { queryLibrary } from './library.svelte'
 	import { querySave } from './save.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'
@@ -9,11 +8,11 @@
 <SaveQueryModal
 	open={querySave.modalOpen}
 	initialName={querySave.initialName}
-	busy={workspaceStudio.querySaving}
+	busy={querySave.saving}
 	error={querySave.error}
 	onconfirm={(name) => void querySave.confirmName(name)}
 	oncancel={() => {
-		if (workspaceStudio.querySaving) return
+		if (querySave.saving) return
 		querySave.thenClose = false
 		querySave.closeModal(false)
 	}}

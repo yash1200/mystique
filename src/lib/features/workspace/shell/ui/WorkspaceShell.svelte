@@ -38,10 +38,12 @@
 	import { modelStore } from '#features/workspace/er'
 	import { tablePreview } from '#features/workspace/grid'
 	import {
+		historyStore,
 		querySave,
 		QuerySaveHost,
 		refreshHistory,
 		refreshSavedQueries,
+		savedStore,
 	} from '#features/workspace/query'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
@@ -373,14 +375,8 @@
 		modelStore.forget(id)
 		structureStore.forget(id)
 		if (sid) catalogColumnsCache.invalidate(sid)
-		if (workspaceStudio.savedQueriesFor === id) {
-			workspaceStudio.savedQueries = []
-			workspaceStudio.savedQueriesFor = null
-		}
-		if (workspaceStudio.historyFor === id) {
-			workspaceStudio.queryHistory = []
-			workspaceStudio.historyFor = null
-		}
+		savedStore.forget(id)
+		historyStore.forget(id)
 		if (sid && isTauri()) {
 			void closeEngineSession(sid).catch(() => {})
 		}
@@ -390,10 +386,10 @@
 	function setSideMode(mode: SideNavMode) {
 		workspaceStudio.sideMode = mode
 		if (mode === 'saved-queries') {
-			workspaceStudio.selectedHistoryId = null
+			historyStore.select(activeId, null)
 			void refreshSavedQueries(activeId)
 		} else if (mode === 'history') {
-			workspaceStudio.selectedQueryId = null
+			savedStore.select(activeId, null)
 			void refreshHistory({ preferSelectLatest: true })
 		}
 	}
@@ -545,7 +541,7 @@
 		tabTitle={pendingCloseTab?.title ?? 'Tab'}
 		tabKind={pendingCloseTab?.kind ?? 'query'}
 		error={closeError}
-		busy={closePromptBusy || workspaceStudio.querySaving}
+		busy={closePromptBusy || querySave.saving}
 		onsave={() => void confirmSaveAndClose()}
 		ondiscard={() => void confirmDiscardAndClose()}
 		oncancel={cancelCloseTab}

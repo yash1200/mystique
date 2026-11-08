@@ -163,7 +163,9 @@
 	const rowSyncTick = $derived(workspaceStudio.rowSyncTick)
 	const tablePreviewTick = $derived(workspaceStudio.tablePreviewTick)
 	const baselineEpoch = $derived(workspaceStudio.baselineEpoch)
-	const querysaving = $derived(workspaceStudio.querySaving)
+	const querysaving = $derived(
+		!!activeTabId && querySave.savingTabId === activeTabId,
+	)
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
 

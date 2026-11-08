@@ -1,6 +1,6 @@
 /** Save-query flow. Modal state lives here, not on WorkspaceShell. */
 import { errorMessage, isTauri } from '#core/ipc'
-import { workspaceSession, workspaceStudio } from '#features/workspace/session'
+import { workspaceSession } from '#features/workspace/session'
 import { queryLanguageFor } from '../policy'
 import { saveQuery } from './saved-api'
 
@@ -10,7 +10,14 @@ class QuerySave {
 	initialName = $state('Query')
 	error = $state<string | null>(null)
 	thenClose = $state(false)
+	/** Tab whose save is running, so only that tab shows it saving. */
+	savingTabId = $state<string | null>(null)
 	private resolver: ((ok: boolean) => void) | null = null
+
+	/** A save is running. */
+	get saving(): boolean {
+		return this.savingTabId != null
+	}
 
 	needsNamePrompt(title: string): boolean {
 		const name = title?.trim() || ''
@@ -60,9 +67,9 @@ class QuerySave {
 			name: saved.name,
 			body: saved.body,
 		})
-		const { refreshSavedQueries } = await import('./library.svelte')
+		const { refreshSavedQueries, savedStore } = await import('./library.svelte')
 		await refreshSavedQueries(tab.connectionId, true)
-		workspaceStudio.selectedQueryId = saved.id
+		savedStore.select(tab.connectionId, saved.id)
 		return true
 	}
 
@@ -72,7 +79,7 @@ class QuerySave {
 			this.closeModal(false)
 			return
 		}
-		workspaceStudio.querySaving = true
+		this.savingTabId = tabId
 		this.error = null
 		try {
 			await this.persist(tabId, name)
@@ -82,7 +89,7 @@ class QuerySave {
 			this.error = errorMessage(e)
 			console.warn('[mystique] save query:', e)
 		} finally {
-			workspaceStudio.querySaving = false
+			this.savingTabId = null
 		}
 	}
 
@@ -114,7 +121,7 @@ class QuerySave {
 				this.resolver = resolve
 			})
 		}
-		workspaceStudio.querySaving = true
+		this.savingTabId = tabId
 		try {
 			await this.persist(tabId, tab.title.trim())
 			return true
@@ -123,7 +130,7 @@ class QuerySave {
 			alert(errorMessage(e))
 			return false
 		} finally {
-			workspaceStudio.querySaving = false
+			this.savingTabId = null
 		}
 	}
 

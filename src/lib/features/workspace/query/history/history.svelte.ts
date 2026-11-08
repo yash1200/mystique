@@ -1,19 +1,93 @@
-/** Query history list. The connection manager writes the rows. */
+/** Query history lists. The connection manager writes the rows. */
 import { errorMessage, isTauri } from '#core/ipc'
-import { workspaceSession, workspaceStudio } from '#features/workspace/session'
+import { workspaceSession } from '#features/workspace/session'
 import {
 	historyItemToEntry,
 	listQueryHistory,
 	listRecentQueryHistory,
 	type QueryHistoryPage,
 } from './history-api'
-import type { QueryHistoryItem } from './history-types'
+import type { QueryHistoryEntry, QueryHistoryItem } from './history-types'
 
 /** One keyset page. The server keeps 2_000 runs per connection. */
 const HISTORY_PAGE = 100
 
-let historyFetchGen = 0
+/** One connection's history list (or every connection's, with none active). */
+export type HistoryList = {
+	entries: QueryHistoryEntry[]
+	loading: boolean
+	loadingMore: boolean
+	hasMore: boolean
+	error: string | null
+	/** A page has been fetched into `entries`. */
+	loaded: boolean
+	selectedId: string | null
+}
+
+const EMPTY: HistoryList = Object.freeze({
+	entries: Object.freeze([]) as unknown as QueryHistoryEntry[],
+	loading: false,
+	loadingMore: false,
+	hasMore: false,
+	error: null,
+	loaded: false,
+	selectedId: null,
+})
+
+/** List key: the connection id, or '' for the all-connections list. */
+function scopeKey(connectionId: string | null | undefined): string {
+	return connectionId ?? ''
+}
+
+/** History lists keyed by connectionId. */
+class QueryHistoryStore {
+	lists = $state<Record<string, HistoryList>>({})
+
+	of(connectionId: string | null | undefined): HistoryList {
+		return this.lists[scopeKey(connectionId)] ?? EMPTY
+	}
+
+	/** The active connection's list. */
+	get current(): HistoryList {
+		return this.of(workspaceSession.activeConnectionId)
+	}
+
+	patch(connectionId: string | null | undefined, next: Partial<HistoryList>) {
+		const key = scopeKey(connectionId)
+		this.lists = {
+			...this.lists,
+			[key]: { ...(this.lists[key] ?? EMPTY), ...next },
+		}
+	}
+
+	select(connectionId: string | null | undefined, id: string | null) {
+		this.patch(connectionId, { selectedId: id })
+	}
+
+	forget(connectionId: string) {
+		if (!(connectionId in this.lists)) return
+		const { [connectionId]: _drop, ...rest } = this.lists
+		this.lists = rest
+	}
+}
+
+export const historyStore = new QueryHistoryStore()
+
+/** Fetch generation per list: a newer fetch drops an older one's result. */
+const fetchGen = new Map<string, number>()
+/** The list loaded last. Switching lists refetches, as it always has. */
+let lastLoaded: string | null = null
 let historySearch = ''
+
+function genOf(connectionId: string | null): number {
+	return fetchGen.get(scopeKey(connectionId)) ?? 0
+}
+
+function nextGen(connectionId: string | null): number {
+	const gen = genOf(connectionId) + 1
+	fetchGen.set(scopeKey(connectionId), gen)
+	return gen
+}
 
 function historyNameMap(): Map<string, string> {
 	return new Map(
@@ -38,9 +112,10 @@ export function openSqlInEditor(sql: string, title?: string) {
 }
 
 export function selectHistory(id: string) {
-	workspaceStudio.selectedHistoryId = id
-	const h = workspaceStudio.queryHistory.find((x) => x.id === id)
-	if (!h || !workspaceSession.activeConnectionId) return
+	const scope = workspaceSession.activeConnectionId
+	historyStore.select(scope, id)
+	const h = historyStore.of(scope).entries.find((x) => x.id === id)
+	if (!h || !scope) return
 	openSqlInEditor(h.sql)
 }
 
@@ -65,96 +140,98 @@ export function prependHistoryItem(item: QueryHistoryItem | null | undefined) {
 	if (activeId && entry.connectionId && entry.connectionId !== activeId) {
 		return
 	}
-	workspaceStudio.queryHistory = [
-		entry,
-		...workspaceStudio.queryHistory.filter((h) => h.id !== entry.id),
-	].slice(0, 150)
-	workspaceStudio.historyError = null
-	workspaceStudio.selectedHistoryId = entry.id
+	const list = historyStore.of(activeId)
+	historyStore.patch(activeId, {
+		entries: [entry, ...list.entries.filter((h) => h.id !== entry.id)].slice(
+			0,
+			150,
+		),
+		error: null,
+		selectedId: entry.id,
+	})
 }
 
 export async function refreshHistory(opts?: {
 	preferSelectLatest?: boolean
 	force?: boolean
 }) {
-	const activeId = workspaceSession.activeConnectionId
-	const scope = activeId ?? null
+	const scope = workspaceSession.activeConnectionId ?? null
+	const list = historyStore.of(scope)
 	if (
 		!opts?.force &&
-		workspaceStudio.historyFor === scope &&
-		(workspaceStudio.queryHistory.length > 0 ||
-			workspaceStudio.historyError == null)
+		lastLoaded === scopeKey(scope) &&
+		list.loaded &&
+		(list.entries.length > 0 || list.error == null)
 	) {
-		if (opts?.preferSelectLatest && workspaceStudio.queryHistory[0]) {
-			workspaceStudio.selectedHistoryId = workspaceStudio.queryHistory[0].id
+		if (opts?.preferSelectLatest && list.entries[0]) {
+			historyStore.select(scope, list.entries[0].id)
 		}
 		return
 	}
 	if (!isTauri()) {
-		workspaceStudio.queryHistory = []
-		workspaceStudio.historyHasMore = false
-		workspaceStudio.historyFor = scope
+		historyStore.patch(scope, { entries: [], hasMore: false, loaded: true })
+		lastLoaded = scopeKey(scope)
 		return
 	}
-	const gen = ++historyFetchGen
-	workspaceStudio.historyLoading = true
+	const gen = nextGen(scope)
+	historyStore.patch(scope, { loading: true })
 	try {
-		const page = await loadHistoryPage(activeId, {
-			search: historySearch,
+		const page = await loadHistoryPage(scope, { search: historySearch })
+		if (gen !== genOf(scope)) return
+		const entries = page.items.map((it) => entryFromItem(it))
+		let selectedId = historyStore.of(scope).selectedId
+		if (selectedId && !entries.some((h) => h.id === selectedId)) {
+			selectedId = null
+		}
+		if (opts?.preferSelectLatest && entries[0]) selectedId = entries[0].id
+		historyStore.patch(scope, {
+			entries,
+			hasMore: page.hasMore,
+			loaded: true,
+			error: null,
+			selectedId,
 		})
-		if (gen !== historyFetchGen) return
-		workspaceStudio.queryHistory = page.items.map((it) => entryFromItem(it))
-		workspaceStudio.historyHasMore = page.hasMore
-		workspaceStudio.historyFor = scope
-		workspaceStudio.historyError = null
-		if (
-			workspaceStudio.selectedHistoryId &&
-			!workspaceStudio.queryHistory.some(
-				(h) => h.id === workspaceStudio.selectedHistoryId,
-			)
-		) {
-			workspaceStudio.selectedHistoryId = null
-		}
-		if (opts?.preferSelectLatest && workspaceStudio.queryHistory[0]) {
-			workspaceStudio.selectedHistoryId = workspaceStudio.queryHistory[0].id
-		}
+		lastLoaded = scopeKey(scope)
 	} catch (e) {
-		if (gen !== historyFetchGen) return
-		workspaceStudio.historyError = errorMessage(e)
-		console.warn(
-			'[mystique] refreshHistory failed:',
-			workspaceStudio.historyError,
-		)
+		if (gen !== genOf(scope)) return
+		const message = errorMessage(e)
+		historyStore.patch(scope, { error: message })
+		console.warn('[mystique] refreshHistory failed:', message)
 	} finally {
-		if (gen === historyFetchGen) workspaceStudio.historyLoading = false
+		if (gen === genOf(scope)) historyStore.patch(scope, { loading: false })
 	}
 }
 
 export async function loadOlderHistory() {
-	if (workspaceStudio.historyLoadingMore || !workspaceStudio.historyHasMore) return
-	const activeId = workspaceSession.activeConnectionId
-	const last = workspaceStudio.queryHistory.at(-1)
+	const scope = workspaceSession.activeConnectionId ?? null
+	const list = historyStore.of(scope)
+	if (list.loadingMore || !list.hasMore) return
+	const last = list.entries.at(-1)
 	if (!last) return
-	const gen = historyFetchGen
-	workspaceStudio.historyLoadingMore = true
+	const gen = genOf(scope)
+	historyStore.patch(scope, { loadingMore: true })
 	try {
-		const page = await loadHistoryPage(activeId, {
+		const page = await loadHistoryPage(scope, {
 			search: historySearch,
 			cursorRanAt: last.ranAt,
 			cursorId: last.id,
 		})
-		if (gen !== historyFetchGen) return
-		const seen = new Set(workspaceStudio.queryHistory.map((row) => row.id))
+		if (gen !== genOf(scope)) return
+		const current = historyStore.of(scope).entries
+		const seen = new Set(current.map((row) => row.id))
 		const older = page.items
 			.map((it) => entryFromItem(it))
 			.filter((row) => !seen.has(row.id))
-		workspaceStudio.queryHistory = [...workspaceStudio.queryHistory, ...older]
-		workspaceStudio.historyHasMore = page.hasMore
+		historyStore.patch(scope, {
+			entries: [...current, ...older],
+			hasMore: page.hasMore,
+		})
 	} catch (e) {
-		if (gen !== historyFetchGen) return
-		workspaceStudio.historyError = errorMessage(e)
+		if (gen !== genOf(scope)) return
+		historyStore.patch(scope, { error: errorMessage(e) })
 	} finally {
-		if (gen === historyFetchGen) workspaceStudio.historyLoadingMore = false
+		// Always clear it: a refresh in between must not leave "load more" stuck.
+		historyStore.patch(scope, { loadingMore: false })
 	}
 }
 

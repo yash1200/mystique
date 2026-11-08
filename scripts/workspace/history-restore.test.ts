@@ -18,19 +18,18 @@ vi.mock('#features/workspace/session', () => ({
 			drafts[tabId] = text
 		},
 	},
-	workspaceStudio: {
-		selectedHistoryId: null,
-		queryHistory: [{ id: 'h1', sql: 'select 1', connectionId: 'conn-1' }],
-	},
 }))
 vi.mock('../../src/lib/features/workspace/query/history/history-api', () => ({}))
 
-const { selectHistory } = await import(
+const { historyStore, selectHistory } = await import(
 	'../../src/lib/features/workspace/query/history/history.svelte.ts'
 )
 
 beforeEach(() => {
 	opened.length = 0
+	historyStore.patch('conn-1', {
+		entries: [{ id: 'h1', sql: 'select 1', connectionId: 'conn-1' }] as never,
+	})
 })
 
 test('history restore opens a new tab and leaves the current editor alone', () => {

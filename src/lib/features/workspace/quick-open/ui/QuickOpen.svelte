@@ -3,7 +3,8 @@
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
 	import { catalogStore } from '#features/workspace/catalog'
-	import { workspaceSession, workspaceStudio } from '#features/workspace/session'
+	import { historyStore, savedStore } from '#features/workspace/query'
+	import { workspaceSession } from '#features/workspace/session'
 	import { tick } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
 	import { quickOpen } from '../chrome.svelte'
@@ -77,7 +78,7 @@
 					).supportsServerMetrics
 				: false,
 			catalogs,
-			saved: workspaceStudio.savedQueries.flatMap((query) => {
+			saved: savedStore.of(activeId).items.flatMap((query) => {
 				const connectionId = query.connectionId || activeId
 				if (!connectionId) return []
 				return [
@@ -89,7 +90,7 @@
 					},
 				]
 			}),
-			history: workspaceStudio.queryHistory.map((entry) => ({
+			history: historyStore.of(activeId).entries.map((entry) => ({
 				id: entry.id,
 				connectionId: entry.connectionId ?? null,
 				title: historyTitle(entry.sql),

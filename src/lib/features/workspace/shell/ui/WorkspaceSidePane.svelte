@@ -18,11 +18,13 @@
 	import { tablePreview } from '#features/workspace/grid'
 	import {
 		clearHistorySearch,
+		historyStore,
 		loadOlderHistory,
 		queryLibrary,
 		QueryListPanel,
 		refreshHistory,
 		refreshSavedQueries,
+		savedStore,
 		selectHistory,
 		selectSavedQuery,
 		setHistorySearch,
@@ -60,10 +62,12 @@
 	const refreshing = $derived(catalogStatus.refreshing)
 	const refreshingTables = $derived(catalogStatus.refreshingTables)
 	const createBusy = $derived(catalogStatus.createBusy)
-	const queryHistory = $derived(workspaceStudio.queryHistory)
-	const savedQueries = $derived(workspaceStudio.savedQueries)
-	const selectedQueryId = $derived(workspaceStudio.selectedQueryId)
-	const selectedHistoryId = $derived(workspaceStudio.selectedHistoryId)
+	const history = $derived(historyStore.of(activeId))
+	const saved = $derived(savedStore.of(activeId))
+	const queryHistory = $derived(history.entries)
+	const savedQueries = $derived(saved.items)
+	const selectedQueryId = $derived(saved.selectedId)
+	const selectedHistoryId = $derived(history.selectedId)
 
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
 	let infoOpen = $state(false)
@@ -140,9 +144,9 @@
 					onrefresh={() => void refreshHistory({ force: true })}
 					onhistorysearch={setHistorySearch}
 					onhistorymore={() => void loadOlderHistory()}
-					historyHasMore={workspaceStudio.historyHasMore}
-					historyLoadingMore={workspaceStudio.historyLoadingMore}
-					loading={workspaceStudio.historyLoading}
+					historyHasMore={history.hasMore}
+					historyLoadingMore={history.loadingMore}
+					loading={history.loading}
 				/>
 				{/key}
 			{:else if activeSession && explorerOk}
