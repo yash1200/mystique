@@ -31,6 +31,9 @@ pub struct ConnectionProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     pub favorite: bool,
+    /// Query timeout for this profile. `None` uses the app setting; 0 is none.
+    #[serde(default)]
+    pub query_timeout_secs: Option<u32>,
     pub last_connected_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -75,6 +78,9 @@ pub struct SaveConnectionInput {
     /// Passphrase for an encrypted TLS client key.
     #[serde(default)]
     pub tls_key_passphrase: Option<String>,
+    /// `None` uses the app setting; 0 is no timeout. Saved as sent, also on update.
+    #[serde(default)]
+    pub query_timeout_secs: Option<u32>,
 }
 
 /// Old UI wrote keychain-style placeholders into `secret_ref` without a real secret.
