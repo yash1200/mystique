@@ -314,6 +314,7 @@
 						? profile.id
 						: null,
 				sshConfig: profile.ssh,
+				queryTimeoutSecs: profile.queryTimeoutSecs ?? null,
 			})
 			afterProfilesChange(saved.id)
 		} catch (err) {
