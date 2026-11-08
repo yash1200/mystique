@@ -436,6 +436,15 @@ fn saved_ssh_secret_only_goes_to_the_saved_bastion() {
     assert!(bound(tunnel("bastion.example", 2222, "ubuntu", SshAuth::Password)).is_none());
     assert!(bound(tunnel("bastion.example", 22, "root", SshAuth::Password)).is_none());
     assert!(bound(tunnel("bastion.example", 22, "ubuntu", SshAuth::Key)).is_none());
+
+    // The saved DB password follows the same rule.
+    let db_password = |ssh: SshTunnelRequest| {
+        let mut req = open_req(&profile);
+        req.ssh = Some(ssh);
+        app.attach_session_secrets(req).unwrap().password
+    };
+    assert!(db_password(tunnel("bastion.example", 22, "ubuntu", SshAuth::Password)).is_some());
+    assert!(db_password(tunnel("evil.example", 22, "ubuntu", SshAuth::Password)).is_none());
 }
 
 #[test]

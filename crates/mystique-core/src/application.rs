@@ -218,6 +218,15 @@ pub(crate) fn bind_open_request(
         } else {
             allow_stored = false;
         }
+        // A client tunnel to another bastion would carry the saved password
+        // there. Only the saved tunnel, or none, gets stored secrets.
+        if req
+            .ssh
+            .as_ref()
+            .is_some_and(|ssh| !same_ssh_target(&profile.ssh, ssh))
+        {
+            allow_stored = false;
+        }
     }
 
     lift_request_credentials(&mut req);
