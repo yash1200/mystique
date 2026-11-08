@@ -51,7 +51,8 @@ src/
       shortcuts/
       toast/
       workspace/
-        shell/              Panes, sessions, tabs
+        session/            Kernel: sessions, tabs, drafts, write guard (no UI)
+        shell/              Composition: panes, sessions rail, tabs, modals
         catalog/ explorer/ grid/ query/ er/ metrics/ agent/
     app/                    Theme / density prefs
     styles/                 tokens.css
@@ -59,7 +60,7 @@ docs/                       Design language, backend, schema
 scripts/check-boundaries.mjs
 ```
 
-Imports go **down**: `routes → features → engines → core`. Features import each other only through that feature’s `index.ts`. `pnpm check` runs `scripts/check-boundaries.mjs` and fails on a deep import.
+Imports go **down**: `routes → features → engines → core`. Features import each other only through that feature’s `index.ts`. Every feature may import `workspace/session`; only routes import `workspace/shell`. `pnpm check` runs `scripts/check-boundaries.mjs` and fails on a deep import or an import cycle.
 
 ```ts
 import { Button } from '#core/ui'

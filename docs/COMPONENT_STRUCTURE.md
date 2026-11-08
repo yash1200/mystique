@@ -33,7 +33,8 @@ src/
     │   ├── settings/             # appearance, workspace, AI, MCP
     │   ├── shortcuts/            # keyboard reference
     │   └── workspace/
-    │       ├── shell/            # panes, sessions rail, tabs, session + studio stores
+    │       ├── session/          # kernel: session + studio stores, tabs, drafts, write guard (no UI)
+    │       ├── shell/            # composition: panes, sessions rail, tabs, modals
     │       ├── catalog/          # live catalog, labels, icons
     │       ├── explorer/         # object tree, structure panel
     │       ├── grid/             # data grid, filters, import/export
@@ -69,11 +70,22 @@ enforces it (also part of `npm run check`).
 
 | Zone | May import | Must not |
 | ---- | ---------- | -------- |
-| `routes/*` | A feature's `index.ts`, `#core/*` | Feature internals; styling beyond the page frame |
+| `routes/*` | A feature's `index.ts`, its `ui/*Page.svelte`, `#core/*` | Other feature internals; styling beyond the page frame |
 | `features/x/*` | Own files, `#core/*`, `#engines`, other features' `index.ts` | Another feature's internals; `routes/*` |
 | `app/*` | `#core/*` | Features — it is a leaf they read |
 | `engines/*` | `#core/*` | `#features/*` — adapters are data, not screens |
 | `core/*` | `core/*` only | Everything domain: engines, MCP, profiles, sessions |
+
+Workspace splits into a kernel and a shell:
+
+- **`workspace/session` is the kernel.** Every feature may import it. It
+  imports no UI: no `.svelte` files and nothing under a `ui/` folder.
+- **`workspace/shell` is composition only.** Nothing imports it except routes
+  (directly, or through the `#features/workspace` aggregate).
+
+The check also fails on any **import cycle** across `src/lib` and `src/routes`.
+Type-only imports and dynamic `import()` do not count. A cycle that cannot be
+broken yet goes in `CYCLE_ALLOWLIST` in the script, with the reason.
 
 Two more rules that keep the graph readable:
 
