@@ -1,5 +1,6 @@
 /** Agent conversation cache. Survives query-tab remounts and pane close. */
 
+import { ACTION_DISMISS_MS } from '#features/toast'
 import {
 	deleteAgentChat,
 	listAgentChats,
@@ -7,6 +8,7 @@ import {
 	listAgentModels,
 } from './api'
 import { chatAfterConnectionChange } from './connection-chat'
+import { DeferredDeletes, restoreAt } from './deferred-delete'
 import type { AgentChat, AgentMessage, AgentModelInfo } from './types'
 
 class AgentChatStore {
@@ -25,6 +27,11 @@ class AgentChatStore {
 	#chatsFor: string | null = null
 	#messagesFor: string | null = null
 	#loadedProviders = new Set<string>()
+	#deletes = new DeferredDeletes(
+		(id) => this.#commitDelete(id),
+		ACTION_DISMISS_MS,
+	)
+	#deleteFailed: ((message: string) => void) | null = null
 
 	loadChats = async (connectionId: string, force = false) => {
 		if (!force && this.#chatsFor === connectionId) return this.chats
@@ -32,8 +39,13 @@ class AgentChatStore {
 		// A slower response for the previous connection must not replace this one.
 		if (this.connectionId !== connectionId) return rows
 		this.#chatsFor = connectionId
-		this.chats = rows
-		return rows
+		this.setChats(rows)
+		return this.chats
+	}
+
+	/** Replace the list, hiding chats whose delete is still in its Undo window. */
+	setChats = (rows: AgentChat[]) => {
+		this.chats = rows.filter((c) => !this.#deletes.has(String(c.id)))
 	}
 
 	loadMessages = async (chatId: string | null, force = false) => {
@@ -119,13 +131,51 @@ class AgentChatStore {
 		}
 	}
 
-	removeChat = async (id: string) => {
-		await deleteAgentChat(id)
+	/**
+	 * Hide the chat now and delete it on the backend once the Undo window
+	 * closes. Returns the undo. `onError` reports a failed backend delete.
+	 */
+	removeChat = (
+		id: string,
+		onError: (message: string) => void,
+	): (() => void) => {
+		const index = this.chats.findIndex((c) => String(c.id) === String(id))
+		const chat = this.chats[index]
+		const connectionId = this.connectionId
+		const wasActive = this.chatId === id
+		const messages = wasActive ? this.messages : []
+
+		this.#deleteFailed = onError
+		this.#deletes.schedule(id)
 		this.chats = this.chats.filter((c) => String(c.id) !== String(id))
-		if (this.chatId === id) {
+		if (wasActive) {
 			this.chatId = null
 			this.messages = []
 			this.#messagesFor = null
+		}
+
+		return () => {
+			if (!this.#deletes.cancel(id)) return
+			if (!chat || this.connectionId !== connectionId) return
+			this.chats = restoreAt(this.chats, chat, index)
+			if (wasActive && !this.chatId) {
+				this.chatId = id
+				this.messages = messages
+				this.#messagesFor = id
+			}
+		}
+	}
+
+	/** Run pending deletes now, e.g. before the page unloads. */
+	flushDeletes = () => this.#deletes.flush()
+
+	#commitDelete = async (id: string) => {
+		try {
+			await deleteAgentChat(id)
+		} catch (e) {
+			// Still on disk: let the next load show it again.
+			this.#chatsFor = null
+			this.#deleteFailed?.(e instanceof Error ? e.message : String(e))
 		}
 	}
 
@@ -151,3 +201,7 @@ class AgentChatStore {
 }
 
 export const agentChat = new AgentChatStore()
+
+if (typeof window !== 'undefined') {
+	window.addEventListener('pagehide', () => void agentChat.flushDeletes())
+}

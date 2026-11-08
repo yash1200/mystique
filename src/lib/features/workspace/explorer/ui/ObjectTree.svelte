@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { DatabaseMeta, TableMeta } from '#core/contracts'
 	import { Icon } from '#core/ui'
-	import { cn, randomLoadingPun } from '#core/util'
+	import { cn } from '#core/util'
 	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
 	import { appPrefs } from '#lib/app'
 	interface Props {
@@ -40,7 +40,6 @@
 		onmenu,
 	}: Props = $props()
 
-	const loadingPun = randomLoadingPun()
 
 	function wellClass(kind: TableMeta['kind'], active: boolean): string {
 		if (active) return 'bg-accent-muted'
@@ -185,9 +184,6 @@
 				<Icon name="refresh" class="size-4 animate-spin text-fg-muted" />
 			</span>
 			<p class="m-0 text-label font-medium text-fg">Loading {objectLabel}…</p>
-			<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
-				{loadingPun}
-			</p>
 		</div>
 	{:else if totalCount === 0 && groups.length === 0}
 		<div

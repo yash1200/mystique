@@ -9,7 +9,7 @@
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
-	import { showToast } from '#features/toast'
+	import { showStatus, showToast } from '#features/toast'
 	import {
 		CellValueModal,
 		cellsIncludeLarge,
@@ -471,7 +471,8 @@
 			showToast('danger', 'Copy failed')
 			return
 		}
-		showToast(partial ? 'warning' : 'success', okMsg)
+		if (partial) showToast('warning', okMsg)
+		else showStatus(okMsg)
 	}
 
 	function cellClipboardText(v: unknown): string {

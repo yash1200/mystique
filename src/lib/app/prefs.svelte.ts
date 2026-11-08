@@ -1,4 +1,5 @@
 import { isMacPlatform } from '#core/util'
+import { INSPECT_ON_ROW_CLICK_DEFAULT, parseBoolPref } from './prefs-defaults'
 import type {
 	ConnectionListSort,
 	DensityPref,
@@ -70,9 +71,7 @@ function readDensity(): DensityPref {
 }
 
 function readBool(key: string, fallback: boolean): boolean {
-	const raw = lsGet(key)
-	if (raw == null) return fallback
-	return raw === '1' || raw === 'true'
+	return parseBoolPref(lsGet(key), fallback)
 }
 
 function readSort(): ConnectionListSort {
@@ -145,7 +144,7 @@ function systemPrefersDark(): boolean {
 class AppPrefsStore {
 	theme = $state<ThemePref>(readTheme())
 	density = $state<DensityPref>(readDensity())
-	inspectOnRowClick = $state(readBool(INSPECT_ON_CLICK_KEY, true))
+	inspectOnRowClick = $state(readBool(INSPECT_ON_CLICK_KEY, INSPECT_ON_ROW_CLICK_DEFAULT))
 	/** macOS defaults to single-click; other platforms default to double-click. */
 	openTableOnSingleClick = $state(
 		readBool(OPEN_TABLE_SINGLE_CLICK_KEY, isMacPlatform()),

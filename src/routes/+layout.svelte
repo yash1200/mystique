@@ -7,7 +7,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
-	import { AboutModal, appAboutUi, appSettingsUi } from '#features/settings'
+	import { appSettingsUi } from '#features/settings'
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
 	import { mountAppChords, QuickOpen } from '#features/workspace/quick-open'
@@ -78,7 +78,6 @@
 				'ui-zoom-reset': zoomReset,
 				'app-open-settings': () => appSettingsUi.show(),
 				'app-open-shortcuts': () => appShortcutsUi.show(),
-				'app-open-about': () => appAboutUi.show(),
 			})
 				.then((u) => {
 					if (cancelled) u()
@@ -102,7 +101,6 @@
 
 <ToastContext>
 	{@render children()}
-	<AboutModal />
 	<QuickOpen />
 	<ResetConfirmModal />
 	<KeyboardShortcutsModal

@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { EmptyState } from '#core/ui'
-	import { randomLoadingPun } from '#core/util'
+	import { EmptyState, Icon } from '#core/ui'
 	import { familyFromCaps, resolveCapabilities } from '#engines'
 	import { colorHex } from '#features/connections'
 	import { AgentChatPane } from '#features/workspace/agent'
@@ -78,10 +77,6 @@
 			: null,
 	)
 	const tableLoading = $derived(workspaceStudio.loadingTabId === activeTabId)
-	let tablePun = $state(randomLoadingPun())
-	let diagramPun = $state(randomLoadingPun())
-	let tablePunKey = ''
-	let diagramPunKey = ''
 	const rowSelectionIndex = $derived.by(() => {
 		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
 		if (
@@ -161,25 +156,10 @@
 		pruneEditorStates(workspaceSession.openTabs.map((tab) => tab.id))
 	})
 
-	$effect(() => {
-		const key = showTableLoading ? String(activeTabId ?? '') : ''
-		if (key && key !== tablePunKey) {
-			tablePun = randomLoadingPun()
-		}
-		tablePunKey = key
-	})
 	const modelError = $derived(workspaceStudio.modelError)
 	const modelLoading = $derived(workspaceStudio.modelLoading)
 	const structureLoading = $derived(workspaceStudio.structureLoading)
 
-	$effect(() => {
-		const show = modelLoading && !activeModel
-		const key = show ? String(activeTabId ?? '') : ''
-		if (key && key !== diagramPunKey) {
-			diagramPun = randomLoadingPun()
-		}
-		diagramPunKey = key
-	})
 	const structureError = $derived(workspaceStudio.structureError)
 	const structureCaps = $derived(
 		activeSession
@@ -341,7 +321,10 @@
 				{/if}
 				{#if modelLoading && !activeModel}
 					<div class="flex flex-1 items-center justify-center p-8">
-						<EmptyState title="Building diagram…" description={diagramPun} />
+						<div class="flex flex-col items-center gap-3" aria-busy="true">
+							<Icon name="refresh" class="size-5 animate-spin text-fg-muted" />
+							<EmptyState title="Building diagram…" />
+						</div>
 					</div>
 				{:else if activeModel}
 					{#key `${activeTab.id}:${activeModel.rev}`}
@@ -410,7 +393,10 @@
 			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
 				{#if showTableLoading}
 					<div class="flex flex-1 items-center justify-center p-8">
-						<EmptyState title="Loading table…" description={tablePun} />
+						<div class="flex flex-col items-center gap-3" aria-busy="true">
+							<Icon name="refresh" class="size-5 animate-spin text-fg-muted" />
+							<EmptyState title="Loading table…" />
+						</div>
 					</div>
 				{:else if gridTable}
 					<!-- Key on the tab, not the seed. Including seedFilters remounted

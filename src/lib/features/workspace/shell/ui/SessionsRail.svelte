@@ -16,6 +16,8 @@
 	import { showToast } from '#features/toast'
 	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
+	import { hasPendingLoss, workspaceLoss, type PendingLoss } from '../close-guard'
+	import { tabEditsAreDirty } from '../edit-buffer'
 	import { resetAppToHome } from '../reset'
 	import { workspaceSession } from '../session.svelte'
 	import { workspaceStudio } from '../studio.svelte'
@@ -66,12 +68,19 @@
 
 	let menu = $state<{ id: string; x: number; y: number } | null>(null)
 	let infoId = $state<string | null>(null)
-	let leaveOpen = $state(false)
+	let leaveLoss = $state<PendingLoss | null>(null)
 	let leaveBusy = $state(false)
 
+	/** Leave at once unless an edit or open transaction would be lost. */
 	function requestLeaveHome() {
 		if (leaveBusy) return
-		leaveOpen = true
+		const loss = workspaceLoss(
+			workspaceSession.openTabs,
+			workspaceSession.tabTxn,
+			tabEditsAreDirty,
+		)
+		if (hasPendingLoss(loss)) leaveLoss = loss
+		else void confirmLeaveHome()
 	}
 
 	async function confirmLeaveHome() {
@@ -451,11 +460,11 @@
 />
 
 <LeaveWorkspaceModal
-	open={leaveOpen}
+	loss={leaveLoss}
 	busy={leaveBusy}
 	onconfirm={() => void confirmLeaveHome()}
 	oncancel={() => {
-		if (!leaveBusy) leaveOpen = false
+		if (!leaveBusy) leaveLoss = null
 	}}
 />
 

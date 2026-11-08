@@ -8,7 +8,7 @@
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
 	import { fetchEngineLargeValue } from '#core/ipc'
 	import { copyTextToClipboard } from '#core/util'
-	import { showToast } from '#features/toast'
+	import { showStatus, showToast } from '#features/toast'
 	import {
 		adoptServerRows,
 		getEditBuffer,
@@ -703,7 +703,7 @@
 	}
 
 	function flashStatus(msg: string) {
-		showToast('warning', msg)
+		showStatus(msg, 'warning')
 	}
 
 	function reportGridError(err: unknown) {
@@ -715,7 +715,8 @@
 		okMsg: string,
 		partial = false,
 	) {
-		if (res.ok) showToast(partial ? 'warning' : 'success', okMsg)
+		if (res.ok && partial) showToast('warning', okMsg)
+		else if (res.ok) showStatus(okMsg)
 		else if (res.cancelled) showToast('info', 'Copy cancelled')
 		else showToast('danger', res.error || 'Copy failed')
 	}
@@ -1090,12 +1091,6 @@
 			const snap = snaps[i]
 			if (snap) insertLocalRowAtTop(snap, false)
 		}
-		showToast(
-			'info',
-			snaps.length === 1
-				? 'Row duplicated — save to insert'
-				: `${snaps.length} rows duplicated — save to insert`,
-		)
 	}
 
 	function cloneRow(index: number) {
@@ -1186,25 +1181,7 @@
 		const unique = [...new Set(indices)].sort((a, b) => b - a)
 		if (unique.length === 0) return
 		noteEdit()
-		let removed = 0
-		let marked = 0
-		for (const i of unique) {
-			const beforeDel = deletedIndices.size
-			const beforeRows = rows.length
-			deleteRow(i, true)
-			if (rows.length < beforeRows) removed += 1
-			else if (deletedIndices.size > beforeDel) marked += 1
-		}
-		if (marked) {
-			showToast(
-				'info',
-				removed
-					? `${removed} unsaved removed · ${marked} marked for delete — save to apply`
-					: marked === 1
-						? 'Marked for delete — save to apply'
-						: `${marked} rows marked for delete — save to apply`,
-			)
-		}
+		for (const i of unique) deleteRow(i, true)
 	}
 
 	function undeleteRows(indices: number[]) {
@@ -1235,7 +1212,7 @@
 			(c) => c.pk || c.name === 'id' || c.name === '_id' || c.name === 'rowid',
 		)
 		if (!hasPk) {
-			if (!quiet) showToast('danger', 'Cannot delete: table has no primary key')
+			if (!quiet) showStatus('Cannot delete: table has no primary key', 'warning')
 			return
 		}
 
@@ -2017,7 +1994,8 @@
 		if (e?.clipboardData) {
 			e.preventDefault()
 			e.clipboardData.setData('text/plain', text)
-			showToast(partial ? 'warning' : 'success', message)
+			if (partial) showToast('warning', message)
+			else showStatus(message)
 			return
 		}
 		notifyCopy(await copyTextToClipboard(text), message, partial)
@@ -2299,7 +2277,7 @@
 	async function goToPage(nextPage: number) {
 		if (editing) commitEdit()
 		if (dirtyCount > 0) {
-			showToast('warning', 'Save or reset changes before changing page.')
+			showStatus('Save or reset changes before changing page.', 'warning')
 			return
 		}
 		const p = Math.max(0, Math.min(totalPages - 1, nextPage))
@@ -2331,10 +2309,7 @@
 		if (editing) cancelEdit()
 		if (dirtyCount > 0 && !refreshArmed) {
 			refreshArmed = true
-			showToast(
-				'warning',
-				'Unsaved edits. Refresh again to discard them.',
-			)
+			showStatus('Unsaved edits. Refresh again to discard them.', 'warning')
 			return
 		}
 		refreshArmed = false

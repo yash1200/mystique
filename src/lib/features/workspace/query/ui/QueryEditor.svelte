@@ -6,7 +6,7 @@
 	import type { CatalogColumnRow } from '#core/contracts'
 	import { Button, Icon, Input, Pill } from '#core/ui'
 	import { adapterFor, catalogSignature, formatQuery } from '#engines'
-	import { showToast } from '#features/toast'
+	import { showStatus } from '#features/toast'
 	import { appPrefs } from '#lib/app'
 	import { autocompletion } from '@codemirror/autocomplete'
 	import { indentWithTab } from '@codemirror/commands'
@@ -276,7 +276,7 @@
 		const src = view?.state.doc.toString() ?? localText ?? ''
 		const result = formatQuery(callbacks.engine, src)
 		if (!result.ok) {
-			showToast('danger', result.error)
+			showStatus(result.error, 'warning')
 			return
 		}
 		if (result.text === src || result.text === src + '\n') return

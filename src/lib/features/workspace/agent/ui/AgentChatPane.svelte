@@ -8,9 +8,10 @@
 		Select,
 		Textarea,
 	} from '#core/ui'
-	import { cn, randomLoadingPun } from '#core/util'
+	import { cn } from '#core/util'
 	import { appSettingsUi } from '#features/settings'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
+	import { showToast } from '#features/toast'
 	import { workspaceSession } from '#features/workspace/shell'
 	import {
 		AGENT_CHAT_PANEL_WIDTH_DEFAULT,
@@ -32,7 +33,6 @@
 	import AgentChatNotice from './AgentChatNotice.svelte'
 	import AgentChatThread from './AgentChatThread.svelte'
 	import AgentChatWelcome from './AgentChatWelcome.svelte'
-	import DeleteChatModal from './DeleteChatModal.svelte'
 
 	interface Props {
 		tabId: string
@@ -55,7 +55,6 @@
 	const settings = $derived(aiSettings.view)
 	let sending = $state(false)
 	let elapsedSec = $state(0)
-	let sendPun = $state(randomLoadingPun())
 	let sendGen = $state(0)
 	let error = $state<string | null>(null)
 	let listEl = $state<HTMLDivElement | null>(null)
@@ -153,7 +152,7 @@
 	const workingLabel = $derived.by(() => {
 		if (!sending) return ''
 		const who = agentChat.provider === 'ollama' ? 'Ollama' : 'the model'
-		if (elapsedSec < 8) return `${sendPun} ${elapsedSec}s`
+		if (elapsedSec < 8) return `Working… ${elapsedSec}s`
 		if (elapsedSec < 25) return `Waiting on ${who}… ${elapsedSec}s`
 		return `Still waiting on ${who}… ${elapsedSec}s`
 	})
@@ -281,42 +280,23 @@
 		error = null
 	}
 
-	let deleteOpen = $state(false)
-	let deleteBusy = $state(false)
-
-	const deleteTitle = $derived(
-		agentChat.chats.find((c) => String(c.id) === String(agentChat.chatId))
-			?.title ?? 'this chat',
-	)
-
-	function askDelete() {
-		if (sending || !agentChat.chatId) return
-		deleteOpen = true
-	}
-
-	function cancelDelete() {
-		if (deleteBusy) return
-		deleteOpen = false
-	}
-
-	async function confirmDelete() {
-		if (deleteBusy || sending || !agentChat.chatId) return
-		deleteBusy = true
-		try {
-			error = null
-			await agentChat.removeChat(agentChat.chatId)
-			deleteOpen = false
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
-		} finally {
-			deleteBusy = false
-		}
+	/** Delete at once; the toast's Undo brings it back. */
+	function deleteChat() {
+		const id = agentChat.chatId
+		if (sending || !id) return
+		const title = agentChat.chats.find((c) => String(c.id) === String(id))?.title
+		error = null
+		const undo = agentChat.removeChat(id, (message) =>
+			showToast('danger', `Could not delete chat: ${message}`),
+		)
+		showToast('info', title ? `Deleted “${title}”.` : 'Chat deleted.', {
+			action: { label: 'Undo', run: undo },
+		})
 	}
 
 	async function send(preset?: string) {
 		const text = (preset ?? agentChat.draft).trim()
 		if (!text || sending) return
-		sendPun = randomLoadingPun()
 		snapProvider()
 		if (
 			!configuredProviders(aiSettings.view).some(
@@ -411,9 +391,8 @@
 		try {
 			let id = agentChat.chatId
 			if (!id) {
-				const listed = await listAgentChats(connectionId)
-				agentChat.chats = listed
-				id = listed[0]?.id ?? null
+				agentChat.setChats(await listAgentChats(connectionId))
+				id = agentChat.chats[0]?.id ?? null
 			}
 			if (!id || gen !== sendGen) return
 			const remote = await listAgentMessages(id)
@@ -616,7 +595,7 @@
 					variant="quiet"
 					size="sm"
 					class="hover:bg-danger/10 hover:text-danger"
-					onclick={askDelete}
+					onclick={deleteChat}
 				>
 					<Icon name="trash" />
 				</IconButton>
@@ -754,14 +733,6 @@
 		</div>
 	</form>
 </aside>
-
-<DeleteChatModal
-	open={deleteOpen}
-	chatTitle={deleteTitle}
-	busy={deleteBusy}
-	onconfirm={() => void confirmDelete()}
-	oncancel={cancelDelete}
-/>
 
 <style>
 	.agent-thread {

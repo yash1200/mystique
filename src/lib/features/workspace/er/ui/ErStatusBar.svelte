@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Icon, IconButton, StatusBar } from '#core/ui'
 	import { cn } from '#core/util'
+	import { StatusNote } from '#features/toast'
 	interface Props {
 		entityWord: string
 		hasDiagram: boolean
@@ -79,6 +80,7 @@
 		{#if selectionCount > 0}
 			<span class="shrink-0 text-fg-muted">{selectionCount} selected</span>
 		{/if}
+		<StatusNote />
 	{/snippet}
 	{#snippet center()}
 		<div

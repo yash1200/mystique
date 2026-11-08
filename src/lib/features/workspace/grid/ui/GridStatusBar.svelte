@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Icon, IconButton, Pager, StatusBar } from '#core/ui'
 	import { cn, fetchedLabel } from '#core/util'
+	import { StatusNote } from '#features/toast'
 	interface Props {
 		dirtyCount: number
 		/** Epoch ms of the last engine preview fetch. */
@@ -96,6 +97,7 @@
 				{dirtyCount} unsaved
 			</span>
 		{/if}
+		<StatusNote />
 	{/snippet}
 	{#snippet center()}
 		<Pager

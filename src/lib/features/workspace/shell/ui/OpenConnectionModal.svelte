@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '#core/contracts'
 	import { Button, Icon, Input, Modal, Pill } from '#core/ui'
-	import { cn, randomLoadingPun } from '#core/util'
+	import { cn } from '#core/util'
 	import { engineLabel } from '#engines'
 	import {
 		EngineBadge,
@@ -23,7 +23,6 @@
 	let { openIds, busy = false, error = null, onclose, onpick }: Props = $props()
 
 	let query = $state('')
-	const loadingPun = randomLoadingPun()
 	const loading = $derived(connectionProfiles.loading && !connectionProfiles.items.length)
 	const loadError = $derived(connectionProfiles.error)
 	const profiles = $derived(connectionProfiles.items)
@@ -91,7 +90,7 @@
 
 	<div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
 		{#if loading}
-			<p class="px-2 py-4 text-caption text-fg-muted">{loadingPun}</p>
+			<p class="px-2 py-4 text-caption text-fg-muted">Loading…</p>
 		{:else if loadError}
 			<p class="px-2 py-4 text-caption text-danger">{loadError}</p>
 		{:else if available.length === 0}
