@@ -11,7 +11,12 @@ export * from './session.svelte'
 export * from './shortcuts'
 export * from './studio.svelte'
 export * from './tab-save'
-export { runWithWriteGuard } from './write-guard'
+export {
+	askWriteGuard,
+	isWriteCancelled,
+	runWithWriteGuard,
+	type GuardOptions,
+} from './write-guard'
 export type * from './types'
 export { emptyTablePreview, resolveTablePreview } from './types'
 export { default as OpenConnectionModal } from './ui/OpenConnectionModal.svelte'

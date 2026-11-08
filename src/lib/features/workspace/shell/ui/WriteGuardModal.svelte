@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Field, Input, Modal } from '#core/ui'
+	import { guardCopy, typedNameOk } from '../guard-copy'
 	import {
 		currentWriteGuard,
 		resolveWriteGuard,
@@ -16,59 +17,56 @@
 		}),
 	)
 
-	const expected = $derived(prompt?.objectName?.trim() ?? '')
-	const typeOk = $derived(
-		prompt?.kind !== 'typeConfirm' ||
-			typed.trim().toLowerCase() === expected.toLowerCase(),
-	)
-	const envLabel = $derived(
-		(prompt?.environment ?? 'production').toLowerCase() === 'staging'
-			? 'Staging'
-			: 'Production',
-	)
+	const copy = $derived(prompt ? guardCopy(prompt) : null)
+	const typeOk = $derived(!prompt || typedNameOk(prompt, typed))
 
 	function cancel() {
 		resolveWriteGuard({ ok: false })
 	}
 
 	function confirm() {
-		if (!prompt) return
-		if (prompt.kind === 'typeConfirm') {
-			if (!typeOk) return
-			resolveWriteGuard({ ok: true, typedName: typed.trim() })
-			return
-		}
-		resolveWriteGuard({ ok: true })
+		if (!prompt || !typeOk) return
+		resolveWriteGuard(
+			copy?.typed ? { ok: true, typedName: typed.trim() } : { ok: true },
+		)
 	}
 </script>
 
 <Modal
 	open={!!prompt}
 	onclose={cancel}
-	title={prompt?.kind === 'typeConfirm'
-		? `Confirm ${envLabel} write`
-		: `Allow writes on ${envLabel}`}
-	description={prompt
-		? prompt.kind === 'typeConfirm'
-			? `“${prompt.connectionName}” is ${envLabel.toLowerCase()}. Type “${expected}” to continue.`
-			: `“${prompt.connectionName}” is ${envLabel.toLowerCase()}. The first write this session needs confirmation. Unlock lasts until you disconnect or quit.`
-		: ''}
+	title={copy?.title ?? ''}
+	description={copy?.description ?? ''}
+	size="lg"
 	dismissible
+	onkeydown={(e) => {
+		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirm()
+	}}
 >
-	{#if prompt?.kind === 'typeConfirm'}
-		<Field label="Object name" full>
-			<Input bind:value={typed} autocomplete="off" />
-		</Field>
+	{#if copy?.body}
+		<pre
+			class="mt-3 max-h-64 overflow-auto rounded-md border border-line bg-input px-3 py-2 font-mono text-caption leading-relaxed whitespace-pre-wrap text-fg"
+		>{copy.body}</pre>
+	{/if}
+	{#if copy?.typed}
+		<div class="mt-3">
+			<Field label="Object name" full>
+				<Input bind:value={typed} autocomplete="off" />
+			</Field>
+		</div>
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
 		<Button
-			variant="danger"
+			variant={prompt?.kind === 'review' &&
+			prompt.environment.toLowerCase() !== 'production'
+				? 'primary'
+				: 'danger'}
 			size="sm"
-			disabled={prompt?.kind === 'typeConfirm' && !typeOk}
+			disabled={!typeOk}
 			onclick={confirm}
 		>
-			{prompt?.kind === 'typeConfirm' ? 'Run' : 'Allow writes this session'}
+			{copy?.confirm ?? 'Run'}
 		</Button>
 	{/snippet}
 </Modal>
