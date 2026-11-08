@@ -1,10 +1,9 @@
-//! Mongo command risk from the parsed op, not from a substring of the text.
+//! Mongo command risk from the parsed call, not from a substring of the text.
 //!
-//! A filter value that happens to contain "delete" is still a read. An op we
-//! do not recognize fails closed as a write so it cannot skip the production
-//! unlock.
-
-use serde_json::Value;
+//! One scanner reads JSON and shell text alike. A filter value that happens
+//! to contain "delete" is still a read, and an `op` key inside a filter is
+//! data, not the method. An op we do not recognize fails closed as a write so
+//! it cannot skip the production unlock.
 
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::query::QueryMode;
@@ -49,11 +48,18 @@ impl EngineQueryPolicy for MongoQueryPolicy {
 }
 
 /// INSERT / UPDATE / REPLACE only (P3.2 `safe_write`). Deletes and `$out`/`$merge` are not.
+///
+/// Every op and every write method in the text must be a safe one, so a
+/// filter cannot lend its `op` to the call around it.
 pub fn mongo_is_safe_dml(text: &str) -> bool {
-    if classify_mongo_query(text) != WriteRisk::Write {
+    let text = text.trim();
+    let facts = scan_mongo(text);
+    if seen_from_facts(&facts, text) != MongoSeen::Write || facts.has_out_stage {
         return false;
     }
-    named_op(text).is_some_and(|op| is_safe_write_op(&op))
+    let ops = facts.ops.iter().chain(&facts.write_methods);
+    facts.ops.len() + facts.write_methods.len() > 0
+        && ops.into_iter().all(|op| is_safe_write_op(op))
 }
 
 /// True when the text is a write the plugin should not run as a find.
@@ -93,37 +99,13 @@ fn inspect_mongo(text: &str) -> MongoSeen {
     if trimmed.is_empty() {
         return MongoSeen::Unparsed;
     }
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        if value.is_object() || value.is_array() {
-            return inspect_json(&value);
-        }
-    }
-    seen_from_facts(scan_shell(trimmed), trimmed)
+    seen_from_facts(&scan_mongo(trimmed), trimmed)
 }
 
-fn inspect_json(value: &Value) -> MongoSeen {
-    let has_out = json_has_out_stage(value);
-    let has_drop = json_has_drop_stage(value);
-    if let Some(op) = value.get("op") {
-        return match op.as_str() {
-            Some(op) => seen_from_op(op, has_out, has_drop),
-            None => MongoSeen::UnknownOp,
-        };
-    }
-    if has_drop {
-        MongoSeen::Destructive
-    } else if has_out {
-        MongoSeen::Write
-    } else {
-        MongoSeen::Read
-    }
-}
-
-fn seen_from_op(op: &str, has_out: bool, has_drop: bool) -> MongoSeen {
+/// Read, write or destructive for one op name. `$out` / `$merge` stages are
+/// counted by the scanner, whatever the op.
+fn seen_from_op(op: &str) -> MongoSeen {
     let op = op.trim().to_ascii_lowercase();
-    if op.is_empty() {
-        return MongoSeen::UnknownOp;
-    }
     match op.as_str() {
         "find"
         | "findone"
@@ -134,16 +116,8 @@ fn seen_from_op(op: &str, has_out: bool, has_drop: bool) -> MongoSeen {
         | "listdatabases"
         | "listcollections"
         | "listindexes"
-        | "explain" => MongoSeen::Read,
-        "aggregate" => {
-            if has_drop {
-                MongoSeen::Destructive
-            } else if has_out {
-                MongoSeen::Write
-            } else {
-                MongoSeen::Read
-            }
-        }
+        | "explain"
+        | "aggregate" => MongoSeen::Read,
         "drop" | "dropdatabase" | "dropcollection" => MongoSeen::Destructive,
         "insert" | "insertone" | "insertmany" | "update" | "updateone" | "updatemany"
         | "replaceone" | "delete" | "deleteone" | "deletemany" | "remove" | "bulkwrite"
@@ -168,44 +142,29 @@ fn is_safe_write_op(op: &str) -> bool {
 }
 
 fn named_op(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        return value
-            .get("op")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_ascii_lowercase())
-            .filter(|s| !s.is_empty());
-    }
-    let facts = scan_shell(trimmed);
+    let facts = scan_mongo(text.trim());
     facts
-        .op_field
+        .ops
+        .last()
+        .cloned()
         .or(facts.command)
-        .map(|s| s.to_ascii_lowercase())
         .filter(|s| !s.is_empty())
 }
 
-fn seen_from_facts(facts: ShellFacts, text: &str) -> MongoSeen {
-    if let Some(op) = facts.op_field.as_deref() {
-        return seen_from_op(op, facts.has_out_stage, facts.has_drop_stage);
-    }
-    if facts.saw_destructive || facts.has_drop_stage {
+/// Worst of everything the text can run: command-object ops, every method
+/// call, and `$out` / `$merge` / `$drop` stage keys.
+fn seen_from_facts(facts: &MongoFacts, text: &str) -> MongoSeen {
+    let op_seen: Vec<MongoSeen> = facts.ops.iter().map(|op| seen_from_op(op)).collect();
+    if facts.saw_destructive || facts.has_drop_stage || op_seen.contains(&MongoSeen::Destructive) {
         return MongoSeen::Destructive;
     }
-    let aggregate = facts
-        .command
-        .as_deref()
-        .is_some_and(|c| c.eq_ignore_ascii_case("aggregate"));
-    // `$out` / `$merge` are writes. A quoted `$out` inside a filter is not a stage.
-    if facts.has_out_stage && (aggregate || !facts.saw_read) {
+    if facts.saw_write || facts.has_out_stage || op_seen.contains(&MongoSeen::Write) {
         return MongoSeen::Write;
     }
-    if facts.saw_write {
-        return MongoSeen::Write;
-    }
-    if facts.saw_unknown_method {
+    if facts.saw_unknown_method || facts.bad_op || op_seen.contains(&MongoSeen::UnknownOp) {
         return MongoSeen::UnknownOp;
     }
-    if facts.saw_read || is_mongo_meta(text) || looks_like_filter(text) {
+    if facts.saw_read || !op_seen.is_empty() || is_mongo_meta(text) || looks_like_filter(text) {
         return MongoSeen::Read;
     }
     MongoSeen::Unparsed
@@ -229,29 +188,8 @@ fn looks_like_filter(text: &str) -> bool {
     t.starts_with('{') || t.starts_with('[')
 }
 
-fn json_has_out_stage(value: &Value) -> bool {
-    match value {
-        Value::Object(map) => map
-            .iter()
-            .any(|(key, child)| is_out_stage_key(key) || json_has_out_stage(child)),
-        Value::Array(items) => items.iter().any(json_has_out_stage),
-        _ => false,
-    }
-}
-
 fn is_out_stage_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    key == "$out" || key == "$merge"
-}
-
-fn json_has_drop_stage(value: &Value) -> bool {
-    match value {
-        Value::Object(map) => map
-            .iter()
-            .any(|(key, child)| is_drop_stage_key(key) || json_has_drop_stage(child)),
-        Value::Array(items) => items.iter().any(json_has_drop_stage),
-        _ => false,
-    }
+    key.eq_ignore_ascii_case("$out") || key.eq_ignore_ascii_case("$merge")
 }
 
 fn is_drop_stage_key(key: &str) -> bool {
@@ -275,22 +213,30 @@ pub fn mongo_op_preview(text: &str) -> String {
 }
 
 #[derive(Default)]
-struct ShellFacts {
+struct MongoFacts {
     saw_read: bool,
     saw_write: bool,
     saw_destructive: bool,
     saw_unknown_method: bool,
     has_out_stage: bool,
     has_drop_stage: bool,
-    op_field: Option<String>,
+    /// `op` values at the top level of a `{ op: … }` command object.
+    /// Duplicates are all kept, so the worst one wins.
+    ops: Vec<String>,
+    /// An `op` key whose value is not a name.
+    bad_op: bool,
+    /// Every write method called, lowercased.
+    write_methods: Vec<String>,
     command: Option<String>,
 }
 
-/// Shell text: method calls and a top-level `op` field. Quoted text is ignored,
-/// so a filter value cannot change the risk.
-fn scan_shell(text: &str) -> ShellFacts {
+/// One pass over JSON or shell text. Keys are read with escapes decoded, so
+/// `"$out"` is `$out`. Only a text that is itself an object has an `op`;
+/// in `db.c.deleteMany({op: "find"})` the `op` is filter data.
+fn scan_mongo(text: &str) -> MongoFacts {
     let chars: Vec<char> = text.chars().collect();
-    let mut facts = ShellFacts::default();
+    let command_object = text.trim_start().starts_with('{');
+    let mut facts = MongoFacts::default();
     let mut i = 0;
     let mut depth = 0i32;
     while i < chars.len() {
@@ -311,17 +257,11 @@ fn scan_shell(text: &str) -> ShellFacts {
             continue;
         }
         if c == '"' || c == '\'' || c == '`' {
-            if depth == 1 {
-                let (key, next) = read_quoted(&chars, i, c);
-                i = next.max(i + 1);
-                if facts.op_field.is_none() && key.eq_ignore_ascii_case("op") {
-                    if let Some(val) = value_after_colon(&chars, i) {
-                        facts.op_field = Some(val);
-                    }
-                }
-                continue;
+            let (text, next) = read_quoted(&chars, i, c);
+            i = next.max(i + 1);
+            if colon_after(&chars, i) {
+                note_key(&mut facts, &text, &chars, i, command_object && depth == 1);
             }
-            i = skip_string(&chars, i, c).max(i + 1);
             continue;
         }
         if c == '{' {
@@ -338,12 +278,10 @@ fn scan_shell(text: &str) -> ShellFacts {
             if let Some(name) = ident_at(&chars, i + 1) {
                 let after = i + 1 + name.len();
                 if colon_after(&chars, after) {
-                    if name.eq_ignore_ascii_case("out") || name.eq_ignore_ascii_case("merge") {
-                        facts.has_out_stage = true;
-                    } else if name.eq_ignore_ascii_case("drop") {
-                        facts.has_drop_stage = true;
-                    }
+                    note_key(&mut facts, &format!("${name}"), &chars, after, false);
                 }
+                i = after;
+                continue;
             }
             i += 1;
             continue;
@@ -360,13 +298,11 @@ fn scan_shell(text: &str) -> ShellFacts {
             i += 1;
             continue;
         }
-        if depth == 1 && is_ident_start(c) {
+        if is_ident_start(c) {
             if let Some(key) = ident_at(&chars, i) {
                 i += key.len().max(1);
-                if facts.op_field.is_none() && key.eq_ignore_ascii_case("op") {
-                    if let Some(val) = value_after_colon(&chars, i) {
-                        facts.op_field = Some(val);
-                    }
+                if colon_after(&chars, i) {
+                    note_key(&mut facts, &key, &chars, i, command_object && depth == 1);
                 }
                 continue;
             }
@@ -376,7 +312,21 @@ fn scan_shell(text: &str) -> ShellFacts {
     facts
 }
 
-fn note_method(facts: &mut ShellFacts, name: &str) {
+/// `key` is followed by a colon at `after`. `top` is the command object's own level.
+fn note_key(facts: &mut MongoFacts, key: &str, chars: &[char], after: usize, top: bool) {
+    if is_out_stage_key(key) {
+        facts.has_out_stage = true;
+    } else if is_drop_stage_key(key) {
+        facts.has_drop_stage = true;
+    } else if top && key.eq_ignore_ascii_case("op") {
+        match value_after_colon(chars, after) {
+            Some(op) => facts.ops.push(op.trim().to_ascii_lowercase()),
+            None => facts.bad_op = true,
+        }
+    }
+}
+
+fn note_method(facts: &mut MongoFacts, name: &str) {
     let n = name.to_ascii_lowercase();
     match n.as_str() {
         "limit" | "skip" | "sort" | "project" | "projection" | "hint" | "pretty" | "toarray"
@@ -410,6 +360,7 @@ fn note_method(facts: &mut ShellFacts, name: &str) {
         | "replaceone" | "delete" | "deleteone" | "deletemany" | "remove" | "bulkwrite"
         | "findoneandupdate" | "findoneandreplace" | "findoneanddelete" | "findandmodify" => {
             facts.saw_write = true;
+            facts.write_methods.push(n.clone());
             facts.command = Some(n);
         }
         _ => {
@@ -456,33 +407,34 @@ fn colon_after(chars: &[char], i: usize) -> bool {
     chars.get(skip_ws(chars, i)) == Some(&':')
 }
 
-fn skip_string(chars: &[char], start: usize, quote: char) -> usize {
-    let mut i = start + 1;
-    while i < chars.len() {
-        if chars[i] == '\\' {
-            i += 2;
-            continue;
-        }
-        if chars[i] == quote {
-            return i + 1;
-        }
-        i += 1;
-    }
-    chars.len()
-}
-
+/// Quoted text with JSON escapes decoded, and the index after the close quote.
 fn read_quoted(chars: &[char], start: usize, quote: char) -> (String, usize) {
     let mut out = String::new();
     let mut i = start + 1;
     while i < chars.len() {
         let c = chars[i];
         if c == '\\' {
-            if let Some(next) = chars.get(i + 1) {
-                out.push(*next);
-                i += 2;
-                continue;
+            let Some(next) = chars.get(i + 1) else {
+                break;
+            };
+            if *next == 'u' {
+                let hex: String = chars.iter().skip(i + 2).take(4).collect();
+                if let Some(ch) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    out.push(ch);
+                    i += 6;
+                    continue;
+                }
             }
-            break;
+            out.push(match next {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                'b' => '\u{8}',
+                'f' => '\u{c}',
+                other => *other,
+            });
+            i += 2;
+            continue;
         }
         if c == quote {
             return (out, i + 1);

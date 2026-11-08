@@ -126,12 +126,18 @@ pub fn validate_sql_statement_for(
     if stmts.is_empty() {
         return Err(ConnectorError::Policy("Query is empty.".into()));
     }
+    if mode != QueryMode::Read {
+        return Ok(());
+    }
+    // Same rule as the batch gate: reads, plus a harmless session `SET`.
     for stmt in &stmts {
         let risk = mystique_sql::classify(stmt, dialect);
-        if risk.is_read_like() {
-            continue;
-        }
-        if mode == QueryMode::Read {
+        let allowed = match risk {
+            StatementRisk::Read => true,
+            StatementRisk::Session => mystique_sql::is_read_safe_set(stmt, dialect),
+            StatementRisk::Write | StatementRisk::Destructive => false,
+        };
+        if !allowed {
             return Err(deny_write(risk));
         }
     }
@@ -216,6 +222,40 @@ mod tests {
             SqlDialect::Postgres
         )
         .is_err());
+    }
+
+    #[test]
+    fn read_mode_allows_safe_set_and_not_transaction_or_role() {
+        let runs =
+            |sql| validate_sql_statement_for(sql, QueryMode::Read, SqlDialect::Postgres).is_ok();
+        assert!(runs("SET search_path TO public"));
+        assert!(runs("SET TIME ZONE 'UTC'"));
+        assert!(!runs("SET TRANSACTION READ WRITE"));
+        assert!(!runs("SET ROLE admin"));
+        assert!(!runs("SET statement_timeout = 0"));
+        assert!(!runs("DECLARE c CURSOR FOR SELECT 1"));
+        assert!(validate_sql_statement_for(
+            "SET ROLE admin",
+            QueryMode::Write,
+            SqlDialect::Postgres
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn unparsed_is_a_write_and_never_safe_dml() {
+        for sql in [
+            "VACUUM",
+            "REINDEX TABLE t",
+            "INSERT INTO t VALUES (1); VACUUM",
+        ] {
+            assert_eq!(
+                classify_sql_statement_for(sql, SqlDialect::Postgres),
+                WriteRisk::Write,
+                "{sql}"
+            );
+            assert!(!sql_is_safe_dml_for(sql, SqlDialect::Postgres), "{sql}");
+        }
     }
 
     #[test]

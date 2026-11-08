@@ -308,12 +308,17 @@ pub fn gate_sql_batch_in(
     // Placeholders become a same-length literal so `:id` still parses as one
     // statement. The value never enters this copy.
     let masked = mystique_sql::mask_placeholders(text, dialect);
-    if let Some(fault) = mystique_sql::first_syntax_fault(&masked, dialect) {
-        return Err(ConnectorError::query_at(
-            fault.message,
-            position_at(text, fault.offset),
-            Some(fault.index),
-        ));
+    // Read mode needs a parse to prove a read. Write mode sends what sqlparser
+    // cannot read (VACUUM, vendor syntax) to the engine as an opaque write,
+    // after the write guard.
+    if mode == QueryMode::Read {
+        if let Some(fault) = mystique_sql::first_syntax_fault(&masked, dialect) {
+            return Err(ConnectorError::query_at(
+                fault.message,
+                position_at(text, fault.offset),
+                Some(fault.index),
+            ));
+        }
     }
     let planned = mystique_sql::plan_batch(&masked, dialect);
     if planned.is_empty() {
@@ -321,9 +326,15 @@ pub fn gate_sql_batch_in(
     }
 
     let mut names = Vec::new();
+    let mut read_safe = Vec::with_capacity(planned.len());
     let mut statements = Vec::with_capacity(planned.len());
     for stmt in planned {
         names.extend(stmt.destructive_names.iter().cloned());
+        read_safe.push(
+            stmt.risk == mystique_sql::StatementRisk::Read
+                || (stmt.risk == mystique_sql::StatementRisk::Session
+                    && mystique_sql::is_read_safe_set(&stmt.sql, dialect)),
+        );
         let start = usize::try_from(stmt.start).unwrap_or(0);
         let end = usize::try_from(stmt.end).unwrap_or(0);
         let (sql, indexes) = script
@@ -372,10 +383,13 @@ pub fn gate_sql_batch_in(
             ));
         }
     }
+    // Read mode runs reads and harmless session `SET` (search_path, time zone).
     if mode == QueryMode::Read {
         if let Some(stmt) = statements
             .iter()
-            .find(|stmt| stmt.kind != StatementKind::Read)
+            .zip(&read_safe)
+            .find(|(_, safe)| !**safe)
+            .map(|(stmt, _)| stmt)
         {
             return Err(ConnectorError::query_at(
                 format!(
@@ -475,6 +489,73 @@ mod tests {
         assert!(msg.contains("Statement 1"), "{msg}");
         assert!(msg.contains("Nothing ran"), "{msg}");
         assert!(msg.to_ascii_lowercase().contains("transaction"), "{msg}");
+    }
+
+    #[test]
+    fn unparsed_statement_is_an_opaque_write_in_write_mode_only() {
+        let plan = gate_sql_batch("SELECT 1; VACUUM t", SqlDialect::Postgres, QueryMode::Write)
+            .expect("write mode sends it to the engine");
+        assert_eq!(plan.worst, StatementKind::Write);
+        let vacuum = &plan.statements[1];
+        assert_eq!(vacuum.kind, StatementKind::Write);
+        assert!(!vacuum.cursor);
+        assert_eq!(vacuum.sql, "VACUUM t");
+
+        let err = gate_sql_batch("SELECT 1; VACUUM t", SqlDialect::Postgres, QueryMode::Read)
+            .expect_err("read mode cannot prove a read");
+        let ConnectorError::QueryAt {
+            statement_index,
+            position,
+            ..
+        } = &err
+        else {
+            panic!("{err}");
+        };
+        assert_eq!(*statement_index, Some(1));
+        assert_eq!(position.offset, "SELECT 1; ".len() as u32);
+    }
+
+    #[test]
+    fn unparsed_transaction_control_is_still_refused_on_auto_commit() {
+        for (sql, dialect) in [
+            ("ABORT", SqlDialect::Postgres),
+            ("-- note\nPREPARE TRANSACTION 'x'", SqlDialect::Postgres),
+            ("COMMIT PREPARED 'x'", SqlDialect::Postgres),
+            (
+                "START TRANSACTION WITH CONSISTENT SNAPSHOT",
+                SqlDialect::Mysql,
+            ),
+            ("XA START 'x'", SqlDialect::Mysql),
+        ] {
+            let err = gate_sql_batch(sql, dialect, QueryMode::Write).expect_err(sql);
+            assert!(err.to_string().contains("transaction"), "{sql}: {err}");
+            let pinned = gate_sql_batch_in(sql, dialect, QueryMode::Write, true, &[])
+                .unwrap_or_else(|err| panic!("{sql}: {err}"));
+            assert!(pinned.statements[0].txn_boundary, "{sql}");
+        }
+        let vacuum =
+            gate_sql_batch("VACUUM", SqlDialect::Postgres, QueryMode::Write).expect("vacuum");
+        assert!(!vacuum.statements[0].txn_boundary);
+    }
+
+    #[test]
+    fn read_mode_runs_a_safe_set_and_refuses_the_rest() {
+        let plan = gate_sql_batch(
+            "SET search_path TO public; SELECT 1",
+            SqlDialect::Postgres,
+            QueryMode::Read,
+        )
+        .expect("safe set");
+        assert_eq!(plan.statements[0].kind, StatementKind::Session);
+        for sql in [
+            "SET TRANSACTION READ WRITE",
+            "SET statement_timeout = 0",
+            "SET ROLE admin",
+            "SET work_mem = '1GB'",
+        ] {
+            let err = gate_sql_batch(sql, SqlDialect::Postgres, QueryMode::Read).expect_err(sql);
+            assert!(err.to_string().starts_with("policy:"), "{err}");
+        }
     }
 
     #[test]

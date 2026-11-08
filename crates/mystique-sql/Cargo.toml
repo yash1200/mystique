@@ -6,4 +6,4 @@ description = "Shared SQL split, AST risk, and identifier quoting (no app domain
 publish = false
 
 [dependencies]
-sqlparser = "0.58"
+sqlparser = { version = "0.58", features = ["visitor"] }

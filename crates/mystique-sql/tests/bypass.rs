@@ -62,7 +62,13 @@ fn mysql_versioned_comment_is_write() {
     );
     assert_eq!(mysql("SELECT 1 /*M! DROP TABLE t */"), StatementRisk::Write);
     assert_eq!(mysql("SELECT 1 /*T! DROP TABLE t */"), StatementRisk::Write);
-    assert_eq!(mysql("SELECT '/*!50000 drop */'"), StatementRisk::Read);
+    // R-11: our quote tracking is not MySQL's, so a quoted `/*!` fails closed too.
+    assert_eq!(
+        mysql("SELECT \"it's\" /*!50000 , 1 */"),
+        StatementRisk::Write
+    );
+    assert_eq!(mysql("SELECT '/*!50000 drop */'"), StatementRisk::Write);
+    assert_eq!(mysql("SELECT 1 /* it's plain */"), StatementRisk::Read);
 }
 
 #[test]
