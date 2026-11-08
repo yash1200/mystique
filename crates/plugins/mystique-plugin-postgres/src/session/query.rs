@@ -5,9 +5,10 @@ use std::time::Instant;
 
 use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
-    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes, BatchPhase,
-    ConnectorError, ConnectorResult, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
-    QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
+    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes,
+    sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
+    QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect, StatementResult,
+    ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Format, IsNull, ToSql, Type};
@@ -380,13 +381,16 @@ async fn run_batch(
             in_txn = mark == TxnMark::Begin;
             executed_message(query.mode, batch_n, i)
         } else if is_select_like(&lower) {
+            // Same rule as the planner: only a proven read is a cursor. A
+            // data-modifying WITH cannot be declared.
+            let cursor = is_cursor_source(&lower) && sql_is_proven_read(sql, SqlDialect::Postgres);
             let mut opened = false;
-            if is_cursor_source(&lower) && !in_txn {
+            if cursor && !in_txn {
                 client.batch_execute("BEGIN").await.map_err(query_failed)?;
                 opened = true;
                 in_txn = true;
             }
-            let fetched = if is_cursor_source(&lower) {
+            let fetched = if cursor {
                 fetch_cursor(client, sql, limit).await
             } else {
                 // EXPLAIN / SHOW are utility statements. DECLARE would fail and
