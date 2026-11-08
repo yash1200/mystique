@@ -40,6 +40,7 @@
 		computeColumnWindow,
 		computeResultWindow,
 		gridTrackPx,
+		scrollDirection,
 	} from '../virtual'
 
 	export type CellRef = { row: number; col: string }
@@ -331,26 +332,13 @@
 		if (colNext.end !== colEnd) colEnd = colNext.end
 	}
 
-	function bumpDir(
-		delta: number,
-		dir: 1 | -1,
-		accum: number,
-		unit: number,
-	): { dir: 1 | -1; accum: number } {
-		if (delta === 0) return { dir, accum }
-		if (delta > 0 === dir > 0) return { dir, accum: 0 }
-		const next = accum + Math.abs(delta)
-		if (next > unit * 3) return { dir: delta > 0 ? 1 : -1, accum: 0 }
-		return { dir, accum: next }
-	}
-
 	function onScroll() {
 		const el = scrollEl
 		if (!el) return
 		const top = el.scrollTop
 		const left = el.scrollLeft
-		const y = bumpDir(top - lastTop, scrollDirY, dirAccumY, rowH)
-		const x = bumpDir(left - lastLeft, scrollDirX, dirAccumX, colW)
+		const y = scrollDirection(top - lastTop, scrollDirY, dirAccumY, rowH)
+		const x = scrollDirection(left - lastLeft, scrollDirX, dirAccumX, colW)
 		scrollDirY = y.dir
 		scrollDirX = x.dir
 		dirAccumY = y.accum

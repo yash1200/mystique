@@ -110,6 +110,23 @@ function estimateLen(v: unknown): number {
 }
 
 /**
+ * Scroll direction with a dead zone. Trackpads emit small counter-deltas
+ * mid-fling; the buffer flips sides only after three `unit`s the other way.
+ */
+export function scrollDirection(
+	delta: number,
+	dir: 1 | -1,
+	accum: number,
+	unit: number,
+): { dir: 1 | -1; accum: number } {
+	if (delta === 0) return { dir, accum }
+	if (delta > 0 === dir > 0) return { dir, accum: 0 }
+	const next = accum + Math.abs(delta)
+	if (next > unit * 3) return { dir: delta > 0 ? 1 : -1, accum: 0 }
+	return { dir, accum: next }
+}
+
+/**
  * Visible-row window. Reuses `current` until the viewport nears the leading
  * edge so everyday scrolling is native compositing of already-mounted rows.
  */

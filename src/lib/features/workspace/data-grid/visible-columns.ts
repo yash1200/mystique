@@ -4,6 +4,7 @@
  * so a visible index always means the same column the user sees.
  */
 import { layoutColumns, type GridColumnLayout } from './column-layout'
+import { orderRange, orderStep } from './selection-model'
 
 export type VisibleColumns = {
 	/** Visible index → data column name. */
@@ -25,9 +26,7 @@ export function visibleColumns(
 
 /** Visible columns between two cells, inclusive. A hidden end clamps to the first column. */
 export function columnRange(view: VisibleColumns, from: string, to: string): string[] {
-	const a = Math.max(0, view.names.indexOf(from))
-	const b = Math.max(0, view.names.indexOf(to))
-	return view.names.slice(Math.min(a, b), Math.max(a, b) + 1)
+	return orderRange(view.names, from, to)
 }
 
 /** Up to `count` visible columns from `start`. Empty when `start` is hidden. */
@@ -43,9 +42,7 @@ export function stepColumn(
 	current: string | null | undefined,
 	delta: number,
 ): string | undefined {
-	if (view.names.length === 0) return undefined
-	const index = current == null ? 0 : Math.max(0, view.names.indexOf(current))
-	return view.names[Math.max(0, Math.min(view.names.length - 1, index + delta))]
+	return orderStep(view.names, current, delta)
 }
 
 /** Sort selected column names into visible order. Hidden names are dropped. */

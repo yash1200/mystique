@@ -8,9 +8,22 @@ export * from './cell-view'
 export * from './column-editor'
 export * from './column-layout'
 export * from './column-widths'
+export * from './copy'
 export * from './copy-as'
 export * from './keyboard'
 export * from './large-cell'
+export * from './selection.svelte'
+export {
+	cellKey,
+	emptySelection,
+	orderRange,
+	orderStep,
+	type CellRef as GridCellRef,
+	type Col,
+	type GridSelectionState,
+	type RowBounds,
+	type SelectionKind,
+} from './selection-model'
 export * from './selection-stats'
 export * from './text-formats'
 export * from './virtual'
