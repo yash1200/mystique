@@ -3,6 +3,7 @@
 	import { cn, overlayFade } from '#core/util'
 	import { appSettingsUi } from '../model.svelte'
 	import type { SettingsSection } from '../prefs'
+	import AboutSettings from './AboutSettings.svelte'
 	import AiSettings from './AiSettings.svelte'
 	import AppearanceSettings from './AppearanceSettings.svelte'
 	import McpSettings from './McpSettings.svelte'
@@ -57,6 +58,13 @@
 			title: 'MCP server',
 			icon: 'code',
 			description: 'Let other AI tools query your databases while Mystique is open.',
+		},
+		{
+			id: 'about',
+			label: 'About',
+			title: 'About Mystique',
+			icon: 'info',
+			description: 'Version and diagnostics for bug reports.',
 		},
 	]
 
@@ -171,6 +179,8 @@
 						<PasswordsSettings />
 					{:else if appSettingsUi.section === 'ai'}
 						<AiSettings />
+					{:else if appSettingsUi.section === 'about'}
+						<AboutSettings />
 					{:else}
 						<McpSettings />
 					{/if}

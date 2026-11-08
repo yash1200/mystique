@@ -5,3 +5,4 @@ export type SettingsSection =
 	| 'passwords'
 	| 'mcp'
 	| 'ai'
+	| 'about'

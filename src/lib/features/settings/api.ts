@@ -102,3 +102,21 @@ export async function cleanUpKeychain(): Promise<KeychainCleanup> {
 	requireTauri()
 	return invoke('purge_keychain_items')
 }
+
+/** `mystique-diagnostics-20261109-143005.tar.gz`, in local time. */
+export function defaultDiagnosticsName(now = new Date()): string {
+	const pad = (n: number) => String(n).padStart(2, '0')
+	const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+	const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+	return `mystique-diagnostics-${date}-${time}.tar.gz`
+}
+
+/**
+ * Write a diagnostics bundle (.tar.gz: versions, plugins, redacted settings,
+ * connection flags, recent logs; no passwords, hosts or SQL). With no `path`
+ * it goes to the Downloads folder. Resolves to the written path.
+ */
+export async function exportDiagnostics(path?: string): Promise<string> {
+	requireTauri()
+	return invoke('export_diagnostics', { path: path ?? null })
+}
