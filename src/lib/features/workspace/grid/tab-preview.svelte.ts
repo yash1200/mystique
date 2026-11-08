@@ -68,7 +68,7 @@ class TablePreview {
 
 		workspaceStudio.loadingTabId = tabId
 		workspaceStudio.setCatalogError(null)
-		const executionId = startTabRun(tabId)
+		const executionId = startTabRun(tabId, 'preview')
 		try {
 			const engine = String(session.profile.engine)
 			const loaded = await withLiveSession(id, (sid) =>

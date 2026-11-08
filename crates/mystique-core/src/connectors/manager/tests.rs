@@ -1856,8 +1856,11 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
     })
     .expect("profile");
     let profile_id = "1".to_string();
-    let services =
-        crate::application::AppServices::with_connections(db, ConnectionManager::bootstrap());
+    let services = crate::application::AppServices::with_secrets(
+        db,
+        ConnectionManager::bootstrap(),
+        crate::secrets::SecretStore::memory(),
+    );
     let mgr = services.connections();
     let open = |session_id: &str| {
         let mut req = sqlite_open(&path, session_id, "local", false);
@@ -1967,8 +1970,11 @@ async fn bound_parameter_is_not_spliced_into_history() {
     })
     .expect("profile");
     let profile_id = "1".to_string();
-    let services =
-        crate::application::AppServices::with_connections(db, ConnectionManager::bootstrap());
+    let services = crate::application::AppServices::with_secrets(
+        db,
+        ConnectionManager::bootstrap(),
+        crate::secrets::SecretStore::memory(),
+    );
     let mgr = services.connections();
     let mut open = sqlite_open(&path, "bind-hist", "local", false);
     open.profile_id = Some(profile_id.clone());

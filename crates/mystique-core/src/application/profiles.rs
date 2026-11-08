@@ -13,6 +13,10 @@ use crate::storage::sqlite::repo;
 use crate::storage::AppDatabase;
 
 const INSTALL_ID_KEY: &str = "install_id";
+/// Set once the startup cleanup of plaintext rows has run.
+const SECRETS_MIGRATED_KEY: &str = "secrets.startup_migration_v1";
+/// Non-secret marker in `plugin_config`: a TLS key passphrase is in the keychain.
+const TLS_SAVED_KEY: &str = "clientKeyPassphraseSaved";
 
 pub struct ProfileService<'a> {
     pub(crate) db: &'a AppDatabase,
@@ -54,19 +58,16 @@ fn config_password(config: &JsonValue) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Pull Mongo userinfo out of `plugin_config.uri` before it is written.
+/// Pull the Mongo password out of `plugin_config.uri` before it is written.
 ///
 /// A form that already stripped the URI leaves `username` / `password`
-/// fields beside it. Discrete host-field profiles (no userinfo) keep
-/// `username` in the config.
-fn take_mongo_credentials(input: &mut SaveConnectionInput) -> (Option<String>, Option<String>) {
-    let runtime = mystique_connector_api::runtime_id(&input.engine).unwrap_or("");
-    if runtime != "mongodb" {
-        return (None, None);
+/// fields beside it. The username is not a secret: it stays in the config
+/// as `username`, next to the stripped URI.
+fn take_mongo_credentials(input: &mut SaveConnectionInput) -> Option<String> {
+    if !is_mongo(&input.engine) {
+        return None;
     }
-    let Some(uri) = config_text(&input.plugin_config, "uri") else {
-        return (None, None);
-    };
+    let uri = config_text(&input.plugin_config, "uri")?;
     let field_user = config_text(&input.plugin_config, "username")
         .or_else(|| config_text(&input.plugin_config, "user"));
     let field_password = config_password(&input.plugin_config);
@@ -91,14 +92,36 @@ fn take_mongo_credentials(input: &mut SaveConnectionInput) -> (Option<String>, O
         } else if field_password.is_some() {
             (field_user, field_password)
         } else {
-            return (None, None);
+            return None;
         };
     if let Some(obj) = input.plugin_config.as_object_mut() {
-        obj.remove("username");
         obj.remove("user");
         obj.remove("password");
+        match username {
+            Some(user) => obj.insert("username".into(), JsonValue::String(user)),
+            None => obj.remove("username"),
+        };
     }
-    (username, password)
+    password
+}
+
+fn is_mongo(engine: &str) -> bool {
+    mystique_connector_api::runtime_id(engine) == Some("mongodb")
+}
+
+fn config_username(config: &JsonValue) -> Option<String> {
+    config_text(config, "username").or_else(|| config_text(config, "user"))
+}
+
+fn has_client_key(config: &JsonValue) -> bool {
+    config_text(config, "clientKeyPath")
+        .or_else(|| config_text(config, "client_key_path"))
+        .is_some()
+}
+
+/// Rows saved before the marker existed have no value: those still look.
+fn tls_passphrase_saved(config: &JsonValue) -> bool {
+    has_client_key(config) && config.get(TLS_SAVED_KEY).and_then(|v| v.as_bool()) != Some(false)
 }
 
 fn config_text(config: &JsonValue, key: &str) -> Option<String> {
@@ -168,10 +191,19 @@ impl ProfileService<'_> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
-        let (mongo_user, mongo_password) = take_mongo_credentials(&mut input);
+        let mongo_password = take_mongo_credentials(&mut input);
         let mut incoming = incoming_password(&input);
         if incoming.is_none() {
             incoming = mongo_password;
+        }
+        if let Some(from) = copy_from.as_deref() {
+            if is_mongo(&input.engine) && config_username(&input.plugin_config).is_none() {
+                if let Some(user) = self.mongo_username(from)? {
+                    if let Some(obj) = input.plugin_config.as_object_mut() {
+                        obj.insert("username".into(), JsonValue::String(user));
+                    }
+                }
+            }
         }
         let incoming_ssh = input
             .ssh_password
@@ -196,8 +228,36 @@ impl ProfileService<'_> {
             .filter(|s| !s.is_empty())
             .is_none();
         let ssh_active = input.ssh_config.is_active();
-        let input = strip_plugin_password(input);
+        let mut input = strip_plugin_password(input);
         let install = self.install_id()?;
+        // The edit form shows the URI without userinfo. Blank keeps the user.
+        if !creating && is_mongo(&input.engine) && config_username(&input.plugin_config).is_none() {
+            let stored = input
+                .id
+                .as_deref()
+                .and_then(|id| {
+                    self.db
+                        .with_conn(|c| repo::connections::get_by_id(c, id))
+                        .ok()
+                })
+                .and_then(|p| config_username(&p.plugin_config));
+            if let (Some(user), Some(obj)) = (stored, input.plugin_config.as_object_mut()) {
+                obj.insert("username".into(), JsonValue::String(user));
+            }
+        }
+        let tls_saved = self.tls_marker(
+            input.id.as_deref().filter(|_| !creating),
+            incoming_tls.is_some(),
+            copy_from.as_deref(),
+        );
+        let client_key = has_client_key(&input.plugin_config);
+        if let Some(obj) = input.plugin_config.as_object_mut() {
+            if client_key {
+                obj.insert(TLS_SAVED_KEY.into(), JsonValue::Bool(tls_saved));
+            } else {
+                obj.remove(TLS_SAVED_KEY);
+            }
+        }
 
         // Updates write the keychain before the row changes. A failed write
         // leaves the previous pointer and the previous row alone.
@@ -213,7 +273,6 @@ impl ProfileService<'_> {
                 incoming_ssh.as_deref(),
                 incoming_tls.as_deref(),
                 copy_from.as_deref(),
-                mongo_user.as_deref(),
             )?;
         }
 
@@ -229,7 +288,6 @@ impl ProfileService<'_> {
                 incoming_ssh.as_deref(),
                 incoming_tls.as_deref(),
                 copy_from.as_deref(),
-                mongo_user.as_deref(),
             ) {
                 let _ = self
                     .db
@@ -237,11 +295,6 @@ impl ProfileService<'_> {
                 let _ = self
                     .secrets
                     .delete_named(&scoped_secret_account(&install, &saved.id));
-                let _ = self
-                    .secrets
-                    .delete_named(&user_secret_account(&scoped_secret_account(
-                        &install, &saved.id,
-                    )));
                 let _ = self
                     .secrets
                     .delete_named(&scoped_ssh_secret_account(&install, &saved.id));
@@ -268,9 +321,8 @@ impl ProfileService<'_> {
         incoming_ssh: Option<&str>,
         incoming_tls: Option<&str>,
         copy_from: Option<&str>,
-        mongo_user: Option<&str>,
     ) -> AppResult<()> {
-        self.store_password(install, id, clear, incoming, copy_from, mongo_user)?;
+        self.store_password(install, id, clear, incoming, copy_from)?;
         self.store_ssh(install, id, ssh_active, clear_ssh, incoming_ssh, copy_from)?;
         self.store_tls(install, id, incoming_tls, copy_from)
     }
@@ -308,8 +360,14 @@ impl ProfileService<'_> {
         self.db.with_conn(|c| repo::connections::delete(c, id))
     }
 
+    /// Reads the keychain only for a profile with a client key whose
+    /// passphrase was saved.
     pub fn resolve_tls_secret(&self, id: &str) -> AppResult<Option<String>> {
         let id = require_id(id)?;
+        let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;
+        if !tls_passphrase_saved(&profile.plugin_config) {
+            return Ok(None);
+        }
         let install = self.install_id()?;
         let scoped = scoped_tls_secret_account(&install, id);
         if let Some(secret) = self.secrets.get_named(&scoped)? {
@@ -386,13 +444,61 @@ impl ProfileService<'_> {
         Ok(None)
     }
 
-    /// Move plaintext leftovers into the keychain. Does not invent a pointer.
+    /// One-time cleanup of plaintext and placeholder `secret_ref` rows and
+    /// Mongo URI userinfo. Never reads the keychain: a row that already holds
+    /// a pointer is left for connect. Runs until it succeeds once.
     pub fn migrate_plaintext_secrets(&self) -> AppResult<()> {
-        let rows = self.db.with_conn(repo::connections::list_secret_refs)?;
-        for (id, _) in rows {
-            let _ = self.migrate_row(&id);
+        if self
+            .db
+            .with_conn(|c| repo::settings::get(c, SECRETS_MIGRATED_KEY))?
+            .is_some()
+        {
+            return Ok(());
         }
-        self.migrate_mongo_uris()
+        let rows = self.db.with_conn(repo::connections::list_secret_refs)?;
+        let mut clean = true;
+        for (id, raw) in rows {
+            let Some(raw) = raw else { continue };
+            clean &= self.migrate_row(&id, &raw).is_ok();
+        }
+        self.migrate_mongo_uris()?;
+        if clean {
+            self.db
+                .with_conn(|c| repo::settings::set(c, SECRETS_MIGRATED_KEY, "1"))?;
+        }
+        Ok(())
+    }
+
+    /// Mongo username. Older saves kept it in a `<pointer>.user` keychain
+    /// item; the first read moves it into `plugin_config` and deletes the item.
+    pub(crate) fn mongo_username(&self, id: &str) -> AppResult<Option<String>> {
+        let id = require_id(id)?;
+        let profile = self.db.with_conn(|c| repo::connections::get_by_id(c, id))?;
+        if !is_mongo(&profile.engine) {
+            return Ok(None);
+        }
+        if let Some(user) = config_username(&profile.plugin_config) {
+            return Ok(Some(user));
+        }
+        let Some(pointer) = self
+            .db
+            .with_conn(|c| repo::connections::get_secret_ref(c, id))?
+            .filter(|p| pointer_is_account(p))
+        else {
+            return Ok(None);
+        };
+        let account = user_secret_account(&pointer);
+        let Some(user) = self.secrets.get_named(&account)? else {
+            return Ok(None);
+        };
+        let mut cfg = profile.plugin_config;
+        if let Some(obj) = cfg.as_object_mut() {
+            obj.insert("username".into(), JsonValue::String(user.clone()));
+        }
+        self.db
+            .with_conn(|c| repo::connections::set_plugin_config(c, id, &cfg))?;
+        let _ = self.secrets.delete_named(&account);
+        Ok(Some(user))
     }
 
     fn install_id(&self) -> AppResult<String> {
@@ -410,8 +516,37 @@ impl ProfileService<'_> {
         Ok(id)
     }
 
-    fn migrate_row(&self, id: &str) -> AppResult<Option<String>> {
-        self.resolve_password(id)
+    fn migrate_row(&self, id: &str, raw: &str) -> AppResult<()> {
+        if is_placeholder_secret_ref(raw) {
+            self.db
+                .with_conn(|c| repo::connections::set_secret_ref(c, id, None))?;
+        } else if is_legacy_plaintext_secret(raw) {
+            self.migrate_plaintext(id, raw)?;
+        }
+        Ok(())
+    }
+
+    /// Whether the saved row will hold a TLS passphrase after this save.
+    fn tls_marker(
+        &self,
+        existing_id: Option<&str>,
+        incoming: bool,
+        copy_from: Option<&str>,
+    ) -> bool {
+        if incoming {
+            return true;
+        }
+        if let Some(id) = existing_id {
+            return self
+                .db
+                .with_conn(|c| repo::connections::get_by_id(c, id))
+                .is_ok_and(|p| tls_passphrase_saved(&p.plugin_config));
+        }
+        copy_from.is_some_and(|from| {
+            self.db
+                .with_conn(|c| repo::connections::get_by_id(c, from))
+                .is_ok_and(|p| tls_passphrase_saved(&p.plugin_config))
+        })
     }
 
     fn migrate_plaintext(&self, id: &str, plaintext: &str) -> AppResult<Option<String>> {
@@ -466,11 +601,9 @@ impl ProfileService<'_> {
             if let Some(obj) = cfg.as_object_mut() {
                 obj.insert("uri".into(), JsonValue::String(creds.uri));
                 obj.remove("password");
-                if !creds.username.is_empty() && !account.is_empty() {
-                    self.secrets
-                        .set_named(&user_secret_account(&account), &creds.username)?;
-                    obj.remove("username");
+                if !creds.username.is_empty() {
                     obj.remove("user");
+                    obj.insert("username".into(), JsonValue::String(creds.username));
                 }
             }
             self.db
@@ -486,7 +619,6 @@ impl ProfileService<'_> {
         clear: bool,
         incoming: Option<&str>,
         copy_from: Option<&str>,
-        mongo_user: Option<&str>,
     ) -> AppResult<()> {
         let existing = self
             .db
@@ -515,10 +647,6 @@ impl ProfileService<'_> {
                     let _ = self.secrets.delete_named(&user_secret_account(old));
                 }
             }
-            if let Some(user) = mongo_user.filter(|s| !s.is_empty()) {
-                self.secrets
-                    .set_named(&user_secret_account(&account), user)?;
-            }
             return Ok(());
         }
         if let Some(from) = copy_from {
@@ -532,18 +660,8 @@ impl ProfileService<'_> {
                         self.db.with_conn(|c| {
                             repo::connections::set_secret_ref(c, id, Some(&account))
                         })?;
-                        if let Some(user) = self.secrets.get_named(&user_secret_account(&ptr))? {
-                            self.secrets
-                                .set_named(&user_secret_account(&account), &user)?;
-                        }
                     }
                 }
-            }
-            return Ok(());
-        }
-        if let Some(user) = mongo_user.filter(|s| !s.is_empty()) {
-            if let Some(ptr) = existing.filter(|p| pointer_is_account(p)) {
-                self.secrets.set_named(&user_secret_account(&ptr), user)?;
             }
         }
         Ok(())
@@ -615,27 +733,8 @@ impl ProfileService<'_> {
         let Some(from) = copy_from else {
             return Ok(());
         };
-        if let Some(secret) = self
-            .secrets
-            .get_named(&scoped_tls_secret_account(install, from))?
-        {
+        if let Some(secret) = self.resolve_tls_secret(from)? {
             self.secrets.set_named(&account, &secret)?;
-            return Ok(());
-        }
-        let legacy_owner = self
-            .db
-            .with_conn(|c| repo::connections::get_secret_ref(c, from))?
-            .as_deref()
-            == Some(secret_account(from).as_str())
-            || self
-                .db
-                .with_conn(|c| repo::connections::get_ssh_secret_ref(c, from))?
-                .as_deref()
-                == Some(ssh_secret_account(from).as_str());
-        if legacy_owner {
-            if let Some(secret) = self.secrets.get_named(&tls_secret_account(from))? {
-                self.secrets.set_named(&account, &secret)?;
-            }
         }
         Ok(())
     }
@@ -884,7 +983,8 @@ mod tests {
         assert!(saved.password_set);
         let uri = saved.plugin_config["uri"].as_str().unwrap();
         assert_eq!(uri, "mongodb://127.0.0.1:27017/app?authSource=admin");
-        assert!(saved.plugin_config.get("username").is_none());
+        // The username is not a secret; it stays beside the stripped URI.
+        assert_eq!(saved.plugin_config["username"], "admin");
         let column: String = app
             .db
             .with_conn(|c| {
@@ -914,13 +1014,11 @@ mod tests {
             .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
             .unwrap()
             .unwrap();
-        assert_eq!(
-            app.secrets
-                .get_named(&user_secret_account(&pointer))
-                .unwrap()
-                .as_deref(),
-            Some("admin")
-        );
+        assert!(app
+            .secrets
+            .get_named(&user_secret_account(&pointer))
+            .unwrap()
+            .is_none());
     }
 
     #[test]

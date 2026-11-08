@@ -274,8 +274,10 @@ mod tests {
     use std::sync::Arc;
 
     fn harness() -> (Arc<AppServices>, SecretStore) {
-        let app = Arc::new(AppServices::new(
+        let app = Arc::new(AppServices::with_secrets(
             mystique_core::AppDatabase::open_in_memory().unwrap(),
+            mystique_core::ConnectionManager::bootstrap(),
+            mystique_core::SecretStore::memory(),
         ));
         let secrets = SecretStore::new(app.clone());
         (app, secrets)

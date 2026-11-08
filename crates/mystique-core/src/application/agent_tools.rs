@@ -9,6 +9,7 @@ mod catalog;
 mod download;
 mod policy;
 mod query;
+mod results;
 mod specs;
 mod types;
 
@@ -26,6 +27,8 @@ use crate::storage::AppDatabase;
 
 use self::args::{opt_str, req_str};
 
+pub(crate) use results::ToolResultCache;
+
 pub use policy::{
     parse_allowlist, AgentWritePolicy, ToolCaller, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
 };
@@ -41,6 +44,7 @@ pub struct AgentTools {
     db: Arc<AppDatabase>,
     connections: Arc<ConnectionManager>,
     secrets: Arc<SecretStore>,
+    results: Arc<ToolResultCache>,
 }
 
 impl AgentTools {
@@ -53,7 +57,14 @@ impl AgentTools {
             db,
             connections,
             secrets,
+            results: Arc::new(ToolResultCache::default()),
         }
+    }
+
+    /// Share one result cache across tool calls (`AppServices` owns it).
+    pub(crate) fn with_result_cache(mut self, results: Arc<ToolResultCache>) -> Self {
+        self.results = results;
+        self
     }
 
     pub fn specs() -> Vec<AgentToolSpec> {
@@ -209,23 +220,14 @@ impl AgentTools {
         connection_id: &str,
         caller: policy::ToolCaller,
     ) -> AppResult<String> {
-        let profile_id = connection_id.trim();
-        if profile_id.is_empty() {
-            return Err(AppError::Invalid("connection_id is required".into()));
+        let (sid, origin) = tool_session_id(connection_id, caller)?;
+        // A live pool needs no secrets: do not touch the keychain again.
+        if self.connections.reuse_live(&sid).await {
+            return Ok(sid);
         }
-        let (sid, origin) = match caller {
-            policy::ToolCaller::Agent => (
-                format!("agent:{profile_id}"),
-                crate::connectors::SessionOrigin::Agent,
-            ),
-            policy::ToolCaller::Mcp => (
-                format!("mcp:{profile_id}"),
-                crate::connectors::SessionOrigin::Mcp,
-            ),
-        };
         let profile = self
             .db
-            .with_conn(|c| repo::connections::get_by_id(c, profile_id))?;
+            .with_conn(|c| repo::connections::get_by_id(c, connection_id.trim()))?;
         let req = super::bind_open_request(
             &self.db,
             &self.secrets,
@@ -255,6 +257,27 @@ impl AgentTools {
             .with_conn(|c| repo::connections::touch_last_connected(c, &profile.id));
         Ok(sid)
     }
+}
+
+/// `agent:{profile}` or `mcp:{profile}`, never the desktop session.
+fn tool_session_id(
+    connection_id: &str,
+    caller: policy::ToolCaller,
+) -> AppResult<(String, crate::connectors::SessionOrigin)> {
+    let profile_id = connection_id.trim();
+    if profile_id.is_empty() {
+        return Err(AppError::Invalid("connection_id is required".into()));
+    }
+    Ok(match caller {
+        policy::ToolCaller::Agent => (
+            format!("agent:{profile_id}"),
+            crate::connectors::SessionOrigin::Agent,
+        ),
+        policy::ToolCaller::Mcp => (
+            format!("mcp:{profile_id}"),
+            crate::connectors::SessionOrigin::Mcp,
+        ),
+    })
 }
 
 #[cfg(test)]

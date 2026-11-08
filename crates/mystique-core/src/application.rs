@@ -42,6 +42,8 @@ pub struct AppServices {
     pub db: Arc<AppDatabase>,
     pub connections: Arc<ConnectionManager>,
     pub secrets: Arc<SecretStore>,
+    /// Last tool results, so cell paging never re-runs a statement.
+    tool_results: Arc<agent_tools::ToolResultCache>,
 }
 
 impl AppServices {
@@ -70,13 +72,20 @@ impl AppServices {
                 }
             });
         }
-        let svc = Self {
+        Self {
             db,
             connections,
             secrets: Arc::new(secrets),
-        };
-        let _ = svc.profiles().migrate_plaintext_secrets();
-        svc
+            tool_results: Arc::new(agent_tools::ToolResultCache::default()),
+        }
+    }
+
+    /// One-time cleanup of plaintext secrets left by old versions.
+    ///
+    /// Not part of construction: the shell runs it off the main thread. It
+    /// never reads the keychain, and it writes only when plaintext is found.
+    pub fn migrate_legacy_secrets(&self) -> AppResult<()> {
+        self.profiles().migrate_plaintext_secrets()
     }
 
     pub fn agent_tools(&self) -> AgentTools {
@@ -85,6 +94,7 @@ impl AppServices {
             Arc::clone(&self.connections),
             Arc::clone(&self.secrets),
         )
+        .with_result_cache(Arc::clone(&self.tool_results))
     }
 
     pub fn profiles(&self) -> ProfileService<'_> {
@@ -98,6 +108,7 @@ impl AppServices {
     ///
     /// A saved profile's secret is only attached when the client is dialing
     /// that profile's host. Database name and SSL fields may still change.
+    /// Environment and read-only always come from the saved profile.
     pub fn attach_session_secrets(&self, req: OpenSessionRequest) -> AppResult<OpenSessionRequest> {
         bind_open_request(&self.db, &self.secrets, req)
     }
@@ -183,15 +194,9 @@ pub(crate) fn bind_open_request(
     });
     let mut allow_stored = true;
     if let Some(profile) = &profile {
-        if req
-            .environment
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .is_none()
-        {
-            req.environment = Some(profile.environment.clone());
-        }
+        // The production guard keys off these. A client value never wins.
+        req.environment = Some(profile.environment.clone());
+        req.profile_read_only = profile.read_only;
         if req
             .connection_name
             .as_deref()
@@ -201,7 +206,6 @@ pub(crate) fn bind_open_request(
         {
             req.connection_name = Some(profile.name.clone());
         }
-        req.profile_read_only = req.profile_read_only || profile.read_only;
         if crate::domain::host_identity::same_connection_target(
             &profile.engine,
             &profile.plugin_config,
@@ -256,7 +260,11 @@ pub(crate) fn bind_open_request(
                 crate::domain::SshAuth::Key => nonempty(ssh.passphrase.as_deref()).is_none(),
                 crate::domain::SshAuth::Agent => false,
             };
-            if needs_secret {
+            // The saved secret only goes to the saved bastion and user.
+            let same_bastion = profile
+                .as_ref()
+                .is_some_and(|profile| same_ssh_target(&profile.ssh, ssh));
+            if needs_secret && same_bastion {
                 if let Some(id) = profile_id.as_deref() {
                     if let Ok(Some(secret)) =
                         (ProfileService { db, secrets }).resolve_ssh_secret(id)
@@ -292,6 +300,19 @@ pub(crate) fn bind_open_request(
 
 fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
+}
+
+/// Host, port, user, and auth kind all match the saved tunnel.
+fn same_ssh_target(
+    stored: &crate::domain::SshConfig,
+    req: &crate::domain::SshTunnelRequest,
+) -> bool {
+    let req_port = if req.port == 0 { 22 } else { req.port };
+    stored.is_active()
+        && stored.host.trim().eq_ignore_ascii_case(req.host.trim())
+        && stored.normalized_port() == req_port
+        && stored.user.trim() == req.user.trim()
+        && stored.auth == req.auth
 }
 
 /// A password sitting in `plugin_config` or in a Mongo URI is client-supplied
@@ -341,6 +362,8 @@ fn lift_request_credentials(req: &mut OpenSessionRequest) {
     }
 }
 
+/// Older saves kept the Mongo username in a keychain item. The first
+/// connect moves it into `plugin_config`; later connects read no item.
 fn inject_mongo_username(
     profiles: &ProfileService<'_>,
     engine: &str,
@@ -360,21 +383,7 @@ fn inject_mongo_username(
     {
         return Ok(());
     }
-    let Some(pointer) = profiles
-        .db
-        .with_conn(|c| crate::storage::sqlite::repo::connections::get_secret_ref(c, id))?
-    else {
-        return Ok(());
-    };
-    if !crate::domain::is_keychain_pointer(&pointer)
-        && !crate::domain::is_legacy_keychain_pointer(&pointer)
-    {
-        return Ok(());
-    }
-    let Some(user) = profiles
-        .secrets
-        .get_named(&crate::domain::user_secret_account(&pointer))?
-    else {
+    let Some(user) = profiles.mongo_username(id)? else {
         return Ok(());
     };
     if let Some(obj) = config.as_object_mut() {
@@ -382,6 +391,9 @@ fn inject_mongo_username(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod keychain_tests;
 
 #[cfg(test)]
 mod attach_secrets_tests {

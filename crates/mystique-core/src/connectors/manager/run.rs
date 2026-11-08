@@ -1,11 +1,12 @@
 //! In-flight statement registry. Cancel looks up `execution_id` and fires the hook.
 //!
-//! The id is the client token, not the connection profile id. Pinned sessions
-//! (a later ticket) must keep using this key so cancel still finds the statement.
+//! The id is the client token, not the connection profile id. Each run
+//! registers it before any other work. A cancel that arrives before the run
+//! is kept for a minute, so the run starts already cancelled.
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use mystique_connector_api::{ConnectorError, ConnectorResult, QueryControl, CANCEL_CLEANUP_MS};
 use tokio::sync::Semaphore;
@@ -16,10 +17,19 @@ use super::ConnectionManager;
 pub(super) struct Inflight {
     pub session_id: String,
     control: Arc<QueryControl>,
+    /// Set for a cancel whose run has not registered yet.
+    early: Option<Instant>,
 }
 
 /// Explorer and metrics only. Query execution is not limited by this.
 pub(super) const METADATA_PERMITS: usize = 6;
+
+/// How long a cancel waits for its run to register.
+const EARLY_CANCEL_TTL: Duration = Duration::from_secs(60);
+
+pub(super) fn cancelled_error() -> ConnectorError {
+    ConnectorError::Query("Query cancelled.".into())
+}
 
 impl ConnectionManager {
     /// Missing and blank ids are a no-op. The button and Esc both land here.
@@ -28,18 +38,31 @@ impl ConnectionManager {
         if id.is_empty() {
             return Ok(());
         }
-        let control = self
-            .running
-            .lock()
-            .await
-            .get(id)
-            .map(|run| Arc::clone(&run.control));
-        if let Some(control) = control {
-            control.cancel();
-        }
+        let control = {
+            let mut running = self.running.lock().await;
+            running.retain(|_, run| run.early.is_none_or(|at| at.elapsed() < EARLY_CANCEL_TTL));
+            match running.get(id) {
+                Some(run) => Arc::clone(&run.control),
+                None => {
+                    let control = QueryControl::new();
+                    running.insert(
+                        id.to_string(),
+                        Inflight {
+                            session_id: String::new(),
+                            control: Arc::clone(&control),
+                            early: Some(Instant::now()),
+                        },
+                    );
+                    control
+                }
+            }
+        };
+        control.cancel();
         Ok(())
     }
 
+    /// Call first, before history, gates, guards, or pins. A run cancelled
+    /// before it registered gets a control that is already cancelled.
     pub(super) async fn begin_run(
         &self,
         session_id: &str,
@@ -49,12 +72,17 @@ impl ConnectionManager {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let control = QueryControl::new();
-        self.running.lock().await.insert(
+        let mut running = self.running.lock().await;
+        let control = match running.remove(&id) {
+            Some(prev) if prev.early.is_some() => prev.control,
+            _ => QueryControl::new(),
+        };
+        running.insert(
             id.clone(),
             Inflight {
                 session_id: session_id.to_string(),
                 control: Arc::clone(&control),
+                early: None,
             },
         );
         (id, control)
@@ -65,7 +93,7 @@ impl ConnectionManager {
             .lock()
             .await
             .values()
-            .any(|run| run.session_id == session_id)
+            .any(|run| run.early.is_none() && run.session_id == session_id)
     }
 
     pub(super) async fn cancel_runs_for(&self, session_id: &str) -> bool {
@@ -74,7 +102,7 @@ impl ConnectionManager {
             .lock()
             .await
             .values()
-            .filter(|run| run.session_id == session_id)
+            .filter(|run| run.early.is_none() && run.session_id == session_id)
             .map(|run| Arc::clone(&run.control))
             .collect();
         let any = !controls.is_empty();
@@ -97,6 +125,9 @@ impl ConnectionManager {
         timeout_ms: u64,
         work: impl Future<Output = ConnectorResult<T>>,
     ) -> ConnectorResult<T> {
+        if control.is_cancelled() {
+            return Err(cancelled_error());
+        }
         let cleanup = Duration::from_millis(CANCEL_CLEANUP_MS);
         tokio::pin!(work);
         tokio::select! {
@@ -104,7 +135,7 @@ impl ConnectionManager {
             result = &mut work => result,
             _ = control.token.cancelled() => {
                 let _ = tokio::time::timeout(cleanup, &mut work).await;
-                Err(ConnectorError::Query("Query cancelled.".into()))
+                Err(cancelled_error())
             }
             _ = tokio::time::sleep(Duration::from_millis(timeout_ms)) => {
                 control.cancel();
@@ -122,6 +153,9 @@ impl ConnectionManager {
         control: &Arc<QueryControl>,
         work: impl Future<Output = ConnectorResult<T>>,
     ) -> ConnectorResult<T> {
+        if control.is_cancelled() {
+            return Err(cancelled_error());
+        }
         let cleanup = Duration::from_millis(CANCEL_CLEANUP_MS);
         tokio::pin!(work);
         tokio::select! {
@@ -129,7 +163,7 @@ impl ConnectionManager {
             result = &mut work => result,
             _ = control.token.cancelled() => {
                 let _ = tokio::time::timeout(cleanup, &mut work).await;
-                Err(ConnectorError::Query("Query cancelled.".into()))
+                Err(cancelled_error())
             }
         }
     }
@@ -350,6 +384,61 @@ mod tests {
         let err = result.expect_err("cancelled");
         assert!(err.to_string().contains("cancelled"), "{err}");
         mgr.cancel_query("run-1").await.expect("finished id");
+    }
+
+    #[tokio::test]
+    async fn a_cancel_before_the_run_registers_is_honoured() {
+        let mgr = ConnectionManager::bootstrap();
+        let seen = insert_probe(&mgr, false).await;
+        mgr.cancel_query("run-early").await.expect("early cancel");
+        let err = mgr
+            .execute_query(request(Some(30_000), Some("run-early")))
+            .await
+            .expect_err("cancelled before start");
+        assert!(err.to_string().contains("cancelled"), "{err}");
+        // The plugin never saw the statement.
+        assert_eq!(*seen.lock().unwrap_or_else(|err| err.into_inner()), 0);
+        assert!(mgr.running.lock().await.is_empty());
+        // The early cancel is used once; the next run with a new id runs.
+        mgr.execute_query(request(Some(30_000), Some("run-next")))
+            .await
+            .expect("next run");
+    }
+
+    #[tokio::test]
+    async fn each_execution_has_its_own_slot() {
+        let mgr = ConnectionManager::bootstrap();
+        let _seen = insert_probe(&mgr, true).await;
+        let mgr = Arc::new(mgr);
+        let preview = {
+            let mgr = Arc::clone(&mgr);
+            tokio::spawn(async move {
+                mgr.execute_query(request(Some(120_000), Some("tab-1-preview")))
+                    .await
+            })
+        };
+        let export = {
+            let mgr = Arc::clone(&mgr);
+            tokio::spawn(async move {
+                mgr.execute_query(request(Some(120_000), Some("tab-1-export")))
+                    .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        mgr.cancel_query("tab-1-preview").await.expect("cancel");
+        let preview = tokio::time::timeout(Duration::from_secs(2), preview)
+            .await
+            .expect("join")
+            .expect("task");
+        assert!(preview.is_err());
+        assert!(
+            !export.is_finished(),
+            "export was cancelled with the preview"
+        );
+        mgr.cancel_query("tab-1-export")
+            .await
+            .expect("cancel export");
+        let _ = tokio::time::timeout(Duration::from_secs(2), export).await;
     }
 
     #[tokio::test]

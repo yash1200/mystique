@@ -1,36 +1,57 @@
 /**
- * One execution id per tab. Query, preview, and export share it so Esc,
- * Cancel, and closing the tab stop the same server run.
+ * One execution id per run. A tab keeps one slot per kind, so cancelling a
+ * preview never stops an export on the same tab. The backend registers the
+ * id before any other work and honours a cancel sent before the run starts.
  */
 import { cancelEngineQuery } from './engines'
 import { isTauri } from './tauri'
 
-const runs = new Map<string, string>()
+export type RunKind = 'query' | 'preview' | 'export'
 
-export function startTabRun(tabId: string): string {
-	const previous = runs.get(tabId)
-	const executionId = crypto.randomUUID()
-	runs.set(tabId, executionId)
-	if (previous && isTauri()) {
-		void cancelEngineQuery(previous).catch(() => {
-			/* the previous run may already have finished */
-		})
-	}
-	return executionId
-}
+const runs = new Map<string, Map<RunKind, string>>()
 
-export function finishTabRun(tabId: string, executionId: string): void {
-	if (runs.get(tabId) === executionId) runs.delete(tabId)
-}
-
-export async function cancelTabRun(tabId: string): Promise<void> {
-	const executionId = runs.get(tabId)
-	if (!executionId) return
-	runs.delete(tabId)
+async function cancelExecution(executionId: string): Promise<void> {
 	if (!isTauri()) return
 	try {
 		await cancelEngineQuery(executionId)
 	} catch {
-		/* an unknown id is a no-op on the server */
+		/* the run may already have finished; an unknown id is a no-op */
 	}
+}
+
+/** A new run of the same kind on the tab cancels the previous one. */
+export function startTabRun(tabId: string, kind: RunKind = 'query'): string {
+	const slots = runs.get(tabId) ?? new Map<RunKind, string>()
+	const previous = slots.get(kind)
+	const executionId = crypto.randomUUID()
+	slots.set(kind, executionId)
+	runs.set(tabId, slots)
+	if (previous) void cancelExecution(previous)
+	return executionId
+}
+
+export function finishTabRun(tabId: string, executionId: string): void {
+	const slots = runs.get(tabId)
+	if (!slots) return
+	for (const [kind, id] of slots) {
+		if (id === executionId) slots.delete(kind)
+	}
+	if (slots.size === 0) runs.delete(tabId)
+}
+
+/** Without a kind, stops every run on the tab (used when it closes). */
+export async function cancelTabRun(
+	tabId: string,
+	kind?: RunKind,
+): Promise<void> {
+	const slots = runs.get(tabId)
+	if (!slots) return
+	const ids: string[] = []
+	for (const [k, id] of slots) {
+		if (kind && k !== kind) continue
+		ids.push(id)
+		slots.delete(k)
+	}
+	if (slots.size === 0) runs.delete(tabId)
+	await Promise.all(ids.map(cancelExecution))
 }

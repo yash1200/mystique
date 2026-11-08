@@ -13,7 +13,23 @@ use mystique_connector_api::{
 use super::ConnectionManager;
 
 impl ConnectionManager {
-    pub async fn explain_query(&self, req: ExplainQueryRequest) -> ConnectorResult<ExplainPlan> {
+    pub async fn explain_query(
+        &self,
+        mut req: ExplainQueryRequest,
+    ) -> ConnectorResult<ExplainPlan> {
+        let (id, control) = self
+            .begin_run(&req.session_id, req.execution_id.take())
+            .await;
+        let result = self.explain_registered(req, &control).await;
+        self.finish_run(&id).await;
+        result
+    }
+
+    async fn explain_registered(
+        &self,
+        req: ExplainQueryRequest,
+        control: &Arc<mystique_connector_api::QueryControl>,
+    ) -> ConnectorResult<ExplainPlan> {
         let (session, live_read_only) = self.session_and_read_only(&req.session_id).await?;
         if !session.capabilities().supports_explain_plan {
             return Err(ConnectorError::NotSupported(
@@ -42,7 +58,6 @@ impl ConnectionManager {
         )
         .await?;
 
-        let (id, control) = self.begin_run(&req.session_id, req.execution_id).await;
         let validated = ValidatedQuery {
             text: prepared.subject,
             mode: QueryMode::Read,
@@ -50,17 +65,16 @@ impl ConnectionManager {
             timeout_ms,
             collection: req.collection,
             database: req.database,
-            control: Arc::clone(&control),
+            control: Arc::clone(control),
             params: Vec::new(),
         };
         let result = self
             .drive_registered(
-                &control,
+                control,
                 timeout_ms,
                 session.explain_query(&validated, req.analyze),
             )
             .await;
-        self.finish_run(&id).await;
         finish_explain(result, req.analyze, prepared.proven_read)
     }
 

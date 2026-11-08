@@ -41,6 +41,7 @@ impl ConnectionManager {
         read_only: bool,
         progress: Option<ProgressPump>,
         tab_id: Option<String>,
+        control: Arc<mystique_connector_api::QueryControl>,
     ) -> ConnectorResult<QueryBatchResult> {
         let engine = session.engine_id().to_string();
         let policy = self.registry.policy(&engine).ok_or_else(|| {
@@ -71,7 +72,6 @@ impl ConnectionManager {
         if let Some(tab) = tab_id.as_deref() {
             self.ensure_tab_pin(&req.session_id, tab).await?;
         }
-        let (id, control) = self.begin_run(&req.session_id, req.execution_id).await;
         if let Some(progress) = &progress {
             progress.emit(
                 BatchEvent {
@@ -110,7 +110,6 @@ impl ConnectionManager {
                     ),
                 )
                 .await;
-            self.finish_run(&id).await;
             if let Some(progress) = &progress {
                 progress.emit(
                     BatchEvent {
@@ -127,7 +126,6 @@ impl ConnectionManager {
         let result = self
             .drive_registered(&control, timeout_ms, session.execute_query(&validated))
             .await;
-        self.finish_run(&id).await;
         if let Some(progress) = &progress {
             progress.emit(
                 BatchEvent {

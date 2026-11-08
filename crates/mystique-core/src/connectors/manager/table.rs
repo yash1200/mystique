@@ -84,19 +84,21 @@ impl ConnectionManager {
         &self,
         req: FetchTablePreviewRequest,
     ) -> ConnectorResult<TablePreviewResult> {
-        let session = self.session(&req.session_id).await?;
-        let session_id = req.session_id.clone();
-        let execution_id = req.execution_id.clone();
-        let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
-        let (id, control) = self.begin_run(&session_id, execution_id).await;
-        input.control = Arc::clone(&control);
-        let result = self
-            .drive_registered(
+        let (id, control) = self
+            .begin_run(&req.session_id, req.execution_id.clone())
+            .await;
+        let result = async {
+            let session = self.session(&req.session_id).await?;
+            let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
+            input.control = Arc::clone(&control);
+            self.drive_registered(
                 &control,
                 MAX_TIMEOUT_MS,
                 session.fetch_table_preview(&input),
             )
-            .await;
+            .await
+        }
+        .await;
         self.finish_run(&id).await;
         result
     }
@@ -113,15 +115,17 @@ impl ConnectionManager {
         &self,
         req: FetchLargeValueRequest,
     ) -> ConnectorResult<FetchLargeValueResult> {
-        let session = self.session(&req.session_id).await?;
-        let session_id = req.session_id.clone();
-        let execution_id = req.execution_id.clone();
-        let mut input = req.into_input();
-        let (id, control) = self.begin_run(&session_id, execution_id).await;
-        input.control = Arc::clone(&control);
-        let result = self
-            .drive_registered(&control, MAX_TIMEOUT_MS, session.fetch_large_value(&input))
+        let (id, control) = self
+            .begin_run(&req.session_id, req.execution_id.clone())
             .await;
+        let result = async {
+            let session = self.session(&req.session_id).await?;
+            let mut input = req.into_input();
+            input.control = Arc::clone(&control);
+            self.drive_registered(&control, MAX_TIMEOUT_MS, session.fetch_large_value(&input))
+                .await
+        }
+        .await;
         self.finish_run(&id).await;
         result
     }

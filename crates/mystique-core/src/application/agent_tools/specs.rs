@@ -73,13 +73,13 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
         AgentToolSpec {
             name: "execute_readonly_query",
             description:
-                "Run a read-only query (SELECT / find). Writes are rejected. Returns JSON rows or CSV for the model. Opens the connection if needed. Qualify tables with schema (SELECT * FROM main.boards), not bare names. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset to read the next slice. The grid and file export are not capped.",
+                "Run a read-only query (SELECT / find). Writes are rejected. Returns JSON rows or CSV for the model. Opens the connection if needed. Qualify tables with schema (SELECT * FROM main.boards), not bare names. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset, with the same query, to read the next slice. Pages come from the result cached for 5 minutes; a write is never run again to page it. The grid and file export are not capped.",
             input_schema: query_input_schema("SQL or Mongo find/aggregate / JSON filter"),
         },
         AgentToolSpec {
             name: "execute_query",
             description:
-                "Run a query that may write. Honors the Mystique write policy: read-only blocks writes; safe_write allows INSERT/UPDATE only; high_risk_write allows DDL/DROP but production still needs an in-app unlock. Prefer execute_readonly_query for SELECT/find. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset to read the next slice.",
+                "Run a query that may write. Honors the Mystique write policy: read-only blocks writes; safe_write allows INSERT/UPDATE only; high_risk_write allows DDL/DROP but production still needs an in-app unlock. Prefer execute_readonly_query for SELECT/find. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset, with the same query, to read the next slice. Pages come from the result cached for 5 minutes; a write is never run again to page it.",
             input_schema: query_input_schema("SQL or Mongo write / read"),
         },
         AgentToolSpec {
@@ -130,7 +130,7 @@ fn query_input_schema(query_description: &str) -> serde_json::Value {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": AGENT_MAX_CELL_OFFSET,
-                "description": "Character offset for every cell (default 0). Pass next_offset from a truncated cell to read the next slice."
+                "description": "Character offset for every cell (default 0). Pass next_offset from a truncated cell to read the next slice of the cached result. A write is never run again to page it."
             },
             "cell_char_limit": {
                 "type": "integer",
