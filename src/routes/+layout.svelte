@@ -18,7 +18,7 @@
 	import { resetGuard } from '#features/workspace/session'
 	import { ResetConfirmModal } from '#features/workspace/shell'
 	import { appPrefs, cmd, KEYMAP } from '#lib/app'
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import '../app.css'
 
 	let { children } = $props()
@@ -42,6 +42,26 @@
 		applyUiScale(1)
 	}
 
+	// App-wide handlers go in before any page mounts, so a page's own handler
+	// for the same chord (the diagram's zoom) is newer and wins.
+	const unregister = commands.register([
+		{
+			...cmd.settings,
+			run: ({ args }) =>
+				appSettingsUi.show(args?.section as SettingsSection | undefined),
+		},
+		{ ...cmd.shortcuts, run: () => appShortcutsUi.show() },
+		{ ...cmd.reset, run: () => resetGuard.request() },
+		{ ...cmd.zoomIn, run: () => zoomBy(0.1) },
+		{ ...cmd.zoomOut, run: () => zoomBy(-0.1) },
+		{ ...cmd.zoomReset, run: zoomReset },
+	])
+	const unregisterQuickOpen = registerQuickOpenCommands()
+	onDestroy(() => {
+		unregister()
+		unregisterQuickOpen()
+	})
+
 	onMount(() => {
 		appPrefs.apply()
 		const unwatchScheme = appPrefs.watchSystemTheme()
@@ -49,26 +69,11 @@
 		void setAppTitle()
 
 		const unmountCommands = mountCommands()
-		const unregister = commands.register([
-			{
-				...cmd.settings,
-				run: ({ args }) =>
-					appSettingsUi.show(args?.section as SettingsSection | undefined),
-			},
-			{ ...cmd.shortcuts, run: () => appShortcutsUi.show() },
-			{ ...cmd.reset, run: () => resetGuard.request() },
-			{ ...cmd.zoomIn, run: () => zoomBy(0.1) },
-			{ ...cmd.zoomOut, run: () => zoomBy(-0.1) },
-			{ ...cmd.zoomReset, run: zoomReset },
-		])
-		const unregisterQuickOpen = registerQuickOpenCommands()
 		window.addEventListener('keydown', blockHistoryBackspace, true)
 
 		return () => {
 			unwatchScheme()
 			unmountCommands()
-			unregister()
-			unregisterQuickOpen()
 			window.removeEventListener('keydown', blockHistoryBackspace, true)
 		}
 	})
