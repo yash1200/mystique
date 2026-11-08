@@ -82,7 +82,7 @@ impl PinnedSession for MysqlPin {
         arm_kill(&pool, conn.id(), &batch.control);
         let _guard = InterruptGuard::new(&batch.control);
         cancel::apply_timeouts(conn, batch.timeout_ms).await;
-        let result = run_planned_batch(conn, batch, false).await;
+        let result = run_planned_batch(conn, batch, None).await;
         batch.control.clear_interrupt();
         cancel::clear_timeouts(conn).await;
         self.note(batch);

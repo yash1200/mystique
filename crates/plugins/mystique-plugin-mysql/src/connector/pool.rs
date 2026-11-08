@@ -215,6 +215,16 @@ pub(super) fn build_opts(config: &ConnectionConfig) -> ConnectorResult<mysql_asy
     Ok(builder.into())
 }
 
+/// Same server and credentials, for grid saves. `CLIENT_FOUND_ROWS` makes an
+/// UPDATE that matches a row but changes nothing report 1, not 0.
+pub(super) fn edit_opts(opts: &mysql_async::Opts) -> mysql_async::Opts {
+    let constraints = PoolConstraints::new(0, 2).unwrap_or_default();
+    OptsBuilder::from_opts(opts.clone())
+        .client_found_rows(true)
+        .pool_opts(PoolOpts::default().with_constraints(constraints))
+        .into()
+}
+
 pub(super) async fn connect_once(
     config: &ConnectionConfig,
 ) -> ConnectorResult<(mysql_async::Conn, Pool)> {

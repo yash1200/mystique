@@ -39,7 +39,7 @@ pub(super) async fn apply_table_edits(
             rollback_sql,
         });
     }
-    let mut conn = session.conn().await?;
+    let mut conn = session.edit_conn().await?;
     conn.query_drop("START TRANSACTION")
         .await
         .map_err(query_failed)?;
@@ -65,7 +65,7 @@ pub(super) async fn apply_rollback_sql(
     statements: &[String],
 ) -> ConnectorResult<()> {
     session.ensure_open()?;
-    let mut conn = session.conn().await?;
+    let mut conn = session.edit_conn().await?;
     conn.query_drop("START TRANSACTION")
         .await
         .map_err(query_failed)?;
