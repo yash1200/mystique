@@ -2,7 +2,7 @@
 
 use serde_json::Value as JsonValue;
 
-use crate::error::{ConnectorError, ConnectorResult};
+use crate::error::{TransferError, TransferResult};
 
 use super::parse::{pad_row, parse_cell, ParsedTable};
 
@@ -157,7 +157,7 @@ pub(super) fn parse_sql_tuple(s: &str, i: &mut usize) -> Option<Vec<JsonValue>> 
     }
 }
 
-pub(super) fn parse_sql(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable> {
+pub(super) fn parse_sql(text: &str, limit: Option<usize>) -> TransferResult<ParsedTable> {
     let mut keys: Vec<String> = Vec::new();
     let mut rows = Vec::new();
     let lower = text.to_ascii_lowercase();
@@ -214,7 +214,7 @@ pub(super) fn parse_sql(text: &str, limit: Option<usize>) -> ConnectorResult<Par
         }
     }
     if keys.is_empty() {
-        return Err(ConnectorError::InvalidConfig(
+        return Err(TransferError::InvalidConfig(
             "No INSERT rows found in the SQL file.".into(),
         ));
     }

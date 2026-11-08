@@ -1,0 +1,13 @@
+[package]
+name = "mystique-transfer"
+version = "0.1.0"
+edition = "2021"
+description = "File import parsers, export writers and text encodings for Mystique (no SPI dependency)"
+publish = false
+
+[dependencies]
+mystique-sql = { path = "../mystique-sql" }
+csv = "1"
+encoding_rs = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

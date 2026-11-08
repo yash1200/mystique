@@ -153,6 +153,17 @@ impl From<mystique_sql::BuildError> for ConnectorError {
     }
 }
 
+impl From<mystique_transfer::TransferError> for ConnectorError {
+    fn from(err: mystique_transfer::TransferError) -> Self {
+        match err {
+            mystique_transfer::TransferError::InvalidConfig(message) => {
+                Self::InvalidConfig(message)
+            }
+            mystique_transfer::TransferError::Internal(message) => Self::Internal(message),
+        }
+    }
+}
+
 impl From<mystique_tls::TlsError> for ConnectorError {
     fn from(err: mystique_tls::TlsError) -> Self {
         match err {

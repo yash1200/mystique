@@ -4,14 +4,17 @@ use std::collections::BTreeMap;
 
 use serde_json::Value as JsonValue;
 
+use mystique_sql::dml::{compile_insert, compile_upsert};
+use mystique_transfer::{parse_import_file, suggest_map};
+
 use super::super::edits::{ApplyTableEditsInput, TableEditColumn, TableRowInsert};
-use super::super::sql::{compile_insert, compile_upsert, SqlIdentStyle};
-use super::parse::{parse_import_file, suggest_map};
+use super::super::sql::SqlIdentStyle;
 use super::{
     ImportChunkInput, ImportChunkResult, ImportColumnMap, ImportObjectInput, ImportObjectResult,
     ImportOnDuplicate, ImportTableColumn, PreviewImportInput, PreviewImportResult,
     IMPORT_CHUNK_SIZE, IMPORT_PREVIEW_ROWS,
 };
+use crate::catalog::ColumnInfo;
 use crate::connector::ConnectorSession;
 use crate::error::{ConnectorError, ConnectorResult};
 
@@ -37,7 +40,7 @@ pub async fn preview_import_with_describe(
         input.encoding,
         Some(IMPORT_PREVIEW_ROWS),
     )?;
-    let suggested_map = suggest_map(&parsed.keys, &columns);
+    let suggested_map = suggest_map(&parsed.keys, &column_names(&columns));
     Ok(PreviewImportResult {
         file_keys: parsed.keys,
         columns: columns
@@ -54,6 +57,10 @@ pub async fn preview_import_with_describe(
         format: input.format,
         encoding: input.encoding,
     })
+}
+
+fn column_names(columns: &[ColumnInfo]) -> Vec<&str> {
+    columns.iter().map(|c| c.name.as_str()).collect()
 }
 
 fn remap_row(
@@ -109,7 +116,7 @@ pub async fn import_object_from_file(
     }
     let parsed = parse_import_file(&input.path, input.format, input.encoding, None)?;
     let mapping = if input.mapping.is_empty() {
-        suggest_map(&parsed.keys, &columns)
+        suggest_map(&parsed.keys, &column_names(&columns))
     } else {
         input.mapping.clone()
     };

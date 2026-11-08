@@ -13,36 +13,18 @@ use crate::catalog::{ColumnInfo, FetchTablePreviewInput};
 use crate::connector::ConnectorSession;
 use crate::error::{ConnectorError, ConnectorResult};
 use serde::{Deserialize, Serialize};
-mod write;
 
 use super::sql::SqlIdentStyle;
-use write::{
+use mystique_transfer::export::{
     write_csv_header, write_csv_rows, write_io, write_json_array_rows, write_jsonl_rows,
     write_sql_insert, writeln_io,
 };
 
+/// shim: remove after one release. Defined in `mystique-transfer`.
+pub use mystique_transfer::ExportFormat;
+
 /// Rows written per engine fetch / file append.
 pub const EXPORT_CHUNK_SIZE: u32 = 100;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ExportFormat {
-    Csv,
-    Json,
-    Jsonl,
-    Sql,
-}
-
-impl ExportFormat {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Csv => "csv",
-            Self::Json => "json",
-            Self::Jsonl => "jsonl",
-            Self::Sql => "sql",
-        }
-    }
-}
 
 /// IPC request. `path` is the absolute destination file.
 #[derive(Debug, Clone, Serialize, Deserialize)]

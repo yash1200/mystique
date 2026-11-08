@@ -1,20 +1,24 @@
 //! Format-specific file writers for table export.
+//!
+//! Each call appends one page of rows. The caller opens the file, writes the
+//! JSON array brackets, and flushes.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
 use serde_json::{Map, Value as JsonValue};
 
-use super::super::sql::{qualify_table, quote_ident, sql_literal, SqlIdentStyle};
-use crate::catalog::ColumnInfo;
-use crate::error::{ConnectorError, ConnectorResult};
+use mystique_sql::{qualify_table, quote_ident, sql_literal, SqlDialect};
 
-pub(super) fn write_io(out: &mut BufWriter<File>, bytes: &[u8]) -> ConnectorResult<()> {
+use super::ExportColumn;
+use crate::error::{TransferError, TransferResult};
+
+pub fn write_io(out: &mut BufWriter<File>, bytes: &[u8]) -> TransferResult<()> {
     out.write_all(bytes)
-        .map_err(|e| ConnectorError::Internal(format!("export write failed: {e}")))
+        .map_err(|e| TransferError::Internal(format!("export write failed: {e}")))
 }
 
-pub(super) fn writeln_io(out: &mut BufWriter<File>, s: &str) -> ConnectorResult<()> {
+pub fn writeln_io(out: &mut BufWriter<File>, s: &str) -> TransferResult<()> {
     write_io(out, s.as_bytes())
 }
 
@@ -37,23 +41,23 @@ fn cell_text(v: &JsonValue) -> String {
     }
 }
 
-pub(super) fn write_csv_header(
+pub fn write_csv_header(
     out: &mut BufWriter<File>,
-    columns: &[ColumnInfo],
-) -> ConnectorResult<()> {
+    columns: &[impl ExportColumn],
+) -> TransferResult<()> {
     let line = columns
         .iter()
-        .map(|c| csv_escape(&c.name))
+        .map(|c| csv_escape(c.name()))
         .collect::<Vec<_>>()
         .join(",");
     writeln_io(out, &format!("{line}\n"))
 }
 
-pub(super) fn write_csv_rows(
+pub fn write_csv_rows(
     out: &mut BufWriter<File>,
-    columns: &[ColumnInfo],
+    columns: &[impl ExportColumn],
     rows: &[Vec<JsonValue>],
-) -> ConnectorResult<()> {
+) -> TransferResult<()> {
     for row in rows {
         let line = columns
             .iter()
@@ -66,29 +70,29 @@ pub(super) fn write_csv_rows(
     Ok(())
 }
 
-fn row_object(columns: &[ColumnInfo], row: &[JsonValue]) -> JsonValue {
+fn row_object(columns: &[impl ExportColumn], row: &[JsonValue]) -> JsonValue {
     let mut map = Map::new();
     for (i, col) in columns.iter().enumerate() {
         map.insert(
-            col.name.clone(),
+            col.name().to_string(),
             row.get(i).cloned().unwrap_or(JsonValue::Null),
         );
     }
     JsonValue::Object(map)
 }
 
-pub(super) fn write_json_array_rows(
+pub fn write_json_array_rows(
     out: &mut BufWriter<File>,
-    columns: &[ColumnInfo],
+    columns: &[impl ExportColumn],
     rows: &[Vec<JsonValue>],
     already_wrote: bool,
-) -> ConnectorResult<()> {
+) -> TransferResult<()> {
     for (i, row) in rows.iter().enumerate() {
         if already_wrote || i > 0 {
             write_io(out, b",\n")?;
         }
         let pretty = serde_json::to_string_pretty(&row_object(columns, row))
-            .map_err(|e| ConnectorError::Internal(format!("json encode: {e}")))?;
+            .map_err(|e| TransferError::Internal(format!("json encode: {e}")))?;
         let indented = pretty
             .lines()
             .map(|l| format!("  {l}"))
@@ -99,35 +103,35 @@ pub(super) fn write_json_array_rows(
     Ok(())
 }
 
-pub(super) fn write_jsonl_rows(
+pub fn write_jsonl_rows(
     out: &mut BufWriter<File>,
-    columns: &[ColumnInfo],
+    columns: &[impl ExportColumn],
     rows: &[Vec<JsonValue>],
-) -> ConnectorResult<()> {
+) -> TransferResult<()> {
     for row in rows {
         let line = serde_json::to_string(&row_object(columns, row))
-            .map_err(|e| ConnectorError::Internal(format!("json encode: {e}")))?;
+            .map_err(|e| TransferError::Internal(format!("json encode: {e}")))?;
         writeln_io(out, &format!("{line}\n"))?;
     }
     Ok(())
 }
 
-pub(super) fn write_sql_insert(
+pub fn write_sql_insert(
     out: &mut BufWriter<File>,
-    style: SqlIdentStyle,
+    style: SqlDialect,
     database: Option<&str>,
     schema: Option<&str>,
     table: &str,
-    columns: &[ColumnInfo],
+    columns: &[impl ExportColumn],
     rows: &[Vec<JsonValue>],
-) -> ConnectorResult<()> {
+) -> TransferResult<()> {
     if rows.is_empty() || columns.is_empty() {
         return Ok(());
     }
     let target = qualify_table(style, database, schema, table);
     let col_list = columns
         .iter()
-        .map(|c| quote_ident(style, &c.name))
+        .map(|c| quote_ident(style, c.name()))
         .collect::<Vec<_>>()
         .join(", ");
     let values = rows
@@ -140,7 +144,7 @@ pub(super) fn write_sql_insert(
                     sql_literal(
                         style,
                         row.get(i).unwrap_or(&JsonValue::Null),
-                        &col.data_type,
+                        col.data_type(),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -158,18 +162,21 @@ pub(super) fn write_sql_insert(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::ColumnInfo;
 
-    fn doc_column() -> ColumnInfo {
-        ColumnInfo {
-            name: "doc".into(),
-            data_type: "json".into(),
-            nullable: true,
-            pk: false,
-            enum_values: None,
-            default_value: None,
-            references: None,
+    struct Column(&'static str, &'static str);
+
+    impl ExportColumn for Column {
+        fn name(&self) -> &str {
+            self.0
         }
+
+        fn data_type(&self) -> &str {
+            self.1
+        }
+    }
+
+    fn doc_column() -> Column {
+        Column("doc", "json")
     }
 
     #[test]

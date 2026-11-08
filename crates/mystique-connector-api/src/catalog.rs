@@ -292,3 +292,13 @@ pub struct ListRelationshipsRequest {
     #[serde(default)]
     pub database: Option<String>,
 }
+
+impl mystique_transfer::ExportColumn for ColumnInfo {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn data_type(&self) -> &str {
+        &self.data_type
+    }
+}

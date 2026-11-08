@@ -1,15 +1,15 @@
 //! Plugin-owned table/collection file import.
 //!
 //! The FE picks a file + encoding + column map. Plugins write 100-row chunks.
+//! File parsing and encodings live in `mystique-transfer`; the formats are
+//! re-exported here (shim: remove after one release).
 
-mod parse;
 mod run;
-mod sql_dump;
 
+pub use mystique_transfer::{ImportColumnMap, ImportEncoding, ImportFormat, ImportOnDuplicate};
 pub use run::{import_chunk_sql, import_object_from_file, preview_import_with_describe};
 
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -18,87 +18,6 @@ use crate::catalog::ColumnInfo;
 
 pub const IMPORT_CHUNK_SIZE: usize = 100;
 pub const IMPORT_PREVIEW_ROWS: usize = 100;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ImportFormat {
-    Csv,
-    Json,
-    Jsonl,
-    Sql,
-}
-
-impl ImportFormat {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Csv => "csv",
-            Self::Json => "json",
-            Self::Jsonl => "jsonl",
-            Self::Sql => "sql",
-        }
-    }
-
-    pub fn from_path(path: &str) -> Option<Self> {
-        let ext = Path::new(path)
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        match ext.as_str() {
-            "csv" => Some(Self::Csv),
-            "jsonl" | "ndjson" => Some(Self::Jsonl),
-            "json" => Some(Self::Json),
-            "sql" => Some(Self::Sql),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ImportEncoding {
-    Utf8,
-    Utf16Le,
-    Utf16Be,
-    Windows1252,
-    Iso88591,
-}
-
-impl ImportEncoding {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Utf8 => "utf-8",
-            Self::Utf16Le => "utf-16le",
-            Self::Utf16Be => "utf-16be",
-            Self::Windows1252 => "windows-1252",
-            Self::Iso88591 => "iso-8859-1",
-        }
-    }
-
-    fn decoder(self) -> &'static encoding_rs::Encoding {
-        match self {
-            Self::Utf8 => encoding_rs::UTF_8,
-            Self::Utf16Le => encoding_rs::UTF_16LE,
-            Self::Utf16Be => encoding_rs::UTF_16BE,
-            Self::Windows1252 | Self::Iso88591 => encoding_rs::WINDOWS_1252,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ImportOnDuplicate {
-    StopOnError,
-    UpdateOnDuplicate,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportColumnMap {
-    pub file_key: String,
-    #[serde(default)]
-    pub table_column: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -238,16 +157,4 @@ pub struct ImportChunkInput {
 pub struct ImportChunkResult {
     pub inserted: u64,
     pub updated: u64,
-}
-
-impl Default for ImportEncoding {
-    fn default() -> Self {
-        Self::Utf8
-    }
-}
-
-impl Default for ImportOnDuplicate {
-    fn default() -> Self {
-        Self::StopOnError
-    }
 }

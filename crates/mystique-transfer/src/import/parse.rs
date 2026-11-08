@@ -4,22 +4,17 @@ use std::io::Cursor;
 
 use serde_json::{Map, Value as JsonValue};
 
-use crate::catalog::ColumnInfo;
-use crate::error::{ConnectorError, ConnectorResult};
+use crate::encoding::{decode_file, ImportEncoding};
+use crate::error::{TransferError, TransferResult};
 
 use super::sql_dump::parse_sql;
-use super::{ImportColumnMap, ImportEncoding, ImportFormat};
+use super::{ImportColumnMap, ImportFormat};
 
-pub(super) struct ParsedTable {
+/// File keys (CSV header, JSON object keys) and rows in that key order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedTable {
     pub keys: Vec<String>,
     pub rows: Vec<Vec<JsonValue>>,
-}
-
-pub(super) fn decode_file(path: &str, encoding: ImportEncoding) -> ConnectorResult<String> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| ConnectorError::InvalidConfig(format!("could not read {path}: {e}")))?;
-    let (cow, _, _) = encoding.decoder().decode(&bytes);
-    Ok(cow.into_owned())
 }
 
 pub(super) fn parse_cell(raw: &str) -> JsonValue {
@@ -44,14 +39,14 @@ pub(super) fn parse_cell(raw: &str) -> JsonValue {
     JsonValue::String(raw.to_string())
 }
 
-pub(super) fn parse_csv(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable> {
+pub(super) fn parse_csv(text: &str, limit: Option<usize>) -> TransferResult<ParsedTable> {
     let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
         .trim(csv::Trim::All)
         .from_reader(Cursor::new(text.as_bytes()));
     let headers = rdr
         .headers()
-        .map_err(|e| ConnectorError::InvalidConfig(format!("csv header: {e}")))?
+        .map_err(|e| TransferError::InvalidConfig(format!("csv header: {e}")))?
         .iter()
         .enumerate()
         .map(|(i, h)| {
@@ -64,12 +59,12 @@ pub(super) fn parse_csv(text: &str, limit: Option<usize>) -> ConnectorResult<Par
         })
         .collect::<Vec<_>>();
     if headers.is_empty() {
-        return Err(ConnectorError::InvalidConfig("CSV has no columns.".into()));
+        return Err(TransferError::InvalidConfig("CSV has no columns.".into()));
     }
     let width = headers.len();
     let mut rows = Vec::new();
     for rec in rdr.records() {
-        let rec = rec.map_err(|e| ConnectorError::InvalidConfig(format!("csv row: {e}")))?;
+        let rec = rec.map_err(|e| TransferError::InvalidConfig(format!("csv row: {e}")))?;
         let mut row = Vec::with_capacity(width);
         for i in 0..width {
             row.push(parse_cell(rec.get(i).unwrap_or("")));
@@ -95,9 +90,9 @@ pub(super) fn row_from_object(keys: &[String], obj: &Map<String, JsonValue>) -> 
         .collect()
 }
 
-pub(super) fn parse_json(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable> {
+pub(super) fn parse_json(text: &str, limit: Option<usize>) -> TransferResult<ParsedTable> {
     let value: JsonValue = serde_json::from_str(text.trim())
-        .map_err(|e| ConnectorError::InvalidConfig(format!("json: {e}")))?;
+        .map_err(|e| TransferError::InvalidConfig(format!("json: {e}")))?;
     match value {
         JsonValue::Array(items) if items.iter().all(|v| v.is_object()) => {
             let mut keys = Vec::new();
@@ -111,7 +106,7 @@ pub(super) fn parse_json(text: &str, limit: Option<usize>) -> ConnectorResult<Pa
                 }
             }
             if keys.is_empty() {
-                return Err(ConnectorError::InvalidConfig(
+                return Err(TransferError::InvalidConfig(
                     "JSON array has no object keys.".into(),
                 ));
             }
@@ -138,7 +133,7 @@ pub(super) fn parse_json(text: &str, limit: Option<usize>) -> ConnectorResult<Pa
                 _ => None,
             });
             let Some(first) = first else {
-                return Err(ConnectorError::InvalidConfig("JSON array is empty.".into()));
+                return Err(TransferError::InvalidConfig("JSON array is empty.".into()));
             };
             let all_strings = first.iter().all(|c| c.is_string());
             let (keys, first_data) = if all_strings {
@@ -178,7 +173,7 @@ pub(super) fn parse_json(text: &str, limit: Option<usize>) -> ConnectorResult<Pa
             }
             Ok(ParsedTable { keys, rows })
         }
-        _ => Err(ConnectorError::InvalidConfig(
+        _ => Err(TransferError::InvalidConfig(
             "JSON must be an object, an array of objects, or an array of arrays.".into(),
         )),
     }
@@ -189,7 +184,7 @@ pub(super) fn pad_row(mut row: Vec<JsonValue>, width: usize) -> Vec<JsonValue> {
     row
 }
 
-pub(super) fn parse_jsonl(text: &str, limit: Option<usize>) -> ConnectorResult<ParsedTable> {
+pub(super) fn parse_jsonl(text: &str, limit: Option<usize>) -> TransferResult<ParsedTable> {
     let mut keys = Vec::new();
     let mut objects = Vec::new();
     for (i, line) in text.lines().enumerate() {
@@ -198,9 +193,9 @@ pub(super) fn parse_jsonl(text: &str, limit: Option<usize>) -> ConnectorResult<P
             continue;
         }
         let v: JsonValue = serde_json::from_str(line)
-            .map_err(|e| ConnectorError::InvalidConfig(format!("jsonl line {}: {e}", i + 1)))?;
+            .map_err(|e| TransferError::InvalidConfig(format!("jsonl line {}: {e}", i + 1)))?;
         let obj = v.as_object().ok_or_else(|| {
-            ConnectorError::InvalidConfig(format!("jsonl line {} is not an object", i + 1))
+            TransferError::InvalidConfig(format!("jsonl line {} is not an object", i + 1))
         })?;
         for k in obj.keys() {
             if !keys.iter().any(|x| x == k) {
@@ -213,7 +208,7 @@ pub(super) fn parse_jsonl(text: &str, limit: Option<usize>) -> ConnectorResult<P
         }
     }
     if keys.is_empty() {
-        return Err(ConnectorError::InvalidConfig(
+        return Err(TransferError::InvalidConfig(
             "JSON Lines file is empty.".into(),
         ));
     }
@@ -221,12 +216,12 @@ pub(super) fn parse_jsonl(text: &str, limit: Option<usize>) -> ConnectorResult<P
     Ok(ParsedTable { keys, rows })
 }
 
-pub(super) fn parse_import_file(
+pub fn parse_import_file(
     path: &str,
     format: ImportFormat,
     encoding: ImportEncoding,
     limit: Option<usize>,
-) -> ConnectorResult<ParsedTable> {
+) -> TransferResult<ParsedTable> {
     let text = decode_file(path, encoding)?;
     match format {
         ImportFormat::Csv => parse_csv(&text, limit),
@@ -236,14 +231,17 @@ pub(super) fn parse_import_file(
     }
 }
 
-pub(super) fn suggest_map(file_keys: &[String], columns: &[ColumnInfo]) -> Vec<ImportColumnMap> {
+/// Map each file key to the table column with the same name, ignoring case.
+pub fn suggest_map(file_keys: &[String], column_names: &[&str]) -> Vec<ImportColumnMap> {
     file_keys
         .iter()
         .map(|key| {
-            let table_column = columns.iter().find(|c| c.name.eq_ignore_ascii_case(key));
+            let table_column = column_names
+                .iter()
+                .find(|name| name.eq_ignore_ascii_case(key));
             ImportColumnMap {
                 file_key: key.clone(),
-                table_column: table_column.map(|c| c.name.clone()),
+                table_column: table_column.map(|name| name.to_string()),
             }
         })
         .collect()
