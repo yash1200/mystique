@@ -7,7 +7,7 @@
 		type ParamKind,
 		type ParamMemory,
 		type ParamSlot,
-	} from '../params'
+	} from './params'
 
 	interface Props {
 		open: boolean

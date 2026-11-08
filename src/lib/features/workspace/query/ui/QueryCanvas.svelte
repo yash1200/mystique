@@ -49,31 +49,31 @@
 	} from '#features/workspace/session'
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
-	import { initialActiveIndex } from '../batch-view'
+	import { initialActiveIndex } from '../results/batch-view'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import { userFacingQueryError } from '../display'
-	import type { QueryHistoryItem } from '../history-types'
-	import { scanQueryParams, type ParamSlot } from '../params'
+	import type { QueryHistoryItem } from '../history/history-types'
+	import { scanQueryParams, type ParamSlot } from '../params/params'
 	import { queryLanguageFor, queryPlaceholder } from '../policy'
 	import {
 		editorEpoch,
 		noteEditorEdit,
 		placeDiagnostic,
 		type QueryDiagnostic,
-	} from '../query-diagnostic'
-	import type { RunState } from '../run-types'
+	} from '../editor/query-diagnostic'
+	import type { RunState } from '../run/run-types'
 	import {
 		splitDialectFor,
 		submissionStart,
 		textToRun,
-	} from '../statement-span'
-	import ExplainView from './ExplainView.svelte'
-	import QueryEditor from './QueryEditor.svelte'
-	import QueryParamsDialog from './QueryParamsDialog.svelte'
+	} from '../editor/statement-span'
+	import ExplainView from '../explain/ExplainView.svelte'
+	import QueryEditor from '../editor/QueryEditor.svelte'
+	import QueryParamsDialog from '../params/QueryParamsDialog.svelte'
 	import { identStyleFor } from '#features/workspace/grid'
 	import QueryResultsPanel, {
 		type ResultExportAction,
-	} from './QueryResultsPanel.svelte'
+	} from '../results/QueryResultsPanel.svelte'
 
 	interface Props {
 		tabId: string

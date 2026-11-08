@@ -1,7 +1,7 @@
 /** Save-query flow. Modal state lives here, not on WorkspaceShell. */
 import { errorMessage, isTauri } from '#core/ipc'
 import { workspaceSession, workspaceStudio } from '#features/workspace/session'
-import { queryLanguageFor } from './policy'
+import { queryLanguageFor } from '../policy'
 import { saveQuery } from './saved-api'
 
 class QuerySave {

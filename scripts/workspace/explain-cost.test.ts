@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selfCostShare } from '../../src/lib/features/workspace/query/explain-cost'
+import { selfCostShare } from '../../src/lib/features/workspace/query/explain/explain-cost'
 
 describe('explain self cost', () => {
 	it('a child that costs almost as much as the parent leaves a small self share', () => {

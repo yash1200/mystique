@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
 	markDiagnostic,
 	revealDiagnostic,
-} from '../../src/lib/features/workspace/query/diagnostic-view'
+} from '../../src/lib/features/workspace/query/editor/diagnostic-view'
 
 const cleanup: Array<() => void> = []
 afterEach(() => {

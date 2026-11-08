@@ -3,7 +3,7 @@ import {
 	splitStatementSpans,
 	statementAt,
 	textToRun,
-} from '../../src/lib/features/workspace/query/statement-span'
+} from '../../src/lib/features/workspace/query/editor/statement-span'
 
 describe('statement spans', () => {
 	it('runs the statement under the cursor', () => {

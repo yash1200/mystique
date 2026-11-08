@@ -3,7 +3,7 @@ import {
 	initialActiveIndex,
 	statementChipLabel,
 	statementChipTitle,
-} from '../../src/lib/features/workspace/query/batch-view'
+} from '../../src/lib/features/workspace/query/results/batch-view'
 
 describe('batch result strip', () => {
 	it('keeps one chip for a single statement', () => {

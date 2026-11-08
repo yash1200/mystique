@@ -23,10 +23,10 @@ vi.mock('#features/workspace/session', () => ({
 		queryHistory: [{ id: 'h1', sql: 'select 1', connectionId: 'conn-1' }],
 	},
 }))
-vi.mock('../../src/lib/features/workspace/query/history-api', () => ({}))
+vi.mock('../../src/lib/features/workspace/query/history/history-api', () => ({}))
 
 const { selectHistory } = await import(
-	'../../src/lib/features/workspace/query/history.svelte.ts'
+	'../../src/lib/features/workspace/query/history/history.svelte.ts'
 )
 
 beforeEach(() => {

@@ -1,7 +1,7 @@
 /** Saved-query library list + rename / delete / favorite. */
 import { errorMessage, isTauri } from '#core/ipc'
 import { workspaceSession, workspaceStudio } from '#features/workspace/session'
-import { queryLanguageFor } from './policy'
+import { queryLanguageFor } from '../policy'
 import {
 	deleteSavedQuery,
 	listSavedQueries,
