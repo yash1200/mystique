@@ -40,6 +40,8 @@ export interface ConnectionProfile {
 	/** Write-only on save. Never populated by list/get. */
 	password?: string | null
 	favorite: boolean
+	/** Seconds. Null or missing uses the app setting; 0 means no timeout. */
+	queryTimeoutSecs?: number | null
 	lastConnectedAt: string | null
 	createdAt: string
 	updatedAt: string
@@ -85,6 +87,8 @@ export interface SaveConnectionInput {
 	sshPassword?: string | null
 	clearSshSecret?: boolean
 	tlsKeyPassphrase?: string | null
+	/** Saved as sent on update too. Null uses the app setting; 0 means none. */
+	queryTimeoutSecs?: number | null
 }
 
 /** Form draft used by NewConnectionPanel (engine-specific fields optional). */
@@ -112,6 +116,8 @@ export interface ConnectionFormDraft {
 	readOnly: boolean
 	environment: Environment
 	notes: string
+	/** Seconds as typed. Blank uses the app setting; 0 means no timeout. */
+	queryTimeout?: string
 	sshEnabled?: boolean
 	sshHost?: string
 	sshPort?: number

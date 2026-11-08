@@ -18,11 +18,13 @@
 		Textarea,
 	} from '#core/ui'
 	import { adapterFor, emptyDraft, EngineFields, engineOptions } from '#engines'
+	import { appPrefs, timeoutLabel } from '#lib/app'
 	import {
 		CONNECTION_COLORS,
 		draftFromProfile,
 		namePlaceholder,
 	} from '../model'
+	import { suggestReadOnly } from '../profile-fields'
 	import { validateDraftForSave, validateDraftForTest } from '../validate'
 	import ColorSwatchGroup from './ColorSwatchGroup.svelte'
 
@@ -87,6 +89,7 @@
 			environment,
 			notes,
 			readOnly,
+			queryTimeout,
 			sshEnabled,
 			sshHost,
 			sshPort,
@@ -105,6 +108,7 @@
 			environment,
 			notes,
 			readOnly,
+			queryTimeout,
 			sshEnabled,
 			sshHost,
 			sshPort,
@@ -214,6 +218,19 @@
 				</Field>
 			</FormGrid>
 
+			{#if suggestReadOnly(draft)}
+				<Alert tone="warning">
+					Production connection. Consider turning on Read-only.
+					<button
+						type="button"
+						class="ml-1 font-medium underline"
+						onclick={() => (draft.readOnly = true)}
+					>
+						Turn it on
+					</button>
+				</Alert>
+			{/if}
+
 			<Field label="Display name">
 				<Input
 					placeholder={namePlaceholder(draft.engine)}
@@ -258,6 +275,19 @@
 					Clear stored password
 				</button>
 			{/if}
+
+			<Field label="Query timeout (seconds)">
+				<Input
+					class="w-32 font-mono"
+					inputmode="numeric"
+					placeholder={`App setting (${timeoutLabel(appPrefs.queryTimeoutSecs)})`}
+					bind:value={draft.queryTimeout}
+					autocomplete="off"
+				/>
+				<p class="m-0 text-caption text-fg-muted">
+					Blank uses the app setting. 0 means no timeout, for long DDL and migrations.
+				</p>
+			</Field>
 
 			<Field label="Notes">
 				<Textarea

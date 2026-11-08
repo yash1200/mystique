@@ -1,4 +1,5 @@
 import { isMacPlatform } from '#core/util'
+import { parseTimeoutSecs, QUERY_TIMEOUT_DEFAULT_SECS } from './query-timeout'
 import type {
 	ConnectionListSort,
 	DensityPref,
@@ -22,6 +23,7 @@ const EXPLORER_WIDTH_KEY = 'mystique-explorer-panel-width'
 const HOME_SIDEBAR_WIDTH_KEY = 'mystique-home-sidebar-width'
 const AGENT_CHAT_OPEN_KEY = 'mystique-agent-chat-open'
 const AGENT_CHAT_WIDTH_KEY = 'mystique-agent-chat-panel-width'
+const QUERY_TIMEOUT_KEY = 'mystique-query-timeout-secs'
 
 export const EXPLORER_PANEL_WIDTH_DEFAULT = 240
 export const EXPLORER_PANEL_WIDTH_MIN = 180
@@ -137,6 +139,10 @@ function readAgentChatWidth(): number {
 	return clampAgentChatPanelWidth(Number(raw))
 }
 
+function readQueryTimeout(): number {
+	return parseTimeoutSecs(lsGet(QUERY_TIMEOUT_KEY)) ?? QUERY_TIMEOUT_DEFAULT_SECS
+}
+
 function systemPrefersDark(): boolean {
 	if (typeof window === 'undefined') return true
 	return window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -158,6 +164,8 @@ class AppPrefsStore {
 	agentChatOpen = $state(false)
 	agentChatPanelWidth = $state(readAgentChatWidth())
 	systemDark = $state(systemPrefersDark())
+	/** Query timeout when the profile sets none. 0 means no timeout. */
+	queryTimeoutSecs = $state(readQueryTimeout())
 
 	get resolvedTheme(): 'light' | 'dark' {
 		if (this.theme === 'system') return this.systemDark ? 'dark' : 'light'
@@ -220,6 +228,14 @@ class AppPrefsStore {
 	setHomeSidebarWidth(px: number, persist = true) {
 		this.homeSidebarWidth = clampHomeSidebarWidth(px)
 		if (persist) lsSet(HOME_SIDEBAR_WIDTH_KEY, String(this.homeSidebarWidth))
+	}
+
+	/** Ignores a value that is not a whole number of seconds in range. */
+	setQueryTimeoutSecs(raw: unknown) {
+		const secs = parseTimeoutSecs(raw)
+		if (secs === null) return
+		this.queryTimeoutSecs = secs
+		lsSet(QUERY_TIMEOUT_KEY, String(secs))
 	}
 
 	setAgentChatOpen(on: boolean) {

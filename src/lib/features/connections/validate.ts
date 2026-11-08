@@ -4,6 +4,7 @@
  */
 import type { ConnectionFormDraft } from '#core/contracts'
 import { adapterFor, connectionKindFromCaps, engineOptions } from '#engines'
+import { timeoutError } from './profile-fields'
 
 function validateSsh(draft: ConnectionFormDraft): string | null {
 	const kind = connectionKindFromCaps(
@@ -40,6 +41,8 @@ export function validateDraftForSave(
 	if (!selected?.available && !options?.isEdit) {
 		return 'Selected engine is not available yet.'
 	}
+	const timeout = timeoutError(draft.queryTimeout)
+	if (timeout) return timeout
 	const ssh = validateSsh(draft)
 	if (ssh) return ssh
 	return adapterFor(draft.engine).connection.validate(draft, 'save')

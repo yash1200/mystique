@@ -75,6 +75,9 @@ class ConnectionProfilesStore {
 			readOnly: profile.readOnly,
 			notes: profile.notes ?? null,
 			pluginConfig: profile.pluginConfig ?? {},
+			// Update saves every field, so carry the ones the form owns.
+			sshConfig: profile.ssh,
+			queryTimeoutSecs: profile.queryTimeoutSecs ?? null,
 			favorite: !profile.favorite,
 		})
 	}
