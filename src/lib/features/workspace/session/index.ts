@@ -5,6 +5,7 @@
  */
 export * from './api'
 export * from './close-guard'
+export * from './connection-cache.svelte'
 export * from './edit-buffer'
 export { guardCopy, typedNameOk, type GuardCopy } from './guard-copy'
 export * from './live-session'

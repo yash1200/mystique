@@ -45,13 +45,6 @@ export function selectedDatabaseName(
 	return selectedDb[connectionId] ?? catalogs[0]?.name ?? ''
 }
 
-export function structureCacheKey(
-	connectionId: string,
-	tableId: string,
-): string {
-	return `${connectionId}::${tableId}`
-}
-
 export function patchCatalogTable(
 	catalogs: Record<string, DatabaseMeta[]>,
 	connectionId: string,

@@ -35,6 +35,7 @@
 		ensureCatalogForActiveSession,
 		ensureLiveCatalog,
 	} from '#features/workspace/catalog'
+	import { modelStore } from '#features/workspace/er'
 	import { tablePreview } from '#features/workspace/grid'
 	import {
 		querySave,
@@ -56,6 +57,7 @@
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
+	import { structureStore } from '#features/workspace/structure'
 	import { TransferHost } from '#features/workspace/transfer'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import OpenTransactionModal from './OpenTransactionModal.svelte'
@@ -368,11 +370,8 @@
 		workspaceSession.disconnect(id)
 		catalogStore.forget(id)
 		selectedDatabases.forget(id)
-		const nextModels: typeof workspaceStudio.liveModels = {}
-		for (const [k, v] of Object.entries(workspaceStudio.liveModels)) {
-			if (!k.startsWith(`${id}::`)) nextModels[k] = v
-		}
-		workspaceStudio.liveModels = nextModels
+		modelStore.forget(id)
+		structureStore.forget(id)
 		if (sid) catalogColumnsCache.invalidate(sid)
 		if (workspaceStudio.savedQueriesFor === id) {
 			workspaceStudio.savedQueries = []

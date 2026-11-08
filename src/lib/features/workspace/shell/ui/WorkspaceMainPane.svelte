@@ -8,6 +8,8 @@
 	import {
 		ErWorkspace,
 		hydrateActiveModel,
+		modelKey,
+		modelStore,
 		openModelDiagram,
 	} from '#features/workspace/er'
 	import { StructurePanel } from '#features/workspace/explorer'
@@ -20,6 +22,7 @@
 	import {
 		hydrateActiveStructure,
 		openObjectStructure,
+		structureStore,
 	} from '#features/workspace/structure'
 	import {
 		prependHistoryItem,
@@ -34,8 +37,6 @@
 		reconnectActiveSession,
 		findCatalogTable,
 		objectKindById as kindsFromCatalog,
-		structureCacheKey,
-		modelCacheKey,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
@@ -104,11 +105,7 @@
 	const activeModel = $derived.by(() => {
 		if (!activeTab || activeTab.kind !== 'model' || !activeId) return null
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
-		return (
-			workspaceStudio.liveModels[
-				modelCacheKey(activeId, db, activeTab.tableId)
-			] ?? null
-		)
+		return modelStore.get(activeId, modelKey(db, activeTab.tableId)) ?? null
 	})
 	const activeStructure = $derived.by(() => {
 		if (
@@ -119,11 +116,7 @@
 		) {
 			return null
 		}
-		return (
-			workspaceStudio.liveStructures[
-				structureCacheKey(activeId, activeTab.tableId)
-			] ?? null
-		)
+		return structureStore.get(activeId, activeTab.tableId) ?? null
 	})
 	const structure = $derived(activeStructure?.data ?? null)
 	const structureFetchedAt = $derived(activeStructure?.rev ?? null)
@@ -154,11 +147,11 @@
 		pruneEditorStates(workspaceSession.openTabs.map((tab) => tab.id))
 	})
 
-	const modelError = $derived(workspaceStudio.modelError)
-	const modelLoading = $derived(workspaceStudio.modelLoading)
-	const structureLoading = $derived(workspaceStudio.structureLoading)
+	const modelError = $derived(modelStore.of(activeId).error)
+	const modelLoading = $derived(modelStore.of(activeId).loading)
+	const structureLoading = $derived(structureStore.of(activeId).loading)
 
-	const structureError = $derived(workspaceStudio.structureError)
+	const structureError = $derived(structureStore.of(activeId).error)
 	const structureCaps = $derived(
 		activeSession
 			? resolveCapabilities(

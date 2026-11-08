@@ -5,24 +5,14 @@
  */
 import type {
 	ImportFormat,
-	ObjectStructure,
 	PreviewImportResult,
 	TableMeta,
 } from '#core/contracts'
-import type { ErDiagramState } from '#features/workspace/er'
 import type {
 	QueryHistoryEntry,
 	SavedQueryListItem,
 } from '#features/workspace/query'
 export type StudioSideMode = 'explorer' | 'saved-queries' | 'history'
-
-export type LiveModel = {
-	diagram: ErDiagramState
-	title: string
-	summary: string
-	rev: number
-	focusNodeId: string
-}
 
 class WorkspaceStudio {
 	sideMode = $state<StudioSideMode>('explorer')
@@ -39,16 +29,6 @@ class WorkspaceStudio {
 	querySaving = $state(false)
 	/** Connection id the current saved-query list belongs to. */
 	savedQueriesFor = $state<string | null>(null)
-
-	liveModels = $state<Record<string, LiveModel>>({})
-	modelLoading = $state(false)
-	modelError = $state<string | null>(null)
-
-	liveStructures = $state<
-		Record<string, { data: ObjectStructure; rev: number }>
-	>({})
-	structureLoading = $state(false)
-	structureError = $state<string | null>(null)
 
 	rowSyncTick = $state(0)
 	tablePreviewTick = $state(0)

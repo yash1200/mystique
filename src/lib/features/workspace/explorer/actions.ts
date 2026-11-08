@@ -3,7 +3,7 @@ import type { TableAdminOp, TableMeta } from '#core/contracts'
 import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
 import {
 	catalogStore,
-	currentDatabaseName,
+	databaseNameFor,
 	refreshCurrentTables,
 } from '#features/workspace/catalog'
 import { openModelDiagram } from '#features/workspace/er'
@@ -13,14 +13,15 @@ import {
 	askWriteGuard,
 	isWriteCancelled,
 	requireActiveConnection,
-	structureCacheKey,
 	tableTabId,
 	runWithWriteGuard,
 	withLiveSession,
 	workspaceSession,
-	workspaceStudio,
 } from '#features/workspace/session'
-import { openObjectStructure } from '#features/workspace/structure'
+import {
+	openObjectStructure,
+	structureStore,
+} from '#features/workspace/structure'
 import { beginExport, beginImport } from '#features/workspace/transfer'
 import { menuDangerPrompt } from './danger'
 import type { TableExplorerAction } from './ui/ObjectExplorer.svelte'
@@ -95,7 +96,7 @@ export async function onTableExplorerAction(
 							op,
 							name: table.name,
 							schema: table.schema || null,
-							database: table.database || currentDatabaseName(),
+							database: table.database || databaseNameFor(id),
 							kind: table.kind,
 							newName,
 							confirmObjectName: confirmObjectName ?? null,
@@ -129,11 +130,7 @@ export async function onTableExplorerAction(
 		if (action === 'drop' || action === 'rename') {
 			if (tableOpen) workspaceSession.closeTab(tabId)
 			if (structureOpen) workspaceSession.closeTab(structureTabId)
-			const sk = structureCacheKey(id, table.id)
-			if (workspaceStudio.liveStructures[sk]) {
-				const { [sk]: _drop, ...rest } = workspaceStudio.liveStructures
-				workspaceStudio.liveStructures = rest
-			}
+			structureStore.drop(id, table.id)
 		} else if (action === 'truncate' && tableOpen) {
 			void tablePreview.open(table)
 		}

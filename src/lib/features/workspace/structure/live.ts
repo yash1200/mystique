@@ -1,18 +1,15 @@
 /** Load object structure for the structure tab. */
 import type { TableMeta } from '#core/contracts'
 import { errorMessage, describeEngineObjectStructure, isTauri } from '#core/ipc'
-import {
-	catalogStore,
-	currentDatabaseName,
-} from '#features/workspace/catalog'
+import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 import {
 	findCatalogTable,
 	requireActiveConnection,
-	structureCacheKey,
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
+import { structureStore } from './store.svelte'
 
 export async function openObjectStructure(table: TableMeta, force = false) {
 	const active = requireActiveConnection()
@@ -20,65 +17,48 @@ export async function openObjectStructure(table: TableMeta, force = false) {
 	const { id } = active
 	workspaceStudio.sideMode = 'explorer'
 	workspaceSession.openStructure(id, table.id, table.name)
-	const key = structureCacheKey(id, table.id)
-	if (!force && workspaceStudio.liveStructures[key]?.data?.sections?.length) {
-		workspaceStudio.structureError = null
+	if (!force && structureStore.get(id, table.id)?.data?.sections?.length) {
+		structureStore.setError(id, null)
 		return
 	}
 	if (!isTauri()) {
-		workspaceStudio.structureError =
-			'Object structure requires the Mystique desktop app. Connect and try again.'
+		structureStore.setError(
+			id,
+			'Object structure requires the Mystique desktop app. Connect and try again.',
+		)
 		return
 	}
-	workspaceStudio.structureLoading = true
-	workspaceStudio.structureError = null
+	structureStore.setLoading(id, true)
+	structureStore.setError(id, null)
 	try {
 		const loaded = await withLiveSession(id, (sid) =>
 			describeEngineObjectStructure({
 				sessionId: sid,
 				table: table.name,
 				schema: table.schema || null,
-				database: table.database || currentDatabaseName() || null,
+				database: table.database || databaseNameFor(id) || null,
 				kind: table.kind,
 			}),
 		)
-		workspaceStudio.liveStructures = {
-			...workspaceStudio.liveStructures,
-			[key]: { data: loaded, rev: Date.now() },
-		}
+		structureStore.put(id, table.id, { data: loaded, rev: Date.now() })
 		if (loaded.title) {
 			workspaceSession.openStructure(id, table.id, table.name)
 		}
 	} catch (e) {
-		workspaceStudio.structureError = errorMessage(e)
+		structureStore.setError(id, errorMessage(e))
 	} finally {
-		workspaceStudio.structureLoading = false
+		structureStore.setLoading(id, false)
 	}
 }
 
 export function hydrateActiveStructure() {
 	const tab = workspaceSession.activeTab
 	const id = workspaceSession.activeConnectionId
-	if (
-		!id ||
-		!tab ||
-		tab.kind !== 'structure' ||
-		!tab.tableId ||
-		workspaceStudio.structureLoading ||
-		workspaceStudio.structureError
-	) {
-		return
-	}
-	const key = structureCacheKey(id, tab.tableId)
-	if (workspaceStudio.liveStructures[key]?.data) return
-	const table = findStructureTable(id, tab.tableId)
+	if (!id || !tab || tab.kind !== 'structure' || !tab.tableId) return
+	const state = structureStore.of(id)
+	if (state.loading || state.error) return
+	if (structureStore.get(id, tab.tableId)?.data) return
+	const table = findCatalogTable(catalogStore.databases(id), tab.tableId)
 	if (!table) return
 	void openObjectStructure(table)
-}
-
-function findStructureTable(
-	connectionId: string,
-	tableId: string,
-): TableMeta | null {
-	return findCatalogTable(catalogStore.databases(connectionId), tableId)
 }
