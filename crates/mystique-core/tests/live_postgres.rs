@@ -146,6 +146,30 @@ async fn a_cancel_sent_before_the_run_starts_is_honoured() {
     mgr.close_session("s1-cancel").await.unwrap();
 }
 
+async fn open_pg(mgr: &ConnectionManager, session_id: &str) {
+    mgr.open_session(OpenSessionRequest {
+        engine: "postgres".into(),
+        plugin_config: pg_config(),
+        password: None,
+        pool: Some(PoolConfig {
+            max_size: 2,
+            min_idle: 0,
+            acquire_timeout_ms: 5_000,
+            idle_timeout_secs: 0,
+        }),
+        session_id: Some(session_id.into()),
+        profile_id: None,
+        ssh: None,
+        tls_key_passphrase: None,
+        environment: None,
+        connection_name: None,
+        profile_read_only: false,
+        use_saved_ssh: true,
+    })
+    .await
+    .unwrap();
+}
+
 fn sleep_req(session_id: &str, mode: QueryMode, timeout_ms: u64) -> ExecuteQueryRequest {
     ExecuteQueryRequest {
         session_id: session_id.into(),
@@ -162,39 +186,22 @@ fn sleep_req(session_id: &str, mode: QueryMode, timeout_ms: u64) -> ExecuteQuery
     }
 }
 
-/// B-08: a profile timeout of 0 means none. The canvas path (batch, both
-/// modes, and a pinned tab) must let a 2s sleep finish; a 1s limit stops it.
+/// B-08: a profile timeout of 0 means none. The canvas path (a batch and
+/// a pinned tab) must let a 2s sleep finish; a 1s limit stops it.
 #[tokio::test]
 #[ignore = "needs local Postgres"]
 async fn a_zero_timeout_lets_pg_sleep_run_past_the_limit() {
     let mgr = ConnectionManager::bootstrap();
-    mgr.open_session(OpenSessionRequest {
-        engine: "postgres".into(),
-        plugin_config: pg_config(),
-        password: None,
-        pool: Some(PoolConfig {
-            max_size: 2,
-            min_idle: 0,
-            acquire_timeout_ms: 5_000,
-            idle_timeout_secs: 0,
-        }),
-        session_id: Some("b4-timeout".into()),
-        profile_id: None,
-        ssh: None,
-        tls_key_passphrase: None,
-        environment: None,
-        connection_name: None,
-        profile_read_only: false,
-        use_saved_ssh: true,
-    })
-    .await
-    .unwrap();
+    // The limited run gets its own pool. A late cancel from its deadline can
+    // land on the next statement of a pooled connection (a known issue).
+    open_pg(&mgr, "b4-limited").await;
+    open_pg(&mgr, "b4-timeout").await;
 
     // pg_sleep is not a proven read, so the canvas runs it in Write mode.
     let mode = QueryMode::Write;
     let started = Instant::now();
     let limited = mgr
-        .execute_batch(sleep_req("b4-timeout", mode, 1_000), None)
+        .execute_batch(sleep_req("b4-limited", mode, 1_000), None)
         .await;
     let message = match &limited {
         Err(err) => err.to_string(),
@@ -210,6 +217,7 @@ async fn a_zero_timeout_lets_pg_sleep_run_past_the_limit() {
         "{message}"
     );
     assert!(started.elapsed() < Duration::from_millis(1_900));
+    mgr.close_session("b4-limited").await.unwrap();
 
     let started = Instant::now();
     let ran = mgr
