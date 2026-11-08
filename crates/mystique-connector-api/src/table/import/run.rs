@@ -8,7 +8,6 @@ use mystique_sql::dml::{compile_insert, compile_upsert};
 use mystique_transfer::{parse_import_file, suggest_map};
 
 use super::super::edits::{ApplyTableEditsInput, TableEditColumn, TableRowInsert};
-use super::super::sql::SqlIdentStyle;
 use super::{
     ImportChunkInput, ImportChunkResult, ImportColumnMap, ImportObjectInput, ImportObjectResult,
     ImportOnDuplicate, ImportTableColumn, PreviewImportInput, PreviewImportResult,
@@ -17,6 +16,7 @@ use super::{
 use crate::catalog::ColumnInfo;
 use crate::connector::ConnectorSession;
 use crate::error::{ConnectorError, ConnectorResult};
+use mystique_sql::SqlDialect;
 
 pub async fn preview_import_with_describe(
     session: &dyn ConnectorSession,
@@ -186,7 +186,7 @@ pub async fn import_object_from_file(
 
 /// Shared SQL write for one import chunk (insert or upsert).
 pub fn import_chunk_sql(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     chunk: &ImportChunkInput,
 ) -> ConnectorResult<(Vec<String>, ImportChunkResult)> {
     let edits = ApplyTableEditsInput {

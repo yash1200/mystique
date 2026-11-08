@@ -1,21 +1,23 @@
-//! shim: remove after one release. Grid filter compilation lives in
-//! `mystique_sql::filters`. These wrappers keep the old `ConnectorResult` and
-//! `ColumnInfo` signatures; new code calls `mystique_sql::filters` directly.
+//! Grid filter compilation lives in `mystique_sql::filters`.
+//!
+//! The `ConnectorResult` wrappers (`sql_where_clause`, `sql_preview_where`,
+//! `parse_code_filter_rules`, `mongo_filter_json`) are a shim: remove after
+//! one release. The sort helpers stay: they resolve against the SPI's
+//! `ColumnInfo`.
 
-use mystique_sql::filters;
+use mystique_sql::{filters, SqlDialect};
 
-use super::sql::SqlIdentStyle;
 use crate::catalog::{ColumnInfo, TableFilter};
 use crate::error::ConnectorResult;
 
 /// ` WHERE a AND b` or empty. Identifiers are quoted; strings escaped.
-pub fn sql_where_clause(style: SqlIdentStyle, filters: &[TableFilter]) -> ConnectorResult<String> {
+pub fn sql_where_clause(style: SqlDialect, filters: &[TableFilter]) -> ConnectorResult<String> {
     Ok(filters::sql_where_clause(style, filters)?)
 }
 
 /// Compile UI rules plus the raw code-filter box into ` WHERE …`.
 pub fn sql_preview_where(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     filters: &[TableFilter],
     code_filter: Option<&str>,
 ) -> ConnectorResult<String> {
@@ -34,7 +36,7 @@ pub fn mongo_filter_json(filters: &[TableFilter]) -> ConnectorResult<serde_json:
 
 /// ` ORDER BY "col" ASC` when the column is known; `None` = plugin default order.
 pub fn preview_sort_sql(
-    style: SqlIdentStyle,
+    style: SqlDialect,
     columns: &[ColumnInfo],
     sort_column: Option<&str>,
     sort_dir: Option<&str>,

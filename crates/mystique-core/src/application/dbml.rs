@@ -3,7 +3,9 @@
 
 use mystique_connector_api::{CatalogColumnRow, CatalogRelationship};
 
-fn quote_ident(name: &str) -> String {
+/// DBML identifier: bare when it is a plain word, else `"…"` with `\"`.
+/// This is DBML syntax, not SQL; SQL quoting is `mystique_sql::quote_ident`.
+fn dbml_ident(name: &str) -> String {
     let n = name.trim();
     if n.is_empty() {
         return "unnamed".into();
@@ -23,11 +25,11 @@ fn quote_ident(name: &str) -> String {
 /// never strip it (unqualified `FROM boards` then fails).
 pub(crate) fn table_ident(schema: &str, table: &str) -> String {
     let s = schema.trim();
-    let t = quote_ident(table);
+    let t = dbml_ident(table);
     if s.is_empty() || s.eq_ignore_ascii_case("public") {
         t
     } else {
-        format!("{}.{}", quote_ident(s), t)
+        format!("{}.{}", dbml_ident(s), t)
     }
 }
 
@@ -124,7 +126,7 @@ pub fn catalog_to_dbml(
                 };
                 out.push_str(&format!(
                     "  {} {}{}\n",
-                    quote_ident(&c.name),
+                    dbml_ident(&c.name),
                     c.data_type.trim(),
                     setting_str
                 ));
@@ -141,9 +143,9 @@ pub fn catalog_to_dbml(
             out.push_str(&format!(
                 "Ref: {}.{} > {}.{}\n",
                 from,
-                quote_ident(&rel.from_column),
+                dbml_ident(&rel.from_column),
                 to,
-                quote_ident(&rel.to_column)
+                dbml_ident(&rel.to_column)
             ));
         }
         out.push('\n');

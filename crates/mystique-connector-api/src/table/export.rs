@@ -14,7 +14,7 @@ use crate::connector::ConnectorSession;
 use crate::error::{ConnectorError, ConnectorResult};
 use serde::{Deserialize, Serialize};
 
-use super::sql::SqlIdentStyle;
+use mystique_sql::SqlDialect;
 use mystique_transfer::export::{
     write_csv_header, write_csv_rows, write_io, write_json_array_rows, write_jsonl_rows,
     write_sql_insert, writeln_io,
@@ -83,7 +83,7 @@ pub struct ExportObjectResult {
 pub async fn export_object_with_preview(
     session: &dyn ConnectorSession,
     input: &ExportObjectInput,
-    sql_style: Option<SqlIdentStyle>,
+    sql_style: Option<SqlDialect>,
 ) -> ConnectorResult<ExportObjectResult> {
     if matches!(input.format, ExportFormat::Sql) && sql_style.is_none() {
         return Err(ConnectorError::NotSupported(
