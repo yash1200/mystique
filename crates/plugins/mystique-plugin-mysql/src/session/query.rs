@@ -5,14 +5,14 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    affected_message, emit_progress, idle_result, poll_until_idle, split_sql_statements_for,
-    sql_explain_executes, BatchPhase, ConnectorError, ConnectorResult, InterruptGuard,
-    PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect,
-    StatementResult, ValidatedBatch, ValidatedQuery,
+    affected_message, emit_progress, idle_result, inactivity_limit, opens_transaction,
+    poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase, ConnectorError,
+    ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
+    QueryResult, SqlDialect, StatementResult, ValidatedBatch, ValidatedQuery,
 };
 use serde_json::Value as JsonValue;
 
-use super::cancel::{apply_timeouts, arm_kill, clear_timeouts, inactivity};
+use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};
 use super::encode::{mysql_type_label, value_json};
 use super::read_only::{self, ReadOnlyVar};
 use super::MysqlSession;
@@ -158,7 +158,12 @@ async fn run_batch(
                 // before `KILL QUERY` unblocks the driver.
                 let step = if saw_row {
                     idle_result(
-                        poll_until_idle(&query.control, inactivity(), result_set.next()).await,
+                        poll_until_idle(
+                            &query.control,
+                            inactivity_limit(query.timeout_ms),
+                            result_set.next(),
+                        )
+                        .await,
                     )?
                 } else {
                     result_set.next().await
@@ -262,7 +267,7 @@ pub(super) async fn execute_batch(
             return Err(err);
         }
     }
-    let result = run_planned_batch(&mut conn, batch, lock).await;
+    let result = run_planned_batch(&mut conn, batch, lock, false).await;
     let drop_conn = drop_mysql_batch(batch, &result);
     batch.control.clear_interrupt();
     release_conn(conn, result, lock, drop_conn).await
@@ -280,6 +285,26 @@ fn drop_mysql_batch(batch: &ValidatedBatch, result: &ConnectorResult<QueryBatchR
         })
 }
 
+/// `START TRANSACTION` unless the server says one is already open.
+async fn begin_unless_open(conn: &mut mysql_async::Conn) -> ConnectorResult<()> {
+    if transaction_open(conn).await? {
+        return Ok(());
+    }
+    conn.query_drop("START TRANSACTION")
+        .await
+        .map_err(query_failed)
+}
+
+/// The server's in-transaction status bit, read from the OK packet of `DO 0`.
+/// Unlike `innodb_trx`, it is set right after `BEGIN` and needs no privilege.
+pub(super) async fn transaction_open(conn: &mut mysql_async::Conn) -> ConnectorResult<bool> {
+    conn.query_drop("DO 0").await.map_err(query_failed)?;
+    Ok(conn.last_ok_packet().is_some_and(|ok| {
+        ok.status_flags()
+            .contains(mysql_async::consts::StatusFlags::SERVER_STATUS_IN_TRANS)
+    }))
+}
+
 fn located_batch(batch: &ValidatedBatch, sql: &str, err: mysql_async::Error) -> ConnectorError {
     if batch.control.is_cancelled() {
         ConnectorError::Query("Query cancelled.".into())
@@ -288,10 +313,13 @@ fn located_batch(batch: &ValidatedBatch, sql: &str, err: mysql_async::Error) -> 
     }
 }
 
+/// `auto_begin` (manual commit) starts a transaction before a write when none
+/// is open. DDL commits implicitly, so the check runs before every write.
 pub(super) async fn run_planned_batch(
     conn: &mut mysql_async::Conn,
     batch: &ValidatedBatch,
     lock: Option<ReadOnlyVar>,
+    auto_begin: bool,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
@@ -301,7 +329,16 @@ pub(super) async fn run_planned_batch(
             return Err(ConnectorError::Query("Query cancelled.".into()));
         }
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
-        let (sets, unread) = match drain_sets(conn, batch, stmt, !is_last).await {
+        let begun = if auto_begin && opens_transaction(stmt, SqlDialect::Mysql) {
+            begin_unless_open(conn).await
+        } else {
+            Ok(())
+        };
+        let drained = match begun {
+            Ok(()) => drain_sets(conn, batch, stmt, !is_last).await,
+            Err(err) => Err(err),
+        };
+        let (sets, unread) = match drained {
             Ok(drained) => drained,
             Err(err) => {
                 if batch.control.is_cancelled() {
@@ -421,7 +458,14 @@ where
                 return Err(ConnectorError::Query("Query cancelled.".into()));
             }
             let step = if saw_row {
-                idle_result(poll_until_idle(&batch.control, inactivity(), qr.next()).await)?
+                idle_result(
+                    poll_until_idle(
+                        &batch.control,
+                        inactivity_limit(batch.timeout_ms),
+                        qr.next(),
+                    )
+                    .await,
+                )?
             } else {
                 qr.next().await
             };

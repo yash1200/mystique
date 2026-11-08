@@ -102,6 +102,7 @@ impl ConnectionManager {
                         tab,
                         &validated.text,
                         mode,
+                        kind,
                         max_rows,
                         timeout_ms,
                         validated.collection.clone(),

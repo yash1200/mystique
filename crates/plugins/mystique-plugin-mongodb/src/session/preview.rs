@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use mongodb::bson::{doc, Bson, Document};
 use mystique_connector_api::{
     ColumnInfo, ConnectorError, ConnectorResult, FetchTablePreviewInput, QueryControl,
-    TablePreviewResult, TablePreviewStats, INACTIVITY_TIMEOUT_MS, MAX_TIMEOUT_MS,
+    TablePreviewResult, TablePreviewStats, FETCH_TIMEOUT_MS, INACTIVITY_TIMEOUT_MS,
 };
 
 use super::encode::bson_to_json;
@@ -56,7 +56,7 @@ pub(super) async fn fetch_table_preview(
         find = find.limit(input.max_rows as i64);
     }
     // find with maxTimeMS = the global cap. Dropping the cursor on cancel aborts it.
-    let find = find.max_time(Duration::from_millis(MAX_TIMEOUT_MS));
+    let find = find.max_time(Duration::from_millis(FETCH_TIMEOUT_MS));
     let mut cursor = mongo_drive(&input.control, find).await?;
 
     let mut docs = Vec::new();

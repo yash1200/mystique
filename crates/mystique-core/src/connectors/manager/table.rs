@@ -8,7 +8,7 @@ use mystique_connector_api::{
     FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
     PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
     TableDefinition, TablePreviewResult, TablePreviewStats, WriteAction, WriteRisk,
-    DEFAULT_MAX_ROWS, HARD_MAX_ROWS, MAX_TIMEOUT_MS,
+    DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -89,7 +89,7 @@ impl ConnectionManager {
             input.control = Arc::clone(&control);
             self.drive_registered(
                 &control,
-                MAX_TIMEOUT_MS,
+                FETCH_TIMEOUT_MS,
                 session.fetch_table_preview(&input),
             )
             .await
@@ -118,8 +118,12 @@ impl ConnectionManager {
             let session = self.session(&req.session_id).await?;
             let mut input = req.into_input();
             input.control = Arc::clone(&control);
-            self.drive_registered(&control, MAX_TIMEOUT_MS, session.fetch_large_value(&input))
-                .await
+            self.drive_registered(
+                &control,
+                FETCH_TIMEOUT_MS,
+                session.fetch_large_value(&input),
+            )
+            .await
         }
         .await;
         self.finish_run(&id).await;

@@ -23,6 +23,12 @@ pub const CANCEL_CLEANUP_MS: u64 = 2_000;
 /// are allowed to use that deadline. A later gap with no bytes is not.
 pub const INACTIVITY_TIMEOUT_MS: u64 = 30_000;
 
+/// The stall limit for a run with this timeout. A run with no timeout
+/// ([`crate::NO_TIMEOUT`]) has no stall limit either.
+pub fn inactivity_limit(timeout_ms: u64) -> Option<Duration> {
+    (timeout_ms != crate::NO_TIMEOUT).then(|| Duration::from_millis(INACTIVITY_TIMEOUT_MS))
+}
+
 /// Fires when [`CancellationToken::cancel`] runs.
 ///
 /// Built on [`Notify`] so connector-api does not depend on `tokio-util`.
@@ -182,6 +188,7 @@ impl IdleStop {
 }
 
 /// Poll `work` until it finishes, the token fires, or `inactivity` elapses.
+/// `None` waits for the work or the token only.
 ///
 /// On cancel or inactivity the inner future is polled for
 /// [`CANCEL_CLEANUP_MS`] after the interrupt, not dropped. Drivers need that
@@ -189,7 +196,7 @@ impl IdleStop {
 /// cursor is what aborts the command, so that plugin does not use this helper.
 pub async fn poll_until_idle<T>(
     control: &QueryControl,
-    inactivity: Duration,
+    inactivity: Option<Duration>,
     work: impl Future<Output = T>,
 ) -> Result<T, IdleStop> {
     tokio::pin!(work);
@@ -201,7 +208,7 @@ pub async fn poll_until_idle<T>(
             let _ = tokio::time::timeout(cleanup, &mut work).await;
             Err(IdleStop::Cancelled)
         }
-        _ = tokio::time::sleep(inactivity) => {
+        _ = tokio::time::sleep(inactivity.unwrap_or_default()), if inactivity.is_some() => {
             control.cancel();
             let _ = tokio::time::timeout(cleanup, &mut work).await;
             Err(IdleStop::Inactive)
@@ -293,9 +300,26 @@ mod tests {
             watched.token.cancelled().await;
             flag.store(true, Ordering::SeqCst);
         };
-        let stop = poll_until_idle(&control, Duration::from_millis(20), work).await;
+        let stop = poll_until_idle(&control, Some(Duration::from_millis(20)), work).await;
         assert_eq!(stop, Err(IdleStop::Inactive));
         assert!(finished.load(Ordering::SeqCst));
         assert!(control.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn no_timeout_has_no_stall_limit() {
+        assert_eq!(inactivity_limit(crate::NO_TIMEOUT), None);
+        assert_eq!(
+            inactivity_limit(5_000),
+            Some(Duration::from_millis(INACTIVITY_TIMEOUT_MS))
+        );
+        let control = QueryControl::new();
+        let work = async {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            7
+        };
+        let done = poll_until_idle(&control, inactivity_limit(crate::NO_TIMEOUT), work).await;
+        assert_eq!(done, Ok(7));
+        assert!(!control.is_cancelled());
     }
 }

@@ -67,14 +67,15 @@ impl PinnedSession for PostgresPin {
     async fn execute(&mut self, batch: &ValidatedBatch) -> ConnectorResult<QueryBatchResult> {
         let client = self.client()?;
         let _guard = Self::arm(client, &self.cancel_tls, &batch.control);
-        let timeout = batch.timeout_ms.max(1);
+        let timeout = batch.timeout_ms; // 0 turns statement_timeout off.
         let _ = client
             .batch_execute(&format!("SET statement_timeout = {timeout}"))
             .await;
-        // Inside the user's transaction a cursor is declared directly. Its own
-        // BEGIN … COMMIT would commit their open writes.
+        // The first write opens a transaction (manual commit). Inside one, a
+        // cursor is declared directly; its own BEGIN … COMMIT would commit
+        // the open writes.
         let in_txn = self.state != TxnState::Idle;
-        let result = run_planned_batch(client, batch, false, in_txn).await;
+        let result = run_planned_batch(client, batch, false, in_txn, true).await;
         let _ = client.batch_execute("RESET statement_timeout").await;
         self.refresh().await;
         result

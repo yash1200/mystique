@@ -11,7 +11,7 @@ use mystique_connector_api::{
 };
 
 use super::cancel::{self, arm_kill};
-use super::query::run_planned_batch;
+use super::query::{run_planned_batch, transaction_open};
 use super::query_failed;
 
 pub struct MysqlPin {
@@ -64,7 +64,13 @@ impl MysqlPin {
     async fn finish(&mut self, commit: bool) -> ConnectorResult<()> {
         self.refresh().await;
         if !self.open.load(Ordering::SeqCst) {
-            return Ok(());
+            return if commit {
+                Err(ConnectorError::Query(
+                    "No open transaction. Nothing was committed.".into(),
+                ))
+            } else {
+                Ok(())
+            };
         }
         let conn = self.conn_mut()?;
         let sql = if commit { "COMMIT" } else { "ROLLBACK" };
@@ -82,7 +88,7 @@ impl PinnedSession for MysqlPin {
         arm_kill(&pool, conn.id(), &batch.control);
         let _guard = InterruptGuard::new(&batch.control);
         cancel::apply_timeouts(conn, batch.timeout_ms).await;
-        let result = run_planned_batch(conn, batch, None).await;
+        let result = run_planned_batch(conn, batch, None, true).await;
         batch.control.clear_interrupt();
         cancel::clear_timeouts(conn).await;
         self.note(batch);
@@ -121,11 +127,5 @@ impl Drop for MysqlPin {
 }
 
 async fn probe_transaction(conn: &mut mysql_async::Conn) -> Option<bool> {
-    let value = crate::rows::query_first_opt::<i64>(
-        conn,
-        "SELECT COUNT(*) FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = CONNECTION_ID()",
-    )
-    .await
-    .ok()?;
-    Some(value.unwrap_or(0) > 0)
+    transaction_open(conn).await.ok()
 }

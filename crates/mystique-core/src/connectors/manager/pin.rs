@@ -1,4 +1,9 @@
 //! Tab → pinned connection. Idle pins roll back. Closing the tab rolls back.
+//!
+//! The first write on a pinned tab opens a transaction on every engine; the
+//! plugins do that. A transaction lost without the user ending it (idle
+//! reap, disconnect, a server-side rollback) is reported as `rolled_back`,
+//! and the tab's next commit or run is refused once.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -128,14 +133,18 @@ impl ConnectionManager {
     }
 
     pub async fn pin_status(&self, tab_id: &str) -> PinStatus {
+        let rolled_back = self.rolled_back.lock().await.contains(tab_id);
         let Some(tab) = self.pins.lock().await.get(tab_id).cloned() else {
             return PinStatus {
-                rolled_back: self.rolled_back.lock().await.contains(tab_id),
+                rolled_back,
                 ..PinStatus::idle()
             };
         };
         let pin = tab.pin.lock().await;
-        PinStatus::pinned(pin.in_transaction())
+        PinStatus {
+            rolled_back,
+            ..PinStatus::pinned(pin.in_transaction())
+        }
     }
 
     pub async fn commit_tab(&self, tab_id: &str) -> ConnectorResult<PinStatus> {
@@ -183,13 +192,17 @@ impl ConnectionManager {
     }
 
     async fn end_tab(&self, tab_id: &str, commit: bool) -> ConnectorResult<PinStatus> {
+        let lost = self.take_rolled_back(tab_id).await;
         let Some(tab) = self.pins.lock().await.get(tab_id).cloned() else {
-            if commit && self.take_rolled_back(tab_id).await {
+            if commit && lost {
                 return Err(ConnectorError::Query(ROLLED_BACK.into()));
             }
             return Ok(PinStatus::idle());
         };
         tab.touch();
+        if commit && lost && !tab.pin.lock().await.in_transaction() {
+            return Err(ConnectorError::Query(ROLLED_BACK.into()));
+        }
         let mut pin = tab.pin.lock().await;
         if commit {
             pin.commit().await?;
@@ -301,6 +314,13 @@ impl ConnectionManager {
         session_id: &str,
         tab_id: &str,
     ) -> ConnectorResult<PinStatus> {
+        // A fresh pin, or a fresh transaction on this one, would run these
+        // statements outside the lost transaction.
+        if self.take_rolled_back(tab_id).await {
+            return Err(ConnectorError::Query(format!(
+                "{ROLLED_BACK} Nothing ran. Run again to continue without it."
+            )));
+        }
         if self.pin_status(tab_id).await.pinned {
             let pins = self.pins.lock().await;
             if let Some(pin) = pins.get(tab_id) {
@@ -310,12 +330,6 @@ impl ConnectionManager {
                     return Ok(PinStatus::pinned(guard.in_transaction()));
                 }
             }
-        }
-        // A fresh pin would run these statements outside the lost transaction.
-        if self.take_rolled_back(tab_id).await {
-            return Err(ConnectorError::Query(format!(
-                "{ROLLED_BACK} Nothing ran. Run again to continue without it."
-            )));
         }
         self.pin_tab(session_id, tab_id).await
     }
@@ -332,7 +346,18 @@ impl ConnectionManager {
         };
         tab.touch();
         let mut pin = tab.pin.lock().await;
-        pin.execute(batch).await
+        let was_open = pin.in_transaction();
+        let result = pin.execute(batch).await;
+        // Open before, closed after, and the batch failed without a COMMIT or
+        // ROLLBACK of its own: the server or the connection dropped it.
+        let failed = result.as_ref().map_or(true, |ran| {
+            ran.results.iter().any(|stmt| stmt.error.is_some())
+        });
+        let ended_by_user = batch.statements.iter().any(|stmt| stmt.txn_boundary);
+        if was_open && failed && !ended_by_user && !pin.in_transaction() {
+            self.rolled_back.lock().await.insert(tab_id.to_string());
+        }
+        result
     }
 
     /// Mongo shell text on the tab's pin. One statement, same guards as a normal find.
@@ -342,6 +367,7 @@ impl ConnectionManager {
         tab_id: &str,
         text: &str,
         mode: QueryMode,
+        kind: StatementKind,
         max_rows: u32,
         timeout_ms: u64,
         collection: Option<String>,
@@ -355,11 +381,7 @@ impl ConnectionManager {
                 index: 0,
                 sql: text.to_string(),
                 sql_range: SqlRange { start: 0, end },
-                kind: if mode == QueryMode::Read {
-                    StatementKind::Read
-                } else {
-                    StatementKind::Write
-                },
+                kind,
                 returns_rows: true,
                 returns_count: false,
                 cursor: false,

@@ -134,12 +134,15 @@ async fn run_explain(
     } else {
         "queryPlanner"
     };
-    let max_time = i64::try_from(query.timeout_ms.max(1)).unwrap_or(i64::MAX);
-    let command = doc! {
+    let mut command = doc! {
         "explain": spec,
         "verbosity": verbosity,
-        "maxTimeMS": max_time,
     };
+    // A run with no timeout sends no maxTimeMS.
+    if query.timeout_ms != mystique_connector_api::NO_TIMEOUT {
+        let max_time = i64::try_from(query.timeout_ms).unwrap_or(i64::MAX);
+        command.insert("maxTimeMS", max_time);
+    }
     let document = drive(
         &query.control,
         session.client.database(db_name).run_command(command),

@@ -13,7 +13,7 @@ use mystique_connector_api::{
 use rusqlite::Connection;
 
 use super::interrupt::map_err;
-use super::query::run_on_connection;
+use super::query::{run_on_connection, RunOptions};
 use super::query_failed;
 
 pub struct SqlitePin {
@@ -45,25 +45,17 @@ impl PinnedSession for SqlitePin {
             .ok_or_else(|| ConnectorError::Connect("pinned connection is closed".into()))?;
         let control = std::sync::Arc::clone(&batch.control);
         let statements = batch.statements.clone();
-        let mode = batch.mode;
-        let max_rows = usize::try_from(batch.max_rows.max(1)).unwrap_or(usize::MAX);
         let progress = batch.progress.clone();
-        let lock_writes = mode == QueryMode::Read || batch.explain_executes;
+        let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
+        // The first write opens a transaction (manual commit).
+        let opts = RunOptions::for_batch(batch, lock_writes, !lock_writes);
         let joined = tokio::task::spawn_blocking(move || {
             let result = (|| {
                 if lock_writes {
                     conn.execute_batch("PRAGMA query_only = ON")
                         .map_err(|err| map_err(&control, err))?;
                 }
-                let result = run_on_connection(
-                    &conn,
-                    &control,
-                    &statements,
-                    mode,
-                    max_rows,
-                    &progress,
-                    lock_writes,
-                );
+                let result = run_on_connection(&conn, &control, &statements, &progress, opts);
                 if lock_writes {
                     let _ = conn.execute_batch("PRAGMA query_only = OFF");
                 }
@@ -78,6 +70,11 @@ impl PinnedSession for SqlitePin {
     }
 
     async fn commit(&mut self) -> ConnectorResult<()> {
+        if !self.in_transaction() {
+            return Err(ConnectorError::Query(
+                "No open transaction. Nothing was committed.".into(),
+            ));
+        }
         self.end_transaction(true).await
     }
 

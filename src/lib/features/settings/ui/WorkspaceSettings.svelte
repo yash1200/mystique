@@ -2,6 +2,7 @@
 	import {
 		ControlGroup,
 		ControlRow,
+		Input,
 		Segmented,
 		Switch,
 		type SegmentedOption,
@@ -16,6 +17,14 @@
 		{ value: 'production', label: 'Production' },
 		{ value: 'always', label: 'Always' },
 	]
+
+	// Re-seeded from the saved value on blur, so a bad entry does not stick.
+	let timeoutText = $state(String(appPrefs.queryTimeoutSecs))
+
+	function commitTimeout() {
+		appPrefs.setQueryTimeoutSecs(timeoutText)
+		timeoutText = String(appPrefs.queryTimeoutSecs)
+	}
 
 	function onDensity(v: string) {
 		appPrefs.setDensity(v === 'comfortable' ? 'comfortable' : 'compact')
@@ -37,6 +46,23 @@
 				checked={appPrefs.inspectOnRowClick}
 				ariaLabel="Open on row click"
 				onchange={(on) => appPrefs.setInspectOnRowClick(on)}
+			/>
+		</ControlRow>
+		<ControlRow
+			label="Query timeout (seconds)"
+			description="For profiles without their own. 0 means no timeout, for long DDL and migrations."
+			htmlFor="settings-query-timeout"
+		>
+			<Input
+				id="settings-query-timeout"
+				class="w-24 text-right font-mono"
+				inputSize="sm"
+				inputmode="numeric"
+				bind:value={timeoutText}
+				onblur={commitTimeout}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') commitTimeout()
+				}}
 			/>
 		</ControlRow>
 		<ControlRow label="Open tables on single click">

@@ -11,7 +11,7 @@ use mystique_connector_api::{
 };
 use serde_json::Value as JsonValue;
 
-use mystique_connector_api::{InterruptGuard, MAX_TIMEOUT_MS};
+use mystique_connector_api::{InterruptGuard, FETCH_TIMEOUT_MS};
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};
 use super::catalog;
@@ -84,7 +84,7 @@ pub(super) async fn fetch_table_preview(
     let mut conn = session.conn().await?;
     arm_kill(&session.pool(), conn.id(), &input.control);
     let _guard = InterruptGuard::new(&input.control);
-    apply_timeouts(&mut conn, MAX_TIMEOUT_MS).await;
+    apply_timeouts(&mut conn, FETCH_TIMEOUT_MS).await;
     let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
     let mut unread = false;
     let mut failure = None;

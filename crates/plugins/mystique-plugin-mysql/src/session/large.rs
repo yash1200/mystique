@@ -5,7 +5,7 @@ use mysql_async::Value;
 use mystique_connector_api::{
     large_cell_select, page_cell, ConnectorError, ConnectorResult, FetchLargeValueInput,
     FetchLargeValueResult, InterruptGuard, SqlIdentStyle, SqlPlaceholder, SqlTextCast,
-    MAX_TIMEOUT_MS,
+    FETCH_TIMEOUT_MS,
 };
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};
@@ -27,7 +27,7 @@ pub(super) async fn fetch_large_value(
     let mut conn = session.conn().await?;
     arm_kill(&session.pool, conn.id(), &input.control);
     let _guard = InterruptGuard::new(&input.control);
-    apply_timeouts(&mut conn, MAX_TIMEOUT_MS).await;
+    apply_timeouts(&mut conn, FETCH_TIMEOUT_MS).await;
     let params: Vec<Value> = select
         .params
         .iter()

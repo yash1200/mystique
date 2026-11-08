@@ -2,26 +2,24 @@
 //!
 //! The runtime id is `mysql` for MySQL, MariaDB, and TiDB. MariaDB ignores
 //! `max_execution_time` and honors `max_statement_time` (seconds). Set both and
-//! ignore the error from the one the server does not know.
-
-use std::time::Duration;
+//! ignore the error from the one the server does not know. 0 on either means
+//! no limit, which is what a [`NO_TIMEOUT`] run sets.
 
 use mysql_async::prelude::*;
 use mysql_async::Pool;
-use mystique_connector_api::{QueryControl, INACTIVITY_TIMEOUT_MS};
+use mystique_connector_api::{QueryControl, NO_TIMEOUT};
 
 use super::MysqlSession;
 
 pub(super) fn statement_time_secs(timeout_ms: u64) -> u64 {
+    if timeout_ms == NO_TIMEOUT {
+        return 0;
+    }
     timeout_ms.div_ceil(1_000).max(1)
 }
 
-pub(super) fn inactivity() -> Duration {
-    Duration::from_millis(INACTIVITY_TIMEOUT_MS)
-}
-
 pub(super) async fn apply_timeouts(conn: &mut mysql_async::Conn, timeout_ms: u64) {
-    let millis = timeout_ms.max(1);
+    let millis = timeout_ms;
     let _ = conn
         .query_drop(format!("SET SESSION max_execution_time = {millis}"))
         .await;
@@ -68,5 +66,6 @@ mod tests {
         assert_eq!(statement_time_secs(1_500), 2);
         assert_eq!(statement_time_secs(30_000), 30);
         assert_eq!(statement_time_secs(1), 1);
+        assert_eq!(statement_time_secs(0), 0, "no timeout is no limit");
     }
 }

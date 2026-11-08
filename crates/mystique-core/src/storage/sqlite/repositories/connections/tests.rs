@@ -37,6 +37,7 @@ fn save_list_delete_connection() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         },
     )
     .unwrap();
@@ -78,6 +79,7 @@ fn update_keeps_password_when_blank() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         },
     )
     .unwrap();
@@ -102,6 +104,7 @@ fn update_keeps_password_when_blank() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         },
     )
     .unwrap();
@@ -133,6 +136,7 @@ fn clear_secret_removes_password() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         },
     )
     .unwrap();
@@ -157,6 +161,7 @@ fn clear_secret_removes_password() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         },
     )
     .unwrap();
@@ -188,6 +193,7 @@ fn ignores_legacy_placeholder_secret_ref() {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         },
     )
     .unwrap();
@@ -214,6 +220,7 @@ fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
         ssh_password: None,
         clear_ssh_secret: false,
         tls_key_passphrase: None,
+        query_timeout_secs: None,
     }
 }
 
@@ -248,4 +255,22 @@ fn list_all_pins_favourites_first() {
         .map(|p| p.name)
         .collect();
     assert_eq!(names, ["alpha", "beta", "zeta"]);
+}
+
+#[test]
+fn query_timeout_round_trips_and_none_follows_the_app_setting() {
+    let conn = test_db();
+    let mut input = sample_input("t", None);
+    input.query_timeout_secs = Some(0);
+    let saved = save(&conn, input).unwrap();
+    assert_eq!(saved.query_timeout_secs, Some(0), "0 (no timeout) was lost");
+
+    let mut update = sample_input("t", None);
+    update.id = Some(saved.id.clone());
+    update.query_timeout_secs = Some(300);
+    assert_eq!(save(&conn, update).unwrap().query_timeout_secs, Some(300));
+
+    let mut cleared = sample_input("t", None);
+    cleared.id = Some(saved.id.clone());
+    assert_eq!(save(&conn, cleared).unwrap().query_timeout_secs, None);
 }

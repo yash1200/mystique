@@ -792,6 +792,7 @@ mod tests {
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
+            query_timeout_secs: None,
         }
     }
 

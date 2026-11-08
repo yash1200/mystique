@@ -1,4 +1,5 @@
-//! Pinned (manual-commit) tabs run every call inside the client session.
+//! Pinned (manual-commit) tabs: the first write opens a transaction on the
+//! client session, and every call after it runs inside that transaction.
 //!
 //! Needs a replica set, e.g. `mongod --replSet rs0` then `rs.initiate()`.
 //! Override the URI with `MYSTIQUE_MONGO_RS_URI`.
@@ -115,6 +116,14 @@ async fn rollback_discards_and_commit_keeps_pinned_writes() {
     .expect("seed");
 
     let mut pin = session.begin_pinned().await.expect("pin");
+    // Reads before the first write need no transaction (B-09), and listings
+    // work while none is open.
+    run(&mut pin, &format!("db.{COLLECTION}.countDocuments({{}})")).await;
+    assert!(!pin.in_transaction(), "a read opened a transaction");
+    run(&mut pin, "show collections").await;
+    let err = pin.commit().await.expect_err("nothing open");
+    assert!(err.to_string().contains("Nothing was committed"), "{err}");
+
     run(
         &mut pin,
         &format!("db.{COLLECTION}.insertOne({{ k: 'rolled' }})"),

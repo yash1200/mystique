@@ -16,6 +16,7 @@ import {
 	defaultCapabilitiesForEngine,
 	sslModeFromConfig,
 } from '#engines'
+import { timeoutFromText, timeoutText } from './profile-fields'
 
 export const CONNECTION_COLORS: {
 	id: ConnectionColorId
@@ -150,6 +151,7 @@ export function draftFromProfile(
 		readOnly: profile.readOnly,
 		environment: asEnvironment(profile.environment),
 		notes: profile.notes ?? '',
+		queryTimeout: timeoutText(profile.queryTimeoutSecs),
 		sshEnabled: Boolean(profile.ssh?.enabled),
 		sshHost: profile.ssh?.host ?? '',
 		sshPort: profile.ssh?.port || 22,
@@ -204,6 +206,7 @@ export function saveInputFromDraft(
 		readOnly: draft.readOnly,
 		notes: draft.notes.trim() || null,
 		pluginConfig,
+		queryTimeoutSecs: timeoutFromText(draft.queryTimeout),
 	}
 
 	const typedPassword = (draft.password ?? '').trim()

@@ -444,6 +444,7 @@ mod attach_secrets_tests {
                 ssh_password: None,
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
+                query_timeout_secs: None,
             })
             .unwrap()
     }
@@ -495,6 +496,7 @@ mod attach_secrets_tests {
                 ssh_password: None,
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
+                query_timeout_secs: None,
             })
             .unwrap();
         let mut unticked = open_req(saved.id.clone(), saved.plugin_config.clone());
@@ -596,6 +598,7 @@ mod attach_secrets_tests {
                 ssh_password: None,
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
+                query_timeout_secs: None,
             })
             .unwrap();
         let mut req = open_req(

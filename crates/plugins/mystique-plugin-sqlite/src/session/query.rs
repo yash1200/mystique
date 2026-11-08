@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use mystique_connector_api::{
-    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes, BatchPhase,
-    ConnectorError, ConnectorResult, PlannedStatement, ProgressPump, QueryBatchResult, QueryColumn,
-    QueryControl, QueryMode, QueryResult, SqlDialect, StatementResult, ValidatedBatch,
-    ValidatedQuery,
+    affected_message, emit_progress, opens_transaction, split_sql_statements_for,
+    sql_explain_executes, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
+    ProgressPump, QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult, SqlDialect,
+    StatementResult, ValidatedBatch, ValidatedQuery, NO_TIMEOUT,
 };
 use rusqlite::Connection;
 
@@ -26,6 +26,7 @@ pub(super) async fn execute_query(
     let pool = session.pool();
     let max_rows = query.max_rows as usize;
     let mode = query.mode;
+    let watch_stalls = query.timeout_ms != NO_TIMEOUT;
     let stmts = split_sql_statements_for(&query.text, SqlDialect::Sqlite);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
@@ -99,7 +100,7 @@ pub(super) async fn execute_query(
                     let mut saw_row = false;
                     let mut last_row = Instant::now();
                     while let Some(row) = rows_iter.next().map_err(|err| map_err(&control, err))? {
-                        stalled(&control, saw_row, last_row)?;
+                        stalled(&control, saw_row && watch_stalls, last_row)?;
                         if out_rows.len() >= max_rows {
                             truncated = true;
                             break;
@@ -187,8 +188,7 @@ pub(super) async fn execute_batch(
     let control = Arc::clone(&batch.control);
     let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
     let statements = batch.statements.clone();
-    let mode = batch.mode;
-    let max_rows = batch.max_rows.max(1) as usize;
+    let opts = RunOptions::for_batch(batch, lock_writes, false);
     let progress = batch.progress.clone();
 
     session
@@ -207,27 +207,41 @@ pub(super) async fn execute_batch(
                     .map_err(|err| ConnectorError::Pool(err.to_string()))?;
                 &pooled
             };
-            run_on_connection(
-                conn,
-                &control,
-                &statements,
-                mode,
-                max_rows,
-                &progress,
-                lock_writes,
-            )
+            run_on_connection(conn, &control, &statements, &progress, opts)
         })
         .await
+}
+
+/// How [`run_on_connection`] runs a batch.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RunOptions {
+    pub mode: QueryMode,
+    pub max_rows: usize,
+    pub lock_writes: bool,
+    /// Manual commit: `BEGIN` before a write when no transaction is open.
+    pub auto_begin: bool,
+    /// The between-rows stall check. Off for a run with no timeout.
+    pub watch_stalls: bool,
+}
+
+impl RunOptions {
+    pub fn for_batch(batch: &ValidatedBatch, lock_writes: bool, auto_begin: bool) -> Self {
+        Self {
+            mode: batch.mode,
+            max_rows: usize::try_from(batch.max_rows.max(1)).unwrap_or(usize::MAX),
+            lock_writes,
+            auto_begin,
+            watch_stalls: batch.timeout_ms != NO_TIMEOUT,
+        }
+    }
 }
 
 pub(super) fn run_on_connection(
     conn: &Connection,
     control: &Arc<QueryControl>,
     statements: &[PlannedStatement],
-    mode: QueryMode,
-    max_rows: usize,
     progress: &Option<ProgressPump>,
-    lock_writes: bool,
+    opts: RunOptions,
 ) -> ConnectorResult<QueryBatchResult> {
     interrupt::arm(conn, control);
     let _settle = interrupt::Settle { conn, control };
@@ -238,7 +252,12 @@ pub(super) fn run_on_connection(
             return Err(ConnectorError::Query("Query cancelled.".into()));
         }
         emit_progress(progress, stmt.index, total, BatchPhase::Started);
-        let outcome = run_sqlite_statement(conn, control, stmt, mode, max_rows)?;
+        let begin =
+            opts.auto_begin && conn.is_autocommit() && opens_transaction(stmt, SqlDialect::Sqlite);
+        let outcome = match begin.then(|| conn.execute_batch("BEGIN")) {
+            Some(Err(err)) => sqlite_statement_error(control, stmt, err)?,
+            _ => run_sqlite_statement(conn, control, stmt, &opts)?,
+        };
         let failed = outcome.error.is_some();
         let index = outcome.index;
         results.push(outcome);
@@ -252,7 +271,7 @@ pub(super) fn run_on_connection(
                 stopped_at: Some(index),
             });
         }
-        if lock_writes {
+        if opts.lock_writes {
             if let Err(err) = ensure_still_read_only(conn) {
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
@@ -280,9 +299,9 @@ fn run_sqlite_statement(
     conn: &Connection,
     control: &Arc<QueryControl>,
     stmt: &PlannedStatement,
-    mode: QueryMode,
-    max_rows: usize,
+    opts: &RunOptions,
 ) -> ConnectorResult<StatementResult> {
+    let RunOptions { mode, max_rows, .. } = *opts;
     let started = Instant::now();
     if stmt.returns_rows {
         let mut prepared = match conn.prepare(&stmt.sql) {
@@ -318,7 +337,7 @@ fn run_sqlite_statement(
             let Some(row) = next else {
                 break;
             };
-            if let Err(err) = stalled(control, saw_row, last_row) {
+            if let Err(err) = stalled(control, saw_row && opts.watch_stalls, last_row) {
                 return Err(err);
             }
             if out_rows.len() >= max_rows {

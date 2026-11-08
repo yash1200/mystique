@@ -20,7 +20,7 @@ pub(super) async fn explain_query(
     session.ensure_open()?;
     let client = session.client().await?;
     let _guard = session.arm_cancel(&client, &query.control);
-    let timeout = query.timeout_ms.max(1);
+    let timeout = query.timeout_ms; // 0 turns statement_timeout off.
     client
         .batch_execute("BEGIN READ ONLY")
         .await

@@ -26,6 +26,7 @@
 	} from '#core/ipc'
 	import { Resizable } from '#core/ui'
 	import { copyTextToClipboard } from '#core/util'
+	import { connectionProfiles } from '#features/connections'
 	import { showToast } from '#features/toast'
 	import { catalogColumnsCache } from '#features/workspace/catalog'
 	import {
@@ -43,7 +44,7 @@
 		tabTxnView,
 		workspaceSession,
 	} from '#features/workspace/shell'
-	import { appPrefs } from '#lib/app'
+	import { appPrefs, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { initialActiveIndex } from '../batch-view'
 	import { QUERY_FETCH_MAX_ROWS, RESULT_PAGE_SIZE_DEFAULT } from '../constants'
@@ -175,6 +176,13 @@
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
 	const effectiveMode = $derived<QueryMode>(profileReadOnly ? 'read' : 'write')
+	// Profile, then the app setting, then 120 s. 0 is sent as "no timeout".
+	const timeoutMs = $derived(
+		resolveQueryTimeoutMs(
+			connectionProfiles.profile(connectionId)?.queryTimeoutSecs,
+			appPrefs.queryTimeoutSecs,
+		),
+	)
 
 	const lineCount = $derived.by(() => {
 		if (!localText) return 1
@@ -427,7 +435,7 @@
 					text: sqlText,
 					analyze,
 					mode,
-					timeoutMs: 120_000,
+					timeoutMs,
 					profileReadOnly,
 					confirmObjectName: confirmObjectName ?? null,
 					collection: language === 'mql' ? collection.trim() || null : null,
@@ -523,7 +531,7 @@
 				text: sqlText,
 				mode,
 				maxRows: QUERY_FETCH_MAX_ROWS,
-				timeoutMs: 120_000,
+				timeoutMs,
 				profileReadOnly,
 				collection: language === 'mql' ? collection.trim() || null : null,
 				database: database?.trim() ? database.trim() : null,
@@ -661,7 +669,7 @@
 		rollbackNoticed.add(tab)
 		showToast(
 			'warning',
-			'The open transaction was rolled back (idle timeout or lost connection). Nothing in it was committed.',
+			'The open transaction was rolled back (idle timeout, lost connection, or the server ended it). Nothing in it was committed.',
 		)
 	}
 
@@ -689,9 +697,10 @@
 		try {
 			const status = await commitPinnedTab(tabId)
 			workspaceSession.setTabTxn(tabId, status)
-			showToast('success', 'Committed.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
+			// A lost transaction leaves the toolbar showing one open.
+			void refreshPin()
 		}
 	}
 
@@ -699,9 +708,10 @@
 		try {
 			const status = await rollbackPinnedTab(tabId)
 			workspaceSession.setTabTxn(tabId, status)
-			showToast('info', 'Rolled back.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
+			// A lost transaction leaves the toolbar showing one open.
+			void refreshPin()
 		}
 	}
 

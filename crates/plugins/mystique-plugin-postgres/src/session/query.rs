@@ -5,10 +5,10 @@ use std::time::Instant;
 
 use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
-    affected_message, emit_progress, split_sql_statements_for, sql_explain_executes,
-    sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
-    QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect, StatementResult,
-    ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
+    affected_message, emit_progress, opens_transaction, split_sql_statements_for,
+    sql_explain_executes, sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult,
+    PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, SqlDialect,
+    StatementResult, ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Format, IsNull, ToSql, Type};
@@ -37,11 +37,11 @@ pub(super) async fn execute_query(
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
 
-    let timeout = query.timeout_ms.max(1);
-    // Read mode, and any EXPLAIN that executes its target, must not be able to
-    // write even when the classifier misses (data-modifying CTE, parenthesised
-    // ANALYZE). ROLLBACK before the connection returns to the pool. SET LOCAL
-    // dies with that transaction, so statement_timeout does not leak.
+    let timeout = query.timeout_ms; // 0 turns statement_timeout off.
+                                    // Read mode, and any EXPLAIN that executes its target, must not be able to
+                                    // write even when the classifier misses (data-modifying CTE, parenthesised
+                                    // ANALYZE). ROLLBACK before the connection returns to the pool. SET LOCAL
+                                    // dies with that transaction, so statement_timeout does not leak.
     let lock_writes = query.mode == QueryMode::Read
         || stmts
             .iter()
@@ -81,7 +81,7 @@ pub(super) async fn execute_batch(
     session.ensure_open()?;
     let client = session.client().await?;
     let _guard = session.arm_cancel(&client, &batch.control);
-    let timeout = batch.timeout_ms.max(1);
+    let timeout = batch.timeout_ms; // 0 turns statement_timeout off.
     let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
 
     if lock_writes {
@@ -95,7 +95,7 @@ pub(super) async fn execute_batch(
         {
             return end_read_only_txn(client, Err(query_failed(err))).await;
         }
-        let result = run_planned_batch(&client, batch, true, true).await;
+        let result = run_planned_batch(&client, batch, true, true, false).await;
         end_read_only_txn(client, result).await
     } else {
         execute_held(session, &client, batch).await
@@ -109,22 +109,24 @@ pub(super) async fn execute_held(
     batch: &ValidatedBatch,
 ) -> ConnectorResult<QueryBatchResult> {
     let _guard = session.arm_cancel(client, &batch.control);
-    let timeout = batch.timeout_ms.max(1);
+    let timeout = batch.timeout_ms; // 0 turns statement_timeout off.
     let _ = client
         .batch_execute(&format!("SET statement_timeout = {timeout}"))
         .await;
-    let result = run_planned_batch(client, batch, false, false).await;
+    let result = run_planned_batch(client, batch, false, false, false).await;
     let _ = client.batch_execute("RESET statement_timeout").await;
     result
 }
 
 /// `in_txn` is whether a transaction block is already open. A cursor SELECT
-/// is wrapped in its own BEGIN … COMMIT only when none is.
+/// is wrapped in its own BEGIN … COMMIT only when none is. `auto_begin`
+/// (manual commit) opens a transaction before the first write.
 pub(super) async fn run_planned_batch(
     client: &Client,
     batch: &ValidatedBatch,
     locked: bool,
     in_txn: bool,
+    auto_begin: bool,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
@@ -134,7 +136,17 @@ pub(super) async fn run_planned_batch(
             return Err(ConnectorError::Query("Query cancelled.".into()));
         }
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
-        let outcome = run_planned(client, batch, stmt, &mut in_txn).await?;
+        let begun = if auto_begin && !in_txn && opens_transaction(stmt, SqlDialect::Postgres) {
+            let begun = client.batch_execute("BEGIN").await;
+            in_txn = begun.is_ok();
+            begun
+        } else {
+            Ok(())
+        };
+        let outcome = match begun {
+            Ok(()) => run_planned(client, batch, stmt, &mut in_txn).await?,
+            Err(err) => postgres_statement_error(stmt, query_failed(err), &batch.control)?,
+        };
         let failed = outcome.error.is_some();
         if stmt.txn_boundary && !locked && !failed {
             in_txn = match transaction_state(client).await {

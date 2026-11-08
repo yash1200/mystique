@@ -8,7 +8,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mystique_connector_api::{ConnectorError, ConnectorResult, QueryControl, CANCEL_CLEANUP_MS};
+use mystique_connector_api::{
+    ConnectorError, ConnectorResult, QueryControl, CANCEL_CLEANUP_MS, NO_TIMEOUT,
+};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
@@ -119,6 +121,7 @@ impl ConnectionManager {
     /// Overall deadline. On timeout, cancel (which fires the engine interrupt)
     /// and keep polling so the plugin can `RESET` / `ROLLBACK`, then return
     /// [`ConnectorError::Timeout`] rather than the driver's cancel error.
+    /// [`NO_TIMEOUT`] has no deadline; cancel still stops it.
     pub(super) async fn drive_registered<T>(
         &self,
         control: &Arc<QueryControl>,
@@ -137,7 +140,7 @@ impl ConnectionManager {
                 let _ = tokio::time::timeout(cleanup, &mut work).await;
                 Err(cancelled_error())
             }
-            _ = tokio::time::sleep(Duration::from_millis(timeout_ms)) => {
+            _ = tokio::time::sleep(Duration::from_millis(timeout_ms)), if timeout_ms != NO_TIMEOUT => {
                 control.cancel();
                 let _ = tokio::time::timeout(cleanup, &mut work).await;
                 Err(ConnectorError::Timeout(format!(
@@ -200,6 +203,7 @@ mod tests {
     use mystique_connector_api::{
         ConnectorError, ConnectorResult, ConnectorSession, EngineCapabilities, PoolStatus,
         QueryMode, QueryResult, ValidatedQuery, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS,
+        NO_TIMEOUT,
     };
 
     use super::*;
@@ -346,9 +350,15 @@ mod tests {
             .expect("zero");
         assert_eq!(
             *seen.lock().unwrap_or_else(|err| err.into_inner()),
-            DEFAULT_TIMEOUT_MS
+            NO_TIMEOUT,
+            "0 must reach the plugin as no timeout"
         );
-        mgr.execute_query(request(Some(9_000_000), None))
+        // A profile may ask for more than the old 120s cap.
+        mgr.execute_query(request(Some(600_000), None))
+            .await
+            .expect("long");
+        assert_eq!(*seen.lock().unwrap_or_else(|err| err.into_inner()), 600_000);
+        mgr.execute_query(request(Some(u64::MAX), None))
             .await
             .expect("cap");
         assert_eq!(
@@ -439,6 +449,29 @@ mod tests {
             .await
             .expect("cancel export");
         let _ = tokio::time::timeout(Duration::from_secs(2), export).await;
+    }
+
+    #[tokio::test]
+    async fn no_timeout_has_no_deadline_but_still_cancels() {
+        let mgr = ConnectionManager::bootstrap();
+        let _seen = insert_probe(&mgr, true).await;
+        let mgr = Arc::new(mgr);
+        let running = Arc::clone(&mgr);
+        let task = tokio::spawn(async move {
+            running
+                .execute_query(request(Some(NO_TIMEOUT), Some("run-none")))
+                .await
+        });
+        // Past the 1s floor a clamped 0 used to get.
+        tokio::time::sleep(Duration::from_millis(1_300)).await;
+        assert!(!task.is_finished(), "a run with no timeout was cut short");
+        mgr.cancel_query("run-none").await.expect("cancel");
+        let err = tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("join")
+            .expect("task")
+            .expect_err("cancelled");
+        assert!(err.to_string().contains("cancelled"), "{err}");
     }
 
     #[tokio::test]

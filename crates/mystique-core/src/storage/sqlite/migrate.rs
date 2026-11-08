@@ -11,12 +11,13 @@ const V5_SQL: &str = include_str!("../../../migrations/005_grid_layout.sql");
 const V6_SQL: &str = include_str!("../../../migrations/006_query_history.sql");
 const V7_SQL: &str = include_str!("../../../migrations/007_grid_saves.sql");
 const V8_SQL: &str = include_str!("../../../migrations/008_grid_column_widths.sql");
+const V9_SQL: &str = include_str!("../../../migrations/009_connection_defaults.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-const SCHEMA_VERSION: i32 = 8;
+const SCHEMA_VERSION: i32 = 9;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -33,6 +34,12 @@ fn table_exists(conn: &Connection, table: &str) -> AppResult<bool> {
         |row| row.get(0),
     )?;
     Ok(n > 0)
+}
+
+fn table_columns(conn: &Connection, table: &str) -> AppResult<Vec<String>> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    Ok(names.collect::<Result<_, _>>()?)
 }
 
 fn column_exists(conn: &Connection, table: &str, column: &str) -> AppResult<bool> {
@@ -126,10 +133,84 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
         stamp(conn, 8)?;
     }
 
+    if current < 9 {
+        if table_exists(conn, "connections")? {
+            rebuild_connections(conn)?;
+        }
+        stamp(conn, 9)?;
+    }
+
     // Dropped leftover from earlier builds. Live ER is not stored here.
     conn.execute("DROP TABLE IF EXISTS er_diagrams", [])?;
 
     Ok(())
+}
+
+/// Run 009 with foreign keys off, so dropping the old table does not cascade
+/// into saved queries and history. Keeps the AUTOINCREMENT high-water mark so
+/// a deleted connection id is never handed out again.
+fn rebuild_connections(conn: &Connection) -> AppResult<()> {
+    let fk_on: i64 = conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+    conn.execute_batch("PRAGMA foreign_keys = OFF")?;
+    let rebuilt = (|| -> AppResult<()> {
+        conn.execute_batch("BEGIN")?;
+        let seq: Option<i64> = conn
+            .query_row(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'connections'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        conn.execute_batch(V9_SQL)?;
+        // Copy the columns both tables have. Very old files lack some; those
+        // take the new defaults.
+        let mut shared = Vec::new();
+        for column in table_columns(conn, "connections_new")? {
+            if column_exists(conn, "connections", &column)? {
+                shared.push(column);
+            }
+        }
+        let shared = shared.join(", ");
+        conn.execute_batch(&format!(
+            "INSERT INTO connections_new ({shared}) SELECT {shared} FROM connections;
+             DROP TABLE connections;
+             ALTER TABLE connections_new RENAME TO connections;
+             CREATE INDEX IF NOT EXISTS idx_connections_engine ON connections (engine);
+             CREATE INDEX IF NOT EXISTS idx_connections_name
+               ON connections (name COLLATE NOCASE);
+             CREATE INDEX IF NOT EXISTS idx_connections_favorite
+               ON connections (favorite, name COLLATE NOCASE);"
+        ))?;
+        if let Some(seq) = seq {
+            conn.execute(
+                "UPDATE sqlite_sequence SET seq = MAX(seq, ?1) WHERE name = 'connections'",
+                [seq],
+            )?;
+            conn.execute(
+                "INSERT INTO sqlite_sequence (name, seq) SELECT 'connections', ?1
+                 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'connections')",
+                [seq],
+            )?;
+        }
+        let broken: i64 =
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })?;
+        if broken > 0 {
+            return Err(crate::error::AppError::Invalid(
+                "connections rebuild broke a foreign key".into(),
+            ));
+        }
+        conn.execute_batch("COMMIT")?;
+        Ok(())
+    })();
+    if rebuilt.is_err() && !conn.is_autocommit() {
+        let _ = conn.execute_batch("ROLLBACK");
+    }
+    if fk_on != 0 {
+        conn.execute_batch("PRAGMA foreign_keys = ON")?;
+    }
+    rebuilt
 }
 
 /// Builds before the schema reset stored the 001 file as version 6.
@@ -196,7 +277,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, SCHEMA_VERSION);
         assert!(table_exists(&conn, "grid_saves").unwrap());
         assert!(!table_exists(&conn, "grid_edit_history").unwrap());
         assert!(column_exists(&conn, "query_history", "source").unwrap());
@@ -268,11 +349,11 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, SCHEMA_VERSION);
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 8);
+        assert_eq!(n, 9);
     }
 
     #[test]
@@ -318,7 +399,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -354,7 +435,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -400,7 +481,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -436,6 +517,122 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    fn column_default(conn: &Connection, table: &str, column: &str) -> Option<String> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            let name: String = row.get(1).unwrap();
+            if name == column {
+                return row.get(4).unwrap();
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn migrate_009_turns_the_read_only_default_off_and_keeps_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        // Put the database back at version 8: the old table shape, DEFAULT 1.
+        conn.execute_batch(
+            "
+            PRAGMA foreign_keys = OFF;
+            DROP TABLE connections;
+            CREATE TABLE connections (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              engine TEXT NOT NULL,
+              color_id TEXT NOT NULL DEFAULT 'slate',
+              environment TEXT NOT NULL DEFAULT 'local',
+              read_only INTEGER NOT NULL DEFAULT 1,
+              notes TEXT,
+              plugin_config TEXT NOT NULL DEFAULT '{}',
+              secret_ref TEXT,
+              last_connected_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              favorite INTEGER NOT NULL DEFAULT 0,
+              ssh_config TEXT NOT NULL DEFAULT '{}',
+              ssh_secret_ref TEXT
+            );
+            PRAGMA foreign_keys = ON;
+            DELETE FROM schema_migrations WHERE version = 9;
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (8, 't');
+            INSERT INTO connections (id, name, engine, read_only, created_at, updated_at)
+              VALUES (1, 'ro', 'sqlite', 1, 'now', 'now'),
+                     (2, 'rw', 'sqlite', 0, 'now', 'now'),
+                     (5, 'gone', 'sqlite', 1, 'now', 'now');
+            DELETE FROM connections WHERE id = 5;
+            INSERT INTO saved_queries (connection_id, name, body, created_at, updated_at)
+              VALUES (1, 'q', 'select 1', 'now', 'now');
+            ",
+        )
+        .unwrap();
+        assert_eq!(
+            column_default(&conn, "connections", "read_only").as_deref(),
+            Some("1")
+        );
+
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap(); // idempotent
+
+        assert_eq!(
+            column_default(&conn, "connections", "read_only").as_deref(),
+            Some("0")
+        );
+        let stored: Vec<(i64, i64)> = conn
+            .prepare("SELECT id, read_only FROM connections ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(stored, vec![(1, 1), (2, 0)], "existing rows were flipped");
+        let timeout: Option<i64> = conn
+            .query_row(
+                "SELECT query_timeout_secs FROM connections WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(timeout, None, "a migrated profile follows the app setting");
+        // Saved queries survived the drop (foreign keys were off).
+        let saved: i64 = conn
+            .query_row("SELECT COUNT(*) FROM saved_queries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(saved, 1);
+        // The deleted id is not reused.
+        conn.execute(
+            "INSERT INTO connections (name, engine, created_at, updated_at)
+             VALUES ('new', 'sqlite', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        let (id, read_only): (i64, i64) = conn
+            .query_row(
+                "SELECT id, read_only FROM connections WHERE name = 'new'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(id, 6);
+        assert_eq!(read_only, 0, "a new row defaults to read-only off");
+        let fk: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fk, 1, "foreign keys were left off");
+        // Cascades still point at the rebuilt table.
+        conn.execute("DELETE FROM connections WHERE id = 1", [])
+            .unwrap();
+        let saved: i64 = conn
+            .query_row("SELECT COUNT(*) FROM saved_queries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(saved, 0);
     }
 }
