@@ -6,6 +6,7 @@
 //! This crate must not depend on `mystique-connector-api`; the SPI re-exports
 //! from here and maps [`BuildError`] onto its own error type.
 
+pub mod ddl;
 mod dialect;
 pub mod dml;
 mod error;
