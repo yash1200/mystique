@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Modal } from '#core/ui'
-	import { resetGuard } from '../reset-guard.svelte'
+	import { resetGuard } from '#features/workspace/session'
 
 	const loss = $derived(resetGuard.loss)
 </script>

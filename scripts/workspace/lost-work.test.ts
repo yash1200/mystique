@@ -8,12 +8,12 @@ import {
 	pendingLoss,
 	saveThenClose,
 	tabTxnView,
-} from '../../src/lib/features/workspace/shell/close-guard.ts'
+} from '../../src/lib/features/workspace/session/close-guard.ts'
 import {
 	registerTabSaver,
 	saveTableTab,
 	TAB_NOT_OPEN,
-} from '../../src/lib/features/workspace/shell/tab-save.ts'
+} from '../../src/lib/features/workspace/session/tab-save.ts'
 
 test('R-23 Save in the close prompt closes only after the grid save committed', async () => {
 	let closed = 0

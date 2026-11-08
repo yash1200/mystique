@@ -19,7 +19,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 import { resolveImportGate, type ImportGateChoice } from './import-gate'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
 import type { ImportFileSpec, ImportRunSpec } from './ui/ImportDataModal.svelte'

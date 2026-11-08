@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Modal } from '#core/ui'
-	import { workspaceStudio } from '#features/workspace/shell'
+	import { workspaceStudio } from '#features/workspace/session'
 	import { queryLibrary } from '../library.svelte'
 	import { querySave } from '../save.svelte'
 	import SaveQueryModal from './SaveQueryModal.svelte'

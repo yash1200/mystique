@@ -15,7 +15,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 import {
 	loadLiveCatalog,
 	mergeCatalogKeepCached,

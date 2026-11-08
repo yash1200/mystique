@@ -20,7 +20,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 import { menuDangerPrompt } from './danger'
 import { openObjectStructure } from './structure-live'
 import type { TableExplorerAction } from './ui/ObjectExplorer.svelte'

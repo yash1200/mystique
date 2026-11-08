@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { WriteGuardPrompt } from '../../src/lib/core/contracts/engines'
-import { guardCopy, typedNameOk } from '../../src/lib/features/workspace/shell/guard-copy'
+import { guardCopy, typedNameOk } from '../../src/lib/features/workspace/session/guard-copy'
 import {
 	guardLoop,
 	isWriteCancelled,
 	parseWriteGuard,
 	type WriteGuardDecision,
-} from '../../src/lib/features/workspace/shell/guard-loop'
+} from '../../src/lib/features/workspace/session/guard-loop'
 
 function prompt(kind: string, extra: Partial<WriteGuardPrompt> = {}): WriteGuardPrompt {
 	return {

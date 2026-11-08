@@ -14,7 +14,7 @@
 		isWriteCancelled,
 		runWithWriteGuard,
 		withLiveSession,
-	} from '#features/workspace/shell'
+	} from '#features/workspace/session'
 	import { onMount } from 'svelte'
 	import { openObjectStructure } from '../structure-live'
 	import {

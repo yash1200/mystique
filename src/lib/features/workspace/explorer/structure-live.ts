@@ -8,7 +8,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 
 export async function openObjectStructure(table: TableMeta, force = false) {
 	const active = requireActiveConnection()

@@ -3,7 +3,7 @@ import type { TableDefinition } from '../../src/lib/core/contracts/ddl'
 import { menuDangerPrompt } from '../../src/lib/features/workspace/explorer/danger'
 import { draftToSend } from '../../src/lib/features/workspace/explorer/structure-edit'
 import { importDialogCopy } from '../../src/lib/features/workspace/grid/import-dialog'
-import { guardCopy } from '../../src/lib/features/workspace/shell/guard-copy'
+import { guardCopy } from '../../src/lib/features/workspace/session/guard-copy'
 
 describe('drop / truncate from the explorer', () => {
 	const base = { name: 'orders', noun: 'table', connectionName: 'Shop' }

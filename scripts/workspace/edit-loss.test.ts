@@ -14,11 +14,11 @@ import {
 	reopenTableAction,
 	savePayload,
 	shouldRestoreEditBuffer,
-} from '../../src/lib/features/workspace/shell/edit-buffer.ts'
+} from '../../src/lib/features/workspace/session/edit-buffer.ts'
 import {
 	createPersistScheduler,
 	tabsForConnection,
-} from '../../src/lib/features/workspace/shell/persist-schedule.ts'
+} from '../../src/lib/features/workspace/session/persist-schedule.ts'
 
 test('FE-01 remount keeps the edit and the pre-edit baseline', () => {
 	clearEditBuffers()

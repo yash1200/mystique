@@ -1,5 +1,5 @@
 import type { CatalogObjectKind } from '#core/contracts'
-import type { WorkspaceTabKind } from '#features/workspace/shell'
+import type { WorkspaceTabKind } from '#features/workspace/session'
 
 export type CatalogIconName =
 	| CatalogObjectKind

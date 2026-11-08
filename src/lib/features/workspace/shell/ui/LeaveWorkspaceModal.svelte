@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Modal } from '#core/ui'
-	import type { PendingLoss } from '../close-guard'
+	import type { PendingLoss } from '#features/workspace/session'
 
 	interface Props {
 		/** What leaving would drop. The modal shows only while this is set. */

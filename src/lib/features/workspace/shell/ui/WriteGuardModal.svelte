@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { Button, Field, Input, Modal } from '#core/ui'
-	import { guardCopy, typedNameOk } from '../guard-copy'
 	import {
+		guardCopy,
+		typedNameOk,
 		currentWriteGuard,
 		resolveWriteGuard,
 		subscribeWriteGuard,
-	} from '../write-guard'
+	} from '#features/workspace/session'
 	import { onMount } from 'svelte'
 
 	let prompt = $state(currentWriteGuard())

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { createPersistScheduler } from '../../src/lib/features/workspace/shell/persist-schedule'
-import { tabDraftUpsert } from '../../src/lib/features/workspace/shell/tab-persist'
-import type { WorkspaceTab } from '../../src/lib/features/workspace/shell/types'
+import { createPersistScheduler } from '../../src/lib/features/workspace/session/persist-schedule'
+import { tabDraftUpsert } from '../../src/lib/features/workspace/session/tab-persist'
+import type { WorkspaceTab } from '../../src/lib/features/workspace/session/types'
 
 function tab(id: string, title: string): WorkspaceTab {
 	return {

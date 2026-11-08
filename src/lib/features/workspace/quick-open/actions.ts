@@ -3,7 +3,7 @@ import {
 	findCatalogTable,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 import { appChrome } from '#lib/app'
 import { goto } from '$app/navigation'
 import { tick } from 'svelte'

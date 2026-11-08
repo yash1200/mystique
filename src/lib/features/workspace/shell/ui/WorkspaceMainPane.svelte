@@ -28,17 +28,17 @@
 	import { cancelTabRun } from '#core/ipc'
 	import { appPrefs } from '#lib/app'
 	import { onMount } from 'svelte'
-	import { reconnectActiveSession } from '../live-session'
 	import {
+		reconnectActiveSession,
 		catalogsFor,
 		findCatalogTable,
 		objectKindById as kindsFromCatalog,
 		selectedDatabaseName,
 		structureCacheKey,
-	} from '../lookup'
-	import { modelCacheKey } from '../session-utils'
-	import { workspaceSession } from '../session.svelte'
-	import { workspaceStudio } from '../studio.svelte'
+		modelCacheKey,
+		workspaceSession,
+		workspaceStudio,
+	} from '#features/workspace/session'
 	import TableTabs from './TableTabs.svelte'
 	import WorkspaceEmpty from './WorkspaceEmpty.svelte'
 

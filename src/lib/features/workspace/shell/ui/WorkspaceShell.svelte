@@ -46,13 +46,14 @@
 		reopenEngineSession,
 		sessionDatabase,
 		startSessionHealthWatch,
-	} from '../live-session'
-	import { closeStep, saveThenClose } from '../close-guard'
-	import { dropEditBuffer } from '../edit-buffer'
-	import { saveTableTab } from '../tab-save'
-	import { workspaceSession } from '../session.svelte'
+		closeStep,
+		saveThenClose,
+		dropEditBuffer,
+		saveTableTab,
+		workspaceSession,
+		workspaceStudio,
+	} from '#features/workspace/session'
 	import { mountWorkspaceShortcuts } from '../shortcuts'
-	import { workspaceStudio } from '../studio.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import OpenTransactionModal from './OpenTransactionModal.svelte'
 	import type { SideNavMode } from './SessionsRail.svelte'

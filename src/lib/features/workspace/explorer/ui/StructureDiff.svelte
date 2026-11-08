@@ -15,7 +15,7 @@
 		sessionDatabase,
 		withLiveSession,
 		workspaceSession,
-	} from '#features/workspace/shell'
+	} from '#features/workspace/session'
 	import { pairRename, unpairedNames } from '../structure-edit'
 
 	interface Props {

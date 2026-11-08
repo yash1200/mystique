@@ -25,7 +25,7 @@ import {
 	withLiveSession,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 
 class TablePreview {
 	hydratedTabs = $state<Record<string, boolean>>({})

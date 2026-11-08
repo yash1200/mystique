@@ -16,11 +16,15 @@
 	import { showToast } from '#features/toast'
 	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
-	import { hasPendingLoss, workspaceLoss, type PendingLoss } from '../close-guard'
-	import { tabEditsAreDirty } from '../edit-buffer'
-	import { resetAppToHome } from '../reset'
-	import { workspaceSession } from '../session.svelte'
-	import { workspaceStudio } from '../studio.svelte'
+	import {
+		hasPendingLoss,
+		workspaceLoss,
+		type PendingLoss,
+		tabEditsAreDirty,
+		resetAppToHome,
+		workspaceSession,
+		workspaceStudio,
+	} from '#features/workspace/session'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 	import LeaveWorkspaceModal from './LeaveWorkspaceModal.svelte'
 

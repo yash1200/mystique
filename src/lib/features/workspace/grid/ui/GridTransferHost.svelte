@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolveCapabilities } from '#engines'
 	import { Button, Modal } from '#core/ui'
-	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
+	import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 	import {
 		answerImportGate,
 		cancelActiveExport,

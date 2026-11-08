@@ -32,10 +32,13 @@
 	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { resolveCapabilities } from '#engines'
-	import { liveStatusMark } from '../live-session'
-	import { catalogsFor, selectedDatabaseName } from '../lookup'
-	import { workspaceSession } from '../session.svelte'
-	import { workspaceStudio } from '../studio.svelte'
+	import {
+		liveStatusMark,
+		catalogsFor,
+		selectedDatabaseName,
+		workspaceSession,
+		workspaceStudio,
+	} from '#features/workspace/session'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 
 	const sideMode = $derived(workspaceStudio.sideMode)

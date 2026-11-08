@@ -10,7 +10,7 @@
 		pluginConfigForSession,
 	} from '#features/connections'
 	import { onMount } from 'svelte'
-	import { workspaceSession } from '../session.svelte'
+	import { workspaceSession } from '#features/workspace/session'
 	import WorkspaceShell from './WorkspaceShell.svelte'
 
 	let ready = $state(false)

@@ -43,7 +43,7 @@
 		runWithWriteGuard,
 		tabTxnView,
 		workspaceSession,
-	} from '#features/workspace/shell'
+	} from '#features/workspace/session'
 	import { appPrefs, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { initialActiveIndex } from '../batch-view'

@@ -9,7 +9,7 @@
 	} from '#features/workspace/catalog'
 	import { tick } from 'svelte'
 	import { flip } from 'svelte/animate'
-	import type { WorkspaceTab } from '../types'
+	import type { WorkspaceTab } from '#features/workspace/session'
 
 	interface Props {
 		tabs: WorkspaceTab[]

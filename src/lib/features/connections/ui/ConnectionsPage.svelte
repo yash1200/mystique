@@ -15,7 +15,7 @@
 	import { Button, EmptyState, Icon, Modal } from '#core/ui'
 	import { copyTextToClipboard, setAppTitle } from '#core/util'
 	import { showToast } from '#features/toast'
-	import { workspaceSession } from '#features/workspace/shell'
+	import { workspaceSession } from '#features/workspace/session'
 	import { appChrome } from '#lib/app'
 	import { onMount } from 'svelte'
 	import {

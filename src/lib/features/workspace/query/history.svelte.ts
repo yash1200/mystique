@@ -1,6 +1,6 @@
 /** Query history list. The connection manager writes the rows. */
 import { isTauri } from '#core/ipc'
-import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
+import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 import {
 	historyItemToEntry,
 	listQueryHistory,

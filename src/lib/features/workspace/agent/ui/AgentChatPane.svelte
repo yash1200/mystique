@@ -12,7 +12,7 @@
 	import { appSettingsUi } from '#features/settings'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { showToast } from '#features/toast'
-	import { workspaceSession } from '#features/workspace/shell'
+	import { workspaceSession } from '#features/workspace/session'
 	import {
 		AGENT_CHAT_PANEL_WIDTH_DEFAULT,
 		AGENT_CHAT_PANEL_WIDTH_MAX,

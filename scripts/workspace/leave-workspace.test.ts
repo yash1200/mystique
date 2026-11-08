@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	hasPendingLoss,
 	workspaceLoss,
-} from '../../src/lib/features/workspace/shell/close-guard'
+} from '../../src/lib/features/workspace/session/close-guard'
 
 const tabs = [
 	{ id: 'q1', kind: 'query' as const, title: 'Query 1', dirty: false },

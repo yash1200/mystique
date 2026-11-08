@@ -10,7 +10,7 @@ import {
 	rollbackEngineTableEdits,
 } from '#core/ipc'
 import { invoke } from '@tauri-apps/api/core'
-import { runWithWriteGuard } from '#features/workspace/shell'
+import { runWithWriteGuard } from '#features/workspace/session'
 import { identityCell } from './identity-cell'
 import {
 	layoutToStored,

@@ -19,8 +19,7 @@
 		connectionInitial,
 	} from '#features/connections'
 	import { showToast } from '#features/toast'
-	import { liveStatusMark } from '../live-session'
-	import { workspaceSession } from '../session.svelte'
+	import { liveStatusMark, workspaceSession } from '#features/workspace/session'
 
 	interface Props {
 		open: boolean

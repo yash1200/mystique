@@ -2,7 +2,7 @@
 	import { pushDialog } from '#core/ui'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
-	import { workspaceSession, workspaceStudio } from '#features/workspace/shell'
+	import { workspaceSession, workspaceStudio } from '#features/workspace/session'
 	import { tick } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
 	import { quickOpen } from '../chrome.svelte'

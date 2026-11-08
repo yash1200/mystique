@@ -11,7 +11,7 @@ import {
 	sessionDatabase,
 	workspaceSession,
 	workspaceStudio,
-} from '#features/workspace/shell'
+} from '#features/workspace/session'
 import { loadLiveErDiagram } from './api'
 
 export async function openModelDiagram(

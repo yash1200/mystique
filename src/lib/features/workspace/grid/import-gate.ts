@@ -2,7 +2,7 @@
  * Import reloads the table, which would drop pending grid edits. When the
  * table's tab has edits, the user picks: save first, discard, or cancel.
  */
-import type { SaveOutcome } from '#features/workspace/shell'
+import type { SaveOutcome } from '#features/workspace/session'
 
 export type ImportGateChoice = 'save' | 'discard' | 'cancel'
 

@@ -13,12 +13,12 @@ import {
 	rememberClosed,
 	reopenTab,
 	takeClosed,
-} from '../../src/lib/features/workspace/shell/closed-tabs'
+} from '../../src/lib/features/workspace/session/closed-tabs'
 import {
 	mountWorkspaceShortcuts,
 	workspaceChord,
 } from '../../src/lib/features/workspace/shell/shortcuts'
-import type { WorkspaceTab } from '../../src/lib/features/workspace/shell/types'
+import type { WorkspaceTab } from '../../src/lib/features/workspace/session/types'
 
 const cmd = {
 	metaKey: true,

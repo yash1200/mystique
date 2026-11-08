@@ -19,7 +19,7 @@
 		shouldRestoreEditBuffer,
 		tabEditsAreDirty,
 		type SaveOutcome,
-	} from '#features/workspace/shell'
+	} from '#features/workspace/session'
 	import { appPrefs } from '#lib/app'
 	import { onMount, tick, untrack } from 'svelte'
 	import {
