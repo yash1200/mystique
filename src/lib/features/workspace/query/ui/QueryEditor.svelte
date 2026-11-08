@@ -610,7 +610,7 @@
 					onclick={() => onmanualcommit?.(!manualCommit)}
 					title={manualCommit
 						? 'Turn auto-commit on. An open transaction is rolled back.'
-						: 'Turn auto-commit off and keep one connection for this tab.'}
+						: 'Turn auto-commit off. The first write opens a transaction; Commit or Rollback ends it.'}
 				>
 					Auto-commit
 				</Button>

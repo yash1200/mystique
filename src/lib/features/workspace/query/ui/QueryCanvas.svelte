@@ -662,7 +662,7 @@
 		rollbackNoticed.add(tab)
 		showToast(
 			'warning',
-			'The open transaction was rolled back (idle timeout or lost connection). Nothing in it was committed.',
+			'The open transaction was rolled back (idle timeout, lost connection, or the server ended it). Nothing in it was committed.',
 		)
 	}
 
@@ -690,9 +690,10 @@
 		try {
 			const status = await commitPinnedTab(tabId)
 			workspaceSession.setTabTxn(tabId, status)
-			showToast('success', 'Committed.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
+			// A lost transaction leaves the toolbar showing one open.
+			void refreshPin()
 		}
 	}
 
@@ -700,9 +701,10 @@
 		try {
 			const status = await rollbackPinnedTab(tabId)
 			workspaceSession.setTabTxn(tabId, status)
-			showToast('info', 'Rolled back.')
 		} catch (e) {
 			showToast('danger', e instanceof Error ? e.message : String(e))
+			// A lost transaction leaves the toolbar showing one open.
+			void refreshPin()
 		}
 	}
 
