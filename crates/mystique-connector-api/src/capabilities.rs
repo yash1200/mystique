@@ -147,6 +147,10 @@ pub struct EngineCapabilities {
     /// Structure tab can preview and apply a DDL plan. The UI does not build SQL.
     #[serde(default = "default_true")]
     pub supports_structure_edit: bool,
+    /// Structure edits are limited to adding columns, renaming, and indexes.
+    /// SQLite until its table rebuild keeps the original schema.
+    #[serde(default)]
+    pub structure_edit_limited: bool,
     /// Grid filter can ask for distinct column values. Hidden when false.
     #[serde(default = "default_true")]
     pub supports_distinct_values: bool,

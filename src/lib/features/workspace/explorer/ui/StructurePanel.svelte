@@ -39,6 +39,8 @@
 		canEdit?: boolean
 		readOnly?: boolean
 		showForeignKeys?: boolean
+		/** Only add columns, rename, and edit indexes (engine capability). */
+		editLimited?: boolean
 		connectionId?: string | null
 		engine?: string
 		table?: TableMeta | null
@@ -54,6 +56,7 @@
 		canEdit = false,
 		readOnly = false,
 		showForeignKeys = false,
+		editLimited = false,
 		connectionId = null,
 		engine = '',
 		table = null,
@@ -268,6 +271,7 @@
 			{table}
 			{readOnly}
 			{showForeignKeys}
+			limited={editLimited}
 			ondone={() => (editing = false)}
 		/>
 	{:else if loading && !structure}
