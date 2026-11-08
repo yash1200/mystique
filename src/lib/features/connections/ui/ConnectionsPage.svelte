@@ -13,12 +13,8 @@
 		setNativeMenu,
 		testEngineConnection,
 	} from '#core/ipc'
-	import { Button, EmptyState, Modal } from '#core/ui'
-	import {
-		copyTextToClipboard,
-		randomLoadingPun,
-		setAppTitle,
-	} from '#core/util'
+	import { Button, EmptyState, Icon, Modal } from '#core/ui'
+	import { copyTextToClipboard, setAppTitle } from '#core/util'
 	import { showToast } from '#features/toast'
 	import { workspaceSession } from '#features/workspace/shell'
 	import { appChrome } from '#lib/app'
@@ -65,7 +61,6 @@
 	/** Remount the create form to reset fields (Home / New / Cancel). */
 	let createFormKey = $state(0)
 	let loading = $state(true)
-	const loadingPun = randomLoadingPun()
 	let listRefreshing = $state(false)
 	let saving = $state(false)
 	let testing = $state(false)
@@ -79,6 +74,14 @@
 	const selected = $derived(
 		connections.find((c) => c.id === selectedId) ?? null,
 	)
+	/** The form shows `testResult` inline; the detail view does not. */
+	const formShown = $derived(editing || !selected)
+
+	/** Set the result banner; toast only when no banner is on screen. */
+	function reportTestResult(ok: boolean, message: string, toast = message) {
+		testResult = { ok, message }
+		if (!formShown) showToast(ok ? 'success' : 'danger', toast)
+	}
 
 	/** Landing: create-connection form. Connections live in the sidebar. */
 	function enterCreateMode() {
@@ -173,18 +176,15 @@
 		testResult = null
 	}
 
-	/**
-	 * Live connectivity check via backend engine plugins.
-	 * Reports established / failed clearly (toast + form banner).
-	 */
+	/** Live connectivity check via backend engine plugins. */
 	async function handleTestConnection(draft: ConnectionFormDraft) {
 		testResult = null
 
 		if (!isTauri()) {
-			const msg =
-				'Backend not available. Open the Mystique desktop app to test a real database connection.'
-			testResult = { ok: false, message: msg }
-			showToast('warning', msg)
+			reportTestResult(
+				false,
+				'Backend not available. Open the Mystique desktop app to test a real database connection.',
+			)
 			return
 		}
 
@@ -220,16 +220,16 @@
 
 			if (result.ok) {
 				const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
-				const msg = `Connection established to ${result.engine} (${result.latencyMs}ms)${version}. ${result.message}`
-				testResult = { ok: true, message: msg }
-				showToast(
-					'success',
+				reportTestResult(
+					true,
+					`Connection established to ${result.engine} (${result.latencyMs}ms)${version}. ${result.message}`,
 					`Connected to ${result.engine} (${result.latencyMs}ms)`,
 				)
 			} else {
-				const msg = `Connection failed: ${prettifyConnectError(result.message)}`
-				testResult = { ok: false, message: msg }
-				showToast('danger', msg)
+				reportTestResult(
+					false,
+					`Connection failed: ${prettifyConnectError(result.message)}`,
+				)
 			}
 		} catch (err) {
 			const prompt = parseSshHostKey(err)
@@ -238,9 +238,10 @@
 				sshHostKeyRetry = () => handleTestConnection(draft)
 				return
 			}
-			const msg = `Connection failed: ${prettifyConnectError(invokeErrorMessage(err))}`
-			testResult = { ok: false, message: msg }
-			showToast('danger', msg)
+			reportTestResult(
+				false,
+				`Connection failed: ${prettifyConnectError(invokeErrorMessage(err))}`,
+			)
 		} finally {
 			testing = false
 		}
@@ -258,6 +259,7 @@
 		enterCreateMode()
 	}
 
+	/** Errors propagate to NewConnectionPanel, which shows them inline. */
 	async function saveConnection(draft: ConnectionFormDraft) {
 		saving = true
 		try {
@@ -269,19 +271,8 @@
 
 			const saved = await connectionProfiles.save(input)
 
+			// The detail view of the saved profile is the confirmation.
 			afterProfilesChange(saved.id)
-			showToast(
-				'success',
-				isUpdate
-					? `Updated “${saved.name}”.`
-					: isTauri()
-						? `Saved “${saved.name}” to local database.`
-						: `Saved “${saved.name}” in this browser (FE preview).`,
-			)
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err)
-			showToast('danger', msg)
-			throw err
 		} finally {
 			saving = false
 		}
@@ -325,7 +316,6 @@
 				sshConfig: profile.ssh,
 			})
 			afterProfilesChange(saved.id)
-			showToast('success', `Duplicated as “${saved.name}”.`)
 		} catch (err) {
 			showToast('danger', err instanceof Error ? err.message : String(err))
 		} finally {
@@ -424,14 +414,13 @@
 
 	async function confirmDeleteSelected() {
 		if (!pendingDelete) return
-		const { id, name } = pendingDelete
+		const { id } = pendingDelete
 		deleting = true
 		try {
 			await connectionProfiles.remove(id)
 			afterProfilesChange()
 			// refreshList clears invalid selection → create mode.
 			pendingDelete = null
-			showToast('info', `Deleted “${name}”.`)
 		} catch (err) {
 			showToast('danger', formatInvokeError(err))
 		} finally {
@@ -503,9 +492,10 @@
 
 			if (!result.ok) {
 				statusOverride = { ...statusOverride, [profile.id]: 'error' }
-				const msg = `Could not establish connection: ${prettifyConnectError(result.message)}`
-				testResult = { ok: false, message: msg }
-				showToast('danger', msg)
+				reportTestResult(
+					false,
+					`Could not establish connection: ${prettifyConnectError(result.message)}`,
+				)
 				return
 			}
 
@@ -522,7 +512,6 @@
 			})
 
 			const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
-			showToast('success', `Connected to ${profile.name}`)
 			testResult = {
 				ok: true,
 				message: `Connection established (${result.latencyMs}ms)${version}`,
@@ -580,7 +569,6 @@
 				}
 			} catch (err) {
 				loadError = err instanceof Error ? err.message : String(err)
-				showToast('danger', loadError)
 			} finally {
 				loading = false
 			}
@@ -619,8 +607,12 @@
 	<main class="relative h-full min-w-0 flex-1 overflow-hidden bg-app-wash">
 		<div class="relative z-10 h-full overflow-auto">
 			{#if loading}
-				<div class="flex h-full items-center justify-center p-8">
-					<EmptyState title="Loading connections…" description={loadingPun} />
+				<div
+					class="flex h-full flex-col items-center justify-center gap-3 p-8"
+					aria-busy="true"
+				>
+					<Icon name="refresh" class="size-5 animate-spin text-fg-muted" />
+					<EmptyState title="Loading connections…" />
 				</div>
 			{:else if loadError}
 				<div class="flex h-full items-center justify-center p-8">
