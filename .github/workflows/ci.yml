@@ -76,10 +76,6 @@ jobs:
 
   audit:
     runs-on: ubuntu-latest
-    # Non-blocking for now: the lockfile has open RustSec advisories (rustls,
-    # rustls-webpki, webpki-roots, tokio, libz-sys, crypto-bigint, ctutils)
-    # that need a dependency update. Drop this line once they are cleared.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
