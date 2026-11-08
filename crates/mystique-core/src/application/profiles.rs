@@ -230,6 +230,20 @@ impl ProfileService<'_> {
             .map(|s| s.to_string());
         let creating = existing_id.is_none();
         let ssh_active = input.ssh_config.is_active();
+        let before = existing_id.as_deref().and_then(|id| {
+            self.db
+                .with_conn(|c| repo::connections::get_by_id(c, id))
+                .ok()
+        });
+        // Off: the DB password is asked each session and never stored.
+        let save_password = input
+            .save_password
+            .or(before.as_ref().map(|p| p.save_password))
+            .unwrap_or(true);
+        input.save_password = Some(save_password);
+        if !save_password {
+            incoming = None;
+        }
         let mut input = strip_plugin_password(input);
         // The edit form shows the URI without userinfo. Blank keeps the user.
         if !creating && is_mongo(&input.engine) && config_username(&input.plugin_config).is_none() {
@@ -267,6 +281,7 @@ impl ProfileService<'_> {
             _ => Ok(None),
         };
         let password = match incoming {
+            _ if !save_password => None,
             Some(pw) => Some(pw),
             None => copied(!clear, &|from| self.resolve_password(from))?,
         };
@@ -294,7 +309,7 @@ impl ProfileService<'_> {
             let saved = repo::connections::save(c, input)?;
             let id = saved.id.as_str();
             let owner = SecretOwner::Connection(id);
-            if clear {
+            if clear || !save_password {
                 SecretStore::remove(c, owner, SecretKind::Password)?;
                 repo::connections::set_secret_ref(c, id, None)?;
             } else if let (Some(key), Some(pw)) = (&key, &password) {
@@ -328,6 +343,11 @@ impl ProfileService<'_> {
         let saved = self
             .db
             .with_conn(|c| repo::connections::get_by_id(c, &saved_id))?;
+        if let Some(before) = &before {
+            if save_password || !same_target(before, &saved) {
+                self.secrets.session().forget(&saved_id);
+            }
+        }
         Ok(redact_profile(saved))
     }
 
@@ -343,6 +363,7 @@ impl ProfileService<'_> {
             SecretStore::remove_owner(c, SecretOwner::Connection(id))?;
             repo::connections::delete(c, id)
         })?;
+        self.secrets.session().forget(id);
         self.drop_items(password_ptr.as_deref());
         self.drop_items(ssh_ptr.as_deref());
         Ok(())
@@ -405,8 +426,16 @@ impl ProfileService<'_> {
 
     /// Read only what `secret_ref` points at. A null pointer reads nothing,
     /// so a stale `conn.<id>` item is never picked up.
+    /// A profile that does not save its password reads nothing.
     pub fn resolve_password(&self, id: &str) -> AppResult<Option<String>> {
         let id = require_id(id)?;
+        if !self
+            .db
+            .with_conn(|c| repo::connections::get_by_id(c, id))?
+            .save_password
+        {
+            return Ok(None);
+        }
         let mut raw = self
             .db
             .with_conn(|c| repo::connections::get_secret_ref(c, id))?;
@@ -705,6 +734,17 @@ impl ProfileService<'_> {
     }
 }
 
+/// Same host and bastion: a session password typed for one still fits.
+fn same_target(before: &ConnectionProfile, after: &ConnectionProfile) -> bool {
+    before.engine == after.engine
+        && crate::domain::host_identity::same_connection_target(
+            &before.engine,
+            &before.plugin_config,
+            &after.plugin_config,
+        )
+        && before.ssh == after.ssh
+}
+
 fn require_id(id: &str) -> AppResult<&str> {
     let id = id.trim();
     if id.is_empty() {
@@ -763,6 +803,7 @@ mod tests {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         }
     }
 

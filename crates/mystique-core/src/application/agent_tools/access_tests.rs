@@ -37,6 +37,7 @@ fn save_pg(app: &AppServices, name: &str) -> crate::domain::ConnectionProfile {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         })
         .unwrap()
 }
@@ -105,6 +106,7 @@ async fn agent_connection_list_has_no_mongo_password() {
         clear_ssh_secret: false,
         tls_key_passphrase: None,
         query_timeout_secs: None,
+        save_password: None,
     };
     input.engine = "documentdb".into();
     app.profiles().save(input).unwrap();
@@ -382,6 +384,7 @@ fn save_sqlite(app: &AppServices, path: &std::path::Path) -> crate::domain::Conn
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         })
         .unwrap()
 }

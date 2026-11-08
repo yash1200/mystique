@@ -38,6 +38,10 @@ pub use types::{
     AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
 };
 
+/// A profile that does not save its password, with none typed this session.
+pub(crate) const ASKS_EACH_SESSION: &str =
+    "This connection asks for its password each session. Connect to it in Mystique first.";
+
 /// Shared tool surface: list schema, run queries, save/list queries.
 #[derive(Clone)]
 pub struct AgentTools {
@@ -254,12 +258,19 @@ impl AgentTools {
             use_saved_ssh: true,
         };
         // The vault key may load here: off the async workers.
-        let req = tokio::task::spawn_blocking(move || {
-            super::bind_open_request(&db, &secrets, open, prompt)
+        let (req, session) = tokio::task::spawn_blocking(move || {
+            super::bind_with_session(&db, &secrets, open, prompt)
         })
         .await
-        .map_err(|e| AppError::Internal(format!("secret binding: {e}")))??;
-        self.connections.get_or_open(req, origin).await?;
+        .map_err(|e| AppError::Internal(format!("secret binding: {e}")))?
+        .map_err(|e| match e {
+            // Tools cannot ask. The desktop connect fills the session store.
+            AppError::PasswordRequired => AppError::SecretStore(ASKS_EACH_SESSION.into()),
+            other => other,
+        })?;
+        let opened = self.connections.get_or_open(req, origin).await;
+        super::settle_session_password(&self.secrets, session, &opened);
+        opened?;
         let _ = self
             .db
             .with_conn(|c| repo::connections::touch_last_connected(c, &profile.id));

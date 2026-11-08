@@ -34,9 +34,11 @@ pub use workspace_tabs::WorkspaceTabsService;
 use std::path::Path;
 use std::sync::Arc;
 
+use mystique_connector_api::SessionInfo;
+
 use crate::connectors::{ConnectionManager, OpenSessionRequest};
 use crate::error::AppResult;
-use crate::secrets::{Prompt, SecretStore};
+use crate::secrets::{PendingPassword, Prompt, SecretStore};
 use crate::storage::AppDatabase;
 
 /// Bundle of application services.
@@ -173,6 +175,27 @@ impl AppServices {
             .with_conn(|c| crate::storage::sqlite::repo::ssh_hosts::upsert(c, &row))
     }
 
+    /// Bind secrets and open the desktop session. A typed password for a
+    /// profile that does not save it is kept for the app session once the
+    /// dial works.
+    pub async fn open_session(&self, req: OpenSessionRequest) -> AppResult<SessionInfo> {
+        let (db, secrets) = (Arc::clone(&self.db), Arc::clone(&self.secrets));
+        // The vault key may load here: off the async workers.
+        let (req, session) = tokio::task::spawn_blocking(move || {
+            bind_with_session(&db, &secrets, req, Prompt::Allowed)
+        })
+        .await
+        .map_err(|e| crate::error::AppError::Internal(format!("secret binding: {e}")))??;
+        let result = self.connections.open_session(req).await;
+        settle_session_password(&self.secrets, session, &result);
+        Ok(result?)
+    }
+
+    /// Drop every session password. The app calls this on quit.
+    pub fn forget_session_passwords(&self) {
+        self.secrets.session().clear();
+    }
+
     /// Typed request password wins. A saved secret is attached only for that profile's host.
     pub fn password_for_request(&self, req: &OpenSessionRequest) -> AppResult<Option<String>> {
         Ok(bind_open_request(&self.db, &self.secrets, req.clone(), Prompt::Allowed)?.password)
@@ -217,9 +240,19 @@ impl AppServices {
 pub(crate) fn bind_open_request(
     db: &AppDatabase,
     secrets: &SecretStore,
-    mut req: OpenSessionRequest,
+    req: OpenSessionRequest,
     prompt: Prompt,
 ) -> AppResult<OpenSessionRequest> {
+    Ok(bind_with_session(db, secrets, req, prompt)?.0)
+}
+
+/// [`bind_open_request`], plus how the session password store was used.
+pub(crate) fn bind_with_session(
+    db: &AppDatabase,
+    secrets: &SecretStore,
+    mut req: OpenSessionRequest,
+    prompt: Prompt,
+) -> AppResult<(OpenSessionRequest, SessionUse)> {
     let profiles = ProfileService {
         db,
         secrets,
@@ -274,8 +307,27 @@ pub(crate) fn bind_open_request(
     }
 
     lift_request_credentials(&mut req);
-    let typed = nonempty(req.password.as_deref());
-    if typed.is_none() && allow_stored {
+    let typed = nonempty(req.password.as_deref()).map(str::to_string);
+    let mut session = SessionUse::None;
+    // A profile that does not save its password: typed, else this session's.
+    // Never the vault, never the keychain.
+    let asks = profile
+        .as_ref()
+        .filter(|p| !p.save_password && allow_stored);
+    if let (Some(profile), Some(id)) = (asks, profile_id.as_deref()) {
+        match typed {
+            Some(pw) => session = SessionUse::Typed(secrets.session().pending(id, &pw)),
+            None => {
+                let pw = secrets
+                    .session()
+                    .get(id)
+                    .ok_or(crate::error::AppError::PasswordRequired)?;
+                req.password = Some(pw);
+                session = SessionUse::Held(id.to_string());
+                inject_mongo_username(&profiles, &profile.engine, id, &mut req.plugin_config)?;
+            }
+        }
+    } else if typed.is_none() && allow_stored {
         if let Some(id) = profile_id.as_deref() {
             req.password = profiles.resolve_password(id)?;
             if let Some(profile) = &profile {
@@ -342,7 +394,44 @@ pub(crate) fn bind_open_request(
             }
         }
     }
-    Ok(req)
+    Ok((req, session))
+}
+
+/// How a bound request used the session password store.
+#[derive(Debug)]
+pub(crate) enum SessionUse {
+    None,
+    /// Typed for a profile that does not save it: kept once the dial works.
+    Typed(PendingPassword),
+    /// Read from the store for this profile id.
+    Held(String),
+}
+
+/// After the dial: keep a typed password that worked, drop a held one the
+/// server refused.
+pub(crate) fn settle_session_password<T, E: std::fmt::Display>(
+    secrets: &SecretStore,
+    session: SessionUse,
+    result: &Result<T, E>,
+) {
+    match (session, result) {
+        (SessionUse::Typed(pending), Ok(_)) => secrets.session().commit(pending),
+        (SessionUse::Held(id), Err(e)) if is_auth_failure(&e.to_string()) => {
+            secrets.session().forget(&id)
+        }
+        _ => {}
+    }
+}
+
+fn is_auth_failure(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    [
+        "authentication failed",
+        "access denied",
+        "password authentication",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 fn nonempty(value: Option<&str>) -> Option<&str> {
@@ -443,6 +532,9 @@ fn inject_mongo_username(
 mod keychain_tests;
 
 #[cfg(test)]
+mod session_password_tests;
+
+#[cfg(test)]
 mod attach_secrets_tests {
     use super::*;
     use crate::connectors::ConnectionManager;
@@ -479,6 +571,7 @@ mod attach_secrets_tests {
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
                 query_timeout_secs: None,
+                save_password: None,
             })
             .unwrap()
     }
@@ -531,6 +624,7 @@ mod attach_secrets_tests {
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
                 query_timeout_secs: None,
+                save_password: None,
             })
             .unwrap();
         let mut unticked = open_req(saved.id.clone(), saved.plugin_config.clone());
@@ -637,6 +731,7 @@ mod attach_secrets_tests {
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
                 query_timeout_secs: None,
+                save_password: None,
             })
             .unwrap();
         let mut req = open_req(

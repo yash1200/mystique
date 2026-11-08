@@ -30,6 +30,11 @@ pub enum AppError {
 
     #[error("{0}")]
     SecretStore(String),
+
+    /// The profile does not save its password and none is held this session.
+    /// The UI matches the `password_required` prefix and asks for it.
+    #[error("password_required: This connection asks for its password once per session.")]
+    PasswordRequired,
 }
 
 impl Serialize for AppError {

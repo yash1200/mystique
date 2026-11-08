@@ -59,6 +59,7 @@ async fn paging_an_insert_returning_inserts_once() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         })
         .unwrap();
     let tools = app.agent_tools();

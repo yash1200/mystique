@@ -194,6 +194,7 @@ mod tests {
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
                 query_timeout_secs: None,
+                save_password: None,
             },
         )
         .unwrap();
@@ -261,6 +262,7 @@ mod tests {
                 clear_ssh_secret: false,
                 tls_key_passphrase: None,
                 query_timeout_secs: None,
+                save_password: None,
             },
         )
         .unwrap()

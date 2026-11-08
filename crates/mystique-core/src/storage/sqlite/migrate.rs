@@ -13,12 +13,13 @@ const V7_SQL: &str = include_str!("../../../migrations/007_grid_saves.sql");
 const V8_SQL: &str = include_str!("../../../migrations/008_grid_column_widths.sql");
 const V9_SQL: &str = include_str!("../../../migrations/009_connection_defaults.sql");
 const V10_SQL: &str = include_str!("../../../migrations/010_secrets.sql");
+const V11_SQL: &str = include_str!("../../../migrations/011_save_password.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-const SCHEMA_VERSION: i32 = 10;
+const SCHEMA_VERSION: i32 = 11;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -144,6 +145,15 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
     if current < 10 {
         conn.execute_batch(V10_SQL)?;
         stamp(conn, 10)?;
+    }
+
+    if current < 11 {
+        if table_exists(conn, "connections")?
+            && !column_exists(conn, "connections", "save_password")?
+        {
+            conn.execute_batch(V11_SQL)?;
+        }
+        stamp(conn, 11)?;
     }
 
     // Dropped leftover from earlier builds. Live ER is not stored here.
@@ -359,7 +369,7 @@ mod tests {
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 10);
+        assert_eq!(n, 11);
     }
 
     #[test]
@@ -640,5 +650,33 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM saved_queries", [], |r| r.get(0))
             .unwrap();
         assert_eq!(saved, 0);
+    }
+
+    #[test]
+    fn migrate_011_keeps_existing_profiles_saving_their_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        // A version 10 database: no column yet, one saved profile.
+        conn.execute_batch(
+            "ALTER TABLE connections DROP COLUMN save_password;
+             DELETE FROM schema_migrations WHERE version = 11;
+             INSERT INTO connections (name, engine, created_at, updated_at)
+             VALUES ('old', 'postgres', 'now', 'now');",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap(); // idempotent
+        let save: i64 = conn
+            .query_row("SELECT save_password FROM connections", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(save, 1);
+        assert_eq!(
+            column_default(&conn, "connections", "save_password").as_deref(),
+            Some("1")
+        );
+        assert!(conn
+            .execute("UPDATE connections SET save_password = 2", [])
+            .is_err());
     }
 }

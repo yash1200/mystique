@@ -33,6 +33,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
         notes: row.get("notes")?,
         plugin_config,
         password_set,
+        save_password: row.get::<_, i64>("save_password")? != 0,
         password: None,
         ssh: {
             let raw: String = row.get("ssh_config")?;
@@ -52,7 +53,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
 const SELECT_COLS: &str = "
   id, name, engine, color_id, environment, read_only, notes,
   plugin_config, secret_ref, ssh_config, ssh_secret_ref, favorite,
-  query_timeout_secs, last_connected_at, created_at, updated_at
+  query_timeout_secs, save_password, last_connected_at, created_at, updated_at
 ";
 
 pub fn list_all(conn: &Connection) -> AppResult<Vec<ConnectionProfile>> {
@@ -102,6 +103,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
         let id_n = parse_id(id)?;
         let favorite: Option<i64> = input.favorite.map(|f| i64::from(f));
+        let save_password: Option<i64> = input.save_password.map(i64::from);
         let n = if input.clear_secret {
             conn.execute(
                 "
@@ -117,7 +119,8 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                   secret_ref = NULL,
                   favorite = COALESCE(?9, favorite),
                   updated_at = ?10,
-                  query_timeout_secs = ?12
+                  query_timeout_secs = ?12,
+                  save_password = COALESCE(?13, save_password)
                 WHERE id = ?11
                 ",
                 params![
@@ -133,6 +136,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                     now,
                     id_n,
                     input.query_timeout_secs,
+                    save_password,
                 ],
             )?
         } else {
@@ -149,7 +153,8 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                   ssh_config = ?8,
                   favorite = COALESCE(?9, favorite),
                   updated_at = ?10,
-                  query_timeout_secs = ?12
+                  query_timeout_secs = ?12,
+                  save_password = COALESCE(?13, save_password)
                 WHERE id = ?11
                 ",
                 params![
@@ -165,6 +170,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                     now,
                     id_n,
                     input.query_timeout_secs,
+                    save_password,
                 ],
             )?
         };
@@ -185,8 +191,8 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
             INSERT INTO connections (
               name, engine, color_id, environment, read_only, notes,
               plugin_config, secret_ref, ssh_config, ssh_secret_ref, favorite,
-              last_connected_at, created_at, updated_at, query_timeout_secs
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, NULL, ?9, NULL, ?10, ?11, ?12)
+              last_connected_at, created_at, updated_at, query_timeout_secs, save_password
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, NULL, ?9, NULL, ?10, ?11, ?12, ?13)
             ",
             params![
                 input.name.trim(),
@@ -201,6 +207,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
                 now,
                 now,
                 input.query_timeout_secs,
+                i64::from(input.save_password.unwrap_or(true)),
             ],
         )?;
         get_by_id(conn, &conn.last_insert_rowid().to_string())

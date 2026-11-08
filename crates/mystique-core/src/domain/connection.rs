@@ -21,6 +21,9 @@ pub struct ConnectionProfile {
     pub plugin_config: JsonValue,
     /// True when a password is saved (vault, or an old keychain item).
     pub password_set: bool,
+    /// False: the password is asked once per app session and kept in memory.
+    #[serde(default = "default_true")]
+    pub save_password: bool,
     /// SSH bastion (transport). Empty / disabled when unused.
     #[serde(default)]
     pub ssh: crate::domain::SshConfig,
@@ -81,6 +84,14 @@ pub struct SaveConnectionInput {
     /// `None` uses the app setting; 0 is no timeout. Saved as sent, also on update.
     #[serde(default)]
     pub query_timeout_secs: Option<u32>,
+    /// False deletes any saved DB password and asks once per session.
+    /// `None` keeps the stored flag on update and saves on create.
+    #[serde(default)]
+    pub save_password: Option<bool>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// `secret_ref` / `ssh_secret_ref` value: the secret is an envelope in `secrets`.

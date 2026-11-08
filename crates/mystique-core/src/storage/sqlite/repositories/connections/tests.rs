@@ -38,6 +38,7 @@ fn save_list_delete_connection() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         },
     )
     .unwrap();
@@ -80,6 +81,7 @@ fn update_keeps_password_when_blank() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         },
     )
     .unwrap();
@@ -105,6 +107,7 @@ fn update_keeps_password_when_blank() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         },
     )
     .unwrap();
@@ -137,6 +140,7 @@ fn clear_secret_removes_password() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         },
     )
     .unwrap();
@@ -162,6 +166,7 @@ fn clear_secret_removes_password() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         },
     )
     .unwrap();
@@ -194,6 +199,7 @@ fn ignores_legacy_placeholder_secret_ref() {
             clear_ssh_secret: false,
             tls_key_passphrase: None,
             query_timeout_secs: None,
+            save_password: None,
         },
     )
     .unwrap();
@@ -221,6 +227,7 @@ fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
         clear_ssh_secret: false,
         tls_key_passphrase: None,
         query_timeout_secs: None,
+        save_password: None,
     }
 }
 

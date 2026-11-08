@@ -14,6 +14,7 @@
 
 mod envelope;
 pub mod keychain;
+mod session;
 pub mod vault;
 
 use std::collections::HashMap;
@@ -32,6 +33,8 @@ use self::keychain::{KeychainKeySource, KeyringBackend, LOCKED_MESSAGE};
 use self::vault::Vault;
 
 pub use self::keychain::VAULT_ACCOUNT;
+pub use self::session::PendingPassword;
+pub(crate) use self::session::SessionPasswords;
 pub use self::vault::{
     CachedKeySource, FileKeySource, KeyChoice, KeySource, MemoryKeySource, Prompt, VaultError,
     VaultKey, VaultStatus, KEY_FILE_NAME, KEY_SOURCE_ENV,
@@ -172,6 +175,8 @@ pub struct SecretStore {
     /// `None` when the key is not in the keychain: old items are never touched.
     legacy: Option<LegacyItems>,
     on_unlock: Mutex<Option<UnlockHook>>,
+    /// Passwords of connections that do not save one. Memory only.
+    session: SessionPasswords,
 }
 
 impl SecretStore {
@@ -204,7 +209,12 @@ impl SecretStore {
             vault: Vault::new(source),
             legacy: legacy.map(LegacyItems::new),
             on_unlock: Mutex::new(None),
+            session: SessionPasswords::default(),
         }
+    }
+
+    pub(crate) fn session(&self) -> &SessionPasswords {
+        &self.session
     }
 
     /// Runs once, right after the key first loads in this process.
