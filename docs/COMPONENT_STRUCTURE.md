@@ -11,13 +11,14 @@ means opening one folder.
 ```text
 src/
 ├── routes/                       # thin mounts — nothing else lives here
-│   ├── +layout.svelte            # theme, ui-scale, global shortcuts
+│   ├── +layout.svelte            # theme, ui-scale, keymap + command dispatch
 │   ├── +page.svelte              # <ConnectionsPage />
 │   └── workspace/+page.svelte    # <WorkspacePage />
 └── lib/
     ├── core/                     # domain-free; imported by everyone, imports nobody
     │   ├── ui/                   # Button, Field, Modal, Toast… (the design system)
     │   ├── ipc/                  # isTauri + the typed Tauri command surface
+    │   ├── commands/             # command registry: keys, focus scopes, native-menu dispatch
     │   ├── contracts/            # DTOs mirroring mystique-connector-api + app-DB rows
     │   └── util/                 # cn, motion, ui-scale, files, clipboard, time, highlight
     │
@@ -42,7 +43,7 @@ src/
     │       ├── er/               # canvas, layout, DBML, PNG export
     │       └── agent/            # chat pane, markdown
     │
-    ├── app/                      # app-wide prefs (a leaf: features read it)
+    ├── app/                      # app-wide prefs and the command keymap (a leaf: features read it)
     └── styles/                   # tokens.css, app.css
 ```
 
@@ -149,6 +150,7 @@ import { workspaceSession } from '../session.svelte' // same feature
 | A DTO the Rust side also speaks | `core/contracts` |
 | Anything that differs per database | `engines/<engine>` |
 | Screen, panel, or the logic behind it | `features/<feature>` |
+| A shortcut or native-menu command | keymap entry in `app/commands.ts`; the feature registers its handler with `commands.register` (`#core/commands`) |
 | Mounting a screen | `routes` |
 
 See also: [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md).
