@@ -17,6 +17,7 @@
 //!   `set_ai_api_key`, `list_agent_chats`, `create_agent_chat`,
 //!   `delete_agent_chat`, `list_agent_messages`, `update_agent_chat`
 //! - mcp: `get_mcp_access`, `set_mcp_access`
+//! - diagnostics: `export_diagnostics` (metadata SQLite + log files)
 //! - engines: `trust_ssh_host_key` (known-hosts row). `test_engine_connection`
 //!   and `open_engine_session` resolve the keychain password in [`blocking`]
 //!   before the network `.await`
@@ -28,6 +29,7 @@
 //! is Phase 6.
 
 pub mod agent;
+pub mod diagnostics;
 pub mod engines;
 pub mod grid_layout;
 pub mod history;

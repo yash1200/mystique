@@ -5,10 +5,12 @@
 //! - Open local DB path via Tauri path API
 //! - IPC adapters → [`mystique_core::AppServices`]
 //! - Page-aware native app menu (Home vs Workspace)
+//! - Logging (`MYSTIQUE_LOG`, app log dir) — see [`logging`]
 //!
 //! Business logic lives in `mystique-core`, not here.
 
 mod ipc;
+mod logging;
 mod menu;
 
 use std::sync::Arc;
@@ -39,6 +41,8 @@ pub struct AppState {
     pub services: Arc<AppServices>,
     pub mcp: McpService,
     pub agent: AgentService,
+    /// App log directory, for the diagnostics bundle. `None` if the OS gave none.
+    pub log_dir: Option<std::path::PathBuf>,
 }
 
 /// Native menu. Stays sync: no keychain and no SQLite. See `ipc/mod.rs`.
@@ -56,6 +60,16 @@ pub fn run() {
         .menu(|app| menu::build_menu(app, &NativeMenuState::default()))
         .on_menu_event(|app, event| menu::handle_menu_event(app, event.id().as_ref()))
         .setup(|app| {
+            let log_dir = app.path().app_log_dir().ok();
+            if let Some(dir) = &log_dir {
+                logging::init(dir);
+            }
+            tracing::info!(
+                version = %app.package_info().version,
+                os = std::env::consts::OS,
+                arch = std::env::consts::ARCH,
+                "mystique starting"
+            );
             let data_dir = app
                 .path()
                 .app_data_dir()
@@ -84,6 +98,7 @@ pub fn run() {
                 services,
                 mcp,
                 agent,
+                log_dir,
             });
             apply_app_icon(app).map_err(|e| format!("app icon: {e}"))?;
             Ok(())
@@ -168,6 +183,7 @@ pub fn run() {
             ipc::settings::get_vault_status,
             ipc::settings::retry_vault_unlock,
             ipc::settings::purge_keychain_items,
+            ipc::diagnostics::export_diagnostics,
             // MCP (external clients). In-app agents must call AgentTools, not HTTP.
             ipc::mcp::get_mcp_status,
             ipc::mcp::set_mcp_enabled,
@@ -194,6 +210,7 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                tracing::info!("mystique exiting");
                 let Some(state) = app.try_state::<AppState>() else {
                     return;
                 };
