@@ -197,6 +197,12 @@ export async function reconnectActiveSession(): Promise<string | null> {
 	return withLiveSession(id, async (sid) => sid)
 }
 
+/** Live session id for a given connection, reconnecting it when needed. */
+export async function reconnectSession(connectionId: string): Promise<string | null> {
+	if (!workspaceSession.sessions.some((s) => s.profile.id === connectionId)) return null
+	return withLiveSession(connectionId, async (sid) => sid)
+}
+
 export function requireActiveConnection(): {
 	id: string
 	session: NonNullable<typeof workspaceSession.activeSession>

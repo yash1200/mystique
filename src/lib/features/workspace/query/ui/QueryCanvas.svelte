@@ -67,7 +67,8 @@
 		onhistory?: (item?: QueryHistoryItem | null) => void
 		onsave?: () => void
 		/** Re-open a dead engine session; returns the new session id. */
-		onreconnect?: () => Promise<string | null>
+		/** Reconnects the given connection; a run passes the one it started on. */
+		onreconnect?: (connectionId: string) => Promise<string | null>
 		capabilities?: EngineCapabilities | null
 	}
 
@@ -219,6 +220,7 @@
 	 * reports to its own tab even when the canvas has moved on to another.
 	 */
 	function runTarget(): RunTarget {
+		const runConnection = connectionId
 		return {
 			tabId,
 			engine,
@@ -230,7 +232,7 @@
 			collection,
 			manualCommit,
 			transactions: showTransactions,
-			reconnect: onreconnect,
+			reconnect: onreconnect ? () => onreconnect(runConnection) : undefined,
 			onhistory,
 			onstart: () => (explainPlan = null),
 			doc: () => editorSnap.doc || currentQueryText(),

@@ -36,6 +36,7 @@
 	import { onMount } from 'svelte'
 	import {
 		reconnectActiveSession,
+		reconnectSession,
 		findCatalogTable,
 		objectKindById as kindsFromCatalog,
 		workspaceSession,
@@ -267,7 +268,7 @@
 							workspaceSession.setQueryDraft(activeTab.id, v)}
 						onhistory={prependHistoryItem}
 						onsave={() => void querySave.saveActive()}
-						onreconnect={reconnectActiveSession}
+						onreconnect={reconnectSession}
 					/>
 				</div>
 				{#if appPrefs.agentChatOpen}
