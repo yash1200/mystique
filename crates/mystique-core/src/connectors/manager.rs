@@ -20,6 +20,7 @@ mod explain;
 mod grid_save;
 mod guard;
 mod history;
+mod infer;
 mod large;
 mod meta_cache;
 mod metrics;

@@ -10,6 +10,7 @@ mod approvals;
 mod args;
 mod catalog;
 mod download;
+mod inspect;
 pub mod levels;
 mod policy;
 mod query;
@@ -35,6 +36,10 @@ pub(crate) use results::ToolResultCache;
 
 pub use approvals::{ToolApprovals, APPROVAL_TIMEOUT};
 pub(crate) use args::profile_database as profile_default_database;
+pub use inspect::{
+    AgentExplain, AgentSample, AgentSampleColumn, AGENT_PLAN_MAX_NODES, AGENT_RAW_DEFAULT_CHARS,
+    AGENT_SAMPLE_DEFAULT_ROWS, AGENT_SAMPLE_MAX_ROWS,
+};
 pub use levels::{AccessLevel, ToolCaller};
 pub(crate) use policy::{default_level, is_production, setting_key, ConnectionLevels};
 pub use policy::{SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL};
@@ -95,7 +100,7 @@ impl AgentTools {
     }
 
     pub fn mcp_instructions(&self) -> String {
-        "Mystique is a desktop database studio. Use list_connections first: it shows each connection's access level. The user sets levels per connection and database: read (SELECT/find), write (adds INSERT/UPDATE), full (adds DELETE, DDL, DROP). A call above the level is denied and nothing runs; the error says which level is needed. On connections that ask for high-risk writes, such a call waits up to 90 seconds for the user to approve that exact statement in Mystique. Never ask the user to paste schema.".into()
+        "Mystique is a desktop database studio. Use list_connections first: it shows each connection's access level. The user sets levels per connection and database: read (SELECT/find), write (adds INSERT/UPDATE), full (adds DELETE, DDL, DROP). A call above the level is denied and nothing runs; the error says which level is needed. On connections that ask for high-risk writes, such a call waits up to 90 seconds for the user to approve that exact statement in Mystique. To learn a table's shape, use describe_object, sample_rows (at most 20 rows) and explain_query instead of SELECT *; for a MongoDB collection, infer_fields. Never ask the user to paste schema.".into()
     }
 
     /// Dispatch by tool name. Used by MCP and the in-app agent.
@@ -185,6 +190,79 @@ impl AgentTools {
                     )
                     .await?;
                 Ok(serde_json::to_value(result)?)
+            }
+            "sample_rows" => {
+                let id = req_str(args, "connection_id")?;
+                let object = req_str(args, "object")?;
+                let schema = opt_str(args, "schema");
+                let database = opt_str(args, "database");
+                let limit = args
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
+                let sample = self
+                    .sample_rows(
+                        &id,
+                        &object,
+                        schema.as_deref(),
+                        database.as_deref(),
+                        limit,
+                        types::AgentCellWindow::from_args(args),
+                        caller,
+                    )
+                    .await?;
+                Ok(serde_json::to_value(sample)?)
+            }
+            "explain_query" => {
+                let id = req_str(args, "connection_id")?;
+                let sql = req_str(args, "sql")?;
+                let database = opt_str(args, "database");
+                let collection = opt_str(args, "collection");
+                let params = match args.get("params") {
+                    None | Some(JsonValue::Null) => Vec::new(),
+                    Some(JsonValue::Array(items)) => items.clone(),
+                    Some(_) => {
+                        return Err(AppError::Invalid("`params` must be an array".into()));
+                    }
+                };
+                let analyze = args
+                    .get("analyze")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let raw_window = types::AgentCellWindow::from_options(
+                    args.get("raw_char_offset").and_then(|v| v.as_u64()),
+                    Some(
+                        args.get("raw_char_limit")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(u64::from(AGENT_RAW_DEFAULT_CHARS)),
+                    ),
+                );
+                let plan = self
+                    .explain_query(
+                        &id,
+                        &sql,
+                        params,
+                        database.as_deref(),
+                        collection.as_deref(),
+                        analyze,
+                        raw_window,
+                        caller,
+                    )
+                    .await?;
+                Ok(serde_json::to_value(plan)?)
+            }
+            "infer_fields" => {
+                let id = req_str(args, "connection_id")?;
+                let collection = req_str(args, "collection")?;
+                let database = opt_str(args, "database");
+                let sample = args
+                    .get("sample")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
+                let fields = self
+                    .infer_fields(&id, &collection, database.as_deref(), sample, caller)
+                    .await?;
+                Ok(serde_json::to_value(fields)?)
             }
             "list_saved_queries" => {
                 let id = opt_str(args, "connection_id");
@@ -307,6 +385,9 @@ fn tool_session_id(
 
 #[cfg(test)]
 mod access_tests;
+
+#[cfg(test)]
+mod inspect_tests;
 
 #[cfg(test)]
 mod principal_tests;
