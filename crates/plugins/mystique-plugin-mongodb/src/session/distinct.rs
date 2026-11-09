@@ -1,8 +1,12 @@
 //! Distinct values for the grid filter. At most 1000 non-null values.
 
+use std::time::Duration;
+
 use mongodb::bson::doc;
 use mongodb::bson::Document;
-use mystique_connector_api::{ConnectorError, ConnectorResult, DistinctColumnValuesInput};
+use mystique_connector_api::{
+    ConnectorError, ConnectorResult, DistinctColumnValuesInput, FETCH_TIMEOUT_MS,
+};
 use serde_json::Value as JsonValue;
 
 use super::catalog;
@@ -36,6 +40,7 @@ pub(super) async fn distinct_column_values(
     let limit = usize::try_from(input.limit.clamp(1, 1_000)).unwrap_or(1_000);
     let values = coll
         .distinct(&input.column, doc! {})
+        .max_time(Duration::from_millis(FETCH_TIMEOUT_MS))
         .await
         .map_err(query_failed)?;
     let mut out = Vec::new();
