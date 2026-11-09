@@ -9,9 +9,6 @@
 		connectionEndpoint,
 		connectionInitial,
 		connectionProfiles,
-		hasProduction,
-		productionLabel,
-		ProductionMark,
 	} from '#features/connections'
 	import { onMount } from 'svelte'
 
@@ -144,9 +141,6 @@
 											name="star-filled"
 											class="size-3 shrink-0 text-accent"
 										/>
-									{/if}
-									{#if hasProduction(conn)}
-										<ProductionMark label={productionLabel(conn)} />
 									{/if}
 									{#if conn.readOnly}
 										<Pill uppercase>RO</Pill>

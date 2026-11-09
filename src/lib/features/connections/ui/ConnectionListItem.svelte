@@ -3,9 +3,7 @@
 	import { Icon, Pill, StatusDot } from '#core/ui'
 	import { cn } from '#core/util'
 	import { engineLabel } from '#engines'
-	import { hasProduction, productionLabel } from '../environments'
 	import { colorHex, connectionEndpoint, connectionInitial } from '../model'
-	import ProductionMark from './ProductionMark.svelte'
 
 	const ENGINE_RANK: Record<string, string> = {
 		postgres: 'Postgres',
@@ -44,7 +42,6 @@
 		if (!raw || raw === '—') return ''
 		return raw
 	})
-	const prod = $derived(hasProduction(connection))
 	const engineRank = $derived(
 		ENGINE_RANK[String(connection.engine).toLowerCase()] ??
 			engineLabel(connection.engine),
@@ -144,9 +141,6 @@
 							{/if}
 						{/each}
 					</span>
-					{#if prod}
-						<ProductionMark label={productionLabel(connection)} />
-					{/if}
 					{#if connection.readOnly}
 						<Pill uppercase>RO</Pill>
 					{/if}

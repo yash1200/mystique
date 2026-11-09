@@ -3,12 +3,10 @@
 	import { Button, ContentPanel, Pill, StatusDot } from '#core/ui'
 	import { cn } from '#core/util'
 	import { engineLabel } from '#engines'
-	import { hasProduction, productionLabel } from '../environments'
 	import { connectionFacts } from '../facts'
 	import { colorHex, connectionEndpoint } from '../model'
 	import ConnectionFactGrid from './ConnectionFactGrid.svelte'
 	import EngineBadge from './EngineBadge.svelte'
-	import ProductionMark from './ProductionMark.svelte'
 
 	interface Props {
 		connection: ConnectionProfile
@@ -69,9 +67,6 @@
 					</h1>
 					<div class="mt-2 flex flex-wrap items-center gap-1.5">
 						<EngineBadge engine={connection.engine} size="md" />
-						{#if hasProduction(connection)}
-							<ProductionMark label={productionLabel(connection)} />
-						{/if}
 						{#if connection.readOnly}
 							<Pill uppercase>RO</Pill>
 						{/if}

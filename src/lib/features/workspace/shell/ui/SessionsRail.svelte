@@ -15,9 +15,6 @@
 		colorHex,
 		connectionInitial,
 		copyConnectionUrl as copyProfileUrl,
-		hasProduction,
-		productionLabel,
-		ProductionMark,
 	} from '#features/connections'
 	import { SettingsModal } from '#features/settings'
 	import { appShortcutsUi } from '#features/shortcuts'
@@ -223,12 +220,11 @@
 					{#each sessions as s (s.profile.id)}
 						{@const active = mode === 'explorer' && activeId === s.profile.id}
 						{@const hex = colorHex(s.profile.colorId)}
-						{@const prod = hasProduction(s.profile)}
 						{@const initial = connectionInitial(
 							s.profile.name,
 							String(s.profile.engine),
 						)}
-						{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}${prod ? ' · Production' : ''}`}
+						{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}`}
 						{@const dragging = drag.draggingId === s.profile.id}
 						{@const edge = drag.dropEdge(s.profile.id)}
 						<div
@@ -263,9 +259,7 @@
 										(drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
 									active
 										? 'conn-ring conn-tint border-(--connection-color)'
-										: prod
-											? 'border-warning/45 bg-elevated hover:border-warning/70 hover:bg-warning/10'
-											: 'border-line bg-elevated hover:border-line-strong hover:bg-hover',
+										: 'border-line bg-elevated hover:border-line-strong hover:bg-hover',
 								)}
 								title={canReorder
 									? `${label} · Drag to reorder · Right-click for actions`
@@ -294,12 +288,6 @@
 								>
 									{initial}
 								</span>
-								{#if prod}
-									<ProductionMark
-										class="absolute top-0.5 right-0.5 [&_svg]:size-3"
-										label={productionLabel(s.profile)}
-									/>
-								{/if}
 							</button>
 						</div>
 					{/each}
@@ -325,7 +313,6 @@
 				{@const s = sessionById(id)}
 				{#if s}
 					{@const hex = colorHex(s.profile.colorId)}
-					{@const prod = hasProduction(s.profile)}
 					{@const initial = connectionInitial(
 						s.profile.name,
 						String(s.profile.engine),
@@ -334,9 +321,7 @@
 						class={cn(
 							'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
 							'text-title leading-none font-semibold',
-							prod
-								? 'border-warning/45 bg-elevated'
-								: 'border-line bg-elevated',
+							'border-line bg-elevated',
 						)}
 						style="--connection-color: {hex}"
 					>

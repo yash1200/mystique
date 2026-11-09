@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WriteGuardPrompt, WriteRowPreview } from '../../src/lib/core/contracts/engines'
-import { hasProduction, productionLabel } from '../../src/lib/features/connections/environments'
+import { hasProduction } from '../../src/lib/features/connections/environments'
 import { guardCopy } from '../../src/lib/features/workspace/session/guard-copy'
 import {
 	isNewColumn,
@@ -15,15 +15,11 @@ import {
 	TIMED_UNLOCK_CHOICES,
 } from '../../src/lib/features/workspace/session/timed-unlock'
 
-describe('the production marker', () => {
+describe('production', () => {
 	it('follows the connection environment only', () => {
 		expect(hasProduction({ environment: 'production' })).toBe(true)
 		expect(hasProduction({ environment: 'staging' })).toBe(false)
 		expect(hasProduction({ environment: 'local' })).toBe(false)
-	})
-
-	it('the tooltip names the connection', () => {
-		expect(productionLabel({ name: 'Dev server' })).toContain('“Dev server”')
 	})
 })
 

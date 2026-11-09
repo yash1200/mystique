@@ -1,14 +1,10 @@
 <script lang="ts">
 	import type {
-		ConnectionProfile,
 		DatabaseMeta,
 		EngineCapabilities,
 		TableMeta,
 	} from '#core/contracts'
 	import {
-		hasProduction,
-		productionLabel,
-		ProductionMark,
 	} from '#features/connections'
 	import {
 		ContextMenu,
@@ -67,8 +63,6 @@
 			table: TableMeta,
 			extra?: string,
 		) => void
-		/** The connection: its production shield leads the database picker. */
-		profile?: Pick<ConnectionProfile, 'name' | 'environment'> | null
 	}
 
 	let {
@@ -90,7 +84,6 @@
 		oncreateobject,
 		onopen,
 		ontableaction,
-		profile = null,
 	}: Props = $props()
 
 	let query = $state('')
@@ -121,8 +114,6 @@
 			label: d.name,
 		})),
 	)
-
-	const production = $derived(!!profile && hasProduction(profile))
 
 	const filtered = $derived.by(() => {
 		const q = query.trim().toLowerCase()
@@ -541,11 +532,7 @@
 					onchange={onDbChange}
 				>
 					{#snippet leading()}
-						{#if production && profile}
-							<ProductionMark label={productionLabel(profile)} />
-						{:else}
-							<CatalogIcon name="database" class="size-3.5" />
-						{/if}
+						<CatalogIcon name="database" class="size-3.5" />
 					{/snippet}
 				</Select>
 			</div>

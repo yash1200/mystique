@@ -1,14 +1,12 @@
 <!--
-	Marks at the end of the tab bar for the active connection: the production
-	shield when the connection is production, and on a read-only
-	connection the lock, which offers a timed write unlock and shows its
+	Mark at the end of the tab bar for the active connection: on a read-only
+	connection, the lock, which offers a timed write unlock and shows its
 	countdown while it runs.
 -->
 <script lang="ts">
 	import type { ConnectionProfile } from '#core/contracts'
 	import { ContextMenu, Icon, type ContextMenuItem } from '#core/ui'
 	import { cn } from '#core/util'
-	import { hasProduction, productionLabel, ProductionMark } from '#features/connections'
 	import {
 		formatCountdown,
 		TIMED_UNLOCK_CHOICES,
@@ -22,7 +20,6 @@
 
 	let { profile, engineSessionId }: Props = $props()
 
-	const production = $derived(hasProduction(profile))
 	const remaining = $derived(timedUnlocks.remainingMs(engineSessionId))
 
 	let menu = $state<{ x: number; y: number } | null>(null)
@@ -51,15 +48,12 @@
 	}
 </script>
 
-{#if production || profile.readOnly}
+{#if profile.readOnly}
 	<div
 		class="flex h-control-sm shrink-0 items-center gap-1 border-b border-line bg-panel px-2"
 		role="group"
 		aria-label="Connection safety"
 	>
-		{#if production}
-			<ProductionMark label={productionLabel(profile)} />
-		{/if}
 		{#if profile.readOnly}
 			<button
 				type="button"

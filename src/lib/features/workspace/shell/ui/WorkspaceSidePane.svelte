@@ -178,7 +178,6 @@
 						activeSession.engineSessionId,
 					)}
 					capabilities={activeSession.capabilities}
-					profile={activeSession.profile}
 				/>
 			{:else if activeSession}
 				<aside
