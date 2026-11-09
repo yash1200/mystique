@@ -109,6 +109,9 @@ impl ConnectionManager {
                 "A pinned tab needs a session and a tab id.".into(),
             ));
         }
+        // A tab's transaction is the human's; tool sessions never pin (F-01).
+        self.refuse_tool_session(session_id, "pinned to a tab")
+            .await?;
         let gate = self.gate_for(&format!("pin:{tab_id}")).await;
         let _hold = gate.lock().await;
         if let Some(existing) = self.pins.lock().await.get(tab_id).cloned() {
@@ -539,6 +542,7 @@ impl ConnectionManager {
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,
             pinned: tab_id.is_some(),
+            request: Some(&req.text),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, plan.worst.write_risk())
         })
         .await?;

@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use mystique_core::{
     AppDatabase, AppServices, ConnectionManager, ExecuteQueryRequest, OpenSessionRequest,
     PoolConfig, QueryMode, SaveConnectionInput, SecretStore, SshConfig, ToolCaller,
-    SETTING_MCP_POLICY,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -35,9 +34,7 @@ async fn paging_an_insert_returning_inserts_once() {
         ConnectionManager::bootstrap(),
         SecretStore::memory(),
     );
-    app.settings()
-        .set(SETTING_MCP_POLICY, "high_risk_write")
-        .unwrap();
+    app.tool_access().set_default("agent", "full").unwrap();
     let profile = app
         .profiles()
         .save(SaveConnectionInput {

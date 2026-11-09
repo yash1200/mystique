@@ -38,8 +38,10 @@ pub(super) async fn handle_method(
                 .map(|t| {
                     json!({
                         "name": t.name,
+                        "title": t.annotations.title,
                         "description": t.description,
-                        "inputSchema": t.input_schema
+                        "inputSchema": t.input_schema,
+                        "annotations": t.annotations.to_json()
                     })
                 })
                 .collect();
@@ -97,9 +99,7 @@ pub(super) async fn handle_method(
             }
             if let Some(rest) = uri.strip_prefix("mystique://connections/") {
                 if let Some(id) = rest.strip_suffix("/schema.dbml") {
-                    tools
-                        .require_allowlisted(ToolCaller::Mcp, id)
-                        .map_err(|e| (-32000, e.to_string()))?;
+                    // Checks the access level first, like the tool.
                     let dbml = tools
                         .get_schema_dbml(id, None, ToolCaller::Mcp)
                         .await

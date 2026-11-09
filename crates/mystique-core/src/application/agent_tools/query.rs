@@ -5,6 +5,7 @@ use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repo;
 
 use super::download::download_from_result;
+use super::levels::AccessLevel;
 use super::policy::ToolCaller;
 use super::results::ResultKey;
 use super::types::{clamp_agent_max_rows, AgentCellWindow, AgentQueryDownload};
@@ -35,6 +36,7 @@ impl AgentTools {
         if text.is_empty() {
             return Err(AppError::Invalid("query is required".into()));
         }
+        self.require_read(caller, connection_id, database)?;
         let key = self.result_key(connection_id, caller, text, database, collection, max_rows)?;
         if let Some(hit) = self.cached_page(&key, window, true)? {
             return Ok(download_from_result(hit, format, window));
@@ -59,7 +61,9 @@ impl AgentTools {
         Ok(download_from_result(result, format, window))
     }
 
-    /// Policy-gated write (and read) query. P3.1 write guard still applies.
+    /// A query checked against the caller's access level (F-02). A write runs
+    /// on the tool's own session with a one-shot authorization for exactly
+    /// this text (F-01); no human unlock or pinned tab applies.
     // Mirrors the query tool's arguments one to one (MCP and the in-app agent).
     #[allow(clippy::too_many_arguments)]
     pub async fn execute_query(
@@ -77,22 +81,29 @@ impl AgentTools {
         if text.is_empty() {
             return Err(AppError::Invalid("query is required".into()));
         }
-        let profile = self
-            .db
-            .with_conn(|c| repo::connections::get_by_id(c, connection_id.trim()))?;
-        let risk = self.classify_text(&profile.engine, text);
+        let profile = self.require_read(caller, connection_id, database)?;
+        let risk = self.access_risk(&profile.engine, text);
         let safe_dml = self.is_safe_dml(&profile.engine, text);
-        self.enforce_write_policy(risk, safe_dml)?;
+        // Read-only on the profile wins for every principal, before any ask.
         if profile.read_only && risk != WriteRisk::Read {
-            return Err(AppError::Invalid(
-                "This connection is read-only. Disable read-only to run writes.".into(),
-            ));
+            return Err(AppError::AccessDenied(format!(
+                "Access denied: connection \"{}\" is read-only in Mystique, so writes are blocked for everyone. Nothing ran. Use execute_readonly_query, or ask the user to turn off read-only on the connection.",
+                profile.name
+            )));
         }
         let key = self.result_key(connection_id, caller, text, database, collection, max_rows)?;
+        // A page of a result this caller already ran: nothing runs again.
         if let Some(hit) = self.cached_page(&key, window, risk == WriteRisk::Read)? {
             return Ok(download_from_result(hit, format, window));
         }
+        let need = AccessLevel::required_for(risk, safe_dml);
+        // Spent here: approving this statement covers this one run only.
+        let _grant = self
+            .authorize_statement(caller, &profile, database, text, need)
+            .await?;
         let sid = self.ensure_session_for(connection_id, caller).await?;
+        let _write =
+            (risk != WriteRisk::Read).then(|| self.connections.authorize_tool_write(&sid, text));
         let mode = if risk == WriteRisk::Read {
             QueryMode::Read
         } else {
@@ -169,17 +180,19 @@ impl AgentTools {
         self.db.with_conn(|c| repo::queries::save_query(c, input))
     }
 
+    /// Only queries on connections the caller can see.
     pub(super) fn filter_saved_queries(
         &self,
         caller: ToolCaller,
         rows: Vec<SavedQuery>,
     ) -> Vec<SavedQuery> {
-        if caller != ToolCaller::Mcp {
-            return rows;
-        }
-        let allow = self.mcp_allowlist();
+        let mut seen = std::collections::HashMap::new();
         rows.into_iter()
-            .filter(|q| allow.contains(&q.connection_id))
+            .filter(|q| {
+                *seen
+                    .entry(q.connection_id.clone())
+                    .or_insert_with(|| self.is_visible(caller, &q.connection_id))
+            })
             .collect()
     }
 }

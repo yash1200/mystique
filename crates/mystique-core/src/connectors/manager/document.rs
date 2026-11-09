@@ -109,6 +109,7 @@ impl ConnectionManager {
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: run.read_only,
             pinned: run.tab_id.is_some(),
+            request: Some(&req.text),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, worst)
         })
         .await?;

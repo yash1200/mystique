@@ -11,15 +11,16 @@ mod history;
 mod profiles;
 mod query_library;
 mod settings;
+mod tool_access;
 mod vault;
 mod workspace_tabs;
 
 pub use agent_chat::AgentChatService;
 pub use agent_tools::{
-    parse_allowlist, tool_specs, tool_specs_for, AgentColumnInfo, AgentConnectionInfo,
-    AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, AgentWritePolicy, ToolCaller,
-    AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS, SETTING_MCP_ALLOWLIST,
-    SETTING_MCP_POLICY,
+    levels, tool_specs, tool_specs_for, AccessLevel, AgentColumnInfo, AgentConnectionInfo,
+    AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, ToolAnnotations, ToolApprovals,
+    ToolCaller, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS, APPROVAL_TIMEOUT,
+    SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL,
 };
 pub use ai_secrets::AiSecretsService;
 pub(crate) use grid_layout::DbGridSaveStore;
@@ -28,6 +29,7 @@ pub use history::HistoryService;
 pub use profiles::ProfileService;
 pub use query_library::QueryLibraryService;
 pub use settings::SettingsService;
+pub use tool_access::ToolAccessService;
 pub use vault::{PurgeReport, VaultService};
 pub use workspace_tabs::WorkspaceTabsService;
 
@@ -50,6 +52,8 @@ pub struct AppServices {
     pub secrets: Arc<SecretStore>,
     /// Last tool results, so cell paging never re-runs a statement.
     tool_results: Arc<agent_tools::ToolResultCache>,
+    /// Agent and MCP writes waiting for the user (the approval dock).
+    tool_approvals: Arc<ToolApprovals>,
 }
 
 impl AppServices {
@@ -90,6 +94,7 @@ impl AppServices {
             connections,
             secrets: Arc::new(secrets),
             tool_results: Arc::new(agent_tools::ToolResultCache::default()),
+            tool_approvals: Arc::new(ToolApprovals::default()),
         }
     }
 
@@ -123,6 +128,17 @@ impl AppServices {
             Arc::clone(&self.secrets),
         )
         .with_result_cache(Arc::clone(&self.tool_results))
+        .with_approvals(Arc::clone(&self.tool_approvals))
+    }
+
+    /// The approval dock's queue. In memory: nothing survives a restart.
+    pub fn tool_approvals(&self) -> Arc<ToolApprovals> {
+        Arc::clone(&self.tool_approvals)
+    }
+
+    /// Access levels for MCP and the built-in agent.
+    pub fn tool_access(&self) -> ToolAccessService<'_> {
+        ToolAccessService { db: &self.db }
     }
 
     pub fn profiles(&self) -> ProfileService<'_> {

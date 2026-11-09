@@ -70,13 +70,34 @@ fn query_tool_spec_documents_the_cell_window() {
 }
 
 #[test]
-fn tool_specs_omit_execute_query_when_read_only() {
-    assert!(tool_specs_for(AgentWritePolicy::ReadOnly)
+fn tool_specs_omit_execute_query_when_nothing_may_write() {
+    assert!(tool_specs_for(false)
         .iter()
         .all(|t| t.name != "execute_query"));
-    assert!(tool_specs_for(AgentWritePolicy::SafeWrite)
+    assert!(tool_specs_for(true)
         .iter()
         .any(|t| t.name == "execute_query"));
+}
+
+#[test]
+fn tool_annotations_follow_the_mcp_spec() {
+    for spec in tool_specs() {
+        let a = spec.annotations.to_json();
+        assert_eq!(a["openWorldHint"], json!(false), "{}", spec.name);
+        assert!(!spec.annotations.title.is_empty(), "{}", spec.name);
+        match spec.name {
+            "execute_query" => {
+                assert_eq!(a["readOnlyHint"], json!(false));
+                assert_eq!(a["destructiveHint"], json!(true));
+                assert_eq!(a["idempotentHint"], json!(false));
+            }
+            "save_query" => assert_eq!(a["readOnlyHint"], json!(false)),
+            _ => {
+                assert_eq!(a["readOnlyHint"], json!(true), "{}", spec.name);
+                assert_eq!(a["destructiveHint"], json!(false), "{}", spec.name);
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -118,61 +139,73 @@ async fn agent_connection_list_has_no_mongo_password() {
     assert!(!json.contains("admin:"), "{json}");
 }
 
+fn level(app: &AppServices, id: &str, database: Option<&str>, level: &str) {
+    app.tool_access()
+        .set_level(id, database, Some(level))
+        .unwrap();
+}
+
 #[tokio::test]
-async fn mcp_list_connections_empty_allowlist_is_none() {
+async fn mcp_sees_no_connection_by_default() {
     let app = app();
     let saved = save_pg(&app, "prod");
     let tools = app.agent_tools();
     let mcp = tools.list_connections(ToolCaller::Mcp).await.unwrap();
-    assert!(mcp.is_empty(), "empty allowlist must hide all connections");
+    assert!(mcp.is_empty(), "the MCP default is none");
     let agent = tools.list_connections(ToolCaller::Agent).await.unwrap();
     assert_eq!(agent.len(), 1);
     assert_eq!(agent[0].id, saved.id);
+    assert_eq!(agent[0].access, "read");
 }
 
 #[tokio::test]
-async fn mcp_list_connections_returns_allowlisted_only() {
+async fn mcp_lists_connections_above_none_with_their_level() {
     let app = app();
     let a = save_pg(&app, "a");
-    let _b = save_pg(&app, "b");
-    app.settings()
-        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, a.id))
-        .unwrap();
+    let b = save_pg(&app, "b");
+    let c = save_pg(&app, "c");
+    level(&app, &a.id, None, "read");
+    // Only one database open: the connection is listed, at its own level.
+    level(&app, &c.id, Some("app"), "read");
     let tools = app.agent_tools();
     let mcp = tools.list_connections(ToolCaller::Mcp).await.unwrap();
-    assert_eq!(mcp.len(), 1);
-    assert_eq!(mcp[0].id, a.id);
+    let ids: Vec<_> = mcp.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, vec![a.id.as_str(), c.id.as_str()]);
+    assert_eq!(mcp[0].access, "read");
+    assert_eq!(mcp[1].access, "none");
+    // A connection set to none is hidden from the agent too.
+    level(&app, &b.id, None, "none");
+    let agent = tools.list_connections(ToolCaller::Agent).await.unwrap();
+    assert!(agent.iter().all(|c| c.id != b.id));
 }
 
 #[tokio::test]
-async fn mcp_rejects_connection_not_on_allowlist() {
+async fn mcp_is_denied_a_hidden_connection_without_its_name() {
     let app = app();
-    let saved = save_pg(&app, "prod");
-    let err = app
-        .agent_tools()
-        .call_tool(
-            "execute_readonly_query",
-            &json!({
-                "connection_id": saved.id,
-                "query": "SELECT 1"
-            }),
-            ToolCaller::Mcp,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("allowlist"),
-        "expected allowlist error, got {err}"
-    );
+    let saved = save_pg(&app, "secret-prod");
+    for id in [saved.id.as_str(), "999", "not-a-number"] {
+        let err = app
+            .agent_tools()
+            .call_tool(
+                "execute_readonly_query",
+                &json!({ "connection_id": id, "query": "SELECT 1" }),
+                ToolCaller::Mcp,
+            )
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("no access"), "{msg}");
+        assert!(msg.contains("Settings → MCP → Access"), "{msg}");
+        assert!(!msg.contains("secret-prod"), "{msg}");
+        assert!(matches!(err, AppError::AccessDenied(_)), "{err:?}");
+    }
 }
 
 #[tokio::test]
-async fn default_policy_blocks_insert_even_when_allowlisted() {
+async fn read_level_denies_a_write_and_says_which_level_is_needed() {
     let app = app();
     let saved = save_pg(&app, "prod");
-    app.settings()
-        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, saved.id))
-        .unwrap();
+    level(&app, &saved.id, None, "read");
     let err = app
         .agent_tools()
         .call_tool(
@@ -186,72 +219,58 @@ async fn default_policy_blocks_insert_even_when_allowlisted() {
         .await
         .unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("read-only"),
-        "expected read-only policy error, got {msg}"
-    );
+    assert!(msg.contains("needs `write`"), "{msg}");
+    assert!(msg.contains("MCP has `read`"), "{msg}");
+    assert!(msg.contains("connection \"prod\""), "{msg}");
+    assert!(msg.contains("Nothing ran"), "{msg}");
+    assert!(msg.contains("Ask me for high-risk writes"), "{msg}");
 }
 
 #[tokio::test]
-async fn safe_write_blocks_drop() {
+async fn write_level_denies_delete_and_drop() {
     let app = app();
     let saved = save_pg(&app, "prod");
-    app.settings()
-        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, saved.id))
-        .unwrap();
-    app.settings()
-        .set(SETTING_MCP_POLICY, "safe_write")
-        .unwrap();
+    level(&app, &saved.id, None, "write");
+    for query in [
+        "DROP TABLE t",
+        "DELETE FROM t",
+        "DELETE FROM t WHERE id = 1",
+    ] {
+        let err = app
+            .agent_tools()
+            .call_tool(
+                "execute_query",
+                &json!({ "connection_id": saved.id, "query": query }),
+                ToolCaller::Mcp,
+            )
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("needs `full`"), "{query}: {msg}");
+        assert!(msg.contains("has `write`"), "{query}: {msg}");
+    }
+}
+
+#[tokio::test]
+async fn a_database_level_overrides_its_connection() {
+    let app = app();
+    let saved = save_pg(&app, "prod");
+    level(&app, &saved.id, None, "read");
+    level(&app, &saved.id, Some("audit"), "none");
     let err = app
         .agent_tools()
         .call_tool(
-            "execute_query",
-            &json!({
-                "connection_id": saved.id,
-                "query": "DROP TABLE t"
-            }),
+            "execute_readonly_query",
+            &json!({ "connection_id": saved.id, "query": "SELECT 1", "database": "audit" }),
             ToolCaller::Mcp,
         )
         .await
         .unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("safe_write"),
-        "expected safe_write policy error, got {msg}"
-    );
+    assert!(err.to_string().contains("no access"), "{err}");
 }
 
 #[tokio::test]
-async fn safe_write_blocks_delete() {
-    let app = app();
-    let saved = save_pg(&app, "prod");
-    app.settings()
-        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, saved.id))
-        .unwrap();
-    app.settings()
-        .set(SETTING_MCP_POLICY, "safe_write")
-        .unwrap();
-    let err = app
-        .agent_tools()
-        .call_tool(
-            "execute_query",
-            &json!({
-                "connection_id": saved.id,
-                "query": "DELETE FROM t"
-            }),
-            ToolCaller::Mcp,
-        )
-        .await
-        .unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("safe_write"),
-        "expected safe_write policy error, got {msg}"
-    );
-}
-
-#[tokio::test]
-async fn agent_caller_is_not_filtered_by_allowlist() {
+async fn the_agent_reads_by_default_and_is_denied_writes() {
     let app = app();
     let saved = save_pg(&app, "prod");
     let err = app
@@ -267,14 +286,8 @@ async fn agent_caller_is_not_filtered_by_allowlist() {
         .await
         .unwrap_err();
     let msg = err.to_string();
-    assert!(
-        !msg.contains("allowlist"),
-        "in-app agent must not use the MCP allowlist, got {msg}"
-    );
-    assert!(
-        msg.contains("read-only"),
-        "in-app agent still uses the shared write policy, got {msg}"
-    );
+    assert!(msg.contains("The built-in agent has `read`"), "{msg}");
+    assert!(msg.contains("needs `write`"), "{msg}");
 }
 
 #[tokio::test]
@@ -282,9 +295,8 @@ async fn mcp_save_query_does_not_overwrite_another_connection() {
     let app = app();
     let scratch = save_pg(&app, "scratch");
     let prod = save_pg(&app, "prod");
-    app.settings()
-        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, scratch.id))
-        .unwrap();
+    level(&app, &scratch.id, None, "read");
+    level(&app, &prod.id, None, "none");
     let tools = app.agent_tools();
     let saved = tools
         .save_query(crate::domain::SaveQueryInput {
@@ -312,8 +324,8 @@ async fn mcp_save_query_does_not_overwrite_another_connection() {
         .await
         .unwrap_err();
     assert!(
-        err.to_string().contains("allowlist"),
-        "existing row must be allowlisted, got {err}"
+        err.to_string().contains("no access"),
+        "the existing row's connection must be visible, got {err}"
     );
     let still = app
         .db
@@ -327,9 +339,7 @@ async fn mcp_save_query_does_not_overwrite_another_connection() {
 async fn mcp_save_query_updates_its_own_row() {
     let app = app();
     let scratch = save_pg(&app, "scratch");
-    app.settings()
-        .set(SETTING_MCP_ALLOWLIST, &format!(r#"["{}"]"#, scratch.id))
-        .unwrap();
+    level(&app, &scratch.id, None, "read");
     let tools = app.agent_tools();
     let created = tools
         .call_tool(
@@ -361,14 +371,23 @@ async fn mcp_save_query_updates_its_own_row() {
 }
 
 fn save_sqlite(app: &AppServices, path: &std::path::Path) -> crate::domain::ConnectionProfile {
+    save_sqlite_as(app, path, "local", false)
+}
+
+fn save_sqlite_as(
+    app: &AppServices,
+    path: &std::path::Path,
+    environment: &str,
+    read_only: bool,
+) -> crate::domain::ConnectionProfile {
     app.profiles()
         .save(SaveConnectionInput {
             id: None,
             name: "s1-sqlite".into(),
             engine: "sqlite".into(),
             color_id: "teal".into(),
-            environment: "local".into(),
-            read_only: false,
+            environment: environment.into(),
+            read_only,
             notes: None,
             plugin_config: json!({"path": path.to_string_lossy()}),
             password: None,
@@ -394,9 +413,7 @@ async fn cell_paging_never_runs_a_write_again() {
         uuid::Uuid::new_v4()
     ));
     let app = app();
-    app.settings()
-        .set(SETTING_MCP_POLICY, "high_risk_write")
-        .unwrap();
+    app.tool_access().set_default("agent", "full").unwrap();
     let profile = save_sqlite(&app, &path);
     let tools = app.agent_tools();
     let run = |query: String, offset: u64| {

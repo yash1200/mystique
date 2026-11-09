@@ -13,6 +13,7 @@ fn shared_tool(name: &str) -> AgentToolSpec {
             name: "unknown",
             description: "Unknown tool",
             input_schema: json!({ "type": "object", "additionalProperties": false }),
+            annotations: Default::default(),
         })
 }
 

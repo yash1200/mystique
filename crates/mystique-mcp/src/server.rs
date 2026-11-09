@@ -4,6 +4,9 @@ mod http;
 mod rpc;
 mod token;
 
+#[cfg(test)]
+mod tests;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

@@ -3,7 +3,8 @@ use mystique_connector_api::{
     WriteAction, WriteGuardPrompt, WriteRisk, WriteState,
 };
 
-use super::ConnectionManager;
+use super::principal::{is_tool_session_id, TOOL_WRITE_MESSAGE};
+use super::{ConnectionManager, SessionOrigin};
 
 /// One write about to run, as the policy sees it.
 pub(super) struct WriteCheck<'a> {
@@ -18,6 +19,8 @@ pub(super) struct WriteCheck<'a> {
     pub profile_read_only: bool,
     /// Manual-commit tab.
     pub pinned: bool,
+    /// The query text as sent, for an agent or MCP authorization (F-01).
+    pub request: Option<&'a str>,
 }
 
 impl<'a> WriteCheck<'a> {
@@ -32,6 +35,7 @@ impl<'a> WriteCheck<'a> {
             confirm_object_name: None,
             profile_read_only: false,
             pinned: false,
+            request: None,
         }
     }
 }
@@ -52,7 +56,7 @@ impl ConnectionManager {
         if check.risk == WriteRisk::Read {
             return Ok(None);
         }
-        let (environment, read_only, connection_name) = {
+        let (environment, read_only, connection_name, tool) = {
             let guard = self.sessions.read().await;
             let live = guard.get(check.session_id).ok_or_else(|| {
                 ConnectorError::InvalidConfig(format!("session not found: {}", check.session_id))
@@ -61,8 +65,12 @@ impl ConnectionManager {
                 live.environment.clone(),
                 live.read_only || check.profile_read_only,
                 live.connection_name.clone(),
+                live.origin != SessionOrigin::Ui || is_tool_session_id(check.session_id),
             )
         };
+        if tool {
+            return self.tool_write_check(&check, read_only);
+        }
         let env = Environment::parse(&environment);
         let expected = check
             .object_name
@@ -98,5 +106,24 @@ impl ConnectionManager {
                 .insert(check.session_id.to_string());
         }
         Ok(prompt)
+    }
+
+    /// Agent and MCP (F-01): no unlock, no pin, no dialog. Read-only still
+    /// wins; otherwise the write needs `AgentTools`' one-shot authorization
+    /// for exactly this text.
+    fn tool_write_check(
+        &self,
+        check: &WriteCheck<'_>,
+        read_only: bool,
+    ) -> ConnectorResult<Option<WriteGuardPrompt>> {
+        if read_only {
+            return Err(ConnectorError::Policy(
+                mystique_connector_api::READ_ONLY_MESSAGE.into(),
+            ));
+        }
+        match check.request {
+            Some(text) if self.take_tool_write(check.session_id, text) => Ok(None),
+            _ => Err(ConnectorError::Policy(TOOL_WRITE_MESSAGE.into())),
+        }
     }
 }

@@ -14,6 +14,7 @@ mod query_library;
 mod settings;
 mod ssh;
 mod time;
+mod tool_access;
 mod workspace_tabs;
 
 pub use agent_chat::*;
@@ -25,4 +26,5 @@ pub use query_library::*;
 pub use settings::*;
 pub use ssh::*;
 pub(crate) use time::now_iso;
+pub use tool_access::*;
 pub use workspace_tabs::*;

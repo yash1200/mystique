@@ -1,17 +1,27 @@
 use serde_json::json;
 
-use super::policy::AgentWritePolicy;
 use super::types::{
-    AgentToolSpec, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_CELL_OFFSET,
-    AGENT_MAX_ROWS,
+    AgentToolSpec, ToolAnnotations, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS,
+    AGENT_MAX_CELL_OFFSET, AGENT_MAX_ROWS,
 };
 
-pub fn tool_specs_for(policy: AgentWritePolicy) -> Vec<AgentToolSpec> {
+/// The listed tools. `execute_query` only when the caller may write somewhere.
+pub fn tool_specs_for(may_write: bool) -> Vec<AgentToolSpec> {
     let mut specs = tool_specs();
-    if !policy.allows_writes() {
+    if !may_write {
         specs.retain(|t| t.name != "execute_query");
     }
     specs
+}
+
+/// Reads: no change to the database or to Mystique.
+const fn reads(title: &'static str) -> ToolAnnotations {
+    ToolAnnotations {
+        title,
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+    }
 }
 
 pub fn tool_specs() -> Vec<AgentToolSpec> {
@@ -25,6 +35,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 "properties": {},
                 "additionalProperties": false
             }),
+            annotations: reads("List connections"),
         },
         AgentToolSpec {
             name: "get_schema_dbml",
@@ -39,6 +50,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 "required": ["connection_id"],
                 "additionalProperties": false
             }),
+            annotations: reads("Schema as DBML"),
         },
         AgentToolSpec {
             name: "list_objects",
@@ -53,6 +65,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 "required": ["connection_id"],
                 "additionalProperties": false
             }),
+            annotations: reads("List tables and collections"),
         },
         AgentToolSpec {
             name: "describe_object",
@@ -69,18 +82,27 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 "required": ["connection_id", "name"],
                 "additionalProperties": false
             }),
+            annotations: reads("Describe a table"),
         },
         AgentToolSpec {
             name: "execute_readonly_query",
             description:
                 "Run a read-only query (SELECT / find). Writes are rejected. Returns JSON rows or CSV for the model. Opens the connection if needed. Qualify tables with schema (SELECT * FROM main.boards), not bare names. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset, with the same query, to read the next slice. Pages come from the result cached for 5 minutes; a write is never run again to page it. The grid and file export are not capped.",
             input_schema: query_input_schema("SQL or Mongo find/aggregate / JSON filter"),
+            annotations: reads("Run a read-only query"),
         },
         AgentToolSpec {
             name: "execute_query",
             description:
-                "Run a query that may write. Honors the Mystique write policy: read-only blocks writes; safe_write allows INSERT/UPDATE only; high_risk_write allows DDL/DROP but production still needs an in-app unlock. Prefer execute_readonly_query for SELECT/find. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset, with the same query, to read the next slice. Pages come from the result cached for 5 minutes; a write is never run again to page it.",
+                "Run a query that may write. Allowed up to your access level on the connection or database: read runs SELECT/find only, write adds INSERT/UPDATE, full adds DELETE, DDL and DROP. Above the level the call is denied and nothing runs, unless the connection asks the user to approve it in Mystique (the call then waits up to 90 seconds). Prefer execute_readonly_query for SELECT/find. Each cell is a character window (200 by default, 4000 max). A truncated cell includes next_offset; pass that value as cell_char_offset, with the same query, to read the next slice. Pages come from the result cached for 5 minutes; a write is never run again to page it.",
             input_schema: query_input_schema("SQL or Mongo write / read"),
+            annotations: ToolAnnotations {
+                title: "Run a query that may write",
+                read_only: false,
+                // full access allows DELETE, DDL and DROP.
+                destructive: true,
+                idempotent: false,
+            },
         },
         AgentToolSpec {
             name: "list_saved_queries",
@@ -92,6 +114,7 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 },
                 "additionalProperties": false
             }),
+            annotations: reads("List saved queries"),
         },
         AgentToolSpec {
             name: "save_query",
@@ -108,6 +131,13 @@ pub fn tool_specs() -> Vec<AgentToolSpec> {
                 "required": ["connection_id", "name", "body"],
                 "additionalProperties": false
             }),
+            annotations: ToolAnnotations {
+                title: "Save a query in Mystique",
+                read_only: false,
+                // With an id it replaces that saved query's text.
+                destructive: true,
+                idempotent: true,
+            },
         },
     ]
 }

@@ -36,6 +36,11 @@ pub enum AppError {
     /// `PasswordRequired` prompt; the prefix stays in `Display` for the agent.
     #[error("password_required: This connection asks for its password once per session.")]
     PasswordRequired,
+
+    /// An agent or MCP call above its access level (F-02). The text is for
+    /// the model: what is needed and how the user can grant it.
+    #[error("{0}")]
+    AccessDenied(String),
 }
 
 impl Serialize for AppError {
@@ -73,6 +78,7 @@ impl From<AppError> for IpcError {
             AppError::Invalid(_) => IpcErrorKind::InvalidInput,
             AppError::Internal(_) => IpcErrorKind::Internal,
             AppError::SecretStore(_) => IpcErrorKind::SecretStore,
+            AppError::AccessDenied(_) => IpcErrorKind::Policy,
         };
         IpcError::new(kind, value.to_string())
     }

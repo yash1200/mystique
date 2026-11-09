@@ -24,6 +24,7 @@ mod large;
 mod meta_cache;
 mod metrics;
 mod pin;
+mod principal;
 mod query;
 mod run;
 mod table;
@@ -130,7 +131,10 @@ pub struct ConnectionManager {
     registry: ConnectorRegistry,
     sessions: RwLock<HashMap<String, LiveSession>>,
     /// Session ids unlocked for writes this process (P3.1). Not persisted.
+    /// Human sessions only: a tool session is never in here (F-01).
     write_unlocks: Mutex<HashSet<String>>,
+    /// One-shot write authorizations for agent and MCP sessions (F-01).
+    tool_writes: principal::ToolWrites,
     /// `execution_id` → control. Not the profile id.
     /// A std mutex so a run's drop guard can unregister without awaiting.
     running: std::sync::Mutex<HashMap<String, run::Inflight>>,
@@ -160,6 +164,7 @@ impl ConnectionManager {
             registry,
             sessions: RwLock::new(HashMap::new()),
             write_unlocks: Mutex::new(HashSet::new()),
+            tool_writes: principal::ToolWrites::default(),
             running: std::sync::Mutex::new(HashMap::new()),
             metadata: run::metadata_limiter(),
             pins: Mutex::new(HashMap::new()),
@@ -273,6 +278,16 @@ impl ConnectionManager {
     }
 
     pub async fn open_session(&self, req: OpenSessionRequest) -> ConnectorResult<SessionInfo> {
+        // A desktop session must not take over an agent or MCP pool (F-01).
+        if req
+            .session_id
+            .as_deref()
+            .is_some_and(principal::is_tool_session_id)
+        {
+            return Err(ConnectorError::InvalidConfig(
+                "Session ids starting with agent: or mcp: are reserved.".into(),
+            ));
+        }
         self.open_session_as(req, SessionOrigin::Ui).await
     }
 
@@ -424,6 +439,7 @@ impl ConnectionManager {
             ));
         }
         let _ = self.session(id).await?;
+        self.refuse_tool_session(id, "unlocked").await?;
         self.write_unlocks.lock().await.insert(id.to_string());
         Ok(())
     }
