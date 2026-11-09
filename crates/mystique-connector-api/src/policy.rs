@@ -45,7 +45,10 @@ pub trait EngineQueryPolicy: Send + Sync {
     /// text is one statement. SQL engines are planned by `mystique-sql`
     /// instead and do not use this.
     fn split(&self, text: &str) -> Vec<std::ops::Range<usize>> {
-        vec![0..text.len()]
+        vec![std::ops::Range {
+            start: 0,
+            end: text.len(),
+        }]
     }
 
     /// Short name for the write-guard prompt. Default: the text, compacted.
