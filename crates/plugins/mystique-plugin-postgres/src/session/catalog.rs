@@ -128,23 +128,28 @@ pub(super) async fn table_references(
     let client = session.client().await?;
     let fk_rows = client
         .query(
+            // Paired by position, like `list_relationships`. Bound names.
             r#"
             SELECT
-              kcu.column_name,
-              ccu.table_schema,
-              ccu.table_name,
-              ccu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-              ON tc.constraint_name = kcu.constraint_name
-             AND tc.table_schema = kcu.table_schema
-            JOIN information_schema.constraint_column_usage ccu
-              ON ccu.constraint_name = tc.constraint_name
-             AND ccu.table_schema = tc.table_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-              AND tc.table_schema = $1
-              AND tc.table_name = $2
-            ORDER BY tc.constraint_name, kcu.ordinal_position
+              fa.attname,
+              tn.nspname,
+              tc.relname,
+              ta.attname
+            FROM pg_catalog.pg_constraint con
+            CROSS JOIN LATERAL unnest(con.conkey, con.confkey)
+              WITH ORDINALITY AS k(from_attnum, to_attnum, ord)
+            JOIN pg_catalog.pg_class fc ON fc.oid = con.conrelid
+            JOIN pg_catalog.pg_namespace fn ON fn.oid = fc.relnamespace
+            JOIN pg_catalog.pg_attribute fa
+              ON fa.attrelid = con.conrelid AND fa.attnum = k.from_attnum
+            JOIN pg_catalog.pg_class tc ON tc.oid = con.confrelid
+            JOIN pg_catalog.pg_namespace tn ON tn.oid = tc.relnamespace
+            JOIN pg_catalog.pg_attribute ta
+              ON ta.attrelid = con.confrelid AND ta.attnum = k.to_attnum
+            WHERE con.contype = 'f'
+              AND fn.nspname = $1
+              AND fc.relname = $2
+            ORDER BY con.conname, k.ord
             "#,
             &[&schema, &table],
         )
@@ -404,26 +409,36 @@ pub(super) async fn list_relationships(
 ) -> ConnectorResult<Vec<CatalogRelationship>> {
     session.ensure_open()?;
     let client = session.client().await?;
+    // One row per FK column pair. `conkey[i]` references `confkey[i]`, so a
+    // composite key pairs by position instead of every column with every
+    // column (the information_schema join on constraint name crossed them,
+    // and also mixed up same-named constraints on different tables).
     let rows = client
         .query(
             r#"
             SELECT
-              kcu.table_schema AS from_schema,
-              kcu.table_name AS from_table,
-              kcu.column_name AS from_column,
-              ccu.table_schema AS to_schema,
-              ccu.table_name AS to_table,
-              ccu.column_name AS to_column,
-              tc.constraint_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-              ON tc.constraint_name = kcu.constraint_name
-             AND tc.table_schema = kcu.table_schema
-            JOIN information_schema.constraint_column_usage ccu
-              ON ccu.constraint_name = tc.constraint_name
-             AND ccu.table_schema = tc.table_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-            ORDER BY kcu.table_schema, kcu.table_name
+              fn.nspname AS from_schema,
+              fc.relname AS from_table,
+              fa.attname AS from_column,
+              tn.nspname AS to_schema,
+              tc.relname AS to_table,
+              ta.attname AS to_column,
+              con.conname
+            FROM pg_catalog.pg_constraint con
+            CROSS JOIN LATERAL unnest(con.conkey, con.confkey)
+              WITH ORDINALITY AS k(from_attnum, to_attnum, ord)
+            JOIN pg_catalog.pg_class fc ON fc.oid = con.conrelid
+            JOIN pg_catalog.pg_namespace fn ON fn.oid = fc.relnamespace
+            JOIN pg_catalog.pg_attribute fa
+              ON fa.attrelid = con.conrelid AND fa.attnum = k.from_attnum
+            JOIN pg_catalog.pg_class tc ON tc.oid = con.confrelid
+            JOIN pg_catalog.pg_namespace tn ON tn.oid = tc.relnamespace
+            JOIN pg_catalog.pg_attribute ta
+              ON ta.attrelid = con.confrelid AND ta.attnum = k.to_attnum
+            WHERE con.contype = 'f'
+              AND fn.nspname NOT IN ('pg_catalog', 'information_schema')
+              AND fn.nspname NOT LIKE 'pg\_toast%'
+            ORDER BY fn.nspname, fc.relname, con.conname, k.ord
             "#,
             &[],
         )
