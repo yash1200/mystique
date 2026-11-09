@@ -2,6 +2,7 @@
 	import { cn, formatRelativeTime } from '#core/util'
 	import { CatalogIcon } from '#features/workspace/catalog'
 	import { previewSql } from '../display'
+	import { historyKindLabel } from './history-api'
 	import type { QueryHistoryEntry } from './history-types'
 
 	interface Props {
@@ -43,6 +44,7 @@
 	<ul class="m-0 list-none p-0">
 	{#each items as item (item.id)}
 		{@const active = selectedId === item.id}
+		{@const kindLabel = historyKindLabel(item.kind)}
 		<li>
 			<button
 				type="button"
@@ -99,6 +101,10 @@
 						{/if}
 						<span>·</span>
 						<span>{sourceLabel(item.source)}</span>
+						{#if kindLabel}
+							<span>·</span>
+							<span class="rounded-sm bg-input px-1 text-fg-secondary">{kindLabel}</span>
+						{/if}
 					</span>
 				</span>
 			</button>

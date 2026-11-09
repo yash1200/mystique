@@ -112,7 +112,17 @@ impl ConnectionManager {
         let save = blocking(move || claim.take(&save_id))
             .await?
             .ok_or_else(already_used)?;
+        let started = std::time::Instant::now();
         let outcome = session.apply_grid_undo(&save.undo).await;
+        self.log_action(super::history::HistoryAction {
+            session_id: &req.session_id,
+            kind: crate::domain::QueryHistoryKind::Rollback,
+            sql: save.undo.inverse.clone(),
+            database: None,
+            started,
+            outcome: outcome.as_ref().map(|()| None),
+        })
+        .await;
         if let Err(err) = &outcome {
             if !err.to_string().contains(ROLLBACK_STALE) {
                 let _ = blocking(move || store.put(&save)).await;

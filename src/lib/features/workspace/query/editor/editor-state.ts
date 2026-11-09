@@ -18,6 +18,8 @@ export const editorCompartments = {
 	placeholder: new Compartment(),
 	theme: new Compartment(),
 	runGutter: new Compartment(),
+	/** `richSetup()`, or nothing in large-document mode. */
+	rich: new Compartment(),
 }
 
 /**

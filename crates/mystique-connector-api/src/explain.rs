@@ -83,6 +83,10 @@ pub struct ExplainQueryRequest {
     pub database: Option<String>,
     #[serde(default)]
     pub execution_id: Option<String>,
+    /// Values for `:name` / `$1` / `?` placeholders, bound like a normal run.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub params: Vec<serde_json::Value>,
 }
 
 /// Shown when analyze of a non-read is rejected inside the read-only transaction.

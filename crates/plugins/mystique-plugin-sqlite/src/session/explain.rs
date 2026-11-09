@@ -24,8 +24,9 @@ pub(super) async fn explain_query(
     let path = session.path();
     let sql = sqlite_explain_sql(&query.text);
     let control = Arc::clone(&query.control);
+    let params = query.params.clone();
     session
-        .blocking(move || read_plan(&path, &sql, analyze, &control))
+        .blocking(move || read_plan(&path, &sql, &params, analyze, &control))
         .await
 }
 
@@ -37,6 +38,7 @@ pub(super) fn sqlite_explain_sql(subject: &str) -> String {
 fn read_plan(
     path: &std::path::Path,
     sql: &str,
+    params: &[serde_json::Value],
     analyze: bool,
     control: &Arc<QueryControl>,
 ) -> ConnectorResult<ExplainPlan> {
@@ -55,8 +57,9 @@ fn read_plan(
         .prepare(sql)
         .map_err(|err| interrupt::map_err(control, err))?;
     let columns = stmt.column_count();
+    let binds = super::edits::json_binds(params);
     let mut rows = stmt
-        .query([])
+        .query(rusqlite::params_from_iter(binds.iter()))
         .map_err(|err| interrupt::map_err(control, err))?;
     let mut steps = Vec::new();
     let mut raw_lines = Vec::new();

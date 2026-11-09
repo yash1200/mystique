@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::batch::{BatchEvent, BatchPhase, QueryBatchResult, StatementResult, ValidatedBatch};
+use crate::batch::{BatchPhase, QueryBatchResult, StatementResult, ValidatedBatch};
 use crate::capabilities::EngineCapabilities;
 use crate::catalog::{
     CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo, FetchTablePreviewInput,
@@ -152,16 +152,7 @@ pub trait ConnectorSession: Send + Sync {
         let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
         let mut results = Vec::with_capacity(batch.statements.len());
         for stmt in &batch.statements {
-            if let Some(progress) = &batch.progress {
-                progress.emit(
-                    BatchEvent {
-                        index: stmt.index,
-                        total,
-                        phase: BatchPhase::Started,
-                    },
-                    false,
-                );
-            }
+            crate::batch::emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
             if batch.control.is_cancelled() {
                 return Err(crate::ConnectorError::Query("Query cancelled.".into()));
             }
@@ -184,37 +175,16 @@ pub trait ConnectorSession: Send + Sync {
                         return Err(err);
                     }
                     results.push(StatementResult::failed(stmt, 0, &err));
-                    if let Some(progress) = &batch.progress {
-                        progress.emit(
-                            BatchEvent {
-                                index: stmt.index,
-                                total,
-                                phase: BatchPhase::Finished,
-                            },
-                            true,
-                        );
-                        progress.flush();
-                    }
+                    crate::batch::finish_progress(&batch.progress);
                     return Ok(QueryBatchResult {
                         results,
                         stopped_at: Some(stmt.index),
                     });
                 }
             }
-            if let Some(progress) = &batch.progress {
-                progress.emit(
-                    BatchEvent {
-                        index: stmt.index,
-                        total,
-                        phase: BatchPhase::Finished,
-                    },
-                    true,
-                );
-            }
+            crate::batch::emit_progress(&batch.progress, stmt.index, total, BatchPhase::Finished);
         }
-        if let Some(progress) = &batch.progress {
-            progress.flush();
-        }
+        crate::batch::finish_progress(&batch.progress);
         Ok(QueryBatchResult {
             results,
             stopped_at: None,

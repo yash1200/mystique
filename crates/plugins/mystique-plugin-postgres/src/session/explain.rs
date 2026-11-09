@@ -6,6 +6,7 @@ use mystique_connector_api::{
     ConnectorError, ConnectorResult, ExplainPlan, PlanField, PlanNode, ValidatedQuery,
 };
 use serde_json::Value;
+use tokio_postgres::types::ToSql;
 use tokio_postgres::SimpleQueryMessage;
 
 use super::query::end_read_only_txn;
@@ -18,8 +19,7 @@ pub(super) async fn explain_query(
     analyze: bool,
 ) -> ConnectorResult<ExplainPlan> {
     session.ensure_open()?;
-    let client = session.client().await?;
-    let _guard = session.arm_cancel(&client, &query.control);
+    let mut client = session.run_client(&query.control).await?;
     let timeout = query.timeout_ms; // 0 turns statement_timeout off.
     client
         .batch_execute("BEGIN READ ONLY")
@@ -29,11 +29,15 @@ pub(super) async fn explain_query(
         .batch_execute(&format!("SET LOCAL statement_timeout = {timeout}"))
         .await
     {
-        return end_read_only_txn(client, Err(query_failed(err))).await;
+        return end_read_only_txn(&mut client, Err(query_failed(err))).await;
     }
     let sql = postgres_explain_sql(&query.text, analyze);
-    let fetched = fetch_text(&client, &sql).await;
-    let raw = end_read_only_txn(client, fetched).await?;
+    let fetched = if query.params.is_empty() {
+        fetch_text(&client, &sql).await
+    } else {
+        fetch_bound_text(&client, &sql, &query.params).await
+    };
+    let raw = end_read_only_txn(&mut client, fetched).await?;
     parse_postgres_explain(&raw)
 }
 
@@ -65,6 +69,34 @@ async fn fetch_text(client: &deadpool_postgres::Object, sql: &str) -> ConnectorR
         }
         if !cells.is_empty() {
             lines.push(cells.join("\t"));
+        }
+    }
+    if lines.is_empty() {
+        return Err(ConnectorError::Query("Explain returned no plan.".into()));
+    }
+    Ok(lines.join("\n"))
+}
+
+/// `$1` is not valid in a simple query, so bound explains use the extended
+/// protocol. The values go as text, like a normal run.
+async fn fetch_bound_text(
+    client: &deadpool_postgres::Object,
+    sql: &str,
+    params: &[serde_json::Value],
+) -> ConnectorResult<String> {
+    let binds = super::query::q_binds(params);
+    let refs: Vec<&(dyn ToSql + Sync)> = binds.iter().map(|bind| bind as _).collect();
+    let rows = client.query(sql, &refs).await.map_err(query_failed)?;
+    let mut lines = Vec::new();
+    for row in &rows {
+        for index in 0..row.len() {
+            if let Ok(Some(value)) = row.try_get::<_, Option<serde_json::Value>>(index) {
+                let text = serde_json::to_string_pretty(&value)
+                    .map_err(|err| ConnectorError::Query(err.to_string()))?;
+                lines.push(text);
+            } else if let Ok(Some(text)) = row.try_get::<_, Option<String>>(index) {
+                lines.push(text);
+            }
         }
     }
     if lines.is_empty() {

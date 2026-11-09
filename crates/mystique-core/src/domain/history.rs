@@ -34,6 +34,46 @@ impl QueryHistorySource {
     }
 }
 
+/// What wrote the row. A query run is `query`; the rest are app actions the
+/// history lists so a change can be traced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum QueryHistoryKind {
+    #[default]
+    Query,
+    /// Grid edits saved to the table. The body is the SQL that ran.
+    GridSave,
+    /// A structure edit or a schema diff applied.
+    Ddl,
+    /// A grid save rolled back.
+    Rollback,
+    /// `EXPLAIN ANALYZE`, which runs the statement.
+    ExplainAnalyze,
+}
+
+impl QueryHistoryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::GridSave => "grid_save",
+            Self::Ddl => "ddl",
+            Self::Rollback => "rollback",
+            Self::ExplainAnalyze => "explain_analyze",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "grid_save" => Self::GridSave,
+            "ddl" => Self::Ddl,
+            "rollback" => Self::Rollback,
+            "explain_analyze" => Self::ExplainAnalyze,
+            _ => Self::Query,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +95,8 @@ pub struct QueryHistoryItem {
     pub affected_rows: Option<i64>,
     #[serde(default)]
     pub source: QueryHistorySource,
+    #[serde(default)]
+    pub kind: QueryHistoryKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +120,9 @@ pub struct AppendHistoryInput {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub source: QueryHistorySource,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub kind: QueryHistoryKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,12 +143,14 @@ pub struct HistoryList {
     pub cursor_id: Option<String>,
 }
 
-/// Replace `scheme://user:password@host` passwords with `***`.
+/// Replace `scheme://user:password@host` passwords and account passwords
+/// (`ALTER USER … PASSWORD '…'`, `IDENTIFIED BY '…'`, `SET PASSWORD`) with `***`.
 ///
-/// SQL text is kept. Connection-string userinfo is not. Bind parameters are
-/// not a history column; only the statement text is stored.
+/// Other SQL text is kept, so `WHERE password = 'x'` stays runnable.
+/// Connection-string userinfo is not. Bind parameters are not a history
+/// column; only the statement text is stored.
 pub fn redact_history_text(text: &str) -> String {
-    crate::redact::redact_uri_passwords(text)
+    crate::redact::redact_sql_passwords(&crate::redact::redact_uri_passwords(text))
 }
 
 #[cfg(test)]

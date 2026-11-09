@@ -19,6 +19,7 @@ export type {
 	McpStatus,
 	PurgeReport,
 	QueryHistoryItem,
+	QueryHistoryKind,
 	QueryHistoryPage,
 	QueryHistorySource,
 	ReplaceWorkspaceTabsInput,

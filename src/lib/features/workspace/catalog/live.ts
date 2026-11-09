@@ -70,7 +70,7 @@ export async function ensureLiveCatalog(
 			preferredDatabase,
 			includeObjects,
 		})
-		applyCatalog(connectionId, live, preferredDatabase, engine)
+		applyLiveCatalog(connectionId, live, preferredDatabase, engine)
 		catalogStore.liveKey = {
 			...catalogStore.liveKey,
 			[connectionId]: sessionId,
@@ -90,7 +90,7 @@ export async function ensureLiveCatalog(
 					preferredDatabase,
 					includeObjects,
 				})
-				applyCatalog(connectionId, live, preferredDatabase, engine)
+				applyLiveCatalog(connectionId, live, preferredDatabase, engine)
 				catalogStore.liveKey = {
 					...catalogStore.liveKey,
 					[connectionId]: sessionId,
@@ -116,7 +116,8 @@ export async function ensureLiveCatalog(
 	}
 }
 
-function applyCatalog(
+/** Store a loaded catalog and pick the database to show when none is picked. */
+export function applyLiveCatalog(
 	connectionId: string,
 	live: DatabaseMeta[],
 	preferredDatabase: string | null,

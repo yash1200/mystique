@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    clamp_timeout_ms, explain_rejection, gate_sql_batch, sql_analyze_guard_risk,
+    clamp_timeout_ms, explain_rejection, gate_sql_batch_in, sql_analyze_guard_risk,
     sql_destructive_object_name_for, sql_explain_subject, sql_is_proven_read, ConnectorError,
     ConnectorResult, ExplainPlan, ExplainQueryRequest, QueryMode, SqlDialect, ValidatedQuery,
     WriteAction, WriteRisk, EXPLAIN_NOT_EXECUTED,
@@ -18,11 +18,28 @@ impl ConnectionManager {
         &self,
         mut req: ExplainQueryRequest,
     ) -> ConnectorResult<ExplainPlan> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.take())
+        let run = self.begin_run(&req.session_id, req.execution_id.take());
+        let analyze = req.analyze.then(|| {
+            (
+                req.session_id.clone(),
+                analyze_history_sql(&req),
+                req.database.clone(),
+            )
+        });
+        let started = std::time::Instant::now();
+        let result = self.explain_registered(req, &run.control).await;
+        // ANALYZE runs the statement, so it belongs in history.
+        if let Some((session_id, sql, database)) = analyze {
+            self.log_action(super::history::HistoryAction {
+                session_id: &session_id,
+                kind: crate::domain::QueryHistoryKind::ExplainAnalyze,
+                sql: vec![sql],
+                database: database.as_deref(),
+                started,
+                outcome: result.as_ref().map(|_| None),
+            })
             .await;
-        let result = self.explain_registered(req, &control).await;
-        self.finish_run(&id).await;
+        }
         result
     }
 
@@ -67,7 +84,7 @@ impl ConnectionManager {
             collection: req.collection,
             database: req.database,
             control: Arc::clone(control),
-            params: Vec::new(),
+            params: prepared.params,
         };
         let result = self
             .drive_registered(
@@ -99,6 +116,7 @@ impl ConnectionManager {
         };
         Ok(PreparedExplain {
             subject: req.text.clone(),
+            params: Vec::new(),
             proven_read,
             guard,
             destructive_name: None,
@@ -106,8 +124,26 @@ impl ConnectionManager {
     }
 }
 
+/// SQL is stored as `EXPLAIN ANALYZE …`, so running it again from history
+/// explains again instead of running the bare statement. Mongo shell text is
+/// stored as typed; the history row's kind says it was an explain.
+fn analyze_history_sql(req: &ExplainQueryRequest) -> String {
+    let text = req.text.trim();
+    if req.collection.is_some() || text.starts_with("db.") {
+        return text.to_string();
+    }
+    let lower = text.to_ascii_lowercase();
+    if lower.starts_with("explain") || lower.starts_with("analyze") {
+        text.to_string()
+    } else {
+        format!("EXPLAIN ANALYZE {text}")
+    }
+}
+
 struct PreparedExplain {
     subject: String,
+    /// Bound values for the subject's placeholders, in driver order.
+    params: Vec<serde_json::Value>,
     proven_read: bool,
     guard: WriteRisk,
     destructive_name: Option<String>,
@@ -119,7 +155,11 @@ fn prepare_sql_explain(
     mode: QueryMode,
 ) -> ConnectorResult<PreparedExplain> {
     let dialect = SqlDialect::from_engine(engine);
-    let plan = gate_sql_batch(&req.text, dialect, mode)?;
+    // Plain EXPLAIN plans the statement without running it, so a write may
+    // be explained in Read mode. ANALYZE runs it and keeps the mode's gate.
+    // Transaction control is refused either way.
+    let gate_mode = if req.analyze { mode } else { QueryMode::Write };
+    let plan = gate_sql_batch_in(&req.text, dialect, gate_mode, false, &req.params)?;
     if plan.statements.len() != 1 {
         return Err(ConnectorError::Policy(
             "Explain one statement. Nothing ran.".into(),
@@ -145,6 +185,7 @@ fn prepare_sql_explain(
     };
     Ok(PreparedExplain {
         subject,
+        params: stmt.params.clone(),
         proven_read,
         guard,
         destructive_name,
@@ -161,7 +202,9 @@ fn finish_explain(
     }
     match result {
         Ok(mut plan) => {
-            plan.warnings.push(EXPLAIN_NOT_EXECUTED.to_string());
+            if !plan.warnings.iter().any(|w| w == EXPLAIN_NOT_EXECUTED) {
+                plan.warnings.push(EXPLAIN_NOT_EXECUTED.to_string());
+            }
             Ok(plan)
         }
         Err(err) => explain_rejection(err),

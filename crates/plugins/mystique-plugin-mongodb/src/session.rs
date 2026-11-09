@@ -26,11 +26,13 @@ mod error;
 mod explain;
 mod large;
 mod metrics;
+mod opts;
 mod pin;
 mod preview;
 mod query;
 mod structure;
 mod transfer;
+mod write;
 
 pub(super) use error::query_failed;
 

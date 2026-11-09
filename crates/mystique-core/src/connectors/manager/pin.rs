@@ -418,9 +418,8 @@ impl ConnectionManager {
         tab_id: Option<String>,
     ) -> ConnectorResult<QueryBatchResult> {
         // Register first so a cancel sent while we plan or wait is not lost.
-        let (run_id, control) = self
-            .begin_run(&req.session_id, req.execution_id.take())
-            .await;
+        let run = self.begin_run(&req.session_id, req.execution_id.take());
+        let control = Arc::clone(&run.control);
         let started = std::time::Instant::now();
         let req_session = req.session_id.clone();
         tracing::debug!(session_id = %req_session, pinned = tab_id.is_some(), "query run started");
@@ -433,7 +432,7 @@ impl ConnectionManager {
             self.execute_batch_inner(req, progress, tab_id, control)
                 .await
         };
-        self.finish_run(&run_id).await;
+        drop(run);
         log_run(&req_session, started, &outcome);
         if let Some(ctx) = ctx {
             let rows = super::history::rows_from_outcome(

@@ -41,6 +41,15 @@ mystique/
 - Core `QueryService`: resolve policy by session `engine_id` → `validate` → execute.
 - Modes: **Read** (default) · **Write** (opt-in). DELETE is a write (allowed in Write mode, blocked in Read). DROP/TRUNCATE are Destructive (P3.1 type-to-confirm). SQL risk comes from `mystique-sql` (AST), not a first-keyword list.
 - Limits (max rows, timeout): core hard caps applied on every request.
+- The per-profile query timeout (0 = none) reaches the server on every engine: `statement_timeout` (Postgres), `max_execution_time` (MySQL), and `maxTimeMS` on every Mongo command, writes included. A Mongo `maxTimeMS` option can lower it, not raise it.
+
+### Mongo shell text
+
+- `mystique-plugin-mongodb/src/shell` is the one parser for the executor, the write policy, the guard preview and explain.
+- Options arguments are applied, never parsed and dropped: `find(filter, projection, options)`, `aggregate(pipeline, options)`, `updateOne(filter, update, { upsert, arrayFilters, … })`, `findOneAndUpdate(…, { returnDocument, projection, sort, … })`, `insertMany(docs, { ordered })`, `bulkWrite(ops, { ordered })`, and per-operation options inside `bulkWrite`. An option a method does not take is refused with the list it does take. `shell/options.rs` has the table.
+- Options never lower risk: `upsert` is still a write; `$out` / `$merge` anywhere keep an aggregate a write.
+- insert/update/delete run as write commands (`session/write.rs`) so they carry `maxTimeMS`. A failed `insertMany` / `bulkWrite` names each write error with its index and the counts applied before it (outside a transaction). These commands are not retried on a transient network error.
+- A `find` without an explicit limit counts its matches alongside the page (not after it) and shows `(N matching)` when the page is truncated. The table grid starts its total count with the page.
 
 ## Adding a new database
 

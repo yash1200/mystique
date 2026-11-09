@@ -3,14 +3,15 @@
 	 * Query editor with CodeMirror 6 syntax highlighting (SQL / MQL).
 	 * Highlighting is frontend-only — live as you type, no backend.
 	 */
+	import { commands, type CommandContext } from '#core/commands'
 	import type { CatalogColumnRow } from '#core/contracts'
 	import { Button, Icon, Input, Pill } from '#core/ui'
 	import { catalogSignature, formatQuery } from '#engines'
 	import { showStatus } from '#features/toast'
-	import { appPrefs } from '#lib/app'
-	import { autocompletion } from '@codemirror/autocomplete'
+	import { appPrefs, cmd } from '#lib/app'
 	import { indentWithTab } from '@codemirror/commands'
 	import {
+		EditorSelection,
 		EditorState,
 		Prec,
 		RangeSetBuilder,
@@ -24,11 +25,18 @@
 		GutterMarker,
 		keymap,
 	} from '@codemirror/view'
-	import { basicSetup } from 'codemirror'
 	import { onMount, untrack } from 'svelte'
 	import { mystiqueSearch } from './cm-search-panel'
+	import type { CatalogFeed } from './completion-gate'
 	import { markDiagnostic, revealDiagnostic } from './diagnostic-view'
 	import { loadLanguage, peekLanguage } from './language'
+	import {
+		coreSetup,
+		isLargeDocument,
+		LARGE_DOC_CHARS,
+		LARGE_DOC_LINES,
+		richSetup,
+	} from './setup'
 	import {
 		editorCompartments,
 		holdEditorState,
@@ -41,10 +49,13 @@
 		mystiqueHighlight,
 	} from './cm-theme'
 	import {
-		splitDialectFor,
+		neighbourStatement,
 		splitStatementSpans,
+		statementAt,
+		statementModelFor,
 		submissionStart,
 		textToRun,
+		type StatementSpan,
 	} from './statement-span'
 
 	interface Props {
@@ -72,6 +83,8 @@
 		saving?: boolean
 		/** Live catalog columns for schema/table/field completions. */
 		catalogColumns?: CatalogColumnRow[]
+		/** The tab's catalog right now, so an early completion can wait for it. */
+		catalogFeed?: () => CatalogFeed | null
 		/** Fired when document text changes. */
 		onchange?: (text: string) => void
 		/** Caret and document, so a shortcut from outside the editor can run too. */
@@ -117,6 +130,7 @@
 		dirty = false,
 		saving = false,
 		catalogColumns = [],
+		catalogFeed,
 		onchange,
 		onactivity,
 		onrun,
@@ -145,6 +159,8 @@
 	/** Bumps when a language finishes loading, so the editor picks it up. */
 	let languagesLoaded = $state(0)
 	let extensions: Extension[] = []
+	/** Large-document mode for the shown tab (see `setup.ts`). */
+	let largeDoc = $state(false)
 
 	function themeIsDark(): boolean {
 		return appPrefs.resolvedTheme === 'dark'
@@ -159,14 +175,18 @@
 		onsave: undefined as Props['onsave'],
 		onchange: undefined as Props['onchange'],
 		onactivity: undefined as Props['onactivity'],
+		catalogFeed: undefined as Props['catalogFeed'],
 		engine: 'sql',
+		language: 'sql',
 		running: false,
 	}
 	$effect(() => {
 		callbacks.onrun = onrun
 		callbacks.onchange = onchange
 		callbacks.onactivity = onactivity
+		callbacks.catalogFeed = catalogFeed
 		callbacks.engine = engine
+		callbacks.language = language
 		callbacks.running = running
 		callbacks.onformat = formatEditor
 		callbacks.onsave = onsave
@@ -201,19 +221,33 @@
 		}
 	}
 
+	let spanMemo: {
+		doc: EditorState['doc']
+		model: string
+		spans: StatementSpan[]
+	} | null = null
+
+	/** Statements of the shown document, split once per document version. */
+	function spansOf(state: EditorState): StatementSpan[] {
+		const model = statementModelFor(callbacks.engine, callbacks.language)
+		if (spanMemo && spanMemo.doc === state.doc && spanMemo.model === model) {
+			return spanMemo.spans
+		}
+		const spans = splitStatementSpans(state.doc.toString(), model)
+		spanMemo = { doc: state.doc, model, spans }
+		return spans
+	}
+
 	function statementGutter(): Extension {
 		return gutter({
 			class: 'cm-stmt-gutter',
 			markers(view) {
-				const doc = view.state.doc.toString()
-				const spans = splitStatementSpans(
-					doc,
-					splitDialectFor(callbacks.engine),
-				)
+				const length = view.state.doc.length
+				const spans = spansOf(view.state)
 				const builder = new RangeSetBuilder<GutterMarker>()
 				let lastLine = -1
 				for (const span of spans) {
-					const line = view.state.doc.lineAt(Math.min(span.start, doc.length))
+					const line = view.state.doc.lineAt(Math.min(span.start, length))
 					if (line.number === lastLine) continue
 					lastLine = line.number
 					builder.add(
@@ -231,7 +265,7 @@
 		const doc = view?.state.doc.toString() ?? localText ?? ''
 		const head = view?.state.selection.main.head ?? doc.length
 		const anchor = view?.state.selection.main.anchor ?? head
-		const dialect = splitDialectFor(engine)
+		const dialect = statementModelFor(engine, language)
 		const text = textToRun(doc, dialect, head, anchor, all)
 		if (!text || callbacks.running) return
 		callbacks.onrun({
@@ -297,7 +331,7 @@
 		cols: CatalogColumnRow[],
 	): Extension {
 		const make = peekLanguage(lang, eng)
-		if (make) return make(cols)
+		if (make) return make(cols, () => callbacks.catalogFeed?.() ?? null)
 		void loadLanguage(lang, eng).then(
 			() => (languagesLoaded += 1),
 			() => showStatus('Could not load syntax highlighting.', 'warning'),
@@ -305,12 +339,95 @@
 		return []
 	}
 
+	/** The statement gutter for the current props and document size. */
+	function gutterFor(large: boolean): Extension {
+		return showStatementGutter && !large ? [statementGutter()] : []
+	}
+
+	/**
+	 * Put the shown document in or out of large-document mode. `force`
+	 * reconfigures even when the mode did not change: a tab's held state
+	 * keeps whatever mode it last had.
+	 */
+	function applyDocMode(v: EditorView, force = false) {
+		const doc = v.state.doc
+		const was = untrack(() => largeDoc)
+		const large = isLargeDocument(doc.length, doc.lines, was)
+		if (!force && large === was) return
+		largeDoc = large
+		v.dispatch({
+			effects: [
+				editorCompartments.rich.reconfigure(large ? [] : richSetup()),
+				editorCompartments.runGutter.reconfigure(gutterFor(large)),
+			],
+			annotations: Transaction.addToHistory.of(false),
+		})
+	}
+
+	function lineCountOf(text: string): number {
+		let lines = 1
+		for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) {
+			lines += 1
+		}
+		return lines
+	}
+
+	let docModeQueued = false
+	/** Size checks run after the update; CodeMirror forbids dispatching inside one. */
+	function queueDocMode() {
+		if (docModeQueued) return
+		docModeQueued = true
+		queueMicrotask(() => {
+			docModeQueued = false
+			if (view) applyDocMode(view)
+		})
+	}
+
+	/** Previous / next statement: move the caret to its start. */
+	function gotoStatement(direction: 1 | -1) {
+		const v = view
+		if (!v) return
+		const target = neighbourStatement(
+			spansOf(v.state),
+			v.state.selection.main.head,
+			direction,
+		)
+		if (!target) return
+		v.dispatch({
+			selection: EditorSelection.cursor(target.start),
+			effects: EditorView.scrollIntoView(target.start, { y: 'nearest' }),
+			userEvent: 'select',
+		})
+		v.focus()
+	}
+
+	/** Select the whole statement at the caret. */
+	function selectCurrentStatement() {
+		const v = view
+		if (!v) return
+		const span = statementAt(spansOf(v.state), v.state.selection.main.head)
+		if (!span) return
+		v.dispatch({
+			selection: EditorSelection.range(span.start, span.end),
+			effects: EditorView.scrollIntoView(span.start, { y: 'nearest' }),
+			userEvent: 'select',
+		})
+		v.focus()
+	}
+
+	/** Statement keys act on this editor when focus is in it or in its tab. */
+	function inQueryTab({ source, focus }: CommandContext): boolean {
+		if (!view) return false
+		if (source !== 'key') return true
+		const target = focus?.target
+		return !!target && (view.dom.contains(target) || !!target.closest('[data-query-editor]'))
+	}
+
 	function buildExtensions(lang: string, ph: string): Extension[] {
 		return [
-			basicSetup,
-			editorCompartments.runGutter.of(
-				showStatementGutter ? [statementGutter()] : [],
-			),
+			coreSetup(),
+			editorCompartments.rich.of(largeDoc ? [] : richSetup()),
+			editorCompartments.runGutter.of(gutterFor(largeDoc)),
 			mystiqueSearch(),
 			editorCompartments.theme.of(createMystiqueEditorTheme(themeIsDark())),
 			mystiqueHighlight,
@@ -319,9 +436,7 @@
 				languageExtension(lang, engine, catalogColumns),
 			),
 			editorCompartments.placeholder.of(ph ? cmPlaceholder(ph) : []),
-			autocompletion({ activateOnTyping: true, icons: true }),
 			// No linter source. An empty source replaces setDiagnostics after its idle delay.
-			EditorView.lineWrapping,
 			// Beat basicSetup's defaultKeymap (Mod-Enter = insertBlankLine).
 			Prec.highest(
 				keymap.of([
@@ -387,6 +502,7 @@
 					localText = next
 					callbacks.onchange?.(next)
 				}
+				if (update.docChanged) queueDocMode()
 				if (update.docChanged || update.selectionSet) publishActivity()
 			}),
 		]
@@ -395,18 +511,19 @@
 	onMount(() => {
 		if (!hostEl) return
 
+		const seed = localText ?? draft ?? ''
+		// Decide before the first layout: wrapping a huge line is the slow part.
+		largeDoc = isLargeDocument(seed.length, lineCountOf(seed), false)
 		extensions = buildExtensions(language, placeholder)
 		const existing = peekEditorState(tabId)
 		if (existing) {
 			view = new EditorView({ state: existing.state, parent: hostEl })
 			view.scrollDOM.scrollTop = existing.scrollTop
 			view.scrollDOM.scrollLeft = existing.scrollLeft
+			applyDocMode(view, true)
 		} else {
 			view = new EditorView({
-				state: EditorState.create({
-					doc: localText ?? draft ?? '',
-					extensions,
-				}),
+				state: EditorState.create({ doc: seed, extensions }),
 				parent: hostEl,
 			})
 		}
@@ -414,7 +531,14 @@
 		editorReady += 1
 		publishActivity()
 
+		const unregister = commands.register([
+			{ ...cmd.prevStatement, when: inQueryTab, run: () => gotoStatement(-1) },
+			{ ...cmd.nextStatement, when: inQueryTab, run: () => gotoStatement(1) },
+			{ ...cmd.selectStatement, when: inQueryTab, run: () => selectCurrentStatement() },
+		])
+
 		return () => {
+			unregister()
 			if (view && mountedTab) {
 				holdEditorState(
 					mountedTab,
@@ -430,13 +554,12 @@
 	})
 
 	$effect(() => {
-		const show = showStatementGutter
+		void showStatementGutter
+		const large = largeDoc
 		const v = view
 		if (!v) return
 		v.dispatch({
-			effects: editorCompartments.runGutter.reconfigure(
-				show ? [statementGutter()] : [],
-			),
+			effects: editorCompartments.runGutter.reconfigure(gutterFor(large)),
 			annotations: Transaction.addToHistory.of(false),
 		})
 	})
@@ -466,16 +589,12 @@
 			applyingExternal = true
 			switchEditorState(v, mountedTab, id, seed, extensions)
 			v.dispatch({
-				effects: [
-					editorCompartments.theme.reconfigure(
-						createMystiqueEditorTheme(themeIsDark()),
-					),
-					editorCompartments.runGutter.reconfigure(
-						showStatementGutter ? [statementGutter()] : [],
-					),
-				],
+				effects: editorCompartments.theme.reconfigure(
+					createMystiqueEditorTheme(themeIsDark()),
+				),
 				annotations: Transaction.addToHistory.of(false),
 			})
+			applyDocMode(v, true)
 			applyingExternal = false
 			mountedTab = id
 			appliedLang = ''
@@ -571,6 +690,15 @@
 			<span class="font-mono text-caption tabular-nums text-fg-muted">
 				{localText.length.toLocaleString()} chars
 			</span>
+			{#if largeDoc}
+				<span
+					class="inline-flex"
+					data-large-document
+					title="Over {LARGE_DOC_CHARS.toLocaleString()} characters or {LARGE_DOC_LINES.toLocaleString()} lines: completion, line wrapping, bracket and match highlighting, folding and the run gutter are off. Run and statement keys still work."
+				>
+					<Pill tone="info">Large file</Pill>
+				</span>
+			{/if}
 		</div>
 		<div class="flex shrink-0 items-center gap-1.5">
 			<Button

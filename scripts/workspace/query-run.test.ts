@@ -279,18 +279,37 @@ describe('results and pin state', () => {
 describe('runExplain', () => {
 	test('returns the plan and leaves the tab idle', async () => {
 		const plan = await runExplain(target(), 'select 1', true)
-		expect(plan).toEqual({ nodes: [] })
+		expect(plan).toEqual({ kind: 'plan', plan: { nodes: [] } })
 		expect(caches.get('t1')).toMatchObject({
 			runState: { status: 'idle' },
 			submittedText: 'select 1',
 		})
 	})
 
+	test('placeholders ask for values first, then bind them', async () => {
+		let sent: any = null
+		explainImpl = async (req) => {
+			sent = req
+			return { nodes: [] }
+		}
+		const asked = await runExplain(target(), 'select * from t where id = :id', false)
+		expect(asked).toMatchObject({ kind: 'params', slots: [{ label: ':id' }] })
+		expect(sent).toBeNull()
+		const plan = await runExplain(
+			target(),
+			'select * from t where id = :id',
+			false,
+			[7],
+		)
+		expect(plan.kind).toBe('plan')
+		expect(sent).toMatchObject({ params: [7], analyze: false })
+	})
+
 	test('a failure shows in the run state and returns no plan', async () => {
 		explainImpl = async () => {
 			throw new Fault('query', 'syntax error')
 		}
-		expect(await runExplain(target(), 'selec 1', false)).toBeNull()
+		expect(await runExplain(target(), 'selec 1', false)).toEqual({ kind: 'none' })
 		expect(caches.get('t1').runState).toMatchObject({
 			status: 'error',
 			message: 'syntax error',

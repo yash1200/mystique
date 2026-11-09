@@ -1,6 +1,11 @@
-import type { QueryHistorySource } from '#core/contracts'
+import type { QueryHistoryKind, QueryHistorySource } from '#core/contracts'
 
-export type { AppendHistoryInput, QueryHistoryItem, QueryHistorySource } from '#core/contracts'
+export type {
+	AppendHistoryInput,
+	QueryHistoryItem,
+	QueryHistoryKind,
+	QueryHistorySource,
+} from '#core/contracts'
 
 export type QueryHistoryEntry = {
 	id: string
@@ -17,5 +22,7 @@ export type QueryHistoryEntry = {
 	database?: string
 	affectedRows?: number
 	source: QueryHistorySource
+	/** A query run, or an app action (grid save, structure change, …). */
+	kind: QueryHistoryKind
 }
 

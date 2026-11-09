@@ -62,7 +62,7 @@
 					{#if item.cost != null}
 						<span>cost {formatNum(item.cost)}</span>
 					{/if}
-					{#each item.fields ?? [] as field (field.label + field.value)}
+					{#each item.fields ?? [] as field, i (`${i}:${field.label}`)}
 						<span>{field.label} {field.value}</span>
 					{/each}
 				</div>
@@ -121,7 +121,7 @@
 		<ul
 			class="shrink-0 space-y-1 border-b border-warning/30 bg-warning/10 px-3 py-2"
 		>
-			{#each warnings as warning (warning)}
+			{#each warnings as warning, i (`${i}:${warning}`)}
 				<li class="text-caption text-warning">{warning}</li>
 			{/each}
 		</ul>

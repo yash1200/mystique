@@ -14,12 +14,8 @@ impl ConnectionManager {
         &self,
         req: ExportObjectRequest,
     ) -> ConnectorResult<ExportObjectResult> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.clone())
-            .await;
-        let result = self.export_registered(req, &control).await;
-        self.finish_run(&id).await;
-        result
+        let run = self.begin_run(&req.session_id, req.execution_id.clone());
+        self.export_registered(req, &run.control).await
     }
 
     async fn export_registered(

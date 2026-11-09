@@ -5,10 +5,10 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    affected_message, emit_progress, idle_result, inactivity_limit, opens_transaction,
-    poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase, ConnectorError,
-    ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
-    QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
+    affected_message, emit_progress, finish_progress, idle_result, inactivity_limit,
+    opens_transaction, poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase,
+    ConnectorError, ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult,
+    QueryColumn, QueryMode, QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
 };
 use mystique_sql::SqlDialect;
 use serde_json::Value as JsonValue;
@@ -347,9 +347,7 @@ pub(super) async fn run_planned_batch(
                 }
                 results.push(StatementResult::failed(stmt, 0, &err));
                 emit_progress(&batch.progress, stmt.index, total, BatchPhase::Finished);
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(stmt.index),
@@ -369,9 +367,7 @@ pub(super) async fn run_planned_batch(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -379,9 +375,7 @@ pub(super) async fn run_planned_batch(
             }
         }
     }
-    if let Some(progress) = &batch.progress {
-        progress.flush();
-    }
+    finish_progress(&batch.progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,
@@ -425,7 +419,9 @@ async fn drain_sets(
 }
 
 /// The flag is true when packets were left unread. With `read_all`, rows
-/// past the cap are read and dropped so the connection can run more.
+/// past the cap are read and dropped so the connection can run more. A
+/// statement that reports a count (`DELETE … RETURNING`) is always read to
+/// the end so the count is every changed row, not the rows shown.
 async fn read_mysql_sets<P>(
     qr: &mut mysql_async::QueryResult<'_, '_, P>,
     batch: &ValidatedBatch,
@@ -436,6 +432,7 @@ where
     P: mysql_async::prelude::Protocol,
 {
     let max_rows = batch.max_rows.max(1) as usize;
+    let read_all = read_all || stmt.returns_count;
     let mut sets = Vec::new();
     let mut set_index: u32 = 0;
     let mut max_warnings: u16 = 0;
@@ -454,6 +451,7 @@ where
         let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
         let mut truncated = false;
         let mut saw_row = false;
+        let mut seen: u64 = 0;
         loop {
             if batch.control.is_cancelled() {
                 return Err(ConnectorError::Query("Query cancelled.".into()));
@@ -474,6 +472,7 @@ where
                 break;
             };
             saw_row = true;
+            seen = seen.saturating_add(1);
             if columns.is_empty() {
                 continue;
             }
@@ -495,7 +494,7 @@ where
         let has_grid = !columns.is_empty();
         let affected = if stmt.returns_count {
             if has_grid {
-                Some(out_rows.len() as u64)
+                Some(seen)
             } else {
                 Some(affected_at_start)
             }

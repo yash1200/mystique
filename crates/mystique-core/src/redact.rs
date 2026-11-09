@@ -10,8 +10,15 @@
 //!
 //! The user name and host stay. This is a safety net, not a licence: code
 //! should still not log SQL, parameter values or connection strings at `info`.
+//!
+//! [`redact_sql_passwords`] is the SQL pass query history adds: account
+//! passwords (`ALTER USER … PASSWORD '…'`, `IDENTIFIED BY '…'`) only.
 
 use serde_json::Value as JsonValue;
+
+mod sql_passwords;
+
+pub use sql_passwords::redact_sql_passwords;
 
 /// What a masked value becomes.
 pub const MASK: &str = "***";

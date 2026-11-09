@@ -58,6 +58,7 @@ export const mysql: EngineAdapter = {
 
 	defaultCapabilities: relationalCapabilities({
 		engine: 'mysql',
+		supportsExplainPlan: true,
 		sqlDialect: 'mysql',
 		nameExample: 'e.g. local-mysql',
 	}),

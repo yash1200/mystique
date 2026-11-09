@@ -54,7 +54,30 @@ impl ConnectionManager {
             }
             return Err(ConnectorError::WriteGuard(Box::new(prompt)));
         }
-        let mut result = session.apply_table_edits(&input).await?;
+        let started = std::time::Instant::now();
+        let saved = session.apply_table_edits(&input).await;
+        if !input.dry_run {
+            let sql = match &saved {
+                Ok(result) => result.statements.clone(),
+                Err(_) => vec![format!("-- grid save on {}", input.table)],
+            };
+            self.log_action(super::history::HistoryAction {
+                session_id: &session_id,
+                kind: crate::domain::QueryHistoryKind::GridSave,
+                sql,
+                database: input.database.as_deref(),
+                started,
+                outcome: saved.as_ref().map(|result| {
+                    Some(
+                        u64::from(result.updated)
+                            + u64::from(result.inserted)
+                            + u64::from(result.deleted),
+                    )
+                }),
+            })
+            .await;
+        }
+        let mut result = saved?;
         self.remember_save(
             &session_id,
             input.database.as_deref(),
@@ -79,23 +102,17 @@ impl ConnectionManager {
         &self,
         req: FetchTablePreviewRequest,
     ) -> ConnectorResult<TablePreviewResult> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.clone())
-            .await;
-        let result = async {
-            let session = self.session(&req.session_id).await?;
-            let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
-            input.control = Arc::clone(&control);
-            self.drive_registered(
-                &control,
-                FETCH_TIMEOUT_MS,
-                session.fetch_table_preview(&input),
-            )
-            .await
-        }
-        .await;
-        self.finish_run(&id).await;
-        result
+        let run = self.begin_run(&req.session_id, req.execution_id.clone());
+        let control = &run.control;
+        let session = self.session(&req.session_id).await?;
+        let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
+        input.control = Arc::clone(control);
+        self.drive_registered(
+            control,
+            FETCH_TIMEOUT_MS,
+            session.fetch_table_preview(&input),
+        )
+        .await
     }
 
     pub async fn fetch_table_preview_stats(
@@ -110,23 +127,13 @@ impl ConnectionManager {
         &self,
         req: FetchLargeValueRequest,
     ) -> ConnectorResult<FetchLargeValueResult> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.clone())
-            .await;
-        let result = async {
-            let session = self.session(&req.session_id).await?;
-            let mut input = req.into_input();
-            input.control = Arc::clone(&control);
-            self.drive_registered(
-                &control,
-                FETCH_TIMEOUT_MS,
-                session.fetch_large_value(&input),
-            )
+        let run = self.begin_run(&req.session_id, req.execution_id.clone());
+        let control = &run.control;
+        let session = self.session(&req.session_id).await?;
+        let mut input = req.into_input();
+        input.control = Arc::clone(control);
+        self.drive_registered(control, FETCH_TIMEOUT_MS, session.fetch_large_value(&input))
             .await
-        }
-        .await;
-        self.finish_run(&id).await;
-        result
     }
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
     pub async fn apply_table_admin(
@@ -250,7 +257,11 @@ impl ConnectionManager {
             )
         })
         .await?;
-        meta.session.apply_ddl(&plan, &req.draft).await
+        let started = std::time::Instant::now();
+        let result = meta.session.apply_ddl(&plan, &req.draft).await;
+        self.log_ddl(&req.session_id, &plan.statements, started, &result)
+            .await;
+        result
     }
 
     pub async fn plan_schema_diff(
@@ -275,6 +286,47 @@ impl ConnectionManager {
     pub async fn apply_schema_diff(
         &self,
         req: ApplySchemaDiffRequest,
+    ) -> ConnectorResult<ApplyDdlResult> {
+        let session_id = req.session_id.clone();
+        let started = std::time::Instant::now();
+        let mut planned = Vec::new();
+        let result = self.apply_schema_diff_inner(req, &mut planned).await;
+        if !planned.is_empty() {
+            self.log_ddl(&session_id, &planned, started, &result).await;
+        }
+        result
+    }
+
+    /// A structure change or schema diff in history: what ran, or the plan
+    /// when it failed part way.
+    async fn log_ddl(
+        &self,
+        session_id: &str,
+        planned: &[String],
+        started: std::time::Instant,
+        result: &ConnectorResult<ApplyDdlResult>,
+    ) {
+        let sql = match result {
+            Ok(done) if !done.applied.is_empty() => done.applied.clone(),
+            Ok(_) => return,
+            Err(_) => planned.to_vec(),
+        };
+        self.log_action(super::history::HistoryAction {
+            session_id,
+            kind: crate::domain::QueryHistoryKind::Ddl,
+            sql,
+            database: None,
+            started,
+            outcome: result.as_ref().map(|_| None),
+        })
+        .await;
+    }
+
+    /// `planned` gets the statements once the guard has passed.
+    async fn apply_schema_diff_inner(
+        &self,
+        req: ApplySchemaDiffRequest,
+        planned: &mut Vec<String>,
     ) -> ConnectorResult<ApplyDdlResult> {
         let meta = self.session_meta(&req.session_id).await?;
         if !meta.caps.supports_structure_edit {
@@ -335,6 +387,10 @@ impl ConnectionManager {
             ..WriteCheck::new(&req.session_id, WriteAction::Structure, risk)
         })
         .await?;
+        *planned = changes
+            .iter()
+            .flat_map(|change| change.plan.statements.iter().cloned())
+            .collect();
         let mut applied = Vec::new();
         for change in &changes {
             let result = match meta.session.apply_ddl(&change.plan, &change.draft).await {

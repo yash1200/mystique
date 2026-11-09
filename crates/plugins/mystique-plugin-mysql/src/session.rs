@@ -43,16 +43,25 @@ pub struct MysqlSession {
     edit_pool: Pool,
     max_size: u32,
     read_only: ReadOnlyVar,
+    /// MariaDB spells analyze `ANALYZE FORMAT=JSON`, not `EXPLAIN ANALYZE`.
+    mariadb: bool,
     closed: AtomicBool,
 }
 
 impl MysqlSession {
-    pub(crate) fn new(pool: Pool, edit_pool: Pool, max_size: u32, read_only: ReadOnlyVar) -> Self {
+    pub(crate) fn new(
+        pool: Pool,
+        edit_pool: Pool,
+        max_size: u32,
+        read_only: ReadOnlyVar,
+        mariadb: bool,
+    ) -> Self {
         Self {
             pool,
             edit_pool,
             max_size,
             read_only,
+            mariadb,
             closed: AtomicBool::new(false),
         }
     }

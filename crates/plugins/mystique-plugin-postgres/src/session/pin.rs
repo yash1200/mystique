@@ -8,19 +8,25 @@ use mystique_connector_api::{
 
 use super::query::{run_planned_batch, transaction_state, TxnState};
 use super::query_failed;
-use super::{PgCancelTls, PostgresSession};
+use super::{NoticeHub, PgCancelTls, PostgresSession};
 
 pub struct PostgresPin {
     client: Option<deadpool_postgres::Object>,
     cancel_tls: PgCancelTls,
+    notices: NoticeHub,
     state: TxnState,
 }
 
 impl PostgresPin {
-    pub fn new(client: deadpool_postgres::Object, cancel_tls: PgCancelTls) -> Self {
+    pub(crate) fn new(
+        client: deadpool_postgres::Object,
+        cancel_tls: PgCancelTls,
+        notices: NoticeHub,
+    ) -> Self {
         Self {
             client: Some(client),
             cancel_tls,
+            notices,
             state: TxnState::Idle,
         }
     }
@@ -75,7 +81,9 @@ impl PinnedSession for PostgresPin {
         // cursor is declared directly; its own BEGIN … COMMIT would commit
         // the open writes.
         let in_txn = self.state != TxnState::Idle;
-        let result = run_planned_batch(client, batch, false, in_txn, true).await;
+        let notices = self.notices.capture(client).await;
+        let result = run_planned_batch(client, batch, false, in_txn, true, notices.as_ref()).await;
+        drop(notices);
         let _ = client.batch_execute("RESET statement_timeout").await;
         self.refresh().await;
         result

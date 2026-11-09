@@ -4,6 +4,7 @@ import type {
 	TableMeta,
 	TablePreviewFilter,
 	TablePreviewSort,
+	TablePreviewStats,
 } from '#core/contracts'
 import { errorMessage, finishTabRun, startTabRun } from '#core/ipc'
 import {
@@ -74,8 +75,23 @@ class TablePreview {
 		const executionId = startTabRun(tabId, 'preview')
 		try {
 			const engine = String(session.profile.engine)
-			const loaded = await withLiveSession(id, (sid) =>
-				loadTablePreview(
+			// The total count starts with the page, not after it. It is applied
+			// once the page has landed, so the page cannot overwrite it. A retry
+			// on a reopened session starts a new count.
+			const count: { stats: Promise<TablePreviewStats> | null } = {
+				stats: null,
+			}
+			const loaded = await withLiveSession(id, (sid) => {
+				const stats = loadTablePreviewStats(
+					sid,
+					table,
+					preview.filters,
+					preview.codeFilter,
+				)
+				// Read below; a page that fails leaves it unread.
+				stats.catch(() => {})
+				count.stats = stats
+				return loadTablePreview(
 					sid,
 					engine,
 					table,
@@ -85,8 +101,8 @@ class TablePreview {
 					preview.sort,
 					preview.codeFilter,
 					executionId,
-				),
-			)
+				)
+			})
 			if (!stillThis()) return
 			catalogStore.catalogs = patchCatalogTable(
 				catalogStore.catalogs,
@@ -98,10 +114,8 @@ class TablePreview {
 				tableSync.previewLoaded(tabId)
 			}
 
-			void withLiveSession(id, (sid) =>
-				loadTablePreviewStats(sid, table, preview.filters, preview.codeFilter),
-			)
-				.then((stats) => {
+			void count.stats
+				?.then((stats) => {
 					if (!stillThis()) return
 					const current = findCatalogTable(
 						catalogsFor(catalogStore.catalogs, id),

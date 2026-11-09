@@ -10,6 +10,8 @@ use mystique_tls::{SslMode as MystSslMode, TlsSettings};
 use tokio_postgres::error::{DbError, SqlState};
 use tokio_postgres::NoTls;
 
+use super::notices::{NoticeConnect, NoticeHub};
+
 /// Driver wrappers say "db error"; the useful text is on [`DbError`].
 pub(crate) fn format_error(err: &(dyn StdError + 'static)) -> String {
     if let Some(db) = find_db_error(err) {
@@ -315,20 +317,45 @@ impl PgCancelTls {
 
 pub(super) async fn create_pool(
     config: &ConnectionConfig,
-) -> ConnectorResult<(deadpool_postgres::Pool, PgCancelTls)> {
+) -> ConnectorResult<(deadpool_postgres::Pool, PgCancelTls, NoticeHub)> {
     let pool_cfg = build_pool_config(config)?;
+    let hub = NoticeHub::default();
     if let Some(tls_connector) = TlsSettings::from_config(config).native_connector()? {
         let tls = postgres_native_tls::MakeTlsConnector::new(tls_connector);
-        let pool = pool_cfg
-            .create_pool(Some(Runtime::Tokio1), tls.clone())
-            .map_err(|e| ConnectorError::Pool(format_error(&e)))?;
-        Ok((pool, PgCancelTls::Native(tls)))
+        let pool = build_pool(&pool_cfg, tls.clone(), hub.clone())?;
+        Ok((pool, PgCancelTls::Native(tls), hub))
     } else {
-        let pool = pool_cfg
-            .create_pool(Some(Runtime::Tokio1), NoTls)
-            .map_err(|e| ConnectorError::Pool(format_error(&e)))?;
-        Ok((pool, PgCancelTls::Plain(NoTls)))
+        let pool = build_pool(&pool_cfg, NoTls, hub.clone())?;
+        Ok((pool, PgCancelTls::Plain(NoTls), hub))
     }
+}
+
+/// `PoolCfg::create_pool` with [`NoticeConnect`] in place of deadpool's
+/// connect, so server notices reach the run that raised them.
+fn build_pool<T>(
+    pool_cfg: &PoolCfg,
+    tls: T,
+    hub: NoticeHub,
+) -> ConnectorResult<deadpool_postgres::Pool>
+where
+    T: tokio_postgres::tls::MakeTlsConnect<tokio_postgres::Socket> + Clone + Sync + Send + 'static,
+    T::Stream: Sync + Send,
+    T::TlsConnect: Sync + Send,
+    <T::TlsConnect as tokio_postgres::tls::TlsConnect<tokio_postgres::Socket>>::Future: Send,
+{
+    let pg_config = pool_cfg
+        .get_pg_config()
+        .map_err(|e| ConnectorError::Pool(format_error(&e)))?;
+    let manager = deadpool_postgres::Manager::from_connect(
+        pg_config,
+        NoticeConnect { tls, hub },
+        pool_cfg.get_manager_config(),
+    );
+    deadpool_postgres::Pool::builder(manager)
+        .config(pool_cfg.get_pool_config())
+        .runtime(Runtime::Tokio1)
+        .build()
+        .map_err(|e| ConnectorError::Pool(format_error(&e)))
 }
 
 struct DialTarget {

@@ -1,12 +1,18 @@
-//! `EXPLAIN FORMAT=JSON` and `EXPLAIN ANALYZE`.
+//! `EXPLAIN FORMAT=JSON` and `EXPLAIN ANALYZE` (MariaDB: `ANALYZE FORMAT=JSON`).
 //!
-//! Both run inside `START TRANSACTION READ ONLY`. Analyze of a write fails
-//! closed on MySQL 8. Plain explain does not execute the statement.
+//! Analyze, and plain explain of a read, run inside `START TRANSACTION READ
+//! ONLY`, so analyze of a write fails closed. MySQL refuses even a plain
+//! `EXPLAIN DELETE` there (error 1792), so plain explain of a write runs in
+//! an ordinary transaction that is always rolled back. Plain explain does not
+//! execute the statement; the rollback covers a stored function the optimizer
+//! folds while planning.
 
 use mysql_async::prelude::Queryable;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, ExplainPlan, PlanField, PlanNode, QueryControl, ValidatedQuery,
+    sql_is_proven_read, ConnectorError, ConnectorResult, ExplainPlan, PlanField, PlanNode,
+    QueryControl, ValidatedQuery,
 };
+use mystique_sql::SqlDialect;
 use serde_json::{Map, Value};
 
 use super::cancel::{apply_timeouts, arm_kill, clear_timeouts};
@@ -23,38 +29,47 @@ pub(super) async fn explain_query(
     let mut conn = session.conn().await?;
     arm_kill(&session.pool(), conn.id(), &query.control);
     apply_timeouts(&mut conn, query.timeout_ms).await;
-    if let Err(err) = conn.query_drop("START TRANSACTION READ ONLY").await {
+    let begin = if analyze || sql_is_proven_read(&query.text, SqlDialect::Mysql) {
+        "START TRANSACTION READ ONLY"
+    } else {
+        "START TRANSACTION"
+    };
+    if let Err(err) = conn.query_drop(begin).await {
         clear_timeouts(&mut conn).await;
         return Err(map_mysql(&query.control, err));
     }
-    let sql = mysql_explain_sql(&query.text, analyze);
-    let fetched = fetch_text(&mut conn, &sql, &query.control).await;
+    let sql = mysql_explain_sql(&query.text, analyze, session.mariadb);
+    let fetched = fetch_text(&mut conn, &sql, &query.params, &query.control).await;
     let raw = end_read_only_txn(conn, fetched).await?;
-    if analyze {
+    if analyze && !session.mariadb {
         parse_mysql_analyze(&raw)
     } else {
         parse_mysql_json(&raw)
     }
 }
 
-pub(super) fn mysql_explain_sql(subject: &str, analyze: bool) -> String {
+pub(super) fn mysql_explain_sql(subject: &str, analyze: bool, mariadb: bool) -> String {
     let subject = subject.trim().trim_end_matches(';').trim();
-    if analyze {
-        format!("EXPLAIN ANALYZE {subject}")
-    } else {
-        format!("EXPLAIN FORMAT=JSON {subject}")
+    match (analyze, mariadb) {
+        (true, true) => format!("ANALYZE FORMAT=JSON {subject}"),
+        (true, false) => format!("EXPLAIN ANALYZE {subject}"),
+        (false, _) => format!("EXPLAIN FORMAT=JSON {subject}"),
     }
 }
 
+/// `?` binds go through a prepared statement, like a normal run.
 async fn fetch_text(
     conn: &mut mysql_async::Conn,
     sql: &str,
+    params: &[serde_json::Value],
     control: &QueryControl,
 ) -> ConnectorResult<String> {
-    let rows: Vec<mysql_async::Row> = conn
-        .query(sql)
-        .await
-        .map_err(|err| map_mysql(control, err))?;
+    let rows: Vec<mysql_async::Row> = if params.is_empty() {
+        conn.query(sql).await
+    } else {
+        conn.exec(sql, super::edits::mysql_params(params)).await
+    }
+    .map_err(|err| map_mysql(control, err))?;
     let mut lines = Vec::new();
     for row in &rows {
         let mut cells = Vec::new();
@@ -150,6 +165,19 @@ fn mysql_object(key: &str, map: &Map<String, Value>) -> PlanNode {
             value: index.to_string(),
         });
     }
+    // MariaDB `ANALYZE FORMAT=JSON`: measured time and filtering.
+    if let Some(time) = first_number(map, &["r_total_time_ms"]) {
+        fields.push(PlanField {
+            label: "actual time ms".into(),
+            value: format_ms(time),
+        });
+    }
+    if let Some(filtered) = first_number(map, &["r_filtered"]) {
+        fields.push(PlanField {
+            label: "actual filtered %".into(),
+            value: format_ms(filtered),
+        });
+    }
     for (child_key, child) in map {
         if matches!(
             child_key.as_str(),
@@ -160,6 +188,8 @@ fn mysql_object(key: &str, map: &Map<String, Value>) -> PlanNode {
                 | "message"
                 | "key"
                 | "possible_keys"
+                | "used_key_parts"
+                | "r_loops"
         ) {
             continue;
         }
@@ -169,9 +199,15 @@ fn mysql_object(key: &str, map: &Map<String, Value>) -> PlanNode {
     }
     PlanNode {
         name: mysql_name(key, map),
+        // Measured rows (MariaDB `r_rows`) beat the estimate.
         rows: first_number(
             map,
-            &["rows_examined_per_scan", "rows_produced_per_join", "rows"],
+            &[
+                "r_rows",
+                "rows_examined_per_scan",
+                "rows_produced_per_join",
+                "rows",
+            ],
         ),
         cost: mysql_cost(map),
         fields,
@@ -207,10 +243,21 @@ fn mysql_name(key: &str, map: &Map<String, Value>) -> String {
 }
 
 fn mysql_cost(map: &Map<String, Value>) -> Option<f64> {
-    let info = map.get("cost_info")?;
+    // MariaDB 11 has a flat `cost`; MySQL nests it in `cost_info`.
+    let Some(info) = map.get("cost_info") else {
+        return json_f64(map.get("cost"));
+    };
     json_f64(info.get("query_cost"))
         .or_else(|| json_f64(info.get("prefix_cost")))
         .or_else(|| json_f64(info.get("read_cost")))
+}
+
+fn format_ms(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.2}")
+    }
 }
 
 fn first_number(map: &Map<String, Value>, keys: &[&str]) -> Option<f64> {
@@ -437,9 +484,70 @@ mod tests {
 
     #[test]
     fn a_parent_whose_child_costs_almost_as_much_is_the_callers_job() {
-        let plain = mysql_explain_sql("SELECT 1", false);
-        let analyze = mysql_explain_sql("DELETE FROM t", true);
+        let plain = mysql_explain_sql("SELECT 1", false, false);
+        let analyze = mysql_explain_sql("DELETE FROM t", true, false);
         assert_eq!(plain, "EXPLAIN FORMAT=JSON SELECT 1");
         assert_eq!(analyze, "EXPLAIN ANALYZE DELETE FROM t");
+        assert_eq!(
+            mysql_explain_sql("SELECT 1;", true, true),
+            "ANALYZE FORMAT=JSON SELECT 1"
+        );
+        assert_eq!(
+            mysql_explain_sql("SELECT 1", false, true),
+            "EXPLAIN FORMAT=JSON SELECT 1"
+        );
+    }
+
+    #[test]
+    fn mariadb_analyze_json_keeps_measured_rows_and_time() {
+        let raw = r#"{
+            "query_optimization": { "r_total_time_ms": 0.05 },
+            "query_block": {
+                "select_id": 1,
+                "r_loops": 1,
+                "r_total_time_ms": 0.42,
+                "nested_loop": [
+                    {
+                        "table": {
+                            "table_name": "t",
+                            "access_type": "ALL",
+                            "r_loops": 1,
+                            "rows": 1000,
+                            "r_rows": 12,
+                            "r_total_time_ms": 0.31,
+                            "filtered": 100,
+                            "r_filtered": 50,
+                            "attached_condition": "t.a = 1"
+                        }
+                    }
+                ]
+            }
+        }"#;
+        let plan = match parse_mysql_json(raw) {
+            Ok(plan) => plan,
+            Err(err) => panic!("{err}"),
+        };
+        assert_eq!(plan.root.name, "query block");
+        let Some(scan) = find_node(&plan.root, "table scan t") else {
+            panic!("no scan in {:?}", plan.root);
+        };
+        assert_eq!(scan.rows, Some(12.0), "measured rows beat the estimate");
+        assert!(scan
+            .fields
+            .iter()
+            .any(|field| field.label == "actual time ms" && field.value == "0.31"));
+        assert!(scan
+            .fields
+            .iter()
+            .any(|field| field.label == "actual filtered %" && field.value == "50"));
+    }
+
+    fn find_node<'a>(node: &'a PlanNode, name: &str) -> Option<&'a PlanNode> {
+        if node.name == name {
+            return Some(node);
+        }
+        node.children
+            .iter()
+            .find_map(|child| find_node(child, name))
     }
 }
