@@ -30,6 +30,12 @@ pub struct WriteGuardPrompt {
     /// Name to send back as `confirmObjectName` for `confirm` and `typeConfirm`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub object_name: Option<String>,
+    /// Production only: things to look at before confirming, such as an
+    /// `UPDATE` / `DELETE` with no `WHERE` or one that is always true.
+    /// A warning, never a block.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub warnings: Vec<String>,
 }
 
 impl WriteGuardPrompt {
@@ -63,6 +69,7 @@ impl WriteGuardPrompt {
             preview,
             statements,
             object_name,
+            warnings: Vec::new(),
         })
     }
 

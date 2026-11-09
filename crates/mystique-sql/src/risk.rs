@@ -88,7 +88,7 @@ fn looks_like_explain_analyze(sql: &str) -> bool {
     lower.starts_with("explain") && (lower.contains("analyze") || lower.contains("analyse"))
 }
 
-fn ast_explain_executes(stmt: &Statement) -> bool {
+pub(crate) fn ast_explain_executes(stmt: &Statement) -> bool {
     let Statement::Explain {
         analyze, options, ..
     } = stmt
@@ -144,7 +144,7 @@ fn parse(sql: &str, dialect: SqlDialect) -> Option<Vec<Statement>> {
     parse_result(sql, dialect).ok()
 }
 
-fn parse_result(sql: &str, dialect: SqlDialect) -> Result<Vec<Statement>, ParserError> {
+pub(crate) fn parse_result(sql: &str, dialect: SqlDialect) -> Result<Vec<Statement>, ParserError> {
     let boxed = dialect.parser_dialect();
     match Parser::parse_sql(&*boxed, sql) {
         Ok(statements) => Ok(statements),
@@ -306,7 +306,7 @@ fn strip_location(message: &str) -> String {
     message[..at].trim().to_string()
 }
 
-fn byte_at(text: &str, line: u32, column: u32) -> usize {
+pub(crate) fn byte_at(text: &str, line: u32, column: u32) -> usize {
     let mut cur_line = 1u32;
     let mut cur_col = 1u32;
     for (index, ch) in text.char_indices() {
@@ -503,7 +503,7 @@ fn route_ast(stmt: &Statement, raw_sql: &str) -> TextRoute {
 ///
 /// MySQL's lexer is not ours: `\'`, `#`, `--` without a space and `sql_mode`
 /// all change what counts as quoted. Matching the bytes fails closed.
-fn has_versioned_comment(sql: &str) -> bool {
+pub(crate) fn has_versioned_comment(sql: &str) -> bool {
     let mut rest = sql;
     while let Some(at) = rest.find("/*") {
         rest = &rest[at + 2..];
@@ -535,7 +535,7 @@ fn looks_like_txn_control(sql: &str) -> bool {
     )
 }
 
-fn skip_leading_comments(sql: &str) -> &str {
+pub(crate) fn skip_leading_comments(sql: &str) -> &str {
     let mut rest = sql.trim_start();
     loop {
         if let Some(after) = rest.strip_prefix("--") {
@@ -554,8 +554,9 @@ fn skip_leading_comments(sql: &str) -> &str {
     }
 }
 
-fn looks_like_table_read(sql: &str) -> bool {
-    let trimmed = sql.trim();
+pub(crate) fn looks_like_table_read(sql: &str) -> bool {
+    // The planner keeps comments before a statement in its text.
+    let trimmed = skip_leading_comments(sql).trim();
     let lower = trimmed.to_ascii_lowercase();
     let Some(rest) = lower.strip_prefix("table") else {
         return false;
@@ -567,8 +568,8 @@ fn looks_like_table_read(sql: &str) -> bool {
 }
 
 /// Text fallback for a pragma sqlparser cannot read. Same rule as the AST path.
-fn looks_like_pragma_read(sql: &str) -> bool {
-    let lower = sql.trim().to_ascii_lowercase();
+pub(crate) fn looks_like_pragma_read(sql: &str) -> bool {
+    let lower = skip_leading_comments(sql).trim().to_ascii_lowercase();
     let Some(rest) = lower.strip_prefix("pragma") else {
         return false;
     };
@@ -591,7 +592,7 @@ fn looks_like_pragma_read(sql: &str) -> bool {
 
 /// `PRAGMA user_version(42)` writes as surely as `= 42`. Only listed pragmas
 /// read: introspection ones take a table or schema argument, settings take none.
-fn pragma_risk(name: &str, has_arg: bool, is_eq: bool) -> StatementRisk {
+pub(crate) fn pragma_risk(name: &str, has_arg: bool, is_eq: bool) -> StatementRisk {
     if is_eq {
         return StatementRisk::Write;
     }
@@ -654,7 +655,7 @@ fn pragma_risk(name: &str, has_arg: bool, is_eq: bool) -> StatementRisk {
     }
 }
 
-fn looks_like_do_block(sql: &str) -> bool {
+pub(crate) fn looks_like_do_block(sql: &str) -> bool {
     let trimmed = sql.trim_start();
     let Some(rest) = trimmed.get(2..) else {
         return false;
@@ -957,7 +958,7 @@ fn function_name_risk(name: &ObjectName) -> StatementRisk {
     }
 }
 
-fn basename(name: &ObjectName) -> String {
+pub(crate) fn basename(name: &ObjectName) -> String {
     let raw = name
         .0
         .last()

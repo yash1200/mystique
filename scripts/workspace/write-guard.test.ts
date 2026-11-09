@@ -133,6 +133,17 @@ describe('guard dialog copy', () => {
 		expect(typedNameOk(p, 'order')).toBe(false)
 	})
 
+	it('passes production WHERE warnings through, and none by default', () => {
+		const warning = 'WHERE 1 = 1 is always true: this DELETE removes every row of t.'
+		const copy = guardCopy(
+			prompt('unlock', { statements: ['DELETE FROM t WHERE 1=1'], warnings: [warning] }),
+		)
+		expect(copy.warnings).toEqual([warning])
+		expect(copy.body).toBe('DELETE FROM t WHERE 1=1')
+		expect(guardCopy(prompt('unlock')).warnings).toEqual([])
+		expect(guardCopy(prompt('typeConfirm', { warnings: [warning] })).warnings).toEqual([warning])
+	})
+
 	it('falls back to the preview when there is no SQL', () => {
 		expect(guardCopy(prompt('unlock', { preview: 'Rename a to b' })).body).toBe('Rename a to b')
 	})

@@ -543,6 +543,7 @@ impl ConnectionManager {
             profile_read_only: read_only,
             pinned: tab_id.is_some(),
             request: Some(&req.text),
+            where_dialect: Some(SqlDialect::from_engine(&engine)),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, plan.worst.write_risk())
         })
         .await?;

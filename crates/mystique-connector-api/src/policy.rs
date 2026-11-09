@@ -14,8 +14,8 @@ pub use sql::{
     classify_sql_statement, classify_sql_statement_for, split_sql_statements,
     split_sql_statements_for, sql_analyze_guard_risk, sql_destructive_object_name,
     sql_destructive_object_name_for, sql_explain_executes, sql_explain_subject, sql_is_proven_read,
-    sql_is_safe_dml, sql_is_safe_dml_for, validate_sql_statement, validate_sql_statement_for,
-    SqlDialect,
+    sql_is_safe_dml, sql_is_safe_dml_for, sql_read_proof, sql_where_warnings,
+    validate_sql_statement, validate_sql_statement_for, SqlDialect,
 };
 
 /// Engine-specific statement classification + allow/deny.
@@ -31,6 +31,24 @@ pub trait EngineQueryPolicy: Send + Sync {
             WriteRisk::Read
         } else {
             WriteRisk::Write
+        }
+    }
+
+    /// Fail-closed proof that `text` only reads (F-06). MCP and agent read
+    /// tools call this one function before running a query as a read.
+    ///
+    /// SQL engines check every function against an allowlist
+    /// ([`sql_read_proof`]). Default, for engines with their own policy
+    /// (MongoDB): today's classification, a Read that `validate` accepts in
+    /// Read mode.
+    fn read_proof(&self, text: &str) -> ConnectorResult<()> {
+        self.validate(text, QueryMode::Read)?;
+        if self.classify(text) == WriteRisk::Read {
+            Ok(())
+        } else {
+            Err(crate::ConnectorError::Policy(
+                "This is not a read; switch to Write mode to run it.".into(),
+            ))
         }
     }
 
@@ -95,5 +113,9 @@ impl EngineQueryPolicy for SqlQueryPolicy {
 
     fn is_safe_dml(&self, text: &str) -> bool {
         sql_is_safe_dml_for(text, self.dialect())
+    }
+
+    fn read_proof(&self, text: &str) -> ConnectorResult<()> {
+        sql_read_proof(text, self.dialect())
     }
 }
