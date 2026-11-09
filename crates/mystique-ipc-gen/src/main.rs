@@ -164,7 +164,9 @@ fn roots(c: &mut Collect) {
         // MCP.
         mcp::McpStatus,
         mcp::McpHarness,
-        mcp::McpAccess,
+        // MCP and agent access levels (ipc/mcp.rs).
+        core::ToolAccessView,
+        core::ToolApprovalRequest,
     );
 }
 

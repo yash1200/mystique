@@ -57,6 +57,9 @@ const QUIT_AGAIN: std::time::Duration = std::time::Duration::from_secs(5);
 /// Window event: a quit or close was held because exports or imports run.
 const QUIT_REQUESTED: &str = "quit-requested";
 
+/// Window event: the approval dock's queue changed (no payload; it re-reads).
+const TOOL_APPROVALS_CHANGED: &str = "tool-approvals-changed";
+
 /// True when closing now would cut off a running export or import. The
 /// window is told and asks the user; `confirm_quit` quits after that.
 fn hold_quit(app: &tauri::AppHandle) -> bool {
@@ -138,6 +141,11 @@ pub fn run() {
             let db_path = data_dir.join(mystique_core::storage::sqlite::db_file_name());
             let db = AppDatabase::open(&db_path).map_err(|e| e.to_string())?;
             let services = Arc::new(AppServices::new(db, &data_dir));
+            // The approval dock refreshes when an agent or MCP write waits or ends.
+            let handle = app.handle().clone();
+            services.tool_approvals().set_notifier(move || {
+                let _ = handle.emit(TOOL_APPROVALS_CHANGED, ());
+            });
             // Setup never touches the keychain. The vault key loads on first secret use.
             let cleanup = Arc::clone(&services);
             tauri::async_runtime::spawn_blocking(move || {
@@ -243,8 +251,13 @@ pub fn run() {
             ipc::mcp::rotate_mcp_token,
             ipc::mcp::list_mcp_harnesses,
             ipc::mcp::install_mcp_harness,
-            ipc::mcp::get_mcp_access,
-            ipc::mcp::set_mcp_access,
+            // MCP and agent access levels, and the approval dock.
+            ipc::mcp::get_tool_access,
+            ipc::mcp::set_tool_access_default,
+            ipc::mcp::set_tool_access_level,
+            ipc::mcp::set_tool_access_ask,
+            ipc::mcp::list_tool_approvals,
+            ipc::mcp::decide_tool_approval,
             // in-app query-tab agent
             ipc::agent::get_ai_settings,
             ipc::agent::set_ai_enabled,
