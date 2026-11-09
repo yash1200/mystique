@@ -26,6 +26,8 @@ use crate::scrub::Scrubber;
 pub(crate) const CANCEL_GRACE: Duration = Duration::from_millis(500);
 /// `initialize` and `session/new` (a first `npx` run downloads the agent).
 pub(crate) const SETUP_LIMIT: Duration = Duration::from_secs(90);
+/// The Test button's sign-in check (`session/new` without MCP servers).
+pub(crate) const PROBE_SESSION_LIMIT: Duration = Duration::from_secs(30);
 /// The whole turn. Longer than the built-in agent's: a write may wait 90 s
 /// in the approval dock, and agents plan before they call tools.
 pub(crate) const RUN_LIMIT: Duration = Duration::from_secs(600);
@@ -273,20 +275,58 @@ async fn hello(
     }
 }
 
-/// Test button: start the agent, `initialize`, stop it.
+/// What the Test button learned.
+#[derive(Debug, Clone)]
+pub(crate) struct ProbeOutcome {
+    pub hello: AgentHello,
+    /// `Some(false)`: `session/new` asked for sign-in. `None`: not known
+    /// (the session was not tried, or failed for another reason).
+    pub signed_in: Option<bool>,
+    /// Why the test session failed, other than sign-in.
+    pub session_problem: Option<String>,
+}
+
+/// Test button: start the agent, `initialize`, then — when the protocol
+/// matches — open a session with no MCP server to see whether it is signed
+/// in, and stop it.
 pub(crate) async fn probe(
     launcher: &dyn Launcher,
     launch: &Launch,
     scrub: &Scrubber,
-) -> Result<AgentHello, String> {
-    match hello(launcher, launch, scrub, None).await {
-        Ok((conn, hello)) => {
-            conn.close(Duration::ZERO).await;
-            Ok(hello)
+) -> Result<ProbeOutcome, String> {
+    let (mut conn, hello) = match hello(launcher, launch, scrub, None).await {
+        Ok(open) => open,
+        Err(Ended::Failed(message)) => return Err(scrub.text(&message)),
+        Err(_) => return Err("The agent did not start.".into()),
+    };
+    let mut outcome = ProbeOutcome {
+        hello,
+        signed_in: None,
+        session_problem: None,
+    };
+    if outcome.hello.protocol_version == protocol::PROTOCOL.as_u16() {
+        let mut reply = conn.start(
+            protocol::SESSION_NEW,
+            protocol::probe_session_params(&launch.cwd),
+        );
+        let deadline = Instant::now() + PROBE_SESSION_LIMIT;
+        match conn
+            .serve_until(&mut reply, None, None, None, deadline)
+            .await
+        {
+            Step::Reply(Ok(_)) => outcome.signed_in = Some(true),
+            Step::Reply(Err(err)) if err.code == protocol::AUTH_REQUIRED => {
+                outcome.signed_in = Some(false);
+            }
+            Step::Reply(Err(err)) => {
+                outcome.session_problem =
+                    Some(scrub.text(&rpc_failure("session/new", &err, &conn.stderr_tail())));
+            }
+            Step::Cancelled | Step::TimedOut => {}
         }
-        Err(Ended::Failed(message)) => Err(scrub.text(&message)),
-        Err(_) => Err("The agent did not start.".into()),
     }
+    conn.close(Duration::ZERO).await;
+    Ok(outcome)
 }
 
 /// How a turn ended.
@@ -302,6 +342,9 @@ pub(crate) enum Ended {
 pub(crate) struct TurnSpec {
     pub launch: Launch,
     pub mcp: McpAccess,
+    /// The app binary, to run as the stdio MCP bridge for agents without
+    /// HTTP MCP. `None`: such agents are refused.
+    pub bridge: Option<std::path::PathBuf>,
     /// Text blocks of the prompt: Mystique's context, then the user's words.
     pub prompt: Vec<String>,
     pub scrub: Scrubber,
@@ -430,13 +473,21 @@ async fn drive(
         Err(ended) => return ended,
     };
     on_hello(&hello);
-    if let Some(reason) = protocol::unsupported(&hello) {
-        conn.close(Duration::ZERO).await;
-        return Ended::Failed(reason);
-    }
+    let route = match protocol::mcp_route(&hello, spec.bridge.as_deref()) {
+        Ok(route) => route,
+        Err(reason) => {
+            conn.close(Duration::ZERO).await;
+            return Ended::Failed(reason);
+        }
+    };
+    tracing::info!(
+        transport = route.label(),
+        "acp: passing Mystique's MCP server"
+    );
 
     let setup_deadline = deadline.min(Instant::now() + SETUP_LIMIT);
-    let params = protocol::new_session_params(&spec.launch.cwd, &spec.mcp.url, &spec.mcp.token);
+    let params =
+        protocol::new_session_params(&spec.launch.cwd, &route, &spec.mcp.url, &spec.mcp.token);
     let mut reply = conn.start(protocol::SESSION_NEW, params);
     let session_id = match conn
         .serve_until(&mut reply, None, None, Some(token), setup_deadline)

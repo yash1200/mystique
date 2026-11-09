@@ -2,12 +2,13 @@
 //! crate (`agent-client-protocol-schema` 1.16.0, protocol version 1, no
 //! unstable features). See `docs/ACP.md`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use agent_client_protocol_schema::v1::{
-    CancelNotification, ClientCapabilities, ContentBlock, FileSystemCapabilities, HttpHeader,
-    Implementation, InitializeRequest, InitializeResponse, McpServer, McpServerHttp,
-    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, StopReason, TextContent,
+    CancelNotification, ClientCapabilities, ContentBlock, EnvVariable, FileSystemCapabilities,
+    HttpHeader, Implementation, InitializeRequest, InitializeResponse, McpServer, McpServerHttp,
+    McpServerStdio, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
+    StopReason, TextContent,
 };
 use agent_client_protocol_schema::ProtocolVersion;
 use serde_json::Value as JsonValue;
@@ -54,6 +55,7 @@ pub(crate) struct AgentHello {
     pub version: String,
     pub protocol_version: u16,
     pub mcp_http: bool,
+    pub mcp_sse: bool,
     pub load_session: bool,
     pub auth_methods: Vec<String>,
 }
@@ -68,6 +70,7 @@ pub(crate) fn parse_initialize(result: JsonValue) -> Result<AgentHello, String> 
         version: info.map(|i| i.version.clone()).unwrap_or_default(),
         protocol_version: response.protocol_version.as_u16(),
         mcp_http: response.agent_capabilities.mcp_capabilities.http,
+        mcp_sse: response.agent_capabilities.mcp_capabilities.sse,
         load_session: response.agent_capabilities.load_session,
         auth_methods: response
             .auth_methods
@@ -77,32 +80,78 @@ pub(crate) fn parse_initialize(result: JsonValue) -> Result<AgentHello, String> 
     })
 }
 
-/// Why this agent cannot run a Mystique turn, if it cannot.
-pub(crate) fn unsupported(hello: &AgentHello) -> Option<String> {
+/// How the agent reaches Mystique's MCP server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum McpRoute {
+    /// Directly: `{ type: http, url, headers: [Authorization] }`.
+    Http,
+    /// Through the stdio bridge: the agent starts `program --mcp-stdio-bridge`
+    /// with the URL and token in its environment.
+    Bridge(PathBuf),
+}
+
+impl McpRoute {
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Bridge(_) => "stdio",
+        }
+    }
+}
+
+/// HTTP when the agent takes it, else the stdio bridge when the app can run
+/// one (stdio is the transport every ACP agent must support), else refused.
+pub(crate) fn mcp_route(hello: &AgentHello, bridge: Option<&Path>) -> Result<McpRoute, String> {
     if hello.protocol_version != PROTOCOL.as_u16() {
-        return Some(format!(
+        return Err(format!(
             "The agent speaks ACP version {}; Mystique speaks version {}.",
             hello.protocol_version,
             PROTOCOL.as_u16()
         ));
     }
-    if !hello.mcp_http {
-        return Some(
-            "The agent cannot connect to MCP servers over HTTP, so it cannot reach Mystique's database tools.".into(),
-        );
+    if hello.mcp_http {
+        return Ok(McpRoute::Http);
     }
-    None
+    match bridge {
+        Some(program) => Ok(McpRoute::Bridge(program.to_path_buf())),
+        None => Err(
+            "The agent cannot connect to MCP servers over HTTP, and the stdio bridge is not available, so it cannot reach Mystique's database tools.".into(),
+        ),
+    }
 }
 
-/// `session/new`: the working directory and Mystique's MCP server (HTTP,
-/// bearer token). No other MCP server is passed.
-pub(crate) fn new_session_params(cwd: &Path, mcp_url: &str, mcp_token: &str) -> JsonValue {
-    let server = McpServerHttp::new(MCP_SERVER_NAME, mcp_url).headers(vec![HttpHeader::new(
-        "Authorization",
-        format!("Bearer {mcp_token}"),
-    )]);
-    let request = NewSessionRequest::new(cwd).mcp_servers(vec![McpServer::Http(server)]);
+/// `session/new`: the working directory and Mystique's MCP server, and no
+/// other. Over HTTP the token is a header; over the bridge it is an
+/// environment variable of the bridge process — never an argument.
+pub(crate) fn new_session_params(
+    cwd: &Path,
+    route: &McpRoute,
+    mcp_url: &str,
+    mcp_token: &str,
+) -> JsonValue {
+    let server = match route {
+        McpRoute::Http => {
+            McpServer::Http(McpServerHttp::new(MCP_SERVER_NAME, mcp_url).headers(vec![
+                HttpHeader::new("Authorization", format!("Bearer {mcp_token}")),
+            ]))
+        }
+        McpRoute::Bridge(program) => McpServer::Stdio(
+            McpServerStdio::new(MCP_SERVER_NAME, program.clone())
+                .args(vec![crate::bridge::BRIDGE_FLAG.to_string()])
+                .env(vec![
+                    EnvVariable::new(crate::bridge::ENV_URL, mcp_url),
+                    EnvVariable::new(crate::bridge::ENV_TOKEN, mcp_token),
+                ]),
+        ),
+    };
+    let request = NewSessionRequest::new(cwd).mcp_servers(vec![server]);
     serde_json::to_value(request).unwrap_or(JsonValue::Null)
+}
+
+/// The Test button's `session/new`: no MCP server at all. It only shows
+/// whether the agent is signed in.
+pub(crate) fn probe_session_params(cwd: &Path) -> JsonValue {
+    serde_json::to_value(NewSessionRequest::new(cwd)).unwrap_or(JsonValue::Null)
 }
 
 pub(crate) fn parse_new_session(result: JsonValue) -> Result<String, String> {
@@ -168,7 +217,12 @@ mod tests {
 
     #[test]
     fn new_session_passes_only_mystique_over_http_with_the_token() {
-        let params = new_session_params(Path::new("/tmp/acp"), "http://127.0.0.1:1/mcp", "tok");
+        let params = new_session_params(
+            Path::new("/tmp/acp"),
+            &McpRoute::Http,
+            "http://127.0.0.1:1/mcp",
+            "tok",
+        );
         assert_eq!(params["cwd"], "/tmp/acp");
         let servers = params["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
@@ -182,27 +236,67 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_without_http_mcp_or_on_another_version_is_refused() {
+    fn over_the_bridge_the_token_is_in_the_environment_not_the_arguments() {
+        let token = "tok-SECRET-123456";
+        let exe = "/Applications/Mystique.app/Contents/MacOS/mystique";
+        let params = new_session_params(
+            Path::new("/tmp/acp"),
+            &McpRoute::Bridge(PathBuf::from(exe)),
+            "http://127.0.0.1:7801/mcp",
+            token,
+        );
+        let servers = params["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1);
+        let server = &servers[0];
+        assert_eq!(server["name"], MCP_SERVER_NAME);
+        assert_eq!(server["command"], exe);
+        assert_eq!(server["args"], json!([crate::bridge::BRIDGE_FLAG]));
+        assert!(!server["args"].to_string().contains(token));
+        assert_eq!(
+            server["env"],
+            json!([
+                { "name": crate::bridge::ENV_URL, "value": "http://127.0.0.1:7801/mcp" },
+                { "name": crate::bridge::ENV_TOKEN, "value": token }
+            ])
+        );
+        assert!(server.get("headers").is_none());
+        // The Test button's session has no MCP server.
+        let probe = probe_session_params(Path::new("/tmp/acp"));
+        assert_eq!(probe["mcpServers"], json!([]));
+    }
+
+    #[test]
+    fn http_wins_then_the_bridge_then_a_refusal() {
         let hello = parse_initialize(json!({
             "protocolVersion": 1,
-            "agentCapabilities": { "mcpCapabilities": { "http": true } },
+            "agentCapabilities": { "mcpCapabilities": { "http": true, "sse": true } },
             "agentInfo": { "name": "fake", "version": "1.0" },
             "authMethods": [{ "id": "login", "name": "Log in" }]
         }))
         .unwrap();
         assert_eq!(hello.name, "fake");
+        assert!(hello.mcp_sse);
         assert_eq!(hello.auth_methods, vec!["Log in".to_string()]);
-        assert_eq!(unsupported(&hello), None);
-        let no_http = AgentHello {
+        let bridge = Path::new("/app/mystique");
+        assert_eq!(mcp_route(&hello, Some(bridge)), Ok(McpRoute::Http));
+        assert_eq!(mcp_route(&hello, None), Ok(McpRoute::Http));
+        let stdio_only = AgentHello {
             mcp_http: false,
+            mcp_sse: false,
             ..hello.clone()
         };
-        assert!(unsupported(&no_http).unwrap().contains("HTTP"));
+        assert_eq!(
+            mcp_route(&stdio_only, Some(bridge)),
+            Ok(McpRoute::Bridge(bridge.to_path_buf()))
+        );
+        assert!(mcp_route(&stdio_only, None).unwrap_err().contains("HTTP"));
         let v2 = AgentHello {
             protocol_version: 2,
             ..hello
         };
-        assert!(unsupported(&v2).unwrap().contains("version 2"));
+        assert!(mcp_route(&v2, Some(bridge))
+            .unwrap_err()
+            .contains("version 2"));
     }
 
     #[test]
