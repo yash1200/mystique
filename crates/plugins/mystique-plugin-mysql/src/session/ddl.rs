@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use mysql_async::prelude::Queryable;
 use mystique_connector_api::{
-    ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, DdlPlan, ForeignKeyDraft,
-    IndexDraft, TableDefinition,
+    ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, ConstraintDraft, DdlPlan,
+    ForeignKeyDraft, IndexDraft, TableDefinition,
 };
+use mystique_sql::ddl::mysql_column_default;
 use mystique_sql::{qualify_table, SqlDialect};
 
 use super::query_failed;
@@ -15,6 +16,8 @@ use super::MysqlSession;
 type FkRow = (
     String,
     String,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -149,7 +152,9 @@ async fn load(
         Some(table) => crate::rows::collect_exec(&mut conn, FKS_ONE, (database, table)).await?,
         None => crate::rows::collect_exec(&mut conn, FKS_ALL, (database,)).await?,
     };
-    for (table_name, constraint, column, ref_schema, ref_table, ref_column) in fk_rows {
+    for (table_name, constraint, column, ref_schema, ref_table, ref_column, on_delete, on_update) in
+        fk_rows
+    {
         let (Some(column), Some(ref_table), Some(ref_column)) = (column, ref_table, ref_column)
         else {
             continue;
@@ -165,6 +170,16 @@ async fn load(
             column,
             ref_column,
         );
+        if let Some(fk) = definition.foreign_keys.last_mut() {
+            if fk
+                .original
+                .as_ref()
+                .is_some_and(|o| o.on_delete.is_none() && o.on_update.is_none())
+            {
+                let actions = std::mem::take(fk).with_actions(on_delete, on_update);
+                *fk = actions;
+            }
+        }
     }
     for definition in tables.values_mut() {
         let live = column_definitions(&mut conn, database, &definition.name).await?;
@@ -172,6 +187,31 @@ async fn load(
             if let Some(original) = column.original.as_mut() {
                 original.definition = live.get(&original.name).cloned();
             }
+            let (default, identity) = column
+                .original
+                .as_ref()
+                .and_then(|original| original.definition.as_deref())
+                .map(mysql_column_default)
+                .unwrap_or_default();
+            let loaded = std::mem::take(column).with_default(default, identity);
+            *column = loaded;
+        }
+    }
+
+    // CHECK constraints (MySQL 8.0.16+, MariaDB). Older servers have none.
+    let check_rows: Vec<(String, String, String)> = match table {
+        Some(table) => crate::rows::collect_exec(&mut conn, CHECKS_ONE, (database, table)).await,
+        None => crate::rows::collect_exec(&mut conn, CHECKS_ALL, (database,)).await,
+    }
+    .unwrap_or_default();
+    for (table_name, name, clause) in check_rows {
+        if let Some(definition) = tables.get_mut(&table_name) {
+            definition.constraints.push(ConstraintDraft::loaded(
+                "check",
+                name,
+                Vec::new(),
+                Some(clause),
+            ));
         }
     }
     Ok(tables.into_values().collect())
@@ -353,18 +393,40 @@ WHERE table_schema = ? AND table_name = ? \
 ORDER BY index_name, seq_in_index";
 
 const FKS_ALL: &str = "\
-SELECT table_name, constraint_name, column_name, referenced_table_schema, \
-       referenced_table_name, referenced_column_name \
-FROM information_schema.key_column_usage \
-WHERE table_schema = ? AND referenced_table_name IS NOT NULL \
-ORDER BY table_name, constraint_name, ordinal_position";
+SELECT k.table_name, k.constraint_name, k.column_name, k.referenced_table_schema, \
+       k.referenced_table_name, k.referenced_column_name, rc.delete_rule, rc.update_rule \
+FROM information_schema.key_column_usage k \
+LEFT JOIN information_schema.referential_constraints rc \
+  ON rc.constraint_schema = k.table_schema AND rc.constraint_name = k.constraint_name \
+ AND rc.table_name = k.table_name \
+WHERE k.table_schema = ? AND k.referenced_table_name IS NOT NULL \
+ORDER BY k.table_name, k.constraint_name, k.ordinal_position";
 
 const FKS_ONE: &str = "\
-SELECT table_name, constraint_name, column_name, referenced_table_schema, \
-       referenced_table_name, referenced_column_name \
-FROM information_schema.key_column_usage \
-WHERE table_schema = ? AND table_name = ? AND referenced_table_name IS NOT NULL \
-ORDER BY constraint_name, ordinal_position";
+SELECT k.table_name, k.constraint_name, k.column_name, k.referenced_table_schema, \
+       k.referenced_table_name, k.referenced_column_name, rc.delete_rule, rc.update_rule \
+FROM information_schema.key_column_usage k \
+LEFT JOIN information_schema.referential_constraints rc \
+  ON rc.constraint_schema = k.table_schema AND rc.constraint_name = k.constraint_name \
+ AND rc.table_name = k.table_name \
+WHERE k.table_schema = ? AND k.table_name = ? AND k.referenced_table_name IS NOT NULL \
+ORDER BY k.constraint_name, k.ordinal_position";
+
+const CHECKS_ALL: &str = "\
+SELECT tc.table_name, cc.constraint_name, cc.check_clause \
+FROM information_schema.table_constraints tc \
+JOIN information_schema.check_constraints cc \
+  ON cc.constraint_schema = tc.constraint_schema AND cc.constraint_name = tc.constraint_name \
+WHERE tc.table_schema = ? AND tc.constraint_type = 'CHECK' \
+ORDER BY tc.table_name, cc.constraint_name";
+
+const CHECKS_ONE: &str = "\
+SELECT tc.table_name, cc.constraint_name, cc.check_clause \
+FROM information_schema.table_constraints tc \
+JOIN information_schema.check_constraints cc \
+  ON cc.constraint_schema = tc.constraint_schema AND cc.constraint_name = tc.constraint_name \
+WHERE tc.table_schema = ? AND tc.table_name = ? AND tc.constraint_type = 'CHECK' \
+ORDER BY cc.constraint_name";
 
 #[cfg(test)]
 mod tests {
