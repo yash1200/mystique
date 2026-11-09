@@ -136,9 +136,14 @@ fn roots(c: &mut Collect) {
         core::TerminateSessionRequest,
         core::TerminateSessionResult,
         core::EngineCapabilities,
+        // Write safety: timed unlock and the affected-row preview.
+        core::TimedUnlockStatus,
+        core::PreviewWriteRowsRequest,
+        core::WriteRowPreview,
         // Profiles, settings, vault.
         core::ConnectionProfile,
         core::SaveConnectionInput,
+        core::SetDatabaseEnvironmentInput,
         core::VaultStatus,
         core::PurgeReport,
         // History, saved queries, tabs, grid layout.

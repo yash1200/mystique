@@ -250,6 +250,65 @@ pub async fn unlock_engine_writes(
     .await
 }
 
+/// Allow writes on a read-only desktop session for 60 or 300 seconds.
+/// In memory only; the agent and MCP never see it.
+#[tauri::command]
+pub async fn start_timed_write_unlock(
+    state: State<'_, AppState>,
+    session_id: String,
+    seconds: u64,
+) -> Result<mystique_core::TimedUnlockStatus, IpcError> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .start_timed_unlock(&session_id, seconds)
+            .await
+            .map_err(IpcError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn end_timed_write_unlock(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<mystique_core::TimedUnlockStatus, IpcError> {
+    super::guard(async move { Ok(state.services.connections().end_timed_unlock(&session_id)) })
+        .await
+}
+
+#[tauri::command]
+pub async fn timed_write_unlock_status(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<mystique_core::TimedUnlockStatus, IpcError> {
+    super::guard(async move {
+        Ok(state
+            .services
+            .connections()
+            .timed_unlock_status(&session_id))
+    })
+    .await
+}
+
+/// The rows one write would touch, read in Read mode. Never runs the write.
+#[tauri::command]
+pub async fn preview_write_rows(
+    state: State<'_, AppState>,
+    request: mystique_core::PreviewWriteRowsRequest,
+) -> Result<mystique_core::WriteRowPreview, IpcError> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .preview_write_rows(request)
+            .await
+            .map_err(IpcError::from)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn cancel_engine_query(
     state: State<'_, AppState>,

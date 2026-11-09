@@ -176,6 +176,10 @@ pub fn run() {
             ipc::engines::list_engine_sessions,
             ipc::engines::get_engine_session,
             ipc::engines::unlock_engine_writes,
+            ipc::engines::start_timed_write_unlock,
+            ipc::engines::end_timed_write_unlock,
+            ipc::engines::timed_write_unlock_status,
+            ipc::engines::preview_write_rows,
             ipc::engines::explain_engine_query,
             ipc::engines::execute_engine_batch,
             ipc::engines::execute_pinned_batch,
@@ -214,6 +218,7 @@ pub fn run() {
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::save_profile,
+            ipc::profiles::set_profile_database_environment,
             ipc::profiles::delete_profile,
             ipc::profiles::touch_profile_connected,
             // query library (per-connection, no groups)

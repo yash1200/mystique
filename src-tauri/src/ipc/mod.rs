@@ -5,7 +5,7 @@
 //! - `set_native_menu` — native menus are built on the UI thread
 //!
 //! Moved to `async` + [`blocking`] in 4.5.13 (keychain or metadata SQLite):
-//! - profiles: `list_profiles`, `save_profile`, `delete_profile`,
+//! - profiles: `list_profiles`, `save_profile`, `set_profile_database_environment`, `delete_profile`,
 //!   `touch_profile_connected`
 //! - settings: `get_vault_status`, `retry_vault_unlock`, `purge_keychain_items`
 //! - queries: `list_saved_queries`, `save_query`, `delete_saved_query`

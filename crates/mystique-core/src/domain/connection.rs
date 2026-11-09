@@ -43,7 +43,7 @@ pub struct ConnectionProfile {
     /// Empty: `environment` applies to every database. Set with
     /// [`crate::ProfileService::set_database_environment`], not on save.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub database_environments: Vec<mystique_connector_api::DatabaseEnvironment>,
     pub last_connected_at: Option<String>,
     pub created_at: String,

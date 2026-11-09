@@ -218,7 +218,13 @@ password?: string | null, favorite: boolean,
 /**
  * Query timeout for this profile. `None` uses the app setting; 0 is none.
  */
-queryTimeoutSecs: number | null, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
+queryTimeoutSecs: number | null, 
+/**
+ * Databases (or schemas) whose environment is not `environment`.
+ * Empty: `environment` applies to every database. Set with
+ * [`crate::ProfileService::set_database_environment`], not on save.
+ */
+databaseEnvironments?: Array<DatabaseEnvironment>, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
 
 export type ConstraintDraft = { kind: string, name: string, columns?: Array<string>, expression?: string | null, original?: ConstraintOriginal | null, drop?: boolean, };
 
@@ -242,6 +248,20 @@ columns?: Array<string>,
  * CHECK expression, without the `CHECK` keyword.
  */
 expression?: string | null, };
+
+/**
+ * A database (or one schema of it) whose environment is not the
+ * connection's.
+ */
+export type DatabaseEnvironment = { database: string, 
+/**
+ * Postgres schema. `None` marks the whole database.
+ */
+schema?: string | null, 
+/**
+ * `local` | `staging` | `production`.
+ */
+environment: string, };
 
 export type DdlPlan = { statements: Array<string>, warnings: Array<string>, transactional: boolean, requiresRebuild: boolean, 
 /**
@@ -827,6 +847,12 @@ export type PreviewImportRequest = { sessionId: string, name: string, schema?: s
 
 export type PreviewImportResult = { fileKeys: Array<string>, columns: Array<ImportTableColumn>, suggestedMap: Array<ImportColumnMap>, rows: Array<Array<JsonValue>>, format: ImportFormat, encoding: ImportEncoding, };
 
+export type PreviewWriteRowsRequest = { sessionId: string, 
+/**
+ * One statement from the write dialog.
+ */
+statement: string, database?: string | null, };
+
 export type PurgeReport = { 
 /**
  * False when this build does not use the keychain (file key source).
@@ -1044,6 +1070,19 @@ extras: Array<MetricValue>, };
  * Live session handle returned to API clients.
  */
 export type SessionInfo = { sessionId: string, engine: string, displayName: string, capabilities: EngineCapabilities, pool: PoolStatus | null, openedAt: string, };
+
+/**
+ * Add, change or (with `environment: None`) remove one database mark.
+ */
+export type SetDatabaseEnvironmentInput = { profileId: string, database: string, 
+/**
+ * Postgres schema. Omitted marks the whole database.
+ */
+schema?: string | null, 
+/**
+ * `local` | `staging` | `production`; omitted removes the mark.
+ */
+environment?: string | null, };
 
 /**
  * A currently-running or historically slow statement.
@@ -1270,6 +1309,15 @@ export type TestResult = { ok: boolean, engine: string,
 serverVersion: string | null, latencyMs: number, message: string, sshHostKey?: SshHostKeyPrompt | null, };
 
 /**
+ * Whether writes are allowed on a read-only session, and for how long.
+ */
+export type TimedUnlockStatus = { sessionId: string, 
+/**
+ * Milliseconds left; `None` when no unlock is running.
+ */
+remainingMs?: number | null, };
+
+/**
  * Rows exported or imported so far, sent over IPC while a transfer runs.
  */
 export type TransferProgress = { rows: number, };
@@ -1341,4 +1389,42 @@ statements?: Array<string>,
 /**
  * Name to send back as `confirmObjectName` for `confirm` and `typeConfirm`.
  */
-objectName?: string | null, };
+objectName?: string | null, 
+/**
+ * The database marked with `environment` that the write lands in, when
+ * the mark is per database rather than the connection's.
+ */
+database?: string | null, };
+
+/**
+ * The rows one write would touch, or why there is no preview.
+ */
+export type WriteRowPreview = { 
+/**
+ * False: `reason` says why there is no preview.
+ */
+available: boolean, reason?: string | null, 
+/**
+ * `update` | `delete` | `insert`.
+ */
+action?: string | null, table?: string | null, columns: Array<QueryColumn>, rows: Array<Array<JsonValue>>, 
+/**
+ * UPDATE: the `"<column> (new)"` columns at the end of each row.
+ */
+newColumns: Array<string>, 
+/**
+ * How many rows the write touches. `None`: the count did not finish.
+ */
+total?: number | null, 
+/**
+ * More rows than `rows` holds.
+ */
+truncated: boolean, 
+/**
+ * The read failed (timeout, permissions). The write is not allowed by it.
+ */
+error?: string | null, 
+/**
+ * Why `total` is missing.
+ */
+note?: string | null, };
