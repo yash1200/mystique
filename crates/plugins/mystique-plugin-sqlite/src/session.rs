@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use crate::connector::manager::SqliteConnectionManager;
 use async_trait::async_trait;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
@@ -17,7 +18,6 @@ use mystique_connector_api::{
     ValidatedBatch, ValidatedQuery,
 };
 use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
 
 mod admin;
 mod catalog;

@@ -20,6 +20,11 @@ members = [
 # (`src-tauri`) is the one place that installs a subscriber.
 [workspace.dependencies]
 tracing = "0.1"
+# One SQLite for the app database (mystique-core) and the SQLite plugin.
+# 0.41 bundles SQLite 3.54 (RUSTSEC-2026-0459 / CVE-2026-119375). Default
+# features off so the wasm-only `sqlite-wasm-rs` backend stays out of the
+# graph; `cache` keeps `prepare_cached`.
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std", "tracing-log", "ansi"] }
 
 # Shared release profile for all workspace members.

@@ -84,7 +84,6 @@ pub(super) async fn execute_query(
                     // Declared affinity/type when available (CREATE TABLE).
                     let columns: Vec<QueryColumn> = stmt
                         .columns()
-                        .into_iter()
                         .map(|c| QueryColumn {
                             name: c.name().to_string(),
                             data_type: c
@@ -306,7 +305,6 @@ fn run_sqlite_statement(
         let col_count = prepared.column_count();
         let columns: Vec<QueryColumn> = prepared
             .columns()
-            .into_iter()
             .map(|column| QueryColumn {
                 name: column.name().to_string(),
                 data_type: column
