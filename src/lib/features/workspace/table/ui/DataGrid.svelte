@@ -31,6 +31,7 @@
 	import { appPrefs, cmd } from '#lib/app'
 	import { onMount, tick } from 'svelte'
 	import { TableColumns } from '../columns.svelte'
+	import { countLabel } from '../count'
 	import type { TableCopySource } from '../copy'
 	import { CellEditor } from '../editing.svelte'
 	import { TableEdits } from '../edits.svelte'
@@ -39,6 +40,7 @@
 	import { TablePaging } from '../paging.svelte'
 	import { TableRowActions } from '../row-actions'
 	import { TableSaver } from '../save.svelte'
+	import { tablePreview } from '../tab-preview.svelte'
 	import { pinToRowGutter, scrollCellIntoView } from '../scroll'
 	import GridFilterBar from './GridFilterBar.svelte'
 	import GridSqlPanel from './GridSqlPanel.svelte'
@@ -227,6 +229,7 @@
 			),
 		),
 	)
+	const rowCount = $derived(tabId ? countLabel(tablePreview.countByTab[tabId]) : null)
 	const rowMenuItems = $derived(rowMenu ? actions.rowMenu(rowMenu.row) : [])
 	const cellMenuItems = $derived(cellMenu ? actions.cellMenu(cellMenu.row) : [])
 
@@ -609,5 +612,8 @@
 		}}
 		sqlPanelOpen={appPrefs.gridSqlPanel}
 		onToggleSql={() => appPrefs.setGridSqlPanel(!appPrefs.gridSqlPanel)}
+		count={rowCount}
+		onCountExactly={tabId ? () => void tablePreview.countExactly(tabId) : undefined}
+		onCancelCount={tabId ? () => tablePreview.cancelCount(tabId) : undefined}
 	/>
 </div>

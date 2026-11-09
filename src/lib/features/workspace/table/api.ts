@@ -152,20 +152,25 @@ export async function distinctColumnValues(input: {
 	sessionId: string
 	table: TableMeta
 	column: string
+	/** Only values whose text starts with this (ASCII case-insensitive). */
+	prefix?: string
+	limit?: number
 }): Promise<string[]> {
+	const limit = Math.min(input.limit ?? DISTINCT_LIMIT, DISTINCT_LIMIT)
 	const values = await distinctEngineColumnValues({
 		sessionId: input.sessionId,
 		table: input.table.name,
 		schema: input.table.schema || null,
 		database: input.table.database || null,
 		column: input.column,
-		limit: DISTINCT_LIMIT,
+		limit,
+		prefix: input.prefix || null,
 	})
 	const out: string[] = []
 	for (const value of values) {
 		if (value == null) continue
 		out.push(typeof value === 'string' ? value : JSON.stringify(value))
-		if (out.length >= DISTINCT_LIMIT) break
+		if (out.length >= limit) break
 	}
 	return out
 }
