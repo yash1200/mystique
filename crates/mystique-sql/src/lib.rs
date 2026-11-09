@@ -18,6 +18,7 @@ mod plan;
 mod projection;
 mod risk;
 mod split;
+mod target;
 
 pub use dialect::{SqlDialect, SqlPlaceholder};
 pub use error::{BuildError, BuildResult};
@@ -31,3 +32,4 @@ pub use risk::{
     is_safe_dml, StatementRisk,
 };
 pub use split::{split_statement_spans, split_statements, statement_at, StatementSpan};
+pub use target::{write_targets, WriteTarget, WriteTargets};
