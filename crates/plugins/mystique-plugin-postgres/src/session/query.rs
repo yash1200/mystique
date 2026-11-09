@@ -16,8 +16,8 @@ use tokio_postgres::types::{Format, IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
-use super::PostgresSession;
 use super::{query_failed, query_failed_at, shift_query_position};
+use super::{take_notices, NoticeCapture, PostgresSession};
 
 /// Portal name for the capped fetch. Closed before the next statement.
 const ROW_CURSOR: &str = "mystique_row_cap";
@@ -96,7 +96,9 @@ pub(super) async fn execute_batch(
         {
             return end_read_only_txn(client, Err(query_failed(err))).await;
         }
-        let result = run_planned_batch(&client, batch, true, true, false).await;
+        let notices = session.notice_hub().capture(&client).await;
+        let result = run_planned_batch(&client, batch, true, true, false, notices.as_ref()).await;
+        drop(notices);
         end_read_only_txn(client, result).await
     } else {
         execute_held(session, &client, batch).await
@@ -114,7 +116,9 @@ pub(super) async fn execute_held(
     let _ = client
         .batch_execute(&format!("SET statement_timeout = {timeout}"))
         .await;
-    let result = run_planned_batch(client, batch, false, false, false).await;
+    let notices = session.notice_hub().capture(client).await;
+    let result = run_planned_batch(client, batch, false, false, false, notices.as_ref()).await;
+    drop(notices);
     let _ = client.batch_execute("RESET statement_timeout").await;
     result
 }
@@ -128,6 +132,7 @@ pub(super) async fn run_planned_batch(
     locked: bool,
     in_txn: bool,
     auto_begin: bool,
+    notices: Option<&NoticeCapture>,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
@@ -137,6 +142,8 @@ pub(super) async fn run_planned_batch(
             return Err(ConnectorError::Query("Query cancelled.".into()));
         }
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
+        // Anything the wrapper statements raised is not this statement's.
+        let _ = take_notices(notices);
         let begun = if auto_begin && !in_txn && opens_transaction(stmt, SqlDialect::Postgres) {
             let begun = client.batch_execute("BEGIN").await;
             in_txn = begun.is_ok();
@@ -144,10 +151,13 @@ pub(super) async fn run_planned_batch(
         } else {
             Ok(())
         };
-        let outcome = match begun {
+        let mut outcome = match begun {
             Ok(()) => run_planned(client, batch, stmt, &mut in_txn).await?,
             Err(err) => postgres_statement_error(stmt, query_failed(err), &batch.control)?,
         };
+        // A RAISE before an error is often the explanation, so a failed
+        // statement keeps its notices too.
+        outcome.notices = take_notices(notices);
         let failed = outcome.error.is_some();
         if stmt.txn_boundary && !locked && !failed {
             in_txn = match transaction_state(client).await {
@@ -234,8 +244,9 @@ async fn run_planned(
             Ok(fetched) => fetched,
             Err(err) => return postgres_statement_error(stmt, err, &batch.control),
         };
+        // `INSERT … RETURNING` changed every row, not only the ones shown.
         let affected = if stmt.returns_count {
-            Some(fetched.rows.len() as u64)
+            Some(fetched.total)
         } else {
             None
         };
@@ -255,8 +266,6 @@ async fn run_planned(
             duration_ms: started.elapsed().as_millis() as u64,
             message,
         };
-        // Notices are logged by the tokio-postgres connection task and are not
-        // exposed on a pooled client.
         return Ok(StatementResult::success(
             stmt,
             0,
@@ -584,6 +593,9 @@ struct Fetched {
     columns: Vec<QueryColumn>,
     rows: Vec<Vec<serde_json::Value>>,
     truncated: bool,
+    /// Every row the statement returned, kept or not. For a fetch from a
+    /// cursor it is at most `limit + 1`.
+    total: u64,
 }
 
 /// `FETCH limit+1`, then `CLOSE`. The server suspends the portal after that
@@ -631,20 +643,28 @@ async fn fetch_bound(
         .await
         .map_err(|err| query_failed_at(sql, err))?;
     let mut stream = pin!(stream);
-    let capped = collect_capped(&mut stream, limit).await;
+    let mut capped = collect_capped(&mut stream, limit).await;
     if !matches!(capped, Ok(ref got) if got.exhausted) {
-        if let Err(err) = finish_stream(&mut stream).await {
-            return Err(query_failed_at(
-                sql,
-                match capped {
-                    Err(fetch_err) => fetch_err,
-                    Ok(_) => err,
-                },
-            ));
+        match finish_stream(&mut stream).await {
+            Ok(rest) => {
+                if let Ok(got) = capped.as_mut() {
+                    got.seen = got.seen.saturating_add(rest);
+                }
+            }
+            Err(err) => {
+                return Err(query_failed_at(
+                    sql,
+                    match capped {
+                        Err(fetch_err) => fetch_err,
+                        Ok(_) => err,
+                    },
+                ));
+            }
         }
     }
+    let affected = stream.rows_affected();
     capped
-        .map(rows_from)
+        .map(|got| rows_from(got, affected))
         .map_err(|err| query_failed_at(sql, err))
 }
 
@@ -709,22 +729,34 @@ async fn read_stream(
         .await
         .map_err(locate_err)?;
     let mut stream = pin!(stream);
-    let capped = collect_capped(&mut stream, limit).await;
+    let mut capped = collect_capped(&mut stream, limit).await;
     // A truncated FETCH still owes ReadyForQuery. An error does too. Polling
     // again after a clean end asks a closed response channel and fails.
     if !matches!(capped, Ok(ref got) if got.exhausted) {
-        if let Err(err) = finish_stream(&mut stream).await {
-            return Err(locate_err(match capped {
-                Err(fetch_err) => fetch_err,
-                Ok(_) => err,
-            }));
+        match finish_stream(&mut stream).await {
+            Ok(rest) => {
+                if let Ok(got) = capped.as_mut() {
+                    got.seen = got.seen.saturating_add(rest);
+                }
+            }
+            Err(err) => {
+                return Err(locate_err(match capped {
+                    Err(fetch_err) => fetch_err,
+                    Ok(_) => err,
+                }));
+            }
         }
     }
-    capped.map(rows_from).map_err(locate_err)
+    let affected = stream.rows_affected();
+    capped
+        .map(|got| rows_from(got, affected))
+        .map_err(locate_err)
 }
 
 struct Capped<T> {
     kept: Vec<T>,
+    /// Items pulled, the probe included.
+    seen: usize,
     truncated: bool,
     /// The stream returned `None` before the extra probe row.
     exhausted: bool,
@@ -750,6 +782,7 @@ where
         if seen > limit {
             return Ok(Capped {
                 kept,
+                seen,
                 truncated: true,
                 exhausted: false,
             });
@@ -757,22 +790,28 @@ where
     }
     Ok(Capped {
         kept,
+        seen,
         truncated: false,
         exhausted: true,
     })
 }
 
-async fn finish_stream<S, T, E>(mut stream: S) -> Result<(), E>
+/// Reads the rest of a stream and returns how many items it dropped.
+async fn finish_stream<S, T, E>(mut stream: S) -> Result<usize, E>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
 {
+    let mut rest = 0usize;
     while let Some(item) = stream.next().await {
         let _discard = item?;
+        rest = rest.saturating_add(1);
     }
-    Ok(())
+    Ok(rest)
 }
 
-fn rows_from(capped: Capped<tokio_postgres::Row>) -> Fetched {
+/// `affected` is the server's command tag count (`INSERT 0 N`) when the
+/// stream reached its end; the rows seen are the fallback.
+fn rows_from(capped: Capped<tokio_postgres::Row>, affected: Option<u64>) -> Fetched {
     let mut columns = Vec::new();
     let mut rows = Vec::with_capacity(capped.kept.len());
     for row in &capped.kept {
@@ -796,6 +835,7 @@ fn rows_from(capped: Capped<tokio_postgres::Row>) -> Fetched {
         columns,
         rows,
         truncated: capped.truncated,
+        total: affected.unwrap_or(capped.seen as u64),
     }
 }
 

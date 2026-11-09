@@ -9,6 +9,7 @@ use mystique_connector_api::{
 
 use crate::session::PostgresSession;
 
+pub(crate) mod notices;
 pub(crate) mod pool;
 pub(crate) mod url;
 
@@ -139,7 +140,7 @@ impl DatabaseConnector for PostgresConnector {
         &self,
         config: &ConnectionConfig,
     ) -> ConnectorResult<Box<dyn ConnectorSession>> {
-        let (pool, cancel_tls) = create_pool(config).await?;
+        let (pool, cancel_tls, notices) = create_pool(config).await?;
 
         {
             let client = pool
@@ -156,6 +157,7 @@ impl DatabaseConnector for PostgresConnector {
             pool,
             config.pool.max_size,
             cancel_tls,
+            notices,
         )))
     }
 }

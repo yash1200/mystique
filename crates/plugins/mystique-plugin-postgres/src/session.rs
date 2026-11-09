@@ -31,6 +31,7 @@ mod query;
 mod structure;
 mod transfer;
 
+pub(super) use crate::connector::notices::{take_notices, NoticeCapture, NoticeHub};
 pub(super) use crate::connector::pool::{
     pg_col, pg_i32_col, pg_u32_col, query_failed, query_failed_at, shift_query_position,
     PgCancelTls,
@@ -42,16 +43,27 @@ pub struct PostgresSession {
     closed: AtomicBool,
     /// Cloned into `CancelToken::cancel_query` so SSL cancels use the same TLS.
     cancel_tls: PgCancelTls,
+    notices: NoticeHub,
 }
 
 impl PostgresSession {
-    pub fn new(pool: Pool, max_size: u32, cancel_tls: PgCancelTls) -> Self {
+    pub(crate) fn new(
+        pool: Pool,
+        max_size: u32,
+        cancel_tls: PgCancelTls,
+        notices: NoticeHub,
+    ) -> Self {
         Self {
             pool,
             max_size,
             closed: AtomicBool::new(false),
             cancel_tls,
+            notices,
         }
+    }
+
+    pub(super) fn notice_hub(&self) -> &NoticeHub {
+        &self.notices
     }
 
     /// `FnOnce` is sync. The cancel connection is spawned so the query task can
@@ -150,7 +162,11 @@ impl ConnectorSession for PostgresSession {
     async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
         self.ensure_open()?;
         let client = self.client().await?;
-        Ok(Box::new(pin::PostgresPin::new(client, self.cancel_tls())))
+        Ok(Box::new(pin::PostgresPin::new(
+            client,
+            self.cancel_tls(),
+            self.notices.clone(),
+        )))
     }
 
     async fn describe_table(
