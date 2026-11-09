@@ -435,3 +435,51 @@ async fn a_new_process_holds_no_grants_or_requests() {
     let view = fx.app.tool_access().view().unwrap();
     assert!(view.connections[0].ask_high_risk);
 }
+
+#[tokio::test]
+async fn an_unprovable_read_runs_only_where_writes_are_allowed() {
+    let fx = fixture("local", false);
+    seed(&fx).await;
+    // Classified as a read, but ReadProof cannot prove an unknown function.
+    let udf = "SELECT mq_fa_udf(1)";
+    fx.level("read");
+    for caller in [ToolCaller::Mcp, ToolCaller::Agent] {
+        let err = fx.tool(caller, udf).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, AppError::AccessDenied(_)), "{err:?}");
+        assert!(msg.contains("needs `write`"), "{msg}");
+        assert!(msg.contains("cannot prove it only reads"), "{msg}");
+    }
+    // The read tool says where it can run instead.
+    let err = fx
+        .app
+        .agent_tools()
+        .call_tool(
+            "execute_readonly_query",
+            &json!({ "connection_id": fx.profile.id, "query": udf }),
+            ToolCaller::Mcp,
+        )
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("Use execute_query"), "{err}");
+
+    // With `write`, it is let through and runs in Write mode: SQLite itself
+    // answers, not the Read-mode gate.
+    fx.level("write");
+    for caller in [ToolCaller::Mcp, ToolCaller::Agent] {
+        let msg = fx.tool(caller, udf).await.unwrap_err().to_string();
+        assert!(msg.contains("no such function"), "{msg}");
+    }
+    // A provable read still runs at `read`.
+    fx.level("read");
+    fx.tool(ToolCaller::Mcp, "SELECT count(*) FROM t")
+        .await
+        .unwrap();
+    for sid in [
+        format!("mcp:{}", fx.profile.id),
+        format!("agent:{}", fx.profile.id),
+        fx.profile.id.clone(),
+    ] {
+        let _ = fx.app.connections().close_session(&sid).await;
+    }
+}

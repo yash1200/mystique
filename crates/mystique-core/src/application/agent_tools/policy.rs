@@ -100,6 +100,16 @@ impl ConnectionLevels {
     }
 }
 
+/// One statement, as the access check sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Assessment {
+    /// `Read` only when ReadProof passed; it then runs in Read mode.
+    pub risk: WriteRisk,
+    pub need: AccessLevel,
+    /// The classifier calls it a read but ReadProof could not prove it: why.
+    pub unproven: Option<String>,
+}
+
 pub(crate) fn is_production(profile: &ConnectionProfile) -> bool {
     profile
         .environment
@@ -279,25 +289,44 @@ impl AgentTools {
             .unwrap_or(false)
     }
 
-    /// The statement's risk for the access check.
+    /// What the access check needs to know about one statement (F-06).
     ///
-    /// TODO(F-06): swap for the fail-closed ReadProof check (function
-    /// allowlist) from `mystique-sql` once it lands. Every access decision
-    /// reads risk through here, so that is the only change needed.
-    pub(super) fn access_risk(&self, engine: &str, text: &str) -> WriteRisk {
-        self.connections
-            .registry()
-            .policy(engine)
-            .map(|p| p.classify(text))
-            .unwrap_or(WriteRisk::Write)
-    }
-
-    /// INSERT / UPDATE only, per the engine's policy. No policy: not safe.
-    pub(super) fn is_safe_dml(&self, engine: &str, text: &str) -> bool {
-        self.connections
-            .registry()
-            .policy(engine)
-            .is_some_and(|p| p.is_safe_dml(text))
+    /// `read` access means ReadProof passed: the fail-closed function
+    /// allowlist, run in Read mode. Every access decision goes through here.
+    pub(super) fn assess(&self, engine: &str, text: &str) -> Assessment {
+        let Some(policy) = self.connections.registry().policy(engine) else {
+            return Assessment {
+                risk: WriteRisk::Write,
+                need: AccessLevel::Full,
+                unproven: Some("This engine has no query policy.".into()),
+            };
+        };
+        let reason = match policy.read_proof(text) {
+            Ok(()) => {
+                return Assessment {
+                    risk: WriteRisk::Read,
+                    need: AccessLevel::Read,
+                    unproven: None,
+                }
+            }
+            Err(err) => err.to_string(),
+        };
+        let risk = policy.classify(text);
+        let need = match risk {
+            // Looks like a read, but ReadProof cannot prove it (a UDF,
+            // nextval, a lock): it runs only where writes are allowed.
+            WriteRisk::Read => AccessLevel::Write,
+            other => AccessLevel::required_for(other, policy.is_safe_dml(text)),
+        };
+        Assessment {
+            risk: if risk == WriteRisk::Read {
+                WriteRisk::Write
+            } else {
+                risk
+            },
+            need,
+            unproven: (risk == WriteRisk::Read).then_some(reason),
+        }
     }
 }
 

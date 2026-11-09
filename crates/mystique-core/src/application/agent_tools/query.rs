@@ -5,7 +5,6 @@ use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repo;
 
 use super::download::download_from_result;
-use super::levels::AccessLevel;
 use super::policy::ToolCaller;
 use super::results::ResultKey;
 use super::types::{clamp_agent_max_rows, AgentCellWindow, AgentQueryDownload};
@@ -36,7 +35,13 @@ impl AgentTools {
         if text.is_empty() {
             return Err(AppError::Invalid("query is required".into()));
         }
-        self.require_read(caller, connection_id, database)?;
+        let profile = self.require_read(caller, connection_id, database)?;
+        // Looks like a read but ReadProof cannot prove it: say where it can run.
+        if let Some(why) = self.assess(&profile.engine, text).unproven {
+            return Err(AppError::AccessDenied(format!(
+                "execute_readonly_query runs only statements Mystique can prove are reads, and this one is not: {why} Nothing ran. Use execute_query instead; it runs this in Write mode and needs `write` access on the connection."
+            )));
+        }
         let key = self.result_key(connection_id, caller, text, database, collection, max_rows)?;
         if let Some(hit) = self.cached_page(&key, window, true)? {
             return Ok(download_from_result(hit, format, window));
@@ -82,8 +87,10 @@ impl AgentTools {
             return Err(AppError::Invalid("query is required".into()));
         }
         let profile = self.require_read(caller, connection_id, database)?;
-        let risk = self.access_risk(&profile.engine, text);
-        let safe_dml = self.is_safe_dml(&profile.engine, text);
+        // ReadProof passes: Read mode. Otherwise Write mode, at the level
+        // the statement needs (an unprovable read needs `write`).
+        let assessed = self.assess(&profile.engine, text);
+        let risk = assessed.risk;
         // Read-only on the profile wins for every principal, before any ask.
         if profile.read_only && risk != WriteRisk::Read {
             return Err(AppError::AccessDenied(format!(
@@ -96,11 +103,11 @@ impl AgentTools {
         if let Some(hit) = self.cached_page(&key, window, risk == WriteRisk::Read)? {
             return Ok(download_from_result(hit, format, window));
         }
-        let need = AccessLevel::required_for(risk, safe_dml);
         // Spent here: approving this statement covers this one run only.
         let _grant = self
-            .authorize_statement(caller, &profile, database, text, need)
-            .await?;
+            .authorize_statement(caller, &profile, database, text, assessed.need)
+            .await
+            .map_err(|err| with_read_proof_reason(err, assessed.unproven.as_deref()))?;
         let sid = self.ensure_session_for(connection_id, caller).await?;
         let _write =
             (risk != WriteRisk::Read).then(|| self.connections.authorize_tool_write(&sid, text));
@@ -194,5 +201,15 @@ impl AgentTools {
                     .or_insert_with(|| self.is_visible(caller, &q.connection_id))
             })
             .collect()
+    }
+}
+
+/// A denied unprovable read says why it is not treated as a read.
+fn with_read_proof_reason(err: AppError, unproven: Option<&str>) -> AppError {
+    match (err, unproven) {
+        (AppError::AccessDenied(msg), Some(why)) => AppError::AccessDenied(format!(
+            "{msg} It is not run as a read because Mystique cannot prove it only reads: {why}"
+        )),
+        (err, _) => err,
     }
 }

@@ -276,3 +276,55 @@ async fn closing_the_human_session_does_not_cancel_an_mcp_query() {
         .close_session(&format!("mcp:{}", p.id))
         .await;
 }
+
+/// F-06 with levels: a UDF is not a provable read. It runs, in Write mode,
+/// only where the caller may write; both the agent and MCP follow the rule.
+#[tokio::test]
+#[ignore = "needs local Postgres"]
+async fn postgres_udf_runs_only_with_write_access() {
+    let app = app();
+    let p = save(&app, "postgres", "local");
+    level(&app, &p.id, "full");
+    mcp(
+        &app,
+        &p.id,
+        "execute_query",
+        "CREATE OR REPLACE FUNCTION mq_fa_udf() RETURNS int LANGUAGE sql AS 'SELECT 41 + 1'",
+    )
+    .await
+    .unwrap();
+    let call = |caller: ToolCaller, tool: &'static str| {
+        let app = Arc::clone(&app);
+        let id = p.id.clone();
+        async move {
+            app.agent_tools()
+                .call_tool(
+                    tool,
+                    &json!({ "connection_id": id, "query": "SELECT mq_fa_udf() AS n" }),
+                    caller,
+                )
+                .await
+                .map_err(|e| e.to_string())
+        }
+    };
+    level(&app, &p.id, "read");
+    for caller in [ToolCaller::Mcp, ToolCaller::Agent] {
+        let err = call(caller, "execute_query").await.unwrap_err();
+        assert!(err.contains("needs `write`"), "{err}");
+        assert!(err.contains("cannot prove it only reads"), "{err}");
+        let err = call(caller, "execute_readonly_query").await.unwrap_err();
+        assert!(err.contains("Use execute_query"), "{err}");
+    }
+    level(&app, &p.id, "write");
+    for caller in [ToolCaller::Mcp, ToolCaller::Agent] {
+        let out = call(caller, "execute_query").await.unwrap();
+        assert_eq!(out["rows"][0][0], json!(42), "{out}");
+    }
+    level(&app, &p.id, "full");
+    mcp(&app, &p.id, "execute_query", "DROP FUNCTION mq_fa_udf()")
+        .await
+        .unwrap();
+    for sid in [format!("mcp:{}", p.id), format!("agent:{}", p.id)] {
+        let _ = app.connections().close_session(&sid).await;
+    }
+}
