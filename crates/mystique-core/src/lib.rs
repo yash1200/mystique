@@ -52,7 +52,7 @@ pub use mystique_connector_api::{
     ProgressPump, QueryBatchResult, QueryColumn, QueryMode, QueryResult, RenamePair,
     RollbackTableEditsRequest, RowProgress, SchemaChange, SchemaMigration, ServerMetricsSnapshot,
     SessionInfo, SshHostKeyPrompt, StructureSection, TableAdminOp, TableAdminRequest,
-    TableAdminResult, TableDefinition, TableEditColumn, TablePreviewColumnRef, TablePreviewResult,
-    TablePreviewStats, TableRowInsert, TableRowUpdate, TerminateSessionRequest,
-    TerminateSessionResult, TestResult, TransferProgress,
+    TableAdminResult, TableCountOutcome, TableDefinition, TableEditColumn, TablePreviewColumnRef,
+    TablePreviewCount, TablePreviewResult, TablePreviewStats, TableRowInsert, TableRowUpdate,
+    TerminateSessionRequest, TerminateSessionResult, TestResult, TransferProgress,
 };

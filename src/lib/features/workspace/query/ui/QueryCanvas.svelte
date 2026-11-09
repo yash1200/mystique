@@ -16,13 +16,14 @@
 	import { connectionProfiles } from '#features/connections'
 	import { catalogColumnsCache } from '#features/workspace/catalog'
 	import { identStyleFor, type LargeLoader } from '#features/workspace/data-grid'
+	import { resultColumnSources } from '#engines'
 	import { tabTxnView, workspaceSession } from '#features/workspace/session'
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { RESULT_PAGE_SIZE_DEFAULT } from '../constants'
 	import type { CatalogFeed } from '../editor/completion-gate'
 	import QueryEditor from '../editor/QueryEditor.svelte'
-	import { noteEditorEdit } from '../editor/query-diagnostic'
+	import { noteEditorEdit, utf16Index } from '../editor/query-diagnostic'
 	import {
 		statementModelFor,
 		submissionStart,
@@ -236,6 +237,21 @@
 		resultPage(result?.rows ?? [], cachedRun?.resultPage ?? 0, RESULT_PAGE_SIZE_DEFAULT),
 	)
 	const canExport = $derived(canExportResult(result))
+	/** `schema.table.column` per result column, read from the statement text. */
+	const resultSources = $derived.by(() => {
+		if (!result || language === 'mql' || catalogColumns.length === 0) return []
+		const submitted = cachedRun?.submittedText ?? ''
+		const range = batchResults[activeIndex]?.sqlRange
+		const text = range
+			? submitted.slice(utf16Index(submitted, range.start), utf16Index(submitted, range.end))
+			: submitted
+		return resultColumnSources(
+			text,
+			result.columns.map((c) => c.name),
+			catalogColumns,
+			identStyleFor(engine, capabilities?.sqlDialect ?? '') === 'mysql',
+		)
+	})
 
 	/**
 	 * This tab's run settings, read now. A run keeps them to the end, so it
@@ -475,6 +491,7 @@
 					identStyle={identStyleFor(engine, capabilities?.sqlDialect ?? '')}
 					{runState}
 					resultColumns={result?.columns ?? []}
+					{resultSources}
 					resultPageRows={page.rows}
 					resultTotal={page.total}
 					resultPageStart={page.start}

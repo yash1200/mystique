@@ -28,6 +28,11 @@
 		/** Live "Show SQL" side panel. */
 		sqlPanelOpen?: boolean
 		onToggleSql?: () => void
+		/** Background total count (`countLabel`). */
+		count?: { text: string; title: string; action: 'cancel' | 'count' | null } | null
+		/** Count every row (shown when the total is estimated or unknown). */
+		onCountExactly?: () => void
+		onCancelCount?: () => void
 	}
 
 	let {
@@ -54,6 +59,9 @@
 		onRollback,
 		sqlPanelOpen = false,
 		onToggleSql,
+		count = null,
+		onCountExactly,
+		onCancelCount,
 	}: Props = $props()
 
 	const hasChanges = $derived(dirtyCount > 0)
@@ -91,6 +99,37 @@
 					>{fetchedLabel(lastFetchedAt, now)}</span
 				>
 			</span>
+		{/if}
+		{#if count}
+			{#if count.action === 'count' && onCountExactly}
+				<Button
+					variant="ghost"
+					size="sm"
+					class="px-1.5! tabular-nums"
+					title={count.title}
+					onclick={onCountExactly}
+				>
+					{count.text}
+				</Button>
+			{:else}
+				<span
+					class="inline-flex shrink-0 items-center gap-0.5 text-caption text-fg-muted"
+					title={count.title}
+					aria-live="polite"
+				>
+					<span class="tabular-nums">{count.text}</span>
+					{#if count.action === 'cancel' && onCancelCount}
+						<IconButton
+							label="Cancel the row count"
+							size="sm"
+							variant="quiet"
+							onclick={onCancelCount}
+						>
+							<Icon name="close" class="size-3" />
+						</IconButton>
+					{/if}
+				</span>
+			{/if}
 		{/if}
 		{#if selectionLabel}
 			<span class="shrink-0 tabular-nums text-caption text-fg-secondary">{selectionLabel}</span>

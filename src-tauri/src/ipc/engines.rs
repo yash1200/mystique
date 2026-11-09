@@ -430,7 +430,7 @@ pub async fn fetch_engine_large_value(
 pub async fn fetch_engine_table_preview_stats(
     state: State<'_, AppState>,
     request: mystique_core::FetchTablePreviewStatsRequest,
-) -> Result<mystique_core::TablePreviewStats, IpcError> {
+) -> Result<mystique_core::TablePreviewCount, IpcError> {
     super::guard(async move {
         state
             .services

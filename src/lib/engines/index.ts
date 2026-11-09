@@ -48,6 +48,13 @@ export {
 } from './sql/split'
 export { splitMongoStatements } from './mongodb/statements'
 
+// Header tooltip provenance of a SQL result column.
+export {
+	resultColumnSources,
+	resultColumnTitle,
+	type ResultColumnSource,
+} from './sql/result-source'
+
 export { sslModeFromConfig } from './ssl'
 
 export { default as EngineFields } from './ui/EngineFields.svelte'

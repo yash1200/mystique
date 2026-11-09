@@ -3,10 +3,10 @@ import type {
 	ColumnReference,
 	TableMeta,
 	TablePreviewFilter,
+	TablePreviewCount,
 	TablePreviewSort,
-	TablePreviewStats,
 } from '#core/contracts'
-import { errorMessage, finishTabRun, startTabRun } from '#core/ipc'
+import { cancelTabRun, errorMessage, finishTabRun, startTabRun } from '#core/ipc'
 import {
 	applyPreviewStats,
 	catalogStore,
@@ -29,6 +29,7 @@ import {
 	workspaceSession,
 	workspaceStudio,
 } from '#features/workspace/session'
+import { COUNT_BUDGET_MS, countState, type TableCountState } from './count'
 import { tableSync } from './sync.svelte'
 
 class TablePreview {
@@ -36,6 +37,105 @@ class TablePreview {
 	epochByTab = $state<Record<string, number>>({})
 	/** Tab whose preview is in flight. Per-tab so a stale finish cannot hide another open. */
 	loadingTabId = $state<string | null>(null)
+	/** Background total count per tab: counting, exact, or estimated. */
+	countByTab = $state<Record<string, TableCountState>>({})
+
+	#setCount(tabId: string, state: TableCountState | null) {
+		if (state) {
+			this.countByTab = { ...this.countByTab, [tabId]: state }
+		} else {
+			const { [tabId]: _gone, ...rest } = this.countByTab
+			this.countByTab = rest
+		}
+	}
+
+	/**
+	 * Start the tab's count. A newer count on the tab cancels this one on the
+	 * server (one `count` run slot per tab). `budgetMs` null counts every row.
+	 */
+	#startCount(
+		tabId: string,
+		sessionId: string,
+		table: TableMeta,
+		filters: TablePreviewFilter[],
+		codeFilter: string | null,
+		budgetMs: number | null,
+	): { run: string; result: Promise<TablePreviewCount> } {
+		const run = startTabRun(tabId, 'count')
+		this.#setCount(tabId, { status: 'counting', cancelling: false, exact: budgetMs == null })
+		const result = loadTablePreviewStats(sessionId, table, filters, codeFilter, {
+			executionId: run,
+			budgetMs,
+		})
+		void result.then(
+			() => finishTabRun(tabId, run),
+			() => finishTabRun(tabId, run),
+		)
+		return { run, result }
+	}
+
+	/** Land a count if no newer count or open replaced it. */
+	#landCount(
+		tabId: string,
+		connectionId: string,
+		tableId: string,
+		run: string,
+		stats: TablePreviewCount,
+	) {
+		if (this.#countRun.get(tabId) !== run) return
+		this.#countRun.delete(tabId)
+		this.#setCount(tabId, countState(stats))
+		const current = findCatalogTable(catalogsFor(catalogStore.catalogs, connectionId), tableId)
+		if (!current) return
+		catalogStore.catalogs = patchCatalogTable(
+			catalogStore.catalogs,
+			connectionId,
+			tableId,
+			applyPreviewStats(current, stats),
+		)
+	}
+
+	/** The count run each tab is waiting on. */
+	#countRun = new Map<string, string>()
+
+	/** Stop the tab's running count. It lands as cancelled, with the estimate. */
+	cancelCount(tabId: string) {
+		const state = this.countByTab[tabId]
+		if (state?.status !== 'counting') return
+		this.#setCount(tabId, { ...state, cancelling: true })
+		void cancelTabRun(tabId, 'count')
+	}
+
+	/** Count every row of the active table tab, with its current filters. */
+	async countExactly(tabId: string) {
+		const tab = workspaceSession.openTabs.find((t) => t.id === tabId)
+		if (!tab || tab.kind !== 'table' || !tab.tableId) return
+		const active = requireActiveConnection()
+		if (!active || active.id !== tab.connectionId) return
+		const table = findCatalogTable(catalogsFor(catalogStore.catalogs, active.id), tab.tableId)
+		if (!table) return
+		const preview = tab.preview
+		const tableId = tab.tableId
+		try {
+			await withLiveSession(active.id, async (sid) => {
+				const { run, result } = this.#startCount(
+					tabId,
+					sid,
+					table,
+					preview?.filters ?? [],
+					preview?.codeFilter ?? null,
+					null,
+				)
+				this.#countRun.set(tabId, run)
+				const stats = await result
+				this.#landCount(tabId, active.id, tableId, run, stats)
+			})
+		} catch {
+			if (this.countByTab[tabId]?.status === 'counting') {
+				this.#setCount(tabId, { status: 'estimated', estimate: null, reason: 'failed' })
+			}
+		}
+	}
 
 	async open(
 		table: TableMeta,
@@ -73,24 +173,29 @@ class TablePreview {
 		this.loadingTabId = tabId
 		catalogStore.setError(id, null)
 		const executionId = startTabRun(tabId, 'preview')
+		const count: { stats: Promise<TablePreviewCount> | null; run: string | null } = {
+			stats: null,
+			run: null,
+		}
 		try {
 			const engine = String(session.profile.engine)
 			// The total count starts with the page, not after it. It is applied
 			// once the page has landed, so the page cannot overwrite it. A retry
 			// on a reopened session starts a new count.
-			const count: { stats: Promise<TablePreviewStats> | null } = {
-				stats: null,
-			}
 			const loaded = await withLiveSession(id, (sid) => {
-				const stats = loadTablePreviewStats(
+				const started = this.#startCount(
+					tabId,
 					sid,
 					table,
 					preview.filters,
 					preview.codeFilter,
+					COUNT_BUDGET_MS,
 				)
 				// Read below; a page that fails leaves it unread.
-				stats.catch(() => {})
-				count.stats = stats
+				started.result.catch(() => {})
+				count.stats = started.result
+				count.run = started.run
+				this.#countRun.set(tabId, started.run)
 				return loadTablePreview(
 					sid,
 					engine,
@@ -114,25 +219,28 @@ class TablePreview {
 				tableSync.previewLoaded(tabId)
 			}
 
+			const run = count.run
 			void count.stats
 				?.then((stats) => {
-					if (!stillThis()) return
-					const current = findCatalogTable(
-						catalogsFor(catalogStore.catalogs, id),
-						table.id,
-					)
-					if (!current) return
-					catalogStore.catalogs = patchCatalogTable(
-						catalogStore.catalogs,
-						id,
-						table.id,
-						applyPreviewStats(current, stats),
-					)
+					if (!stillThis() || !run) return
+					this.#landCount(tabId, id, table.id, run, stats)
 				})
 				.catch(() => {
 					/* pager stays approximate until the next refresh */
+					if (run && this.#countRun.get(tabId) === run) {
+						this.#countRun.delete(tabId)
+						this.#setCount(tabId, { status: 'estimated', estimate: null, reason: 'failed' })
+					}
 				})
 		} catch (e) {
+			if (stillThis()) {
+				// No page, no count: stop it and drop its label.
+				if (count.run && this.#countRun.get(tabId) === count.run) {
+					this.#countRun.delete(tabId)
+					this.#setCount(tabId, null)
+					void cancelTabRun(tabId, 'count')
+				}
+			}
 			if (stillThis() && workspaceSession.activeTabId === tabId) {
 				catalogStore.setError(id, errorMessage(e))
 			}

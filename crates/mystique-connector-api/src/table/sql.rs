@@ -4,7 +4,9 @@
 
 use mystique_sql::dml;
 
-use super::edits::{ApplyTableEditsInput, TableRowDelete, TableRowInsert, TableRowUpdate};
+use super::edits::{
+    ApplyTableEditsInput, DistinctColumnValuesInput, TableRowDelete, TableRowInsert, TableRowUpdate,
+};
 use crate::catalog::ColumnInfo;
 use crate::error::{ConnectorError, ConnectorResult};
 use crate::large_cell::SqlPlaceholder;
@@ -70,7 +72,28 @@ pub fn distinct_values_sql(
         return Err(ConnectorError::Query(format!("Unknown column “{column}”.")));
     }
     Ok(dml::distinct_values_sql(
-        style, database, schema, table, column, limit,
+        style, database, schema, table, column, limit, None,
+    ))
+}
+
+/// [`distinct_values_sql`] for one plugin request, prefix included.
+pub fn distinct_input_sql(
+    style: SqlIdentStyle,
+    input: &DistinctColumnValuesInput,
+    known: &[ColumnInfo],
+) -> ConnectorResult<String> {
+    let column = input.column.as_str();
+    if !known.iter().any(|info| info.name == column) {
+        return Err(ConnectorError::Query(format!("Unknown column “{column}”.")));
+    }
+    Ok(dml::distinct_values_sql(
+        style,
+        input.database.as_deref(),
+        input.schema.as_deref(),
+        &input.table,
+        column,
+        input.limit,
+        input.prefix.as_deref(),
     ))
 }
 

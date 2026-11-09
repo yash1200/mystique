@@ -13,6 +13,7 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 use uuid::Uuid;
 
 mod catalog;
+mod count;
 mod depth;
 mod explain;
 mod grid_save;

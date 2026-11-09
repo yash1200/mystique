@@ -1,6 +1,13 @@
+<script module lang="ts">
+	import { lazy } from '#core/ui'
+
+	/** The hex view loads with the first binary cell opened. */
+	const BinaryView = lazy(() => import('./BinaryView.svelte'))
+</script>
+
 <script lang="ts">
 	import { errorMessage } from '#core/ipc'
-	import { Button, Kbd, Modal, Textarea } from '#core/ui'
+	import { Button, Kbd, Lazy, Modal, Textarea } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import { onMount, untrack } from 'svelte'
 	import {
@@ -16,6 +23,7 @@
 		type LargeCellPage,
 	} from '../large-cell'
 	import type { CellViewMode } from '../cell-view'
+	import { isBinaryValue } from '../binary'
 	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
 
 	interface Props {
@@ -65,6 +73,14 @@
 	let loadError = $state('')
 	let copyNote = $state('')
 	const previewOnly = untrack(() => unfetchable || !!fetchChunk)
+	/** Bytes (bytea, BLOB): opens on the hex view. */
+	const binary = untrack(
+		() => initialText !== '' && initialText !== 'NULL' && isBinaryValue(initialText, columnType),
+	)
+	let hexView = $state(untrack(() => binary))
+	const hexPartial = $derived(
+		previewOnly && (loading || unfetchable || !!loadError || text === initialText),
+	)
 	const locked = $derived(readonly || loading || unfetchable || !!loadError)
 
 	function focusEditor() {
@@ -75,6 +91,7 @@
 	const canApply = $derived(jsonError == null)
 
 	function setMode(next: CellViewMode) {
+		hexView = false
 		if (next === mode) return
 		if (next === 'json') {
 			const pretty = prettyJson(text)
@@ -195,14 +212,30 @@
 				role="tablist"
 				aria-label="Value format"
 			>
+				{#if binary}
+					<button
+						type="button"
+						role="tab"
+						aria-selected={hexView}
+						class={cn(
+							'h-control-sm rounded-sm px-2.5 text-label font-medium transition-colors',
+							hexView
+								? 'bg-accent-muted text-accent'
+								: 'bg-transparent text-fg-muted hover:bg-hover hover:text-fg',
+						)}
+						onclick={() => (hexView = true)}
+					>
+						Hex
+					</button>
+				{/if}
 				{#each CELL_VIEW_MODES as item (item.id)}
 					<button
 						type="button"
 						role="tab"
-						aria-selected={mode === item.id}
+						aria-selected={!hexView && mode === item.id}
 						class={cn(
 							'h-control-sm rounded-sm px-2.5 text-label font-medium transition-colors',
-							mode === item.id
+							!hexView && mode === item.id
 								? 'bg-accent-muted text-accent'
 								: 'bg-transparent text-fg-muted hover:bg-hover hover:text-fg',
 						)}
@@ -227,7 +260,16 @@
 		{:else if copyNote}
 			<p class="m-0 text-caption text-fg-muted">{copyNote}</p>
 		{/if}
-		{#if mode === 'html'}
+		{#if hexView}
+			<Lazy
+				component={BinaryView}
+				{text}
+				partial={hexPartial}
+				totalBytes={hexPartial && totalChars > 2 && initialText.startsWith('\\x')
+					? Math.floor((totalChars - 2) / 2)
+					: null}
+			/>
+		{:else if mode === 'html'}
 			<div
 				class="grid min-h-0 flex-1 grid-rows-2 gap-2 md:grid-cols-2 md:grid-rows-1"
 			>
@@ -292,7 +334,7 @@
 				<Button variant="ghost" size="sm" onclick={() => void copyValue()}>
 					{previewOnly && (loading || unfetchable || loadError) ? 'Copy preview' : 'Copy'}
 				</Button>
-				{#if mode === 'json'}
+				{#if mode === 'json' && !hexView}
 					<Button
 						variant="ghost"
 						size="sm"

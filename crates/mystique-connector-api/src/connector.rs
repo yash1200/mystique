@@ -273,6 +273,16 @@ pub trait ConnectorSession: Send + Sync {
         Ok(TablePreviewStats::default())
     }
 
+    /// Cheap row estimate for the same table and filters, for when the exact
+    /// COUNT is skipped or too slow. Must not use `input.control` (it is
+    /// cancelled by then). `None` when the engine has no estimate.
+    async fn estimate_table_rows(
+        &self,
+        _input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<Option<u64>> {
+        Ok(None)
+    }
+
     /// Re-read one large cell by the primary key carried on its preview.
     /// The grid IPC clips the page; this is how the cell modal loads the rest.
     async fn fetch_large_value(

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
-    ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
-    ConnectorResult, DdlTarget, DescribeTableDefinitionRequest, DistinctColumnValuesRequest,
-    FetchTablePreviewRequest, FetchTablePreviewStatsRequest, ListTableDefinitionsRequest,
+    plan_schema_diff_with, plan_table_alter, ApplyDdlRequest, ApplyDdlResult,
+    ApplySchemaDiffRequest, ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult,
+    ConnectorError, ConnectorResult, DdlTarget, DescribeTableDefinitionRequest,
+    DistinctColumnValuesRequest, FetchTablePreviewRequest, ListTableDefinitionsRequest,
     PlanDdlRequest, PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest,
-    TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats, WriteAction,
-    WriteRisk, DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
+    TableAdminResult, TableDefinition, TablePreviewResult, WriteAction, WriteRisk,
+    DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -114,14 +114,6 @@ impl ConnectionManager {
             session.fetch_table_preview(&input),
         )
         .await
-    }
-
-    pub async fn fetch_table_preview_stats(
-        &self,
-        req: FetchTablePreviewStatsRequest,
-    ) -> ConnectorResult<TablePreviewStats> {
-        let session = self.session(&req.session_id).await?;
-        session.fetch_table_preview_stats(&req.into_input()).await
     }
 
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
@@ -266,11 +258,12 @@ impl ConnectionManager {
                 "This engine cannot edit structure.".into(),
             ));
         }
-        Ok(plan_schema_diff(
+        Ok(plan_schema_diff_with(
             dialect_of(&meta),
             &req.source,
             &req.target,
             &req.renames,
+            &req.selection,
         ))
     }
 
@@ -327,14 +320,22 @@ impl ConnectionManager {
                 "This engine cannot edit structure.".into(),
             ));
         }
-        let migration = plan_schema_diff(dialect_of(&meta), &req.source, &req.target, &req.renames);
+        let migration = plan_schema_diff_with(
+            dialect_of(&meta),
+            &req.source,
+            &req.target,
+            &req.renames,
+            &req.selection,
+        );
         if !migration.warnings.is_empty() {
             return Err(ConnectorError::Policy(migration.warnings.join(" ")));
         }
         let changes: Vec<_> = migration
             .changes
             .into_iter()
-            .filter(|change| change.action != "unchanged" && change.plan.applyable())
+            .filter(|change| {
+                change.selected && change.action != "unchanged" && change.plan.applyable()
+            })
             .collect();
         if changes.is_empty() {
             return Ok(ApplyDdlResult {
