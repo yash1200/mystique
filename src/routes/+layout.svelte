@@ -21,6 +21,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
+	import { ApprovalDock } from '#features/approvals'
 	import { PasswordPromptModal, SshHostKeyModal } from '#features/connections'
 	import { appSettingsUi, type SettingsSection } from '#features/settings'
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
@@ -125,6 +126,7 @@
 	/>
 	<PasswordPromptModal />
 	<SshHostKeyModal />
+	<ApprovalDock />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}

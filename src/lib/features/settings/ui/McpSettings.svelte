@@ -2,27 +2,29 @@
 	import { errorMessage } from '#core/ipc'
 	import {
 		Button,
-		Checkbox,
 		ControlGroup,
 		ControlRow,
 		Segmented,
 		Switch,
 		type SegmentedOption,
 	} from '#core/ui'
-	import { engineLabel } from '#engines'
 	import { onMount } from 'svelte'
-	import type { McpAccess, McpHarness, McpStatus, McpWritePolicy } from '../api'
+	import { ACCESS_LEVELS, isAccessLevel, levelHint, levelLabel } from '../access-levels'
+	import type { AccessLevel, McpHarness, McpStatus, ToolAccess } from '../api'
 	import {
-		getMcpAccess,
 		getMcpStatus,
+		getToolAccess,
 		installMcpHarness,
 		listMcpHarnesses,
 		mcpClientSnippet,
 		rotateMcpToken,
-		setMcpAccess,
 		setMcpEnabled,
+		setToolAccessAsk,
+		setToolAccessDefault,
+		setToolAccessLevel,
 	} from '../api'
 	import McpHarnesses from './McpHarnesses.svelte'
+	import ToolAccessList from './ToolAccessList.svelte'
 
 	let mcp = $state<McpStatus>({
 		enabled: false,
@@ -31,9 +33,9 @@
 		url: null,
 		token: null,
 	})
-	let access = $state<McpAccess>({
-		policy: 'read-only',
-		allowlist: [],
+	let access = $state<ToolAccess>({
+		mcpDefault: 'none',
+		agentDefault: 'read',
 		connections: [],
 	})
 	let harnesses = $state<McpHarness[]>([])
@@ -42,22 +44,13 @@
 	let error = $state<string | null>(null)
 	let copied = $state<string | null>(null)
 
-	const policyOptions: SegmentedOption[] = [
-		{ value: 'read-only', label: 'Read-only' },
-		{ value: 'safe_write', label: 'Safe write' },
-		{ value: 'high_risk_write', label: 'High-risk' },
-	]
+	const levelOptions: SegmentedOption[] = ACCESS_LEVELS.map((l) => ({
+		value: l,
+		label: levelLabel(l),
+	}))
 
-	function isPolicy(v: string): v is McpWritePolicy {
-		return v === 'read-only' || v === 'safe_write' || v === 'high_risk_write'
-	}
-
-	const policyHint = $derived(
-		access.policy === 'safe_write'
-			? 'INSERT and UPDATE on allowlisted connections. DELETE, DROP, and DDL stay blocked.'
-			: access.policy === 'high_risk_write'
-				? 'DDL and DROP allowed on allowlisted connections. Production still needs the in-app write unlock.'
-				: 'SELECT and find only. Writes are blocked even if the connection is not read-only.',
+	const defaultHint = $derived(
+		`${levelHint(access.mcpDefault)} Applies to connections with no level of their own; it never allows writes on a production connection.`,
 	)
 
 	const snippet = $derived(mcpClientSnippet(mcp))
@@ -72,7 +65,7 @@
 	}
 
 	async function loadAccess() {
-		access = await getMcpAccess()
+		access = await getToolAccess()
 	}
 
 	async function load() {
@@ -86,11 +79,11 @@
 		}
 	}
 
-	async function persistAccess(policy: McpWritePolicy, allowlist: string[]) {
+	async function persistAccess(change: () => Promise<ToolAccess>) {
 		busy = true
 		error = null
 		try {
-			access = await setMcpAccess(policy, allowlist)
+			access = await change()
 		} catch (err) {
 			error = errorMessage(err)
 			await loadAccess()
@@ -99,16 +92,21 @@
 		}
 	}
 
-	function onPolicy(v: string) {
-		if (!isPolicy(v) || v === access.policy) return
-		void persistAccess(v, access.allowlist)
+	function onDefault(v: string) {
+		if (!isAccessLevel(v) || v === access.mcpDefault) return
+		void persistAccess(() => setToolAccessDefault('mcp', v))
 	}
 
-	function onToggleConn(id: string, on: boolean) {
-		const next = on
-			? [...new Set([...access.allowlist, id])]
-			: access.allowlist.filter((x) => x !== id)
-		void persistAccess(access.policy, next)
+	function onLevel(
+		connectionId: string,
+		database: string | null,
+		level: AccessLevel | null,
+	) {
+		void persistAccess(() => setToolAccessLevel(connectionId, database, level))
+	}
+
+	function onAsk(connectionId: string, ask: boolean) {
+		void persistAccess(() => setToolAccessAsk(connectionId, ask))
 	}
 
 	async function onEnable(on: boolean) {
@@ -185,52 +183,35 @@
 		Access
 	</p>
 	<p class="mt-0 mb-2 text-caption text-fg-muted">
-		Empty allowlist means MCP cannot see any database. Reconnect
-		clients after changing policy so they see the updated tools.
+		Levels apply to MCP clients and the built-in agent: None hides a
+		connection, Read runs SELECT and find, Write adds INSERT and UPDATE, Full
+		adds DELETE, DDL and DROP. A database's level wins over its connection's,
+		and a connection's over the default. A call above the level is refused
+		with a message that says what to change here; nothing pops up.
 	</p>
 	<ControlGroup>
-		<ControlRow label="Write policy" description={policyHint}>
+		<ControlRow label="MCP default" description={defaultHint}>
 			<Segmented
-				label="Write policy"
-				value={access.policy}
-				options={policyOptions}
+				label="MCP default"
+				value={access.mcpDefault}
+				options={levelOptions}
 				disabled={busy}
-				onchange={onPolicy}
+				onchange={onDefault}
 			/>
 		</ControlRow>
 	</ControlGroup>
 	{#if access.connections.length === 0}
 		<p class="mt-3 mb-0 text-caption text-fg-muted">
-			Save a connection first, then allow it here.
+			Save a connection first, then set its level here.
 		</p>
 	{:else}
-		<div
-			class="mt-3 overflow-hidden rounded-lg border border-line bg-panel"
-		>
-			<ul class="m-0 flex list-none flex-col divide-y divide-line p-0">
-				{#each access.connections as c (c.id)}
-					<li class="px-3 py-2.5">
-						<Checkbox
-							checked={access.allowlist.includes(c.id)}
-							disabled={busy}
-							onchange={(e) =>
-								onToggleConn(
-									c.id,
-									(e.currentTarget as HTMLInputElement).checked,
-								)}
-						>
-							<span class="flex min-w-0 flex-col">
-								<span class="truncate text-label font-medium text-fg"
-									>{c.name}</span
-								>
-								<span class="text-caption text-fg-muted"
-									>{engineLabel(c.engine)}</span
-								>
-							</span>
-						</Checkbox>
-					</li>
-				{/each}
-			</ul>
+		<div class="mt-3">
+			<ToolAccessList
+				connections={access.connections}
+				{busy}
+				onlevel={onLevel}
+				onask={onAsk}
+			/>
 		</div>
 	{/if}
 </section>

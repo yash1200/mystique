@@ -1,7 +1,13 @@
 import type { PurgeReport, VaultStatus as VaultStatusRow } from '#core/contracts'
 import { invoke } from '#core/ipc'
-import type { McpAccess, McpHarness, McpStatus, McpWritePolicy } from './mcp-types'
-export type { McpAccess, McpHarness, McpStatus, McpWritePolicy }
+import type {
+	AccessLevel,
+	McpHarness,
+	McpStatus,
+	ToolAccess,
+	ToolCaller,
+} from './mcp-types'
+export type { AccessLevel, McpHarness, McpStatus, ToolAccess, ToolCaller }
 
 export async function getMcpStatus(): Promise<McpStatus> {
 	return invoke('get_mcp_status')
@@ -23,15 +29,33 @@ export async function installMcpHarness(id: string): Promise<McpHarness> {
 	return invoke('install_mcp_harness', { id })
 }
 
-export async function getMcpAccess(): Promise<McpAccess> {
-	return invoke('get_mcp_access')
+export async function getToolAccess(): Promise<ToolAccess> {
+	return invoke('get_tool_access')
 }
 
-export async function setMcpAccess(
-	policy: McpWritePolicy,
-	allowlist: string[],
-): Promise<McpAccess> {
-	return invoke('set_mcp_access', { policy, allowlist })
+/** The global default for MCP or the built-in agent. */
+export async function setToolAccessDefault(
+	caller: ToolCaller,
+	level: AccessLevel,
+): Promise<ToolAccess> {
+	return invoke('set_tool_access_default', { caller, level })
+}
+
+/** A connection's level, or one database's; `null` inherits again. */
+export async function setToolAccessLevel(
+	connectionId: string,
+	database: string | null,
+	level: AccessLevel | null,
+): Promise<ToolAccess> {
+	return invoke('set_tool_access_level', { connectionId, database, level })
+}
+
+/** "Ask me for high-risk writes" on one connection. */
+export async function setToolAccessAsk(
+	connectionId: string,
+	ask: boolean,
+): Promise<ToolAccess> {
+	return invoke('set_tool_access_ask', { connectionId, ask })
 }
 
 export function mcpClientSnippet(status: McpStatus): string {
