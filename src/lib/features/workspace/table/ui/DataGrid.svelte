@@ -500,7 +500,11 @@
 		completions={filters.completions}
 		onCodeInput={(value, caret) => filters.onCodeInput(value, caret)}
 		onPickCompletion={(item) => filters.pickCompletion(item)}
-		distinctValues={supportsDistinct ? filters.distinctValues : []}
+		valueSuggestions={filters.values.items}
+		valueTarget={filters.valueTarget}
+		onValueInput={(id) => filters.onRuleValueInput(id)}
+		onPickValue={(value) => filters.pickValue(value)}
+		onCloseValues={() => filters.closeValues()}
 	/>
 
 	<div class="flex min-h-0 min-w-0 flex-1">
