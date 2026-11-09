@@ -75,6 +75,50 @@ impl BoundTools {
             .map(redact)
             .map_err(|e| ToolErr(e.to_string()))
     }
+
+    /// [`Self::dispatch`] for the streaming loop: a query error keeps the
+    /// line and column it points at, for the repair prompt.
+    pub(crate) async fn dispatch_located(
+        &self,
+        name: &str,
+        args: JsonValue,
+    ) -> Result<JsonValue, LocatedToolErr> {
+        if !ALLOWED.contains(&name) {
+            return Err(LocatedToolErr::plain(format!(
+                "unknown or disabled tool `{name}`"
+            )));
+        }
+        let args = self.bind(args).map_err(|e| LocatedToolErr::plain(e.0))?;
+        self.tools
+            .call_tool(name, &args, ToolCaller::Agent)
+            .await
+            .map(redact)
+            .map_err(|e| {
+                let at = match &e {
+                    mystique_core::AppError::Connector(inner) => {
+                        inner.local_position().map(|p| (p.line, p.column))
+                    }
+                    _ => None,
+                };
+                LocatedToolErr {
+                    message: e.to_string(),
+                    at,
+                }
+            })
+    }
+}
+
+/// A failed tool call, with the 1-based line and column of a query error.
+#[derive(Debug)]
+pub(crate) struct LocatedToolErr {
+    pub message: String,
+    pub at: Option<(u32, u32)>,
+}
+
+impl LocatedToolErr {
+    fn plain(message: String) -> Self {
+        Self { message, at: None }
+    }
 }
 
 fn redact(value: JsonValue) -> JsonValue {

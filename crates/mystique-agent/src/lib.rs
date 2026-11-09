@@ -16,7 +16,8 @@ pub use providers::{
     AgentProviderInfo,
 };
 pub use runtime::{
-    AgentRuntime, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED,
+    AgentErrorKind, AgentEvent, AgentEventSink, AgentFixRequest, AgentRuntime, AgentTableRef,
+    AgentTokens, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED,
     SETTING_OLLAMA_URL,
 };
 pub use secrets::{AiKeyStatus, AiSettingsView, SecretStore};

@@ -6374,6 +6374,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",
+ "futures",
  "mystique-core",
  "rand 0.8.8",
  "rig",
@@ -6381,6 +6382,9 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
  "ts-rs",
 ]
 
