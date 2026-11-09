@@ -5,10 +5,10 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    affected_message, emit_progress, idle_result, inactivity_limit, opens_transaction,
-    poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase, ConnectorError,
-    ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
-    QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
+    affected_message, emit_progress, finish_progress, idle_result, inactivity_limit,
+    opens_transaction, poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase,
+    ConnectorError, ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult,
+    QueryColumn, QueryMode, QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
 };
 use mystique_sql::SqlDialect;
 use serde_json::Value as JsonValue;
@@ -347,9 +347,7 @@ pub(super) async fn run_planned_batch(
                 }
                 results.push(StatementResult::failed(stmt, 0, &err));
                 emit_progress(&batch.progress, stmt.index, total, BatchPhase::Finished);
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(stmt.index),
@@ -369,9 +367,7 @@ pub(super) async fn run_planned_batch(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -379,9 +375,7 @@ pub(super) async fn run_planned_batch(
             }
         }
     }
-    if let Some(progress) = &batch.progress {
-        progress.flush();
-    }
+    finish_progress(&batch.progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,

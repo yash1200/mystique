@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use mystique_connector_api::{
-    affected_message, emit_progress, opens_transaction, split_sql_statements_for,
+    affected_message, emit_progress, finish_progress, opens_transaction, split_sql_statements_for,
     sql_explain_executes, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
     ProgressPump, QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult,
     StatementResult, ValidatedBatch, ValidatedQuery, NO_TIMEOUT,
@@ -264,9 +264,7 @@ pub(super) fn run_on_connection(
         results.push(outcome);
         emit_progress(progress, index, total, BatchPhase::Finished);
         if failed {
-            if let Some(progress) = progress {
-                progress.flush();
-            }
+            finish_progress(progress);
             return Ok(QueryBatchResult {
                 results,
                 stopped_at: Some(index),
@@ -277,9 +275,7 @@ pub(super) fn run_on_connection(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = progress {
-                    progress.flush();
-                }
+                finish_progress(progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -287,9 +283,7 @@ pub(super) fn run_on_connection(
             }
         }
     }
-    if let Some(progress) = progress {
-        progress.flush();
-    }
+    finish_progress(progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,

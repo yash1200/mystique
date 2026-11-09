@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
-    affected_message, emit_progress, opens_transaction, split_sql_statements_for,
+    affected_message, emit_progress, finish_progress, opens_transaction, split_sql_statements_for,
     sql_explain_executes, sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult,
     PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, StatementResult,
     ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
@@ -159,9 +159,7 @@ pub(super) async fn run_planned_batch(
         results.push(outcome);
         emit_progress(&batch.progress, index, total, BatchPhase::Finished);
         if failed {
-            if let Some(progress) = &batch.progress {
-                progress.flush();
-            }
+            finish_progress(&batch.progress);
             return Ok(QueryBatchResult {
                 results,
                 stopped_at: Some(index),
@@ -172,9 +170,7 @@ pub(super) async fn run_planned_batch(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -182,9 +178,7 @@ pub(super) async fn run_planned_batch(
             }
         }
     }
-    if let Some(progress) = &batch.progress {
-        progress.flush();
-    }
+    finish_progress(&batch.progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,
