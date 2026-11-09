@@ -4,7 +4,6 @@
 	import { workspaceSession } from '#features/workspace/session'
 	import {
 		answerImportGate,
-		cancelActiveExport,
 		closeExport,
 		closeImport,
 		confirmExport,
@@ -12,10 +11,12 @@
 		confirmImportRun,
 		importGate,
 		loadImportPreview,
+		transferQueue,
 		transferStore,
 	} from '../transfer.svelte'
 	import ExportDataModal from './ExportDataModal.svelte'
 	import ImportDataModal from './ImportDataModal.svelte'
+	import TransferQueuePanel from './TransferQueuePanel.svelte'
 
 	// The dialog's own connection, not whichever one is active now.
 	const activeSession = $derived(
@@ -93,12 +94,9 @@
 	{formats}
 	busy={transferStore.exportBusy}
 	error={transferStore.exportError}
+	txnTab={transferStore.exportTxnTab}
 	onconfirm={(spec) => void confirmExport(spec)}
-	oncancel={() => {
-		if (transferStore.exportBusy) {
-			cancelActiveExport()
-			return
-		}
-		closeExport()
-	}}
+	oncancel={closeExport}
 />
+
+<TransferQueuePanel queue={transferQueue} />

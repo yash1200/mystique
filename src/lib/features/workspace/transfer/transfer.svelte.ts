@@ -1,4 +1,4 @@
-/** Import / export a table. */
+/** Import / export a table. Runs go through the background transfer queue. */
 import type {
 	ImportEncoding,
 	ImportFormat,
@@ -6,14 +6,13 @@ import type {
 	TableMeta,
 } from '#core/contracts'
 import {
+	cancelEngineQuery,
 	errorMessage,
-	cancelTabRun,
 	exportEngineObject,
-	finishTabRun,
 	importEngineObject,
 	previewEngineImport,
-	startTabRun,
 } from '#core/ipc'
+import { showToast } from '#features/toast'
 import { databaseNameFor } from '#features/workspace/catalog'
 import {
 	dropEditBuffer,
@@ -25,6 +24,7 @@ import {
 } from '#features/workspace/session'
 import { tableSync } from '#features/workspace/table'
 import { resolveImportGate, type ImportGateChoice } from './import-gate'
+import { TransferQueue, type TransferTask } from './queue.svelte'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
 import type { ImportFileSpec, ImportRunSpec } from './ui/ImportDataModal.svelte'
 
@@ -38,6 +38,8 @@ class TransferStore {
 	exportTable = $state<TableMeta | null>(null)
 	exportBusy = $state(false)
 	exportError = $state<string | null>(null)
+	/** A query tab on this connection with an open transaction the export can read through. */
+	exportTxnTab = $state<{ id: string; title: string } | null>(null)
 
 	importConnectionId = $state<string | null>(null)
 	importTable = $state<TableMeta | null>(null)
@@ -57,6 +59,34 @@ class TransferStore {
 
 export const transferStore = new TransferStore()
 
+/** Exports and imports running in the background, one at a time per connection. */
+export const transferQueue = new TransferQueue({ cancel: (id) => cancelEngineQuery(id) })
+
+function rowsLabel(rows: number): string {
+	return `${rows.toLocaleString()} row${rows === 1 ? '' : 's'}`
+}
+
+function announce(task: TransferTask) {
+	if (task.status === 'done') {
+		const what = task.kind === 'export' ? 'Exported' : 'Imported'
+		showToast('success', `${what} ${rowsLabel(task.rows)}: ${task.label}`)
+	} else if (task.status === 'failed') {
+		showToast('danger', `${task.kind === 'export' ? 'Export' : 'Import'} failed: ${task.message ?? ''}`)
+	}
+}
+
+/** The active tab, or another query tab of this connection, with an open transaction. */
+function openTransactionTab(connectionId: string | null): { id: string; title: string } | null {
+	if (!connectionId) return null
+	const open = (id: string) => !!workspaceSession.tabTxn?.[id]?.inTransaction
+	const tabs = workspaceSession.openTabs.filter(
+		(t) => t.kind === 'query' && t.connectionId === connectionId && open(t.id),
+	)
+	const active = tabs.find((t) => t.id === workspaceSession.activeTabId)
+	const pick = active ?? tabs[0]
+	return pick ? { id: pick.id, title: pick.title } : null
+}
+
 export function closeImport() {
 	if (transferStore.importBusy) return
 	transferStore.importTable = null
@@ -70,12 +100,14 @@ export function closeExport() {
 	transferStore.exportTable = null
 	transferStore.exportConnectionId = null
 	transferStore.exportError = null
+	transferStore.exportTxnTab = null
 }
 
 export function beginExport(table: TableMeta) {
 	transferStore.exportConnectionId = workspaceSession.activeConnectionId
 	transferStore.exportTable = table
 	transferStore.exportError = null
+	transferStore.exportTxnTab = openTransactionTab(workspaceSession.activeConnectionId)
 }
 
 /** Set while import asks about the table's pending grid edits. */
@@ -190,87 +222,113 @@ export async function confirmImportFile(spec: ImportFileSpec) {
 	)
 }
 
+/**
+ * Start the import in the background and close the dialog. The queue shows
+ * its progress; cancel stops before the next batch (earlier ones are kept).
+ */
 export async function confirmImportRun(spec: ImportRunSpec) {
 	const table = transferStore.importTable
 	const connectionId = transferStore.importConnectionId
-	if (!table || !connectionId || !transferStore.importPath) return
-	transferStore.importBusy = true
+	const path = transferStore.importPath
+	const format = transferStore.importFormat
+	if (!table || !connectionId || !path) return
+	transferStore.importTable = null
+	transferStore.importConnectionId = null
+	transferStore.importPreview = null
+	transferStore.importPath = ''
 	transferStore.importError = null
-	try {
-		// The import dialog is the confirmation, production included.
-		await withLiveSession(
-			connectionId,
-			(sid) =>
-				importEngineObject({
-					sessionId: sid,
-					name: table.name,
-					schema: table.schema || null,
-					database: table.database || databaseNameFor(connectionId),
-					kind: table.kind,
-					path: transferStore.importPath,
-					format: transferStore.importFormat,
-					encoding: spec.encoding,
-					mapping: spec.mapping,
-					onDuplicate: spec.onDuplicate,
-				}),
-			{ replay: false },
-		)
-		transferStore.importTable = null
-		transferStore.importConnectionId = null
-		transferStore.importPreview = null
-		transferStore.importPath = ''
-		const tabId = tableTabId(connectionId, table.id)
-		if (workspaceSession.openTabs.some((t) => t.id === tabId)) {
-			// Import already changed the server page. Drop local edits so the
-			// reload is allowed to replace them.
-			dropEditBuffer(tabId)
-			const { tablePreview } = await import('#features/workspace/table')
-			void tablePreview.open(table)
-		}
-	} catch (e) {
-		transferStore.importError = errorMessage(e)
-	} finally {
-		transferStore.importBusy = false
-	}
+	const { done } = transferQueue.enqueue(
+		{ kind: 'import', connectionId, label: `${fileName(path)} → ${table.name}` },
+		async (executionId, onRows) => {
+			try {
+				// The import dialog is the confirmation, production included.
+				const result = await withLiveSession(
+					connectionId,
+					(sid) =>
+						importEngineObject(
+							{
+								sessionId: sid,
+								name: table.name,
+								schema: table.schema || null,
+								database: table.database || databaseNameFor(connectionId),
+								kind: table.kind,
+								path,
+								format,
+								encoding: spec.encoding,
+								mapping: spec.mapping,
+								onDuplicate: spec.onDuplicate,
+								executionId,
+							},
+							onRows,
+						),
+					{ replay: false },
+				)
+				return { rows: result.inserted + result.updated, message: result.message }
+			} catch (e) {
+				throw new Error(errorMessage(e))
+			} finally {
+				await reloadImportedTable(connectionId, table)
+			}
+		},
+	)
+	announce(await done)
 }
 
-let exportRunTab: string | null = null
-
-export function cancelActiveExport() {
-	if (!exportRunTab) return
-	void cancelTabRun(exportRunTab, 'export')
+/** Import changed the server rows: drop local edits and reload an open tab. */
+async function reloadImportedTable(connectionId: string, table: TableMeta) {
+	const tabId = tableTabId(connectionId, table.id)
+	if (!workspaceSession.openTabs.some((t) => t.id === tabId)) return
+	dropEditBuffer(tabId)
+	const { tablePreview } = await import('#features/workspace/table')
+	void tablePreview.open(table)
 }
 
+function fileName(path: string): string {
+	return path.split(/[\\/]/).pop() || path
+}
+
+/**
+ * Queue the export and close the dialog. With `throughTransaction`, the
+ * export reads through the query tab's open transaction.
+ */
 export async function confirmExport(spec: ExportDataSpec) {
 	const table = transferStore.exportTable
 	const connectionId = transferStore.exportConnectionId
 	if (!table || !connectionId) return
-	transferStore.exportBusy = true
-	transferStore.exportError = null
-	const tabId = tableTabId(connectionId, table.id)
-	exportRunTab = tabId
-	const executionId = startTabRun(tabId, 'export')
-	try {
-		const { join } = await import('@tauri-apps/api/path')
-		const path = await join(spec.folder, spec.fileName)
-		await withLiveSession(connectionId, (sid) =>
-			exportEngineObject({
-				sessionId: sid,
-				name: table.name,
-				schema: table.schema || null,
-				database: table.database || databaseNameFor(connectionId),
-				kind: table.kind,
-				format: spec.format,
-				path,
-				executionId,
-			}),
-		)
-		closeExport()
-	} catch (e) {
-		transferStore.exportError = errorMessage(e)
-	} finally {
-		finishTabRun(tabId, executionId)
-		if (exportRunTab === tabId) exportRunTab = null
-		transferStore.exportBusy = false
-	}
+	const txnTab = spec.throughTransaction ? transferStore.exportTxnTab : null
+	closeExport()
+	const { done } = transferQueue.enqueue(
+		{
+			kind: 'export',
+			connectionId,
+			label: `${table.name} → ${spec.fileName}`,
+			throughTransaction: !!txnTab,
+		},
+		async (executionId, onRows) => {
+			try {
+				const { join } = await import('@tauri-apps/api/path')
+				const path = await join(spec.folder, spec.fileName)
+				const result = await withLiveSession(connectionId, (sid) =>
+					exportEngineObject(
+						{
+							sessionId: sid,
+							name: table.name,
+							schema: table.schema || null,
+							database: table.database || databaseNameFor(connectionId),
+							kind: table.kind,
+							format: spec.format,
+							path,
+							executionId,
+							tabId: txnTab?.id ?? null,
+						},
+						onRows,
+					),
+				)
+				return { rows: result.rowCount, message: result.path }
+			} catch (e) {
+				throw new Error(errorMessage(e))
+			}
+		},
+	)
+	announce(await done)
 }

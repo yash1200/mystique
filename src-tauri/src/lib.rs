@@ -46,7 +46,13 @@ pub struct AppState {
     pub log_dir: Option<std::path::PathBuf>,
     /// Set once the user chose to quit with transfers still running.
     pub quit_confirmed: AtomicBool,
+    /// When a quit was last held. A second quit soon after goes through, so
+    /// the app can always be quit even if the window cannot answer.
+    pub quit_held_at: std::sync::Mutex<Option<std::time::Instant>>,
 }
+
+/// A second quit within this long of a held one is not held again.
+const QUIT_AGAIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Window event: a quit or close was held because exports or imports run.
 const QUIT_REQUESTED: &str = "quit-requested";
@@ -63,6 +69,15 @@ fn hold_quit(app: &tauri::AppHandle) -> bool {
     let running = state.services.connections().running_transfers();
     if running == 0 {
         return false;
+    }
+    if let Ok(mut held) = state.quit_held_at.lock() {
+        if held.is_some_and(|at| at.elapsed() < QUIT_AGAIN) {
+            tracing::info!(running, "quit asked twice: cancelling transfers");
+            state.quit_confirmed.store(true, Ordering::SeqCst);
+            state.services.connections().cancel_transfers();
+            return false;
+        }
+        *held = Some(std::time::Instant::now());
     }
     tracing::info!(running, "quit held: transfers are running");
     let _ = app.emit(QUIT_REQUESTED, running);
@@ -144,6 +159,7 @@ pub fn run() {
                 agent,
                 log_dir,
                 quit_confirmed: AtomicBool::new(false),
+                quit_held_at: std::sync::Mutex::new(None),
             });
             apply_app_icon(app).map_err(|e| format!("app icon: {e}"))?;
             Ok(())

@@ -12,7 +12,8 @@
 
 <script lang="ts">
 	import { commands, mountCommands } from '#core/commands'
-	import { Lazy } from '#core/ui'
+	import { confirmQuit, listenQuitRequests } from '#core/ipc'
+	import { Button, Lazy, Modal } from '#core/ui'
 	import {
 		applyPreferredUiScale,
 		applyUiScale,
@@ -35,6 +36,19 @@
 	import '../app.css'
 
 	let { children } = $props()
+
+	/** Transfers still running when a quit or window close was held. */
+	let quitHeld = $state<number | null>(null)
+	let quitting = $state(false)
+
+	async function quitAnyway() {
+		quitting = true
+		try {
+			await confirmQuit()
+		} finally {
+			quitting = false
+		}
+	}
 
 	// The keymap is known before anything mounts, so the shortcuts view can
 	// list every command.
@@ -83,8 +97,17 @@
 
 		const unmountCommands = mountCommands()
 		window.addEventListener('keydown', blockHistoryBackspace, true)
+		let unlistenQuit: (() => void) | null = null
+		let gone = false
+		void listenQuitRequests((running) => (quitHeld = running))
+			.then((stop) => (gone ? stop() : (unlistenQuit = stop)))
+			.catch(() => {
+				/* not in the desktop shell */
+			})
 
 		return () => {
+			gone = true
+			unlistenQuit?.()
 			unwatchScheme()
 			unmountCommands()
 			window.removeEventListener('keydown', blockHistoryBackspace, true)
@@ -106,4 +129,21 @@
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}
 	/>
+	<Modal
+		open={quitHeld != null}
+		onclose={() => (quitHeld = null)}
+		title="Transfers are still running"
+		description={quitHeld === 1
+			? 'An export or import is still running. Quitting cancels it: a partial export file is removed, and rows an import already wrote stay in the table.'
+			: `${quitHeld ?? 0} exports or imports are still running. Quitting cancels them: partial export files are removed, and rows an import already wrote stay in the table.`}
+	>
+		{#snippet footer()}
+			<Button variant="ghost" size="sm" disabled={quitting} onclick={() => (quitHeld = null)}>
+				Keep running
+			</Button>
+			<Button variant="danger" size="sm" disabled={quitting} onclick={() => void quitAnyway()}>
+				Cancel and quit
+			</Button>
+		{/snippet}
+	</Modal>
 </ToastContext>

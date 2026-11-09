@@ -88,6 +88,7 @@ export type {
 	TableRowUpdate,
 	TerminateSessionRequest,
 	TerminateSessionResult,
+	TransferProgress,
 	TestResult,
 } from '../ipc/bindings.gen'
 

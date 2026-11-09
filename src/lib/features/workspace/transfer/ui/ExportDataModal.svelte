@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Field, Input, Modal, Select } from '#core/ui'
+	import { Button, Checkbox, Field, Input, Modal, Select } from '#core/ui'
 	import type { TableFileFormat } from '#core/util'
 	import {
 		applyFormatExtension,
@@ -13,6 +13,8 @@
 		fileName: string
 		folder: string
 		format: TableFileFormat
+		/** Read through the query tab's open transaction (`txnTab`). */
+		throughTransaction?: boolean
 	}
 
 	const FORMAT_LABELS: Record<string, string> = {
@@ -30,6 +32,8 @@
 		formats?: string[]
 		busy?: boolean
 		error?: string | null
+		/** A query tab on this connection with an open transaction. */
+		txnTab?: { title: string } | null
 		onconfirm: (spec: ExportDataSpec) => void
 		oncancel: () => void
 	}
@@ -41,6 +45,7 @@
 		formats = ['csv', 'json', 'jsonl'],
 		busy = false,
 		error = null,
+		txnTab = null,
 		onconfirm,
 		oncancel,
 	}: Props = $props()
@@ -49,6 +54,7 @@
 	let folder = $state('')
 	let format = $state<TableFileFormat>('csv')
 	let folderBusy = $state(false)
+	let throughTransaction = $state(true)
 
 	const formatOptions = $derived.by((): SelectOption[] => {
 		const ids = formats.length > 0 ? formats : ['csv']
@@ -72,6 +78,7 @@
 		fileName = safeExportFileBase(objectName)
 		format = 'csv'
 		folder = ''
+		throughTransaction = true
 		void loadDownloads()
 	})
 
@@ -99,6 +106,7 @@
 			fileName: applyFormatExtension(name, format),
 			folder: folder.trim(),
 			format,
+			throughTransaction: !!txnTab && throughTransaction,
 		})
 	}
 
@@ -111,7 +119,7 @@
 	{open}
 	onclose={oncancel}
 	title="Export data"
-	description="Write the full {objectLabel} to a file."
+	description="Write the full {objectLabel} to a file. It runs in the background; you can keep working."
 	dismissible={!busy}
 >
 	<div class="mt-3 flex flex-col gap-3">
@@ -162,6 +170,21 @@
 			/>
 		</Field>
 
+		{#if txnTab}
+			<div class="flex flex-col gap-1">
+				<Checkbox
+					bind:checked={throughTransaction}
+					disabled={busy}
+					label="Include uncommitted changes from “{txnTab.title}”"
+				/>
+				<p class="m-0 text-caption text-fg-muted">
+					{throughTransaction
+						? 'Reads through that tab’s open transaction, as the tab sees the data. The tab waits while the export runs.'
+						: 'Reads committed data only.'}
+				</p>
+			</div>
+		{/if}
+
 		{#if error}
 			<p class="mb-0 text-caption text-danger" role="alert">{error}</p>
 		{/if}
@@ -177,7 +200,7 @@
 			disabled={busy || !fileName.trim() || (!folder.trim())}
 			onclick={submit}
 		>
-			{busy ? 'Exporting…' : `Export .${extensionForFormat(format)}`}
+			{busy ? 'Starting…' : `Export .${extensionForFormat(format)}`}
 		</Button>
 	{/snippet}
 </Modal>
