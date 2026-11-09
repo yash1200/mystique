@@ -419,7 +419,9 @@ async fn drain_sets(
 }
 
 /// The flag is true when packets were left unread. With `read_all`, rows
-/// past the cap are read and dropped so the connection can run more.
+/// past the cap are read and dropped so the connection can run more. A
+/// statement that reports a count (`DELETE … RETURNING`) is always read to
+/// the end so the count is every changed row, not the rows shown.
 async fn read_mysql_sets<P>(
     qr: &mut mysql_async::QueryResult<'_, '_, P>,
     batch: &ValidatedBatch,
@@ -430,6 +432,7 @@ where
     P: mysql_async::prelude::Protocol,
 {
     let max_rows = batch.max_rows.max(1) as usize;
+    let read_all = read_all || stmt.returns_count;
     let mut sets = Vec::new();
     let mut set_index: u32 = 0;
     let mut max_warnings: u16 = 0;
@@ -448,6 +451,7 @@ where
         let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
         let mut truncated = false;
         let mut saw_row = false;
+        let mut seen: u64 = 0;
         loop {
             if batch.control.is_cancelled() {
                 return Err(ConnectorError::Query("Query cancelled.".into()));
@@ -468,6 +472,7 @@ where
                 break;
             };
             saw_row = true;
+            seen = seen.saturating_add(1);
             if columns.is_empty() {
                 continue;
             }
@@ -489,7 +494,7 @@ where
         let has_grid = !columns.is_empty();
         let affected = if stmt.returns_count {
             if has_grid {
-                Some(out_rows.len() as u64)
+                Some(seen)
             } else {
                 Some(affected_at_start)
             }
