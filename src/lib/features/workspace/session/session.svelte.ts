@@ -3,6 +3,7 @@
  * Open tabs + query drafts persist to the app SQLite DB (via Tauri IPC).
  */
 import type {
+	AgentFixRequest,
 	ConnectedSession,
 	ConnectionProfile,
 	EngineCapabilities,
@@ -48,6 +49,8 @@ class WorkspaceSessionStore {
 	selectedRow = $state<SelectedRow | null>(null)
 	/** Prompt waiting for the query agent pane to send. */
 	pendingAgentPrompt = $state<string | null>(null)
+	/** "Fix with AI": the failed statement, error and position, for the agent pane. */
+	pendingAgentFix = $state<AgentFixRequest | null>(null)
 
 	/** Draft SQL/MQL text per query tab id. */
 	queryDrafts = $state<Record<string, string>>({})
@@ -904,6 +907,17 @@ class WorkspaceSessionStore {
 	takePendingAgentPrompt(): string | null {
 		const next = this.pendingAgentPrompt
 		this.pendingAgentPrompt = null
+		return next
+	}
+
+	queueAgentFix(fix: AgentFixRequest) {
+		if (!fix.sql.trim() && !fix.error.trim()) return
+		this.pendingAgentFix = fix
+	}
+
+	takePendingAgentFix(): AgentFixRequest | null {
+		const next = this.pendingAgentFix
+		this.pendingAgentFix = null
 		return next
 	}
 }

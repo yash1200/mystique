@@ -2,7 +2,11 @@
 	import type { DatabaseMeta, TableMeta } from '#core/contracts'
 	import { Icon } from '#core/ui'
 	import { cn } from '#core/util'
-	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
+	import {
+		CatalogIcon,
+		iconToneForName,
+		writeTableDrag,
+	} from '#features/workspace/catalog'
 	import { appPrefs } from '#lib/app'
 	interface Props {
 		objectLabel: string
@@ -109,6 +113,15 @@
 			)}
 			aria-label="{t.name}, {t.kind}"
 			title={objectTitle(t)}
+			draggable="true"
+			ondragstart={(e) => {
+				if (!e.dataTransfer) return
+				writeTableDrag(e.dataTransfer, {
+					database: t.database,
+					schema: t.schema,
+					name: t.name,
+				})
+			}}
 			onclick={(e) => openFromClick(e, t)}
 			ondblclick={() => openFromDblClick(t)}
 			oncontextmenu={(e) => {

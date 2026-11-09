@@ -284,7 +284,7 @@
 								onclick={() => onaskai(activeStatement.error ?? '')}
 							>
 								<Icon name="chat" class="size-3.5" />
-								Ask AI
+								Fix with AI
 							</Button>
 						{/if}
 					</div>
@@ -365,7 +365,7 @@
 							onclick={() => onaskai(runState.message)}
 						>
 							<Icon name="chat" class="size-3.5" />
-							Ask AI
+							Fix with AI
 						</Button>
 					{/if}
 				</div>

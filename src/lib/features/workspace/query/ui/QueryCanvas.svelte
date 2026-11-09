@@ -52,6 +52,7 @@
 		setResultPage,
 		type RunTarget,
 	} from '../run/run.svelte'
+	import { fixRequestFor } from '../run/fix-request'
 	import type { RunState } from '../run/run-types'
 
 	interface Props {
@@ -365,16 +366,17 @@
 	const commitPin = () => commitTabPin(tabId, showTransactions)
 	const rollbackPin = () => rollbackTabPin(tabId, showTransactions)
 
-	function askAiAboutError(errorMessage: string) {
-		const error = errorMessage.trim()
-		const diag = workspaceSession.getQueryRunCache(tabId)?.diagnostic
-		const where = diag
-			? `The failing token is at line ${diag.line}, column ${diag.column}.\n\n`
-			: ''
-		workspaceSession.queueAgentPrompt(
-			error
-				? `The query in the editor failed with this error. Debug it and fix it.\n\n${where}${error}`
-				: 'The query in the editor failed. Debug it and fix it.',
+	/** "Fix with AI": the statement that ran, its error and position. */
+	function fixWithAi(errorMessage: string) {
+		const cached = workspaceSession.getQueryRunCache(tabId)
+		const submitted = cached?.submittedText || currentQueryText()
+		workspaceSession.queueAgentFix(
+			fixRequestFor(
+				submitted,
+				cached?.submittedText ? (cached.submittedStart ?? 0) : 0,
+				errorMessage,
+				cached?.diagnostic,
+			),
 		)
 		appPrefs.setAgentChatOpen(true)
 	}
@@ -514,7 +516,7 @@
 						const cached = workspaceSession.getQueryRunCache(tabId)
 						void runQuery(cached?.submittedText, cached?.submittedStart ?? 0)
 					}}
-					onaskai={askAiAboutError}
+					onaskai={fixWithAi}
 					{loadLarge}
 				/>
 			{/if}
