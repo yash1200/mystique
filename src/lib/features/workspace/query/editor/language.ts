@@ -7,8 +7,14 @@ import type { CatalogColumnRow } from '#core/contracts'
 import { adapterFor } from '#engines'
 import type { SQLNamespace } from '@codemirror/lang-sql'
 import type { Extension } from '@codemirror/state'
+import { gatedCompletion, type CatalogFeed } from './completion-gate'
 
-type LanguageFor = (cols: CatalogColumnRow[]) => Extension
+/**
+ * The language built from the catalog rows loaded so far. `feed` reads the
+ * tab's catalog at completion time, so a request made before the rows arrive
+ * can wait for them (see `completion-gate.ts`).
+ */
+type LanguageFor = (cols: CatalogColumnRow[], feed?: () => CatalogFeed | null) => Extension
 
 const ready = new Map<string, LanguageFor>()
 const pending = new Map<string, Promise<LanguageFor>>()
@@ -43,12 +49,20 @@ export function loadLanguage(lang: string, engine: string): Promise<LanguageFor>
 /** Language mode, dialect and completions all come from the engine adapter. */
 async function build(lang: string, engine: string): Promise<LanguageFor> {
 	const support = await adapterFor(engine).language.editor()
+	const completion = (
+		cols: CatalogColumnRow[],
+		feed: (() => CatalogFeed | null) | undefined,
+	) => {
+		const direct = support.completion(cols)
+		if (!feed) return direct
+		return gatedCompletion(direct, (rows) => support.completion(rows), feed)
+	}
 	if (lang === 'mql') {
 		const { javascript, javascriptLanguage } = await import(
 			'@codemirror/lang-javascript'
 		)
-		return (cols) => {
-			const autocomplete = support.completion(cols)
+		return (cols, feed) => {
+			const autocomplete = completion(cols, feed)
 			return [
 				javascript(),
 				...(autocomplete ? [javascriptLanguage.data.of({ autocomplete })] : []),
@@ -56,10 +70,10 @@ async function build(lang: string, engine: string): Promise<LanguageFor> {
 		}
 	}
 	const { sql, StandardSQL } = await import('@codemirror/lang-sql')
-	return (cols) => {
+	return (cols, feed) => {
 		const dialect = support.sqlDialect ?? StandardSQL
 		const complete = support.sqlSchema?.(cols)
-		const extra = support.completion(cols)
+		const extra = completion(cols, feed)
 		const lang = sql({
 			dialect,
 			schema: (complete?.schema ?? {}) as SQLNamespace,

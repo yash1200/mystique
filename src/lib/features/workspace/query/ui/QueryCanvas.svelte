@@ -20,10 +20,11 @@
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { RESULT_PAGE_SIZE_DEFAULT } from '../constants'
+	import type { CatalogFeed } from '../editor/completion-gate'
 	import QueryEditor from '../editor/QueryEditor.svelte'
 	import { noteEditorEdit } from '../editor/query-diagnostic'
 	import {
-		splitDialectFor,
+		statementModelFor,
 		submissionStart,
 		textToRun,
 	} from '../editor/statement-span'
@@ -154,7 +155,7 @@
 		const sid = engineSessionId
 		const db = database
 		if (!sid) return
-		void catalogColumnsCache.load(sid, db || null)
+		catalogColumnsCache.load(sid, db || null).catch(() => {})
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
 	const effectiveMode = $derived<QueryMode>(readOnly ? 'read' : 'write')
@@ -166,10 +167,25 @@
 		),
 	)
 
+	// Counted without splitting: a large document would allocate every line per keystroke.
 	const lineCount = $derived.by(() => {
-		if (!localText) return 1
-		return localText.split('\n').length
+		let lines = 1
+		for (let at = localText.indexOf('\n'); at >= 0; at = localText.indexOf('\n', at + 1)) {
+			lines += 1
+		}
+		return lines
 	})
+
+	/** Read by the editor when a completion is requested. */
+	function catalogFeed(): CatalogFeed | null {
+		const sid = engineSessionId
+		if (!sid) return null
+		return {
+			key: catalogColKey,
+			rows: catalogColumns,
+			pending: catalogColumnsCache.pending(sid, database || null),
+		}
+	}
 
 	// One canvas instance covers every query tab. Reset the bits `{#key}` used to drop.
 	$effect(() => {
@@ -279,7 +295,7 @@
 			body ??
 			textToRun(
 				doc,
-				splitDialectFor(engine),
+				statementModelFor(engine, language),
 				editorSnap.head,
 				editorSnap.anchor,
 				false,
@@ -348,7 +364,7 @@
 	/** ⌘Enter / ⌘⇧Enter with focus in the tab but outside the editor. */
 	function runFromKeys(all: boolean) {
 		const doc = editorSnap.doc || currentQueryText()
-		const dialect = splitDialectFor(engine)
+		const dialect = statementModelFor(engine, language)
 		const text = textToRun(doc, dialect, editorSnap.head, editorSnap.anchor, all)
 		if (!text) return
 		void runQuery(
@@ -398,6 +414,7 @@
 				{lineCount}
 				{language}
 				{catalogColumns}
+				{catalogFeed}
 				bind:collection
 				canRun={!!localText.trim()}
 				canCancel={capabilities?.supportsCancelQuery === true}

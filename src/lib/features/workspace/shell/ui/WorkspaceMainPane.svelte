@@ -40,6 +40,7 @@
 		structureStore,
 	} from '#features/workspace/structure'
 	import {
+		prefetchQueryEditor,
 		prependHistoryItem,
 		pruneEditorStates,
 		QueryCanvas,
@@ -209,6 +210,26 @@
 		void activeTabId
 		void gridTable?.id
 		tablePreview.hydrateActive()
+	})
+
+	// A query tab warms its catalog columns and language code while the
+	// editor chunk is still loading, so the first completion is instant.
+	let prefetchedQuery = ''
+	$effect(() => {
+		const session = activeSession
+		const tab = activeTab
+		if (!session || tab?.kind !== 'query') return
+		const sessionId = session.engineSessionId
+		const database = currentDatabaseName
+		const key = `${tab.id}\0${sessionId ?? ''}\0${database}`
+		if (key === prefetchedQuery) return
+		prefetchedQuery = key
+		prefetchQueryEditor({
+			engine: String(session.profile.engine),
+			capabilities: session.capabilities,
+			sessionId,
+			database,
+		})
 	})
 
 	onMount(() =>
