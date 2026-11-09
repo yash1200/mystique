@@ -134,15 +134,35 @@ pub fn write_targets(sql: &str, dialect: SqlDialect, current: Option<&str>) -> W
             };
             let _ = statement.visit(&mut scan);
             let mut found = scan.out;
-            // A query writes through a data-modifying CTE or a function.
-            // Without a named write inside it, nothing can be resolved.
-            if matches!(statement, Statement::Query(_)) && found.targets.is_empty() {
+            // A write that names nothing (a function call in a query, an
+            // EXPLAIN ANALYZE of one) cannot be placed.
+            if found.targets.is_empty() {
                 found.unresolved = true;
             }
             out.extend(found);
         }
     }
     out
+}
+
+/// True when a statement in `sql` is a `USE`, so later batches on the same
+/// connection may not run in the database it opened with. Text that does
+/// not parse but starts with `USE` counts.
+pub fn switches_database(sql: &str, dialect: SqlDialect) -> bool {
+    split_statements(sql, dialect)
+        .iter()
+        .any(|stmt| match parse(stmt, dialect) {
+            Some(statements) => statements.iter().any(|s| matches!(s, Statement::Use(_))),
+            None => {
+                let head: String = stmt
+                    .trim_start()
+                    .chars()
+                    .take(4)
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+                head.starts_with("use") && !head[3..].starts_with(|c: char| c.is_alphanumeric())
+            }
+        })
 }
 
 fn parse(sql: &str, dialect: SqlDialect) -> Option<Vec<Statement>> {
@@ -213,8 +233,8 @@ impl TargetScan<'_> {
 
     fn statement(&mut self, statement: &Statement) {
         match statement {
-            // Nested writes are visited on their own; the query alone names nothing.
-            Statement::Query(_) => {}
+            // Nested writes are visited on their own; these alone name nothing.
+            Statement::Query(_) | Statement::Explain { .. } => {}
             Statement::Insert(insert) => match &insert.table {
                 TableObject::TableName(name) => self.name(name, NameKind::Object),
                 _ => self.out.unresolved = true,

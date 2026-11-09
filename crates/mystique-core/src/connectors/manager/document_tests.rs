@@ -165,6 +165,7 @@ async fn mongo(mgr: &ConnectionManager, session_id: &str, environment: &str) -> 
             connection_name: "Mongo".into(),
             origin: SessionOrigin::Ui,
             profile_id: None,
+            default_database: None,
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
         },
     );

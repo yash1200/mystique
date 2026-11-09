@@ -202,6 +202,8 @@ impl ConnectionManager {
         // Upsert is still a write. The guard reads the live session's read-only bit.
         self.enforce_write_guard(WriteCheck {
             preview: format!("Import into {}", req.name.trim()),
+            database: req.database.as_deref(),
+            schema: req.schema.as_deref(),
             ..WriteCheck::new(&req.session_id, WriteAction::Import, WriteRisk::Write)
         })
         .await?;

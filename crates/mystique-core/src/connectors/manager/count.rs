@@ -216,6 +216,7 @@ mod tests {
                 connection_name: "probe".into(),
                 origin: SessionOrigin::Ui,
                 profile_id: None,
+                default_database: None,
                 last_used: std::sync::Mutex::new(Instant::now()),
             },
         );

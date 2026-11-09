@@ -67,7 +67,10 @@ pub use metrics::*;
 /// Output columns of a plain single-table SELECT (SQLite has no driver provenance).
 pub use mystique_sql::{single_table_select, ProjectedItem, SingleTableSelect};
 /// Databases each write in a batch lands in (per-database production).
-pub use mystique_sql::{write_targets as sql_write_targets, WriteTarget, WriteTargets};
+pub use mystique_sql::{
+    switches_database as sql_switches_database, write_targets as sql_write_targets, WriteTarget,
+    WriteTargets,
+};
 pub use object_structure::*;
 pub use origin::{ColumnOrigin, KeyColumn, ResolvedColumn};
 pub use pin::{opens_transaction, PinStatus, PinnedSession};

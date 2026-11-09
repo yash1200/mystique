@@ -103,12 +103,21 @@ impl ConnectionManager {
             .map(|stmt| policy.op_preview(&stmt.sql))
             .collect::<Vec<_>>()
             .join("; ");
+        let targets = if worst == WriteRisk::Read {
+            None
+        } else {
+            let current = self
+                .document_database(&req.session_id, req.database.as_deref())
+                .await;
+            Some(policy.write_targets(text, current.as_deref()))
+        };
         self.enforce_write_guard(WriteCheck {
             preview,
             statements: statements.iter().map(|stmt| stmt.sql.clone()).collect(),
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: run.read_only,
             pinned: run.tab_id.is_some(),
+            targets,
             ..WriteCheck::new(&req.session_id, WriteAction::Query, worst)
         })
         .await?;

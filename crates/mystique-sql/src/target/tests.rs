@@ -204,3 +204,14 @@ fn helpers_build_and_merge() {
     assert_eq!(all, named(vec![t("a", Some("s")), t("b", None)]));
     assert!(WriteTargets::database("", None).unresolved);
 }
+
+#[test]
+fn use_switches_the_database() {
+    assert!(switches_database("SELECT 1; USE prod", SqlDialect::Mysql));
+    assert!(switches_database("use `prod`", SqlDialect::Mysql));
+    assert!(!switches_database("SELECT * FROM users", SqlDialect::Mysql));
+    assert!(!switches_database(
+        "UPDATE user_settings SET a = 1",
+        SqlDialect::Mysql
+    ));
+}

@@ -27,7 +27,11 @@ mod pin;
 mod query;
 mod run;
 mod table;
+mod target_env;
+mod timed_unlock;
 mod transfer;
+
+pub use timed_unlock::{TimedUnlockStatus, TIMED_UNLOCK_CHOICES_SECS};
 
 pub(crate) use grid_save::GridSaveStore;
 pub(crate) use history::QueryHistoryWriter;
@@ -122,7 +126,17 @@ struct LiveSession {
     origin: SessionOrigin,
     /// Saved profile id. History is keyed by this, not the live session id.
     profile_id: Option<String>,
+    /// `database` in the plugin config at open: where unqualified names go.
+    default_database: Option<String>,
     last_used: std::sync::Mutex<std::time::Instant>,
+}
+
+impl LiveSession {
+    /// The profile whose marks and timed unlock apply. The desktop keys
+    /// its session by profile id.
+    fn profile_key<'a>(&'a self, session_id: &'a str) -> &'a str {
+        self.profile_id.as_deref().unwrap_or(session_id)
+    }
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
@@ -131,6 +145,12 @@ pub struct ConnectionManager {
     sessions: RwLock<HashMap<String, LiveSession>>,
     /// Session ids unlocked for writes this process (P3.1). Not persisted.
     write_unlocks: Mutex<HashSet<String>>,
+    /// Human sessions on a read-only profile with writes allowed until the
+    /// instant. Not persisted; agent and MCP sessions never get one.
+    timed_unlocks: timed_unlock::TimedUnlocks,
+    /// Profile id → per-database environment marks, set before a session
+    /// opens and whenever the marks change.
+    database_marks: target_env::DatabaseMarks,
     /// `execution_id` → control. Not the profile id.
     /// A std mutex so a run's drop guard can unregister without awaiting.
     running: std::sync::Mutex<HashMap<String, run::Inflight>>,
@@ -160,6 +180,8 @@ impl ConnectionManager {
             registry,
             sessions: RwLock::new(HashMap::new()),
             write_unlocks: Mutex::new(HashSet::new()),
+            timed_unlocks: timed_unlock::TimedUnlocks::default(),
+            database_marks: target_env::DatabaseMarks::default(),
             running: std::sync::Mutex::new(HashMap::new()),
             metadata: run::metadata_limiter(),
             pins: Mutex::new(HashMap::new()),
@@ -355,6 +377,13 @@ impl ConnectionManager {
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
                 .map(str::to_string),
+            default_database: req
+                .plugin_config
+                .get("database")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .filter(|db| !db.is_empty())
+                .map(str::to_string),
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
         };
 
@@ -368,6 +397,8 @@ impl ConnectionManager {
             prev
         };
         self.write_unlocks.lock().await.remove(&session_id);
+        self.timed_unlocks.end(&session_id);
+        self.database_marks.forget_session(&session_id);
         if let Some(prev) = prev {
             let _ = shutdown_live(prev).await;
         }
@@ -391,6 +422,8 @@ impl ConnectionManager {
             let mut guard = self.sessions.write().await;
             guard.remove(session_id)
         };
+        self.timed_unlocks.end(session_id);
+        self.database_marks.forget_session(session_id);
         if let Some(live) = live {
             self.write_unlocks.lock().await.remove(session_id);
             tracing::info!(session_id, engine = %live.product_id, busy, "session closed");
@@ -520,7 +553,17 @@ impl ConnectionManager {
         let live = guard.get(session_id).ok_or_else(|| {
             ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
         })?;
-        Ok((std::sync::Arc::clone(&live.session), live.read_only))
+        Ok((
+            std::sync::Arc::clone(&live.session),
+            self.effective_read_only(session_id, live, false),
+        ))
+    }
+
+    /// The profile bit, unless a timed unlock is running on this human
+    /// session. Agent and MCP sessions never see the unlock.
+    fn effective_read_only(&self, session_id: &str, live: &LiveSession, also: bool) -> bool {
+        let read_only = live.read_only || also;
+        read_only && !(live.origin == SessionOrigin::Ui && self.timed_unlocks.active(session_id))
     }
 }
 
@@ -624,6 +667,8 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
 
 #[cfg(test)]
 mod document_tests;
+#[cfg(test)]
+mod policy_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

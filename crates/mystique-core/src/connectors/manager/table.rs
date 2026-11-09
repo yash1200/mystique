@@ -34,6 +34,8 @@ impl ConnectionManager {
                 req.table
             ),
             confirm_object_name: req.confirm_object_name.as_deref(),
+            database: req.database.as_deref(),
+            schema: req.schema.as_deref(),
             ..WriteCheck::new(&session_id, WriteAction::GridSave, WriteRisk::Write)
         };
         let prompt = if req.dry_run {
@@ -133,6 +135,8 @@ impl ConnectionManager {
                 preview: admin_preview(req.op, &req.name, req.new_name.as_deref()),
                 object_name: Some(req.name.as_str()),
                 confirm_object_name: req.confirm_object_name.as_deref(),
+                database: req.database.as_deref(),
+                schema: req.schema.as_deref(),
                 ..WriteCheck::new(&req.session_id, WriteAction::ObjectAdmin, risk)
             })
             .await?;
@@ -234,6 +238,8 @@ impl ConnectionManager {
             statements: plan.statements.clone(),
             object_name: Some(req.draft.name.as_str()),
             confirm_object_name: req.confirm_object_name.as_deref(),
+            database: req.draft.database.as_deref(),
+            schema: req.draft.schema.as_deref(),
             ..WriteCheck::new(
                 &req.session_id,
                 WriteAction::Structure,
@@ -362,12 +368,17 @@ impl ConnectionManager {
         } else {
             WriteRisk::Write
         };
+        let statements: Vec<String> = changes
+            .iter()
+            .flat_map(|change| change.plan.statements.iter().cloned())
+            .collect();
+        let targets = self
+            .text_targets(&req.session_id, &statements.join(";\n"), None)
+            .await;
         self.enforce_write_guard(WriteCheck {
             preview: "Schema diff".into(),
-            statements: changes
-                .iter()
-                .flat_map(|change| change.plan.statements.iter().cloned())
-                .collect(),
+            statements,
+            targets: Some(targets),
             object_name: Some(object),
             confirm_object_name: req.confirm_object_name.as_deref(),
             ..WriteCheck::new(&req.session_id, WriteAction::Structure, risk)

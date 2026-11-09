@@ -936,6 +936,7 @@ async fn insert_probe(
             connection_name: "Prod Mongo".into(),
             origin: super::SessionOrigin::Ui,
             profile_id: None,
+            default_database: None,
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
         },
     );
@@ -2683,6 +2684,7 @@ async fn a_transaction_the_server_dropped_is_reported_and_commit_refuses() {
             connection_name: "drop".into(),
             origin: super::SessionOrigin::Ui,
             profile_id: None,
+            default_database: None,
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
         },
     );

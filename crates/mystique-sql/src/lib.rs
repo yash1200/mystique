@@ -32,4 +32,4 @@ pub use risk::{
     is_safe_dml, StatementRisk,
 };
 pub use split::{split_statement_spans, split_statements, statement_at, StatementSpan};
-pub use target::{write_targets, WriteTarget, WriteTargets};
+pub use target::{switches_database, write_targets, WriteTarget, WriteTargets};
