@@ -47,6 +47,106 @@ const _: () = assert!(
     "AGENT_MAX_ROWS must be below HARD_MAX_ROWS"
 );
 
+/// A local Postgres profile on database `dev` with database `prod` marked
+/// production (F-03).
+fn save_dev_with_prod(app: &AppServices) -> crate::domain::ConnectionProfile {
+    let mut saved = save_pg(app, "dev server");
+    saved = app
+        .profiles()
+        .save(SaveConnectionInput {
+            id: Some(saved.id.clone()),
+            name: saved.name.clone(),
+            engine: "postgres".into(),
+            color_id: "teal".into(),
+            environment: "local".into(),
+            read_only: false,
+            notes: None,
+            plugin_config: json!({"host": "127.0.0.1", "port": 1, "database": "dev"}),
+            password: None,
+            secret_ref: None,
+            clear_secret: false,
+            copy_secret_from: None,
+            favorite: None,
+            ssh_config: crate::domain::SshConfig::default(),
+            ssh_password: None,
+            clear_ssh_secret: false,
+            tls_key_passphrase: None,
+            query_timeout_secs: None,
+            save_password: None,
+        })
+        .unwrap_or(saved);
+    app.set_database_environment(&crate::domain::SetDatabaseEnvironmentInput {
+        profile_id: saved.id.clone(),
+        database: "prod".into(),
+        schema: None,
+        environment: Some("production".into()),
+    })
+    .unwrap()
+}
+
+#[test]
+fn production_target_reads_marks_and_qualified_names() {
+    let app = app();
+    let profile = save_dev_with_prod(&app);
+    let tools = app.agent_tools();
+    let prod = |text: Option<&str>, db: Option<&str>| tools.production_target(&profile, db, text);
+    assert!(!prod(Some("INSERT INTO t VALUES (1)"), Some("dev")));
+    assert!(prod(
+        Some("INSERT INTO prod.public.t VALUES (1)"),
+        Some("dev")
+    ));
+    assert!(prod(Some("INSERT INTO t VALUES (1)"), Some("prod")));
+    // A write the parser cannot place counts as production.
+    assert!(prod(Some("SELECT nextval('s')"), Some("dev")));
+    assert!(prod(Some("DO $$ BEGIN DELETE FROM t; END $$"), Some("dev")));
+    // Reads and no statement: the database they run in.
+    assert!(!prod(Some("SELECT * FROM prod.public.t"), Some("dev")));
+    assert!(!prod(None, Some("dev")));
+    assert!(prod(None, Some("prod")));
+}
+
+#[tokio::test]
+async fn an_inherited_write_level_is_capped_on_a_production_marked_database() {
+    let app = app();
+    app.tool_access().set_default("mcp", "write").unwrap();
+    let profile = save_dev_with_prod(&app);
+    let tools = app.agent_tools();
+    let run = |query: &'static str| {
+        let tools = tools.clone();
+        let id = profile.id.clone();
+        async move {
+            tools
+                .call_tool(
+                    "execute_query",
+                    &json!({ "connection_id": id, "query": query }),
+                    ToolCaller::Mcp,
+                )
+                .await
+        }
+    };
+    // The dev database: the inherited `write` applies. The access check
+    // passes; the run then fails to connect (nothing listens on port 1).
+    let dev = run("INSERT INTO t VALUES (1)").await.unwrap_err();
+    assert!(!matches!(dev, AppError::AccessDenied(_)), "{dev:?}");
+    // A qualified write into the production database is capped at read.
+    let prod = run("INSERT INTO prod.public.t VALUES (1)")
+        .await
+        .unwrap_err();
+    let msg = prod.to_string();
+    assert!(matches!(prod, AppError::AccessDenied(_)), "{prod:?}");
+    assert!(msg.contains("needs `write`"), "{msg}");
+    assert!(msg.contains("production"), "{msg}");
+    // An unresolved write counts as production too.
+    let hidden = run("DO $$ BEGIN DELETE FROM t; END $$").await.unwrap_err();
+    assert!(matches!(hidden, AppError::AccessDenied(_)), "{hidden:?}");
+    // A level set on the connection itself is not capped.
+    level(&app, &profile.id, None, "write");
+    let set = run("INSERT INTO prod.public.t VALUES (1)")
+        .await
+        .unwrap_err();
+    assert!(!matches!(set, AppError::AccessDenied(_)), "{set:?}");
+}
+
 #[test]
 fn query_tool_spec_documents_the_cell_window() {
     let spec = tool_specs()

@@ -120,7 +120,8 @@ pub struct LevelChain {
     pub global: AccessLevel,
     pub connection: Option<AccessLevel>,
     pub database: Option<AccessLevel>,
-    /// The connection is marked production.
+    /// The write lands in production: the connection, or a database marked
+    /// production that the statement writes to (unresolved counts if any is).
     pub production: bool,
 }
 
@@ -230,7 +231,7 @@ pub fn no_access_message(caller: ToolCaller, connection_id: &str) -> String {
 
 fn above_level_message(effective: Effective, need: AccessLevel, target: Target<'_>) -> String {
     let why = if effective.capped {
-        " (the global default never allows writes on a production connection)"
+        " (the global default never allows writes on production: a production connection or a database marked production)"
     } else {
         match effective.source {
             LevelSource::Global => " (the global default)",

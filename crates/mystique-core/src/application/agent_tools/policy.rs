@@ -5,7 +5,7 @@
 //! agent: the global default per caller, then the connection, then the
 //! database. Both callers share the connection and database levels.
 
-use mystique_connector_api::WriteRisk;
+use mystique_connector_api::{target_environment, Environment, WriteRisk, WriteTargets};
 use rusqlite::Connection;
 
 use crate::domain::ConnectionProfile;
@@ -173,7 +173,7 @@ impl AgentTools {
         profile: &ConnectionProfile,
         database: Option<&str>,
     ) -> AppResult<()> {
-        self.authorize_sync(caller, profile, database, AccessLevel::Read)
+        self.authorize_sync(caller, profile, database, None, AccessLevel::Read)
             .map(|_| ())
     }
 
@@ -183,9 +183,10 @@ impl AgentTools {
         caller: ToolCaller,
         profile: &ConnectionProfile,
         database: Option<&str>,
+        text: Option<&str>,
         need: AccessLevel,
     ) -> AppResult<Decision> {
-        let (effective, ask, db) = self.effective(caller, profile, database)?;
+        let (effective, ask, db, _) = self.effective(caller, profile, database, text)?;
         let target = Target {
             caller,
             connection_id: &profile.id,
@@ -198,12 +199,15 @@ impl AgentTools {
         }
     }
 
+    /// The resolved level, whether the connection asks, the database, and
+    /// whether the write is judged production (F-03 marks).
     fn effective(
         &self,
         caller: ToolCaller,
         profile: &ConnectionProfile,
         database: Option<&str>,
-    ) -> AppResult<(super::levels::Effective, bool, Option<String>)> {
+        text: Option<&str>,
+    ) -> AppResult<(super::levels::Effective, bool, Option<String>, bool)> {
         let db = database
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -215,10 +219,34 @@ impl AgentTools {
                 default_level(c, caller)?,
             ))
         })?;
-        let effective = levels
-            .chain(global, is_production(profile), db.as_deref())
-            .resolve();
-        Ok((effective, levels.ask, db))
+        let production = self.production_target(profile, db.as_deref(), text);
+        let effective = levels.chain(global, production, db.as_deref()).resolve();
+        Ok((effective, levels.ask, db, production))
+    }
+
+    /// Production for the access cap, judged like the write guard (F-03):
+    /// the most dangerous database the statement writes to, read off its
+    /// qualified names (`prod.t`, `USE prod`, `getSiblingDB`). A target that
+    /// cannot be named counts as production when any database on the
+    /// connection is. Without a statement, the request's database.
+    pub(super) fn production_target(
+        &self,
+        profile: &ConnectionProfile,
+        database: Option<&str>,
+        text: Option<&str>,
+    ) -> bool {
+        let connection = Environment::parse(&profile.environment);
+        let marks = &profile.database_environments;
+        let mut targets = match (text, self.connections.registry().policy(&profile.engine)) {
+            (Some(text), Some(policy)) => policy.write_targets(text, database),
+            (Some(_), None) => WriteTargets::unresolved(),
+            (None, _) => WriteTargets::default(),
+        };
+        // A read names nothing: judge the database it runs in.
+        if targets.is_empty() {
+            targets = WriteTargets::current(database);
+        }
+        target_environment(connection, marks, &targets).environment == Environment::Production
     }
 
     /// Decide one statement. `Ok(None)` runs it; `Ok(Some(grant))` runs it
@@ -231,11 +259,12 @@ impl AgentTools {
         text: &str,
         need: AccessLevel,
     ) -> AppResult<Option<ToolGrant>> {
-        if self.authorize_sync(caller, profile, database, need)? == Decision::Allow {
+        if self.authorize_sync(caller, profile, database, Some(text), need)? == Decision::Allow {
             return Ok(None);
         }
         // Decision::Ask: the connection asks for high-risk writes.
-        let (effective, _, db) = self.effective(caller, profile, database)?;
+        let (effective, _, db, production) =
+            self.effective(caller, profile, database, Some(text))?;
         let outcome = self
             .approvals
             .request(ApprovalAsk {
@@ -243,7 +272,11 @@ impl AgentTools {
                 connection_id: profile.id.clone(),
                 connection_name: profile.name.clone(),
                 database: db.clone(),
-                environment: profile.environment.clone(),
+                environment: if production {
+                    "production".into()
+                } else {
+                    profile.environment.clone()
+                },
                 sql: text.to_string(),
                 needed: need,
                 granted: effective.level,
