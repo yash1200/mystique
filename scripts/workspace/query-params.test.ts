@@ -85,3 +85,12 @@ test('recent values stay on the parameter name', () => {
 	assert.equal(paramHistory(':id')[1]?.raw, 'secret-value-zz')
 	assert.equal(paramHistory(':other').length, 0)
 })
+
+test("a Postgres E'' string hides a name after an escaped quote", () => {
+	const labels = (sql: string, dialect: 'postgres' | 'sqlite') =>
+		scanQueryParams(sql, dialect).slots.map((slot) => slot.label)
+	assert.deepEqual(labels(String.raw`SELECT E'it\'s :no', e'\\', :yes`, 'postgres'), [':yes'])
+	assert.deepEqual(labels(String.raw`SELECT 'a\', :p, date'b\', :q`, 'postgres'), [':p', ':q'])
+	assert.deepEqual(labels(String.raw`SELECT E'a\', :p`, 'sqlite'), [':p'])
+	assert.deepEqual(labels(String.raw`SELECT E'\'' || :x`, 'postgres'), [':x'])
+})
