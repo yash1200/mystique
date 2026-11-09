@@ -1,8 +1,11 @@
-import { invoke } from '#core/ipc'
+import { Channel, invoke } from '#core/ipc'
 import type {
 	AgentChat,
+	AgentEvent,
+	AgentFixRequest,
 	AgentMessage,
 	AgentModelInfo,
+	AgentTableRef,
 	AiSettingsView,
 	SendAgentResult,
 } from './types'
@@ -88,27 +91,44 @@ export async function listAgentMessages(
 	return rows.map(normalizeMessage)
 }
 
-export async function sendAgentMessage(request: {
-	connectionId: string
-	connectionName: string
-	engine: string
-	database?: string | null
-	chatId?: string | null
-	provider: string
-	model: string
-	text: string
-	editorQuery?: string | null
-}): Promise<SendAgentResult> {
+/**
+ * Start a turn. Resolves with the chat and the saved user message as soon as
+ * the run starts; the reply streams to `onEvent` and ends with `done` or
+ * `error`. Deltas arrive batched (every 50–100 ms), never once per token.
+ */
+export async function sendAgentMessage(
+	request: {
+		connectionId: string
+		connectionName: string
+		engine: string
+		database?: string | null
+		chatId?: string | null
+		provider: string
+		model: string
+		text: string
+		editorQuery?: string | null
+		mentions?: AgentTableRef[]
+		fix?: AgentFixRequest
+	},
+	onEvent: (event: AgentEvent) => void,
+): Promise<SendAgentResult> {
+	const channel = new Channel<AgentEvent>()
+	channel.onmessage = onEvent
 	const result = await invoke<SendAgentResult>('send_agent_message', {
 		request: {
 			...request,
 			connectionId: asId(request.connectionId),
 			chatId: request.chatId ? asId(request.chatId) : request.chatId,
 		},
+		onEvent: channel,
 	})
 	return {
 		chat: normalizeChat(result.chat),
 		user: normalizeMessage(result.user),
-		assistant: normalizeMessage(result.assistant),
 	}
+}
+
+/** Stop the chat's live turn. False when nothing was running. */
+export async function cancelAgentMessage(chatId: string): Promise<boolean> {
+	return invoke('cancel_agent_message', { chatId: asId(chatId) })
 }

@@ -6,8 +6,13 @@ import type {
 
 export type {
 	AgentChat,
+	AgentErrorKind,
+	AgentEvent,
+	AgentFixRequest,
 	AgentMessage,
 	AgentModelInfo,
+	AgentTableRef,
+	AgentTokens,
 	SendAgentResult,
 } from '#core/contracts'
 

@@ -4,9 +4,14 @@
  */
 export type {
 	AgentChat,
+	AgentErrorKind,
+	AgentEvent,
+	AgentFixRequest,
 	AgentMessage,
 	AgentModelInfo,
 	AgentProviderInfo,
+	AgentTableRef,
+	AgentTokens,
 	AiKeyStatus,
 	AiSettingsView,
 	AppendHistoryInput,

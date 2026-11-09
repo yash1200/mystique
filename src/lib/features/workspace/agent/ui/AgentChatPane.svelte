@@ -1,17 +1,11 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import { errorMessage } from '#core/ipc'
-	import {
-		Alert,
-		Icon,
-		IconButton,
-		Resizable,
-		Select,
-		Textarea,
-	} from '#core/ui'
+	import { Alert, Button, Icon, IconButton, Resizable, Select } from '#core/ui'
 	import { cn } from '#core/util'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { showToast } from '#features/toast'
+	import { catalogStore } from '#features/workspace/catalog'
 	import { workspaceSession } from '#features/workspace/session'
 	import {
 		AGENT_CHAT_PANEL_WIDTH_DEFAULT,
@@ -21,17 +15,15 @@
 		cmd,
 	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
-	import {
-		listAgentChats,
-		listAgentMessages,
-		sendAgentMessage,
-		updateAgentChat,
-	} from '../api'
+	import { sendAgentMessage, updateAgentChat } from '../api'
 	import { agentChat } from '../chat.svelte'
 	import { configuredProviders, resolveAgentProvider } from '../configured'
+	import { formatTokens } from '../live-run'
+	import { resolveMentions, type MentionTable } from '../mentions'
 	import { aiSettings } from '../settings.svelte'
-	import type { AgentMessage } from '../types'
+	import type { AgentFixRequest, AgentMessage } from '../types'
 	import AgentChatNotice from './AgentChatNotice.svelte'
+	import AgentComposer from './AgentComposer.svelte'
 	import AgentChatThread from './AgentChatThread.svelte'
 	import AgentChatWelcome from './AgentChatWelcome.svelte'
 
@@ -52,9 +44,9 @@
 	}: Props = $props()
 
 	const settings = $derived(aiSettings.view)
-	let sending = $state(false)
+	/** A run is streaming. It lives in the store, so it survives a remount. */
+	const sending = $derived(agentChat.live !== null)
 	let elapsedSec = $state(0)
-	let sendGen = $state(0)
 	let error = $state<string | null>(null)
 	let listEl = $state<HTMLDivElement | null>(null)
 	let dragging = $state(false)
@@ -160,6 +152,29 @@
 		return `Still waiting on ${who}… ${elapsedSec}s`
 	})
 	const threadEmpty = $derived(agentChat.messages.length === 0 && !sending)
+	/** Tables of this connection (and database) for `@` references. */
+	const mentionTables = $derived.by((): MentionTable[] => {
+		const dbs = catalogStore.databases(connectionId)
+		const scoped = database ? dbs.filter((d) => d.name === database) : dbs
+		return scoped.flatMap((d) =>
+			d.tables.map((t) => ({
+				database: d.name,
+				schema: t.schema,
+				name: t.name,
+			})),
+		)
+	})
+	const canContinue = $derived(
+		!sending &&
+			agentChat.exhausted !== null &&
+			agentChat.exhausted.chatId === agentChat.chatId,
+	)
+	const tokensLine = $derived.by(() => {
+		const t = agentChat.lastTokens
+		if (!t || (t.input === 0 && t.output === 0)) return ''
+		const cached = t.cachedInput > 0 ? `, ${formatTokens(t.cachedInput)} cached` : ''
+		return `${formatTokens(t.input)} in · ${formatTokens(t.output)} out${cached}`
+	})
 	const connectionLine = $derived(
 		database ? `${connectionName} / ${database}` : connectionName,
 	)
@@ -240,13 +255,6 @@
 		})
 	}
 
-	function hasUnseenAssistant(
-		remote: AgentMessage[],
-		knownIds: Set<string>,
-	): boolean {
-		return remote.some((m) => m.role === 'assistant' && !knownIds.has(m.id))
-	}
-
 	async function onPickChat(id: string) {
 		if (sending) return
 		const next = id ? String(id) : null
@@ -290,9 +298,26 @@
 		})
 	}
 
-	async function send(preset?: string) {
+	function scrollToEnd() {
+		queueMicrotask(() => {
+			listEl?.scrollTo({ top: listEl.scrollHeight })
+		})
+	}
+
+	/** Follow the stream only while the reader is already at the bottom. */
+	function followStream() {
+		const el = listEl
+		if (!el) return
+		if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) scrollToEnd()
+	}
+
+	/**
+	 * Start a turn. The reply streams in through events; the saved rows
+	 * replace it when the run ends. No polling.
+	 */
+	async function send(preset?: string, fix?: AgentFixRequest) {
 		const text = (preset ?? agentChat.draft).trim()
-		if (!text || sending) return
+		if ((!text && !fix) || sending) return
 		snapProvider()
 		if (
 			!configuredProviders(aiSettings.view).some(
@@ -302,149 +327,71 @@
 			error = 'Add a provider key in Settings.'
 			return
 		}
-		const gen = ++sendGen
-		sending = true
-		elapsedSec = 0
-		const sentAt = new Date().toISOString()
-		const knownAssistantIds = new Set(
-			agentChat.messages.filter((m) => m.role === 'assistant').map((m) => m.id),
-		)
-		const tick = setInterval(() => {
-			if (gen === sendGen) elapsedSec += 1
-		}, 1000)
-		const poll = setInterval(() => {
-			void reconcileInFlight(gen, knownAssistantIds)
-		}, 800)
 		error = null
-		if (!preset) agentChat.draft = ''
-		const optimisticId = `local-${crypto.randomUUID()}`
+		const forConnection = connectionId
+		const key = agentChat.beginRun(forConnection)
+		elapsedSec = 0
+		if (preset === undefined) agentChat.draft = ''
+		const optimisticId = `local-${key}`
 		const optimistic: AgentMessage = {
 			id: optimisticId,
 			chatId: agentChat.chatId ?? '',
 			role: 'user',
-			content: text,
+			content: text || 'Fix this query.',
 			toolName: null,
 			draftBody: null,
-			createdAt: sentAt,
+			createdAt: new Date().toISOString(),
 		}
 		agentChat.messages = [...agentChat.messages, optimistic]
-		queueMicrotask(() => {
-			listEl?.scrollTo({ top: listEl.scrollHeight })
-		})
+		scrollToEnd()
 		try {
 			const editorQuery = (workspaceSession.queryDrafts[tabId] ?? '').slice(
 				0,
 				40_000,
 			)
-			const result = await sendAgentMessage({
-				connectionId,
-				connectionName,
-				engine,
-				database,
-				chatId: agentChat.chatId,
-				provider: agentChat.provider,
-				model: agentChat.model,
-				text,
-				editorQuery,
-			})
-			if (gen !== sendGen) return
-			agentChat.chatId = result.chat.id
-			try {
-				await hydrateMessages(result.chat.id, true)
-				if (!agentChat.messages.some((m) => m.id === result.assistant.id)) {
-					agentChat.messages = [
-						...agentChat.messages.filter(
-							(m) => m.id !== optimisticId && m.id !== result.user.id,
-						),
-						result.user,
-						result.assistant,
-					]
-				}
-			} catch {
-				agentChat.messages = [
-					...agentChat.messages.filter(
-						(m) => m.id !== optimisticId && m.id !== result.user.id,
-					),
-					result.user,
-					result.assistant,
-				]
-			}
+			const started = await sendAgentMessage(
+				{
+					connectionId,
+					connectionName,
+					engine,
+					database,
+					chatId: agentChat.chatId,
+					provider: agentChat.provider,
+					model: agentChat.model,
+					text,
+					editorQuery,
+					mentions: resolveMentions(text, mentionTables),
+					fix,
+				},
+				(event) => {
+					agentChat.onRunEvent(key, event)
+					followStream()
+				},
+			)
+			// Switched connection meanwhile: the old run is not this view's.
+			if (agentChat.connectionId !== forConnection) return
+			agentChat.chatId = started.chat.id
+			agentChat.messages = agentChat.messages.map((m) =>
+				m.id === optimisticId ? started.user : m,
+			)
+			agentChat.runStarted(key, started.chat.id)
 			void loadChats(true)
 		} catch (e) {
-			if (gen !== sendGen) return
+			agentChat.runFailedToStart(key)
+			agentChat.messages = agentChat.messages.filter(
+				(m) => m.id !== optimisticId,
+			)
+			if (preset === undefined && !agentChat.draft) agentChat.draft = text
 			error = errorMessage(e)
-			await recoverFromDb(knownAssistantIds)
-		} finally {
-			clearInterval(tick)
-			clearInterval(poll)
-			if (gen === sendGen) {
-				sending = false
-				elapsedSec = 0
-			}
 		}
 	}
 
-	async function reconcileInFlight(gen: number, knownIds: Set<string>) {
-		if (gen !== sendGen || !sending) return
-		try {
-			let id = agentChat.chatId
-			if (!id) {
-				agentChat.setChats(await listAgentChats(connectionId))
-				id = agentChat.chats[0]?.id ?? null
-			}
-			if (!id || gen !== sendGen) return
-			const remote = await listAgentMessages(id)
-			if (gen !== sendGen || !sending) return
-			if (!hasUnseenAssistant(remote, knownIds)) return
-			agentChat.chatId = id
-			agentChat.messages = remote
-			sending = false
-			elapsedSec = 0
-			sendGen += 1
-			queueMicrotask(() => {
-				listEl?.scrollTo({ top: listEl.scrollHeight })
-			})
-		} catch {
-			/* next tick retries */
-		}
+	function stop() {
+		agentChat.stopRun()
 	}
 
-	async function recoverFromDb(knownIds: Set<string>) {
-		try {
-			if (!agentChat.chatId) {
-				await loadChats()
-			}
-			const id = agentChat.chatId ?? agentChat.chats[0]?.id ?? null
-			if (!id) return
-			const remote = await listAgentMessages(id)
-			if (remote.length === 0) return
-			agentChat.chatId = id
-			agentChat.messages = remote
-			if (hasUnseenAssistant(remote, knownIds)) {
-				error = null
-			}
-		} catch {
-			/* keep the invoke error */
-		}
-	}
-
-	function stopWaiting() {
-		sendGen += 1
-		sending = false
-		elapsedSec = 0
-		void (async () => {
-			if (!agentChat.chatId) await loadChats()
-			const id = agentChat.chatId ?? agentChat.chats[0]?.id ?? null
-			if (id) {
-				agentChat.chatId = id
-				await hydrateMessages(id)
-				if (agentChat.messages.some((m) => m.role === 'assistant')) {
-					error = null
-					return
-				}
-			}
-			error = 'Stopped waiting. Send again if you still want a reply.'
-		})()
+	function continueRun() {
+		void send('Continue where you stopped.')
 	}
 
 	function applyDraft(sql: string) {
@@ -457,19 +404,6 @@
 		queueMicrotask(() => {
 			document.getElementById('agent-composer')?.focus()
 		})
-	}
-
-	function onComposerKey(e: KeyboardEvent) {
-		if (
-			e.key === 'Enter' &&
-			(e.metaKey || e.ctrlKey) &&
-			!e.shiftKey &&
-			!e.altKey
-		) {
-			e.preventDefault()
-			e.stopPropagation()
-			void send()
-		}
 	}
 
 	$effect(() => {
@@ -507,6 +441,29 @@
 			const text = workspaceSession.takePendingAgentPrompt()
 			if (text) void send(text)
 		})
+	})
+
+	// "Fix with AI" from the error banner.
+	$effect(() => {
+		const queued = workspaceSession.pendingAgentFix
+		if (!queued || sending || !settings || !providerReady) return
+		untrack(() => {
+			const fix = workspaceSession.takePendingAgentFix()
+			if (fix) void send('Fix this query.', fix)
+		})
+	})
+
+	// The elapsed label while a run streams. The interval dies with the run
+	// and with the pane (effect cleanup on unmount).
+	$effect(() => {
+		if (!sending) {
+			elapsedSec = 0
+			return
+		}
+		const tick = setInterval(() => {
+			elapsedSec += 1
+		}, 1000)
+		return () => clearInterval(tick)
 	})
 
 	async function openConnectionChats() {
@@ -650,10 +607,10 @@
 				<AgentChatThread
 					messages={agentChat.messages}
 					{engine}
-					{sending}
+					live={agentChat.live}
 					{workingLabel}
 					onapply={applyDraft}
-					onstop={stopWaiting}
+					onstop={stop}
 				/>
 			{/if}
 		</div>
@@ -665,63 +622,55 @@
 		</div>
 	{/if}
 
-	{#if error}
+	{#if error || agentChat.runError}
 		<div class="shrink-0 bg-app px-2 pb-1">
-			<Alert tone="danger">{error}</Alert>
+			<Alert tone="danger">{error ?? agentChat.runError}</Alert>
 		</div>
 	{/if}
 
-	<form
-		class="shrink-0 bg-app p-2 pt-1"
-		onsubmit={(e) => {
-			e.preventDefault()
-			void send()
-		}}
-	>
+	{#if canContinue}
 		<div
-			class="overflow-hidden rounded-xl border border-line bg-elevated shadow-sm focus-within:border-focus focus-within:ring-2 focus-within:ring-accent-muted"
+			class="flex shrink-0 items-center gap-2 bg-app px-3 pb-1"
+			aria-live="polite"
 		>
-			<Textarea
-				id="agent-composer"
-				rows={3}
-				resize="none"
-				chrome={false}
-				class="min-h-16 rounded-none px-3 pt-2.5 pb-1"
-				placeholder="Ask for a query…"
-				bind:value={agentChat.draft}
-				disabled={sending}
-				enterkeyhint="send"
-				onkeydown={onComposerKey}
-			/>
-			<div class="flex items-center justify-between gap-2 px-2 pt-0.5 pb-1.5">
-				<Select
-					variant="quiet"
-					inputSize="sm"
-					options={comboOptions}
-					value={comboValue}
-					placeholder={comboPlaceholder}
-					triggerLabel={comboShortLabel}
-					ariaLabel="Model"
-					disabled={!hasProvider ||
-						(agentChat.modelsLoading && comboOptions.length === 0)}
-					onchange={applyCombo}
-				>
-					{#snippet leading()}
-						<Icon name="sparkle" class="size-3.5" />
-					{/snippet}
-				</Select>
-				<IconButton
-					type="submit"
-					label={sending ? 'Sending' : `Send (${sendChord})`}
-					variant="accent"
-					size="sm"
-					disabled={!canSend}
-				>
-					<Icon name="send" />
-				</IconButton>
-			</div>
+			<p class="m-0 min-w-0 flex-1 text-caption text-fg-secondary">
+				Stopped after {agentChat.exhausted?.turns} steps without an answer.
+			</p>
+			<Button size="sm" variant="secondary" onclick={continueRun}>
+				Continue
+			</Button>
 		</div>
-	</form>
+	{/if}
+
+	<AgentComposer
+		bind:value={agentChat.draft}
+		{sending}
+		{canSend}
+		{sendChord}
+		tables={mentionTables}
+		combo={{
+			options: comboOptions,
+			value: comboValue,
+			placeholder: comboPlaceholder,
+			shortLabel: comboShortLabel,
+			disabled:
+				!hasProvider || (agentChat.modelsLoading && comboOptions.length === 0),
+		}}
+		oncombo={applyCombo}
+		onsend={() => void send()}
+		onstop={stop}
+	>
+		{#snippet footer()}
+			{#if tokensLine && !sending}
+				<span
+					class="truncate text-caption text-fg-muted tabular-nums"
+					title="Tokens used by the last reply"
+				>
+					{tokensLine}
+				</span>
+			{/if}
+		{/snippet}
+	</AgentComposer>
 </aside>
 
 <style>
