@@ -81,6 +81,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-client-protocol-schema"
+version = "1.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e20d2c4af6eb08f6a4f562520bdd939a4af803255fec461dd523638c22f5b265"
+dependencies = [
+ "anyhow",
+ "derive_more",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "strum 0.28.0",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6366,6 +6380,24 @@ dependencies = [
  "tauri-plugin-opener",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "mystique-acp"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol-schema",
+ "libc",
+ "mystique-agent",
+ "mystique-core",
+ "mystique-mcp",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ts-rs",
 ]
 
 [[package]]

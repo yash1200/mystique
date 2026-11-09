@@ -5,6 +5,8 @@
  * Dependencies point down the table, never up or sideways:
  *
  *   mystique (src-tauri shell), mystique-ipc-gen (writes the TS bindings)
+ *     └ mystique-acp                        external agent (ACP) in the agent pane; reuses
+ *                                           mystique-agent's turns, reaches tools via MCP
  *     └ mystique-mcp, mystique-agent        adapters over core
  *         └ mystique-core                   app services, storage, connection manager
  *             └ mystique-plugin-*           engine drivers (never each other, never core)
@@ -42,13 +44,23 @@ const RULES = [
 	],
 	['mystique-mcp', ['mystique-core', 'mystique-connector-api', 'mystique-sql']],
 	['mystique-agent', ['mystique-core', 'mystique-connector-api', 'mystique-sql']],
+	// mystique-mcp only as a dev dependency in practice (the end-to-end tests
+	// run the real MCP server); the shell hands the MCP endpoint in.
+	['mystique-acp', ['mystique-core', 'mystique-agent', 'mystique-mcp']],
 	[
 		'mystique-ipc-gen',
-		['mystique-core', 'mystique-mcp', 'mystique-agent', 'mystique-connector-api'],
+		['mystique-core', 'mystique-mcp', 'mystique-agent', 'mystique-acp', 'mystique-connector-api'],
 	],
 	[
 		'mystique',
-		['mystique-core', 'mystique-mcp', 'mystique-agent', 'mystique-connector-api', 'mystique-sql'],
+		[
+			'mystique-core',
+			'mystique-mcp',
+			'mystique-agent',
+			'mystique-acp',
+			'mystique-connector-api',
+			'mystique-sql',
+		],
 	],
 ]
 

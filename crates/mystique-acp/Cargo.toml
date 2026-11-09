@@ -1,0 +1,34 @@
+[package]
+name = "mystique-acp"
+version = "0.1.0"
+edition = "2021"
+description = "Agent Client Protocol client: run an external agent in the agent pane"
+publish = false
+
+[dependencies]
+ts-rs = { version = "12", optional = true, default-features = false, features = ["serde-compat", "serde-json-impl"] }
+mystique-core = { path = "../mystique-core" }
+mystique-agent = { path = "../mystique-agent" }
+# The ACP wire types, pinned: protocol version 1, stable features only.
+# The SDK crate (`agent-client-protocol`) is not used: Mystique owns the
+# process, the tokio tasks and the cancel path. See docs/ACP.md.
+agent-client-protocol-schema = { version = "=1.16.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util"] }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# killpg: stop the agent's whole process group (npx → node → CLI).
+libc = "0.2"
+
+[dev-dependencies]
+# The real MCP server for the end-to-end turn.
+mystique-mcp = { path = "../mystique-mcp" }
+tempfile = "3"
+# Captures log lines in the redaction test.
+tracing-subscriber = { workspace = true }
+
+[features]
+# TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
+ts = ["dep:ts-rs", "mystique-core/ts", "mystique-agent/ts"]
