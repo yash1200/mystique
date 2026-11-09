@@ -5,6 +5,9 @@ import type {
 } from '#core/contracts'
 
 export type {
+	AcpAgentSaved,
+	AcpAgentStatus,
+	AcpAgentView,
 	AcpEnvInput,
 	AcpEnvVar,
 	AcpProbe,
@@ -17,7 +20,8 @@ export type {
 	AgentModelInfo,
 	AgentTableRef,
 	AgentTokens,
-	SaveAcpSettings,
+	DetectedAcpAgent,
+	SaveAcpAgent,
 	SendAgentResult,
 } from '#core/contracts'
 

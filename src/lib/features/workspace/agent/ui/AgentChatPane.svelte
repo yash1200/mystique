@@ -15,7 +15,15 @@
 		cmd,
 	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
-	import { ACP_PROVIDER, acpSettings, isExternalAgent } from '../acp-settings.svelte'
+	import {
+		ACP_PROVIDER,
+		acpSettings,
+		agentChoices,
+		BUILTIN_AGENT,
+		chatChoice,
+		defaultChoice,
+		findAgent,
+	} from '../acp-settings.svelte'
 	import { sendAgentMessage, updateAgentChat } from '../api'
 	import { agentChat } from '../chat.svelte'
 	import { configuredProviders, resolveAgentProvider } from '../configured'
@@ -45,9 +53,16 @@
 	}: Props = $props()
 
 	const settings = $derived(aiSettings.view)
-	/** Settings → AI → Agent picked an external (ACP) agent. */
-	const external = $derived(isExternalAgent(acpSettings.view))
-	const externalLabel = $derived(acpSettings.view?.agentLabel || 'External agent')
+	/**
+	 * Which agent this chat talks to: `builtin` or an added external (ACP)
+	 * agent's id. A saved chat remembers it; a new chat starts on the
+	 * default from Settings → AI → Agent.
+	 */
+	let agentChoice = $state(BUILTIN_AGENT)
+	const externalAgent = $derived(findAgent(acpSettings.view, agentChoice))
+	const external = $derived(externalAgent !== null)
+	const externalLabel = $derived(externalAgent?.label || 'External agent')
+	const agentOptions = $derived(agentChoices(acpSettings.view))
 	/** A run is streaming. It lives in the store, so it survives a remount. */
 	const sending = $derived(agentChat.live !== null)
 	let elapsedSec = $state(0)
@@ -276,11 +291,13 @@
 		agentChat.chatId = next
 		if (!next) {
 			agentChat.messages = []
+			agentChoice = defaultChoice(acpSettings.view)
 			return
 		}
 		const c = agentChat.chats.find((x) => String(x.id) === next)
 		if (c) {
 			snapProvider(c)
+			agentChoice = chatChoice(acpSettings.view, c)
 			void loadModels()
 		}
 		try {
@@ -296,7 +313,30 @@
 		agentChat.chatId = null
 		agentChat.messages = []
 		agentChat.draft = ''
+		agentChoice = defaultChoice(acpSettings.view)
 		error = null
+	}
+
+	/**
+	 * The header's agent menu. The open chat remembers the pick: an
+	 * external agent's chat stores the agent's id as its model.
+	 */
+	function pickAgent(next: string) {
+		if (sending || next === agentChoice) return
+		agentChoice = next
+		const id = agentChat.chatId
+		if (!id) return
+		const meta =
+			next === BUILTIN_AGENT
+				? { provider: agentChat.provider, model: agentChat.model }
+				: { provider: ACP_PROVIDER, model: next }
+		if (!meta.provider) return
+		agentChat.chats = agentChat.chats.map((c) =>
+			String(c.id) === String(id) ? { ...c, ...meta } : c,
+		)
+		void updateAgentChat({ id, ...meta }).catch((e: unknown) => {
+			error = errorMessage(e)
+		})
 	}
 
 	/** Delete at once; the toast's Undo brings it back. */
@@ -373,9 +413,10 @@
 					engine,
 					database,
 					chatId: agentChat.chatId,
-					// The external agent picks its own model.
+					// An external agent picks its own model; `model` names
+					// the agent, and the chat remembers it.
 					provider: viaExternal ? ACP_PROVIDER : agentChat.provider,
-					model: viaExternal ? '' : agentChat.model,
+					model: viaExternal ? agentChoice : agentChat.model,
 					text,
 					editorQuery,
 					mentions: resolveMentions(text, mentionTables),
@@ -493,13 +534,18 @@
 				(c) => String(c.id) === String(agentChat.chatId),
 			)
 			if (current) snapProvider(current)
+			agentChoice = chatChoice(acpSettings.view, current)
 			await hydrateMessages(agentChat.chatId)
 			return
 		}
 		const first = agentChat.chats[0]
-		if (!first) return
+		if (!first) {
+			agentChoice = defaultChoice(acpSettings.view)
+			return
+		}
 		agentChat.chatId = String(first.id)
 		snapProvider(first)
+		agentChoice = chatChoice(acpSettings.view, first)
 		await hydrateMessages(agentChat.chatId)
 	}
 
@@ -547,17 +593,29 @@
 				<Icon name="chat" />
 			</span>
 			<div class="min-w-0 flex-1">
-				<p
-					class="m-0 truncate text-body font-semibold leading-tight text-fg"
+				<div
+					class="flex min-w-0 items-center gap-1 text-body font-semibold leading-tight text-fg"
 					title={external
 						? `External agent (ACP): ${externalLabel}`
 						: 'Built-in agent'}
 				>
-					Agent
-					<span class="font-normal text-fg-muted">
-						· {external ? externalLabel : 'Built-in'}
-					</span>
-				</p>
+					<span class="shrink-0">Agent ·</span>
+					{#if agentOptions.length > 1}
+						<Select
+							class="min-w-0"
+							variant="quiet"
+							inputSize="sm"
+							ariaLabel="Agent for this chat"
+							options={agentOptions}
+							value={agentChoice}
+							triggerLabel={external ? externalLabel : 'Built-in'}
+							disabled={sending}
+							onchange={pickAgent}
+						/>
+					{:else}
+						<span class="truncate font-normal text-fg-muted">Built-in</span>
+					{/if}
+				</div>
 				<p
 					class="m-0 mt-0.5 truncate text-caption leading-tight text-fg-muted"
 					title={connectionLine}

@@ -1,7 +1,9 @@
 import { Channel, invoke } from '#core/ipc'
 import type {
+	AcpAgentSaved,
 	AcpProbe,
 	AcpSettingsView,
+	DetectedAcpAgent,
 	AgentChat,
 	AgentEvent,
 	AgentFixRequest,
@@ -9,7 +11,7 @@ import type {
 	AgentModelInfo,
 	AgentTableRef,
 	AiSettingsView,
-	SaveAcpSettings,
+	SaveAcpAgent,
 	SendAgentResult,
 } from './types'
 
@@ -136,19 +138,37 @@ export async function cancelAgentMessage(chatId: string): Promise<boolean> {
 	return invoke('cancel_agent_message', { chatId: asId(chatId) })
 }
 
-/** Settings → AI → Agent: built-in or an external (ACP) agent. */
+/** Settings → AI → Agent: the added external (ACP) agents and the default. */
 export async function getAcpSettings(): Promise<AcpSettingsView> {
 	return invoke('get_acp_settings')
 }
 
-/** Secret-looking environment values are sealed in the vault. */
-export async function saveAcpSettings(
-	input: SaveAcpSettings,
-): Promise<AcpSettingsView> {
-	return invoke('save_acp_settings', { input })
+/** Add or change an agent. Secret-looking environment values go to the vault. */
+export async function saveAcpAgent(input: SaveAcpAgent): Promise<AcpAgentSaved> {
+	return invoke('save_acp_agent', { input })
 }
 
-/** Start the saved external agent, run `initialize`, stop it. */
-export async function testAcpAgent(): Promise<AcpProbe> {
-	return invoke('test_acp_agent')
+/** Remove an agent and its vault secrets. */
+export async function removeAcpAgent(id: string): Promise<AcpSettingsView> {
+	return invoke('remove_acp_agent', { id })
+}
+
+/** What new chats use: `builtin` or an agent id. */
+export async function setDefaultAgent(id: string): Promise<AcpSettingsView> {
+	return invoke('set_default_agent', { id })
+}
+
+/** Which known ACP agents are on this machine. Installs nothing. */
+export async function detectAcpAgents(): Promise<DetectedAcpAgent[]> {
+	return invoke('detect_acp_agents')
+}
+
+/** Add a detected agent with its launch command as found on this machine. */
+export async function addDetectedAcpAgent(catalogId: string): Promise<AcpAgentSaved> {
+	return invoke('add_detected_acp_agent', { catalogId })
+}
+
+/** Start agent `id`, run `initialize` and a sign-in check, stop it. */
+export async function testAcpAgent(id: string): Promise<AcpProbe> {
+	return invoke('test_acp_agent', { id })
 }

@@ -4,6 +4,9 @@
  * (`pnpm gen:ipc`).
  */
 export type {
+	AcpAgentSaved,
+	AcpAgentStatus,
+	AcpAgentView,
 	AcpEnvInput,
 	AcpEnvVar,
 	AcpProbe,
@@ -20,6 +23,7 @@ export type {
 	AiKeyStatus,
 	AiSettingsView,
 	AppendHistoryInput,
+	DetectedAcpAgent,
 	GridColumnLayoutRecord,
 	GridSaveSummary,
 	JsonValue,
@@ -31,7 +35,7 @@ export type {
 	QueryHistoryPage,
 	QueryHistorySource,
 	ReplaceWorkspaceTabsInput,
-	SaveAcpSettings,
+	SaveAcpAgent,
 	SaveQueryInput,
 	SaveWorkspaceTabInput,
 	SavedQuery,
