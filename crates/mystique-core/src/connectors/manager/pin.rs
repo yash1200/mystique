@@ -13,7 +13,7 @@ use mystique_connector_api::{
 };
 use mystique_connector_api::{
     gate_sql_batch_in, PinStatus, PinnedSession, PlannedStatement, QueryBatchResult, QueryMode,
-    SqlDialect, SqlRange, StatementKind, ValidatedBatch, DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
+    SqlDialect, ValidatedBatch, DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
 };
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -360,16 +360,16 @@ impl ConnectionManager {
         result
     }
 
-    /// Mongo shell text on the tab's pin. One statement, same guards as a normal find.
-    // Values the caller already resolved from the request; one call site.
+    /// One Mongo shell statement on the tab's pin, already validated and
+    /// guarded. A buffer of several calls this once per statement, in order.
+    // Values the caller already resolved from the request.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn pinned_document_batch(
         &self,
         session_id: &str,
         tab_id: &str,
-        text: &str,
+        statement: PlannedStatement,
         mode: QueryMode,
-        kind: StatementKind,
         max_rows: u32,
         timeout_ms: u64,
         collection: Option<String>,
@@ -377,21 +377,8 @@ impl ConnectionManager {
         control: Arc<mystique_connector_api::QueryControl>,
     ) -> ConnectorResult<QueryBatchResult> {
         self.ensure_tab_pin(session_id, tab_id).await?;
-        let end = u32::try_from(text.len()).unwrap_or(u32::MAX);
         let batch = ValidatedBatch {
-            statements: vec![PlannedStatement {
-                index: 0,
-                sql: text.to_string(),
-                sql_range: SqlRange { start: 0, end },
-                kind,
-                returns_rows: true,
-                returns_count: false,
-                cursor: false,
-                multi_set: false,
-                txn_boundary: false,
-                explain_executes: false,
-                params: Vec::new(),
-            }],
+            statements: vec![statement],
             mode,
             max_rows,
             timeout_ms,

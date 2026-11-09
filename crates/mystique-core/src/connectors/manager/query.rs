@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use mystique_connector_api::{
     BatchEvent, BatchPhase, ConnectorError, ConnectorResult, ExecuteQueryRequest, ProgressPump,
-    QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementKind, StatementResult,
-    ValidatedQuery, WriteAction,
+    QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementResult, ValidatedQuery,
+    WriteAction,
 };
 
+use super::document::{document_statement, statement_kind, DocumentRun};
 use super::guard::WriteCheck;
 use super::ConnectionManager;
 
@@ -23,7 +24,8 @@ impl ConnectionManager {
     ///
     /// SQL is planned once. Read mode rejects a non-read before anything runs.
     /// `BEGIN` / `COMMIT` / `ROLLBACK` are refused unless the tab is pinned.
-    /// MongoDB is not parsed as SQL; it stays one statement.
+    /// MongoDB is not parsed as SQL; its policy splits the shell text, and a
+    /// single statement runs as typed.
     pub async fn execute_batch(
         &self,
         req: ExecuteQueryRequest,
@@ -50,6 +52,22 @@ impl ConnectionManager {
         let policy = self.registry.policy(&engine).ok_or_else(|| {
             ConnectorError::Internal(format!("no query policy registered for engine `{engine}`"))
         })?;
+        let ranges = policy.split(&req.text);
+        if ranges.len() > 1 {
+            let run = DocumentRun {
+                mode,
+                max_rows,
+                timeout_ms,
+                read_only,
+                progress,
+                tab_id,
+                control,
+            };
+            return self
+                .execute_document_script(session, policy, req, ranges, run)
+                .await;
+        }
+        // One statement (or none): the whole text, exactly as typed.
         policy.validate(&req.text, mode)?;
         let risk = if mode == QueryMode::Read {
             mystique_connector_api::WriteRisk::Read
@@ -66,11 +84,7 @@ impl ConnectionManager {
         })
         .await?;
 
-        let kind = match risk {
-            mystique_connector_api::WriteRisk::Read => StatementKind::Read,
-            mystique_connector_api::WriteRisk::Write => StatementKind::Write,
-            mystique_connector_api::WriteRisk::Destructive => StatementKind::Destructive,
-        };
+        let kind = statement_kind(risk);
         if let Some(tab) = tab_id.as_deref() {
             self.ensure_tab_pin(&req.session_id, tab).await?;
         }
@@ -102,9 +116,8 @@ impl ConnectionManager {
                     self.pinned_document_batch(
                         &req.session_id,
                         tab,
-                        &validated.text,
+                        document_statement(0, &validated.text, 0..validated.text.len(), kind),
                         mode,
-                        kind,
                         max_rows,
                         timeout_ms,
                         validated.collection.clone(),

@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 mod catalog;
 mod depth;
+mod document;
 mod explain;
 mod grid_save;
 mod guard;
@@ -606,5 +607,7 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
     }
 }
 
+#[cfg(test)]
+mod document_tests;
 #[cfg(test)]
 mod tests;
