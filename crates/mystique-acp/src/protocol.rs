@@ -8,7 +8,7 @@ use agent_client_protocol_schema::v1::{
     CancelNotification, ClientCapabilities, ContentBlock, EnvVariable, FileSystemCapabilities,
     HttpHeader, Implementation, InitializeRequest, InitializeResponse, McpServer, McpServerHttp,
     McpServerStdio, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
-    StopReason, TextContent,
+    StopReason, SystemPrompt, TextContent,
 };
 use agent_client_protocol_schema::ProtocolVersion;
 use serde_json::Value as JsonValue;
@@ -58,6 +58,9 @@ pub(crate) struct AgentHello {
     pub mcp_sse: bool,
     pub load_session: bool,
     pub auth_methods: Vec<String>,
+    /// Takes a client system prompt on `session/new`
+    /// (`sessionCapabilities.systemPrompt`).
+    pub system_prompt: bool,
 }
 
 pub(crate) fn parse_initialize(result: JsonValue) -> Result<AgentHello, String> {
@@ -72,6 +75,11 @@ pub(crate) fn parse_initialize(result: JsonValue) -> Result<AgentHello, String> 
         mcp_http: response.agent_capabilities.mcp_capabilities.http,
         mcp_sse: response.agent_capabilities.mcp_capabilities.sse,
         load_session: response.agent_capabilities.load_session,
+        system_prompt: response
+            .agent_capabilities
+            .session_capabilities
+            .system_prompt
+            .is_some(),
         auth_methods: response
             .auth_methods
             .iter()
@@ -123,11 +131,16 @@ pub(crate) fn mcp_route(hello: &AgentHello, bridge: Option<&Path>) -> Result<Mcp
 /// `session/new`: the working directory and Mystique's MCP server, and no
 /// other. Over HTTP the token is a header; over the bridge it is an
 /// environment variable of the bridge process — never an argument.
+///
+/// `system`: Mystique's task contract, added to the agent's own
+/// instructions (`append`). Pass it only when the agent advertises
+/// `sessionCapabilities.systemPrompt`; ACP forbids it otherwise.
 pub(crate) fn new_session_params(
     cwd: &Path,
     route: &McpRoute,
     mcp_url: &str,
     mcp_token: &str,
+    system: Option<&str>,
 ) -> JsonValue {
     let server = match route {
         McpRoute::Http => {
@@ -144,7 +157,13 @@ pub(crate) fn new_session_params(
                 ]),
         ),
     };
-    let request = NewSessionRequest::new(cwd).mcp_servers(vec![server]);
+    let system = system
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| SystemPrompt::new(vec![ContentBlock::Text(TextContent::new(text))]));
+    let request = NewSessionRequest::new(cwd)
+        .mcp_servers(vec![server])
+        .system_prompt(system);
     serde_json::to_value(request).unwrap_or(JsonValue::Null)
 }
 
@@ -222,8 +241,10 @@ mod tests {
             &McpRoute::Http,
             "http://127.0.0.1:1/mcp",
             "tok",
+            None,
         );
         assert_eq!(params["cwd"], "/tmp/acp");
+        assert!(params.get("systemPrompt").is_none());
         let servers = params["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["type"], "http");
@@ -244,6 +265,7 @@ mod tests {
             &McpRoute::Bridge(PathBuf::from(exe)),
             "http://127.0.0.1:7801/mcp",
             token,
+            None,
         );
         let servers = params["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
@@ -263,6 +285,51 @@ mod tests {
         // The Test button's session has no MCP server.
         let probe = probe_session_params(Path::new("/tmp/acp"));
         assert_eq!(probe["mcpServers"], json!([]));
+    }
+
+    #[test]
+    fn the_contract_goes_in_as_an_appended_system_prompt() {
+        let params = new_session_params(
+            Path::new("/tmp/acp"),
+            &McpRoute::Http,
+            "http://127.0.0.1:1/mcp",
+            "tok",
+            Some("Follow the task contract."),
+        );
+        assert_eq!(
+            params["systemPrompt"],
+            json!({
+                "mode": "append",
+                "content": [{ "type": "text", "text": "Follow the task contract." }]
+            })
+        );
+        // Blank text sends no system prompt (ACP forbids an empty one).
+        let blank = new_session_params(
+            Path::new("/tmp/acp"),
+            &McpRoute::Http,
+            "http://127.0.0.1:1/mcp",
+            "tok",
+            Some("  "),
+        );
+        assert!(blank.get("systemPrompt").is_none());
+    }
+
+    #[test]
+    fn the_system_prompt_capability_is_read_from_initialize() {
+        let with = parse_initialize(json!({
+            "protocolVersion": 1,
+            "agentCapabilities": { "sessionCapabilities": { "systemPrompt": {} } },
+            "agentInfo": { "name": "claude", "version": "1.0" }
+        }))
+        .unwrap();
+        assert!(with.system_prompt);
+        let without = parse_initialize(json!({
+            "protocolVersion": 1,
+            "agentCapabilities": {},
+            "agentInfo": { "name": "grok", "version": "1.0" }
+        }))
+        .unwrap();
+        assert!(!without.system_prompt);
     }
 
     #[test]

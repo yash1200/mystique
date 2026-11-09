@@ -345,6 +345,9 @@ pub(crate) struct TurnSpec {
     /// The app binary, to run as the stdio MCP bridge for agents without
     /// HTTP MCP. `None`: such agents are refused.
     pub bridge: Option<std::path::PathBuf>,
+    /// Mystique's task contract. Sent as the session's system prompt when
+    /// the agent takes one, else as the first block of the prompt.
+    pub system: String,
     /// Text blocks of the prompt: Mystique's context, then the user's words.
     pub prompt: Vec<String>,
     pub scrub: Scrubber,
@@ -460,6 +463,19 @@ pub(crate) async fn execute(
     stream.finish().await;
 }
 
+/// Where the task contract goes: the session's system prompt when the
+/// agent advertises `sessionCapabilities.systemPrompt`, else the first
+/// block of the prompt, before Mystique's context and the user's words.
+fn place_contract<'a>(hello: &AgentHello, spec: &'a TurnSpec) -> (Option<&'a str>, Vec<String>) {
+    if hello.system_prompt && !spec.system.trim().is_empty() {
+        return (Some(spec.system.as_str()), spec.prompt.clone());
+    }
+    let mut prompt = Vec::with_capacity(spec.prompt.len() + 1);
+    prompt.push(spec.system.clone());
+    prompt.extend(spec.prompt.iter().cloned());
+    (None, prompt)
+}
+
 async fn drive(
     launcher: &dyn Launcher,
     spec: &TurnSpec,
@@ -482,12 +498,19 @@ async fn drive(
     };
     tracing::info!(
         transport = route.label(),
+        system_prompt = hello.system_prompt,
         "acp: passing Mystique's MCP server"
     );
 
+    let (system, prompt) = place_contract(&hello, spec);
     let setup_deadline = deadline.min(Instant::now() + SETUP_LIMIT);
-    let params =
-        protocol::new_session_params(&spec.launch.cwd, &route, &spec.mcp.url, &spec.mcp.token);
+    let params = protocol::new_session_params(
+        &spec.launch.cwd,
+        &route,
+        &spec.mcp.url,
+        &spec.mcp.token,
+        system,
+    );
     let mut reply = conn.start(protocol::SESSION_NEW, params);
     let session_id = match conn
         .serve_until(&mut reply, None, None, Some(token), setup_deadline)
@@ -524,7 +547,7 @@ async fn drive(
 
     let mut reply = conn.start(
         protocol::SESSION_PROMPT,
-        protocol::prompt_params(&session_id, &spec.prompt),
+        protocol::prompt_params(&session_id, &prompt),
     );
     let step = conn
         .serve_until(

@@ -15,10 +15,14 @@
 use serde_json::Value as JsonValue;
 use tokio::task::JoinHandle;
 
+use mystique_core::{AgentTools, ToolCaller};
+
 use crate::runtime::host::ToolFailure;
+use crate::runtime::runs::describe_mentions;
 use crate::runtime::stream::spawn_forwarder;
 use crate::runtime::{context, prompt, turns};
-use crate::AgentEventSink;
+use crate::tools::BoundTools;
+use crate::{AgentEventSink, AgentTableRef};
 
 pub use crate::runtime::events::{redact_args, redact_text};
 pub use crate::runtime::stream::{EventTx, DELTA_FLUSH};
@@ -64,6 +68,33 @@ pub fn summarize(outcome: Result<&JsonValue, &str>) -> String {
             at: None,
         })),
     }
+}
+
+/// The task contract the built-in agent runs under. An external agent gets
+/// the same rules, so both answer the same way.
+pub const TASK_CONTRACT: &str = prompt::TASK_CONTRACT;
+
+/// The `@table` references of a turn with their columns, as the built-in
+/// agent's preamble lists them (at most eight tables). The lookups run as
+/// `caller`, under its access levels, on the chat's connection and
+/// database. Empty when there are no references.
+pub async fn referenced_tables(
+    tools: AgentTools,
+    connection_id: &str,
+    database: &str,
+    mentions: &[AgentTableRef],
+    caller: ToolCaller,
+) -> String {
+    if mentions.is_empty() {
+        return String::new();
+    }
+    let bound = BoundTools::new(
+        tools,
+        connection_id.to_string(),
+        database.trim().to_string(),
+    )
+    .with_caller(caller);
+    describe_mentions(&bound, mentions).await
 }
 
 /// Connection, engine, database and the editor buffer, as the built-in

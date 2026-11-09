@@ -189,7 +189,12 @@ pub(crate) struct RunSpec {
     pub limit: Duration,
 }
 
-async fn describe_mentions(tools: &dyn ToolRunner, mentions: &[AgentTableRef]) -> String {
+/// The `@table` references with their columns (at most [`MAX_MENTIONS`]),
+/// looked up with `describe_object`. Empty when there are none.
+pub(crate) async fn describe_mentions(
+    tools: &dyn ToolRunner,
+    mentions: &[AgentTableRef],
+) -> String {
     let mut described = Vec::new();
     for m in mentions.iter().take(MAX_MENTIONS) {
         let name = m.name.trim();

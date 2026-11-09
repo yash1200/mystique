@@ -4,7 +4,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mystique_agent::kit::{transcript, workspace_context, ChatHost};
+use mystique_agent::kit::{
+    referenced_tables, transcript, workspace_context, ChatHost, TASK_CONTRACT,
+};
 use mystique_agent::{AgentEventSink, AgentRuntime, SendAgentMessage, SendAgentResult, TurnStart};
 use mystique_core::{AppError, AppResult, AppServices, ToolCaller};
 use serde::{Deserialize, Serialize};
@@ -27,15 +29,18 @@ const TRANSCRIPT_BUDGET: usize = 48_000;
 /// What the agent's working directory is called under the app data folder.
 const WORKDIR: &str = "acp-agent";
 
-/// What Mystique tells an external agent before the user's words.
-const CONTRACT: &str = "\
-You are working inside Mystique, a desktop database studio, on one database connection the user has open.\n\
-\n\
-- Use only the `mystique` MCP tools to look at or change the database. Pass the connection id below as `connection_id`. Check names with describe_object or get_schema_dbml; never invent tables or columns. Use sample_rows (at most 20 rows), explain_query and infer_fields instead of SELECT *.\n\
-- Mystique gives you no file system or shell access. Other tools are refused.\n\
-- The user's access levels decide what may run. A denied write ran nothing: say so and do not retry it. A write may wait for the user's approval in Mystique.\n\
-- When a query is the answer, finish with exactly one fenced ```sql or ```mql block holding the complete draft; the user applies it to the editor.\n\
-- Keep it short. Never ask for hosts, passwords or schema pastes.";
+/// What an external agent is told on top of the shared task contract: how
+/// it reaches Mystique's tools, and that it has nothing else.
+const ACP_RULES: &str = "\
+You are running as an external agent inside Mystique, a desktop database studio:\n\
+- Mystique's tools are on its `mystique` MCP server. Pass the connection id from the workspace context as `connection_id` on every call.\n\
+- Mystique gives you no file system or shell access. Other tools are refused.";
+
+/// The system prompt of an external agent's session: the built-in agent's
+/// task contract, then [`ACP_RULES`].
+fn system_prompt() -> String {
+    format!("{TASK_CONTRACT}\n\n{ACP_RULES}")
+}
 
 /// What the Test button shows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -317,28 +322,46 @@ impl AcpService {
         let mut secrets = config.secrets;
         secrets.push(mcp.token.clone());
         let scrub = Scrubber::new(secrets);
-        let spec = TurnSpec {
-            launch,
-            prompt: vec![context_block(&req, &prior), text],
-            mcp,
-            bridge: self.bridge.clone(),
-            scrub,
-            host: ChatHost {
-                app: Arc::clone(&self.app),
-                chat_id: chat.id.clone(),
-                connection_id: req.connection_id.clone(),
-                caller: ToolCaller::Mcp,
-            },
-            limit: RUN_LIMIT,
+        let host = ChatHost {
+            app: Arc::clone(&self.app),
+            chat_id: chat.id.clone(),
+            connection_id: req.connection_id.clone(),
+            caller: ToolCaller::Mcp,
         };
+        let bridge = self.bridge.clone();
         let launcher = Arc::clone(&self.launcher);
         let app = Arc::clone(&self.app);
         let on_hello = Box::new(move |hello: &AgentHello| {
             let name = hello.title.as_deref().unwrap_or(&hello.name);
             settings::remember_agent_name(&app, &agent_id, name);
         });
+        let tools = self.app.agent_tools();
         let token = claim.token().clone();
         tokio::spawn(async move {
+            // `@table` columns, looked up as the agent's own MCP calls would
+            // be (its levels). Stop during the lookup still ends the turn.
+            let database = req.database.as_deref().unwrap_or("");
+            let lookup = referenced_tables(
+                tools,
+                &req.connection_id,
+                database,
+                &req.mentions,
+                ToolCaller::Mcp,
+            );
+            let refs = tokio::select! {
+                refs = lookup => refs,
+                () = token.cancelled() => String::new(),
+            };
+            let spec = TurnSpec {
+                launch,
+                system: system_prompt(),
+                prompt: vec![context_block(&req, &prior, &refs), text],
+                mcp,
+                bridge,
+                scrub,
+                host,
+                limit: RUN_LIMIT,
+            };
             session::execute(launcher, spec, token, sink, on_hello).await;
             drop(claim);
         });
@@ -346,31 +369,24 @@ impl AcpService {
     }
 }
 
-/// Mystique's context for the turn: the contract, the connection, the
-/// editor, referenced tables, and the earlier turns.
-fn context_block(req: &SendAgentMessage, prior: &[mystique_core::AgentMessage]) -> String {
+/// Mystique's context for the turn: the connection, the editor, the
+/// referenced tables with their columns (`refs`), and the earlier turns.
+/// The task contract is not here: it goes in as the system prompt.
+fn context_block(
+    req: &SendAgentMessage,
+    prior: &[mystique_core::AgentMessage],
+    refs: &str,
+) -> String {
     let database = req.database.as_deref().map(str::trim).unwrap_or("");
     let editor = req.editor_query.as_deref().unwrap_or("");
     let mut out = format!(
-        "{CONTRACT}\n\n{}\nConnection id (for the `{MCP_SERVER_NAME}` tools): {}",
+        "{}\nConnection id (for the `{MCP_SERVER_NAME}` tools): {}",
         workspace_context(&req.connection_name, &req.engine, database, editor),
         req.connection_id
     );
-    let mentioned: Vec<String> = req
-        .mentions
-        .iter()
-        .filter(|m| !m.name.trim().is_empty())
-        .take(8)
-        .map(
-            |m| match m.schema.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                Some(schema) => format!("{schema}.{}", m.name.trim()),
-                None => m.name.trim().to_string(),
-            },
-        )
-        .collect();
-    if !mentioned.is_empty() {
-        out.push_str("\nTables the user referenced with @: ");
-        out.push_str(&mentioned.join(", "));
+    if !refs.trim().is_empty() {
+        out.push_str("\n\n");
+        out.push_str(refs.trim());
     }
     let earlier = transcript(prior, TRANSCRIPT_BUDGET);
     if !earlier.is_empty() {
@@ -378,4 +394,19 @@ fn context_block(req: &SendAgentMessage, prior: &[mystique_core::AgentMessage]) 
         out.push_str(&earlier);
     }
     out
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    #[test]
+    fn the_system_prompt_is_the_shared_contract_plus_the_acp_rules() {
+        let system = system_prompt();
+        assert!(system.starts_with(TASK_CONTRACT));
+        assert!(system.contains("Repair"));
+        assert!(system.contains("schema-qualified"));
+        assert!(system.contains("`mystique` MCP server"));
+        assert!(system.contains("no file system or shell access"));
+    }
 }

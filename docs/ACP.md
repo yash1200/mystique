@@ -268,14 +268,38 @@ Security:
 | MCP servers in `session/new` | exactly one: Mystique's (HTTP + bearer header, or the stdio bridge + env) |
 | Working directory (`cwd`) | an empty folder, `<app data>/acp-agent` |
 | Prompt content | text blocks only |
+| `systemPrompt` in `session/new` | the task contract, `append` mode, only when the agent advertises `sessionCapabilities.systemPrompt` |
 | `session/load`, modes, config options, auth | not used |
 | `elicitation` | not declared |
 
-The prompt is two text blocks: Mystique's context (a short contract, the
-connection name, engine, database, **connection id** for the tools, the
-editor buffer, `@`-referenced tables, and earlier turns of the chat as a
-transcript), then your words. Each turn starts a fresh agent process and
-session; the chat history travels in the transcript.
+### What the agent is told
+
+An external agent runs under the **same task contract** as the built-in
+agent (`TASK_CONTRACT` in `crates/mystique-agent/src/runtime/prompt.rs`):
+schema-qualified names, check names before using them, `sample_rows` /
+`explain_query` / `infer_fields` instead of `SELECT *`, writes only when the
+user asked, "this query" means the editor, how to handle a **Repair**
+message (Fix with AI), and one fenced `sql`/`mql` draft as the answer. A few
+ACP-only lines follow it (`ACP_RULES` in `crates/mystique-acp/src/service.rs`):
+the tools are on the `mystique` MCP server and take the connection id, and
+there is no file system or shell.
+
+Where the contract goes depends on the agent:
+
+- **Agent advertises `sessionCapabilities.systemPrompt`** (the Claude
+  adapter does): it is sent as `session/new` `systemPrompt`, mode `append`,
+  so it sits in the agent's system instructions next to its own. The prompt
+  is then two text blocks: Mystique's context, then your words.
+- **Otherwise** (ACP has no other system channel): the prompt is three text
+  blocks: the contract, Mystique's context, then your words.
+
+Mystique's context is the connection name, engine, database, the
+**connection id** for the tools, the editor buffer, the `@`-referenced
+tables **with their columns** (up to eight, looked up with `describe_object`
+before the agent starts, under the MCP access levels, as the agent's own
+calls would be), and earlier turns of the chat as a transcript. Each turn
+starts a fresh agent process and session; the chat history travels in the
+transcript.
 
 ## Turn lifecycle
 
@@ -283,7 +307,8 @@ session; the chat history travels in the transcript.
    empty folder, stdin/stdout piped for ACP, stderr captured.
 2. `initialize` (90 s limit). Refuse protocol ≠ 1; pick the MCP transport
    (HTTP, else the bridge, else refuse).
-3. `session/new` with Mystique's MCP server (90 s limit).
+3. `session/new` with Mystique's MCP server, and the task contract as
+   `systemPrompt` when the agent takes one (90 s limit).
 4. `session/prompt`; serve `session/update` and `session/request_permission`
    until the reply (10 min limit for the whole turn: a write may wait 90 s in
    the dock, and agents plan before calling tools).

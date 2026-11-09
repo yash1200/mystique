@@ -9,7 +9,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use mystique_agent::{AgentErrorKind, AgentEvent, AgentEventSink, AgentRuntime, SendAgentMessage};
+use mystique_agent::{
+    AgentErrorKind, AgentEvent, AgentEventSink, AgentRuntime, AgentTableRef, SendAgentMessage,
+};
 use mystique_core::{
     AppDatabase, AppServices, ConnectionManager, SaveConnectionInput, SecretStore, SshConfig,
     ToolCaller,
@@ -425,12 +427,18 @@ impl FakeAgent {
     }
 
     async fn handshake(&mut self) -> Handshake {
+        self.handshake_with(json!({ "mcpCapabilities": { "http": true, "sse": false } }))
+            .await
+    }
+
+    /// The handshake, advertising `capabilities` as `agentCapabilities`.
+    async fn handshake_with(&mut self, capabilities: JsonValue) -> Handshake {
         let (id, _) = self.expect("initialize").await;
         self.reply(
             id,
             json!({
                 "protocolVersion": 1,
-                "agentCapabilities": { "mcpCapabilities": { "http": true, "sse": false } },
+                "agentCapabilities": capabilities,
                 "agentInfo": { "name": "fake-agent", "title": "Fake Agent", "version": "0.0.1" },
                 "authMethods": []
             }),
@@ -687,10 +695,17 @@ async fn a_turn_streams_text_and_a_tool_call_through_mystique_mcp() {
     );
     let cwd = PathBuf::from(new["cwd"].as_str().unwrap());
     assert!(cwd.is_absolute() && cwd.ends_with("work"), "{cwd:?}");
-    // The prompt carries Mystique's context, then the user's words.
+    // This agent takes no system prompt: the contract is the prompt's first
+    // block, then Mystique's context, then the user's words.
+    assert!(new.get("systemPrompt").is_none(), "{new}");
     let prompt = &fake.received("session/prompt")[0]["params"]["prompt"];
-    assert!(prompt[0]["text"].as_str().unwrap().contains(&fx.conn_id));
-    assert_eq!(prompt[1]["text"], "What tables are there?");
+    let contract = prompt[0]["text"].as_str().unwrap();
+    assert!(contract.contains("Task contract:"), "{contract}");
+    assert!(contract.contains("`mystique` MCP server"), "{contract}");
+    let context = prompt[1]["text"].as_str().unwrap();
+    assert!(context.contains(&fx.conn_id));
+    assert!(!context.contains("Task contract:"));
+    assert_eq!(prompt[2]["text"], "What tables are there?");
 
     let fs = fs_reply.lock().unwrap().clone().unwrap();
     assert_eq!(fs["error"]["code"], json!(-32601), "{fs}");
@@ -745,6 +760,62 @@ async fn a_turn_streams_text_and_a_tool_call_through_mystique_mcp() {
     assert_eq!(chat.provider, "acp");
     assert_eq!(chat.model, "custom-1");
     assert_eq!(crate::settings::view(&fx.app).agents[0].label, "Fake Agent");
+    fx.close().await;
+}
+
+#[tokio::test]
+async fn the_contract_is_the_system_prompt_and_mentions_carry_their_columns() {
+    let fx = fixture("local").await;
+    fx.level("full");
+    fx.sql("CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)")
+        .await;
+    fx.level("read");
+    let fake = FakeLauncher::new(|mut agent: FakeAgent| async move {
+        let hs = agent
+            .handshake_with(json!({
+                "mcpCapabilities": { "http": true, "sse": false },
+                "sessionCapabilities": { "systemPrompt": {} }
+            }))
+            .await;
+        agent.say(&hs.session, "Totals are in orders.total.").await;
+        agent
+            .reply(hs.prompt_id, json!({ "stopReason": "end_turn" }))
+            .await;
+        while agent.recv().await.is_some() {}
+    });
+    let acp = fx.service(fake.clone());
+    let (sink, events) = recording_sink();
+    let mut req = fx.request("Sum the totals", None);
+    req.mentions = vec![AgentTableRef {
+        schema: None,
+        name: "orders".into(),
+    }];
+    acp.send(&fx.runtime, fx.access.clone(), req, sink).unwrap();
+    let end = wait_terminal(&events, Duration::from_secs(10)).await;
+    assert!(matches!(end, AgentEvent::Done { .. }), "{end:?}");
+
+    // The shared contract and the ACP rules, appended to the agent's own.
+    let new = &fake.received("session/new")[0]["params"];
+    assert_eq!(new["systemPrompt"]["mode"], "append", "{new}");
+    let system = new["systemPrompt"]["content"][0]["text"].as_str().unwrap();
+    assert!(system.contains("Task contract:"), "{system}");
+    assert!(system.contains("Repair"), "{system}");
+    assert!(system.contains("`mystique` MCP server"), "{system}");
+
+    // The prompt: Mystique's context with the mentioned table's columns
+    // (looked up before the turn), then the user's words. No contract.
+    let prompt = &fake.received("session/prompt")[0]["params"]["prompt"];
+    assert_eq!(prompt.as_array().unwrap().len(), 2, "{prompt}");
+    let context = prompt[0]["text"].as_str().unwrap();
+    assert!(!context.contains("Task contract:"), "{context}");
+    assert!(context.contains(&fx.conn_id), "{context}");
+    assert!(
+        context.contains("Tables the user referenced with @"),
+        "{context}"
+    );
+    assert!(context.contains("- orders: id"), "{context}");
+    assert!(context.contains("total"), "{context}");
+    assert_eq!(prompt[1]["text"], "Sum the totals");
     fx.close().await;
 }
 

@@ -670,7 +670,8 @@ mod tests {
     fn a_slow_version_is_skipped_and_a_non_executable_file_is_not_an_agent() {
         let root = tempfile::tempdir().unwrap();
         let bin = root.path().join("bin");
-        stub(&bin, "opencode", "sleep 5; echo never");
+        // Absolute: the probe runs with PATH set to the agent folders only.
+        stub(&bin, "opencode", "/bin/sleep 5; echo never");
         std::fs::write(bin.join("goose"), "not executable").unwrap();
         let mut m = machine(root.path(), &[&bin]);
         m.version_timeout = Duration::from_millis(300);

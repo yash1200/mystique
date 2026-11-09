@@ -51,21 +51,31 @@ pub struct BoundTools {
     tools: AgentTools,
     connection_id: String,
     database: String,
+    caller: ToolCaller,
 }
 
 impl BoundTools {
+    /// Tools for the built-in agent ([`ToolCaller::Agent`]).
     pub fn new(tools: AgentTools, connection_id: String, database: String) -> Self {
         Self {
             tools,
             connection_id,
             database,
+            caller: ToolCaller::Agent,
         }
+    }
+
+    /// The same tools under another caller's levels: an external (ACP)
+    /// agent's lookups run as [`ToolCaller::Mcp`], like its own tool calls.
+    pub fn with_caller(mut self, caller: ToolCaller) -> Self {
+        self.caller = caller;
+        self
     }
 
     /// Same rule as MCP's tool list: the write tool only when the agent's
     /// level allows writes somewhere or a connection asks for approval.
     pub fn may_write(&self) -> bool {
-        self.tools.may_write(ToolCaller::Agent)
+        self.tools.may_write(self.caller)
     }
 
     /// Tool names offered to the model for this turn.
@@ -105,7 +115,7 @@ impl BoundTools {
         Ok(args)
     }
 
-    /// Run one tool through the shared [`AgentTools`] path, as the agent.
+    /// Run one tool through the shared [`AgentTools`] path, as this caller.
     /// Levels, production rules and the approval dock apply exactly as for
     /// MCP; a write above the level is denied or waits in the dock. An
     /// unlisted `execute_query` (a leaked call) gets the same level denial
@@ -116,7 +126,7 @@ impl BoundTools {
         }
         let args = self.bind(args)?;
         self.tools
-            .call_tool(name, &args, ToolCaller::Agent)
+            .call_tool(name, &args, self.caller)
             .await
             .map(redact)
             .map_err(|e| ToolErr(e.to_string()))
@@ -136,7 +146,7 @@ impl BoundTools {
         }
         let args = self.bind(args).map_err(|e| LocatedToolErr::plain(e.0))?;
         self.tools
-            .call_tool(name, &args, ToolCaller::Agent)
+            .call_tool(name, &args, self.caller)
             .await
             .map(redact)
             .map_err(|e| {
