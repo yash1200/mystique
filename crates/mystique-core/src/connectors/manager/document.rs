@@ -80,7 +80,9 @@ impl ConnectionManager {
         let mut statements = Vec::with_capacity(ranges.len());
         for (index, range) in ranges.into_iter().enumerate() {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
-            let body = &text[range.clone()];
+            let body = text.get(range.clone()).ok_or_else(|| {
+                ConnectorError::Internal(format!("statement range {range:?} is outside the text"))
+            })?;
             if let Err(err) = policy.validate(body, run.mode) {
                 return Err(nothing_ran(text, index, range.start, body, &err));
             }
