@@ -3,9 +3,12 @@
  */
 import type {
 	ColumnDraft,
+	DiffSelection,
+	DropKey,
 	ForeignKeyDraft,
 	IndexDraft,
 	RenamePair,
+	SchemaChange,
 	TableDefinition,
 } from '../../../core/contracts/ddl'
 
@@ -165,8 +168,9 @@ export function unpairedNames(
 	target: string[],
 	renames: RenamePair[],
 ): { sourceOnly: string[]; targetOnly: string[] } {
-	const renamedFrom = new Set(renames.map((pair) => pair.from))
-	const renamedTo = new Set(renames.map((pair) => pair.to))
+	const tables = tablePairs(renames)
+	const renamedFrom = new Set(tables.map((pair) => pair.from))
+	const renamedTo = new Set(tables.map((pair) => pair.to))
 	const targetNames = new Set(target)
 	const sourceNames = new Set(source)
 	return {
@@ -184,8 +188,102 @@ export function pairRename(
 	const left = from.trim()
 	const right = to.trim()
 	if (!left || !right) return renames
-	if (renames.some((pair) => pair.from === left || pair.to === right)) return renames
+	if (tablePairs(renames).some((pair) => pair.from === left || pair.to === right)) return renames
 	return [...renames, { from: left, to: right }]
+}
+
+/** Table pairs only (column pairs carry a `table`). */
+export function tablePairs(renames: RenamePair[]): RenamePair[] {
+	return renames.filter((pair) => !pair.table)
+}
+
+/** Source-side table name of a diff change (the name it ends with). */
+export function sourceTableOf(change: SchemaChange): string {
+	return change.draft.renameTo?.trim() || change.name
+}
+
+/** Pair two columns as a rename, replacing any pair either side was in. */
+export function pairColumns(
+	renames: RenamePair[],
+	table: string,
+	from: string,
+	to: string,
+): RenamePair[] {
+	const left = from.trim()
+	const right = to.trim()
+	if (!left || !right) return renames
+	const rest = renames.filter(
+		(pair) => pair.table !== table || (pair.from !== left && pair.to !== right),
+	)
+	return [...rest, { from: left, to: right, table, keepApart: false }]
+}
+
+/** The user says a guessed rename is not one: keep the columns apart. */
+export function keepColumnsApart(
+	renames: RenamePair[],
+	table: string,
+	from: string,
+	to: string,
+): RenamePair[] {
+	const rest = renames.filter(
+		(pair) => !(pair.table === table && pair.from === from && pair.to === to),
+	)
+	return [...rest, { from, to, table, keepApart: true }]
+}
+
+/** Remove an explicit column pair or a "not a rename" mark. */
+export function unpairColumns(
+	renames: RenamePair[],
+	table: string,
+	from: string,
+	to: string,
+): RenamePair[] {
+	return renames.filter(
+		(pair) => !(pair.table === table && pair.from === from && pair.to === to),
+	)
+}
+
+/** Columns the diff adds to a table (source-only, not renamed). */
+export function addedColumns(change: SchemaChange): string[] {
+	if (change.action !== 'alter' && change.action !== 'unchanged') return []
+	return (change.draft.columns ?? [])
+		.filter((column) => !column.original && !column.drop)
+		.map((column) => column.name)
+}
+
+export function emptySelection(): DiffSelection {
+	return { skip: [], drops: [] }
+}
+
+function sameDrop(a: DropKey, b: DropKey): boolean {
+	return a.table === b.table && a.kind === b.kind && a.name === b.name
+}
+
+/** Include or leave out one change (a table drop is a drop key). */
+export function setChangeSelected(
+	selection: DiffSelection,
+	change: SchemaChange,
+	on: boolean,
+): DiffSelection {
+	if (change.action === 'drop') {
+		return setDropIncluded(
+			selection,
+			{ table: change.name, kind: 'table', name: change.name },
+			on,
+		)
+	}
+	const skip = (selection.skip ?? []).filter((name) => name !== change.name)
+	return { ...selection, skip: on ? skip : [...skip, change.name] }
+}
+
+/** Include or leave out one drop. Drops are off until chosen. */
+export function setDropIncluded(
+	selection: DiffSelection,
+	key: DropKey,
+	on: boolean,
+): DiffSelection {
+	const drops = (selection.drops ?? []).filter((item) => !sameDrop(item, key))
+	return { ...selection, drops: on ? [...drops, key] : drops }
 }
 
 export function isCollection(draft: TableDefinition): boolean {
