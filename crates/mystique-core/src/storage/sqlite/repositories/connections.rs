@@ -44,6 +44,10 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
         ),
         favorite: row.get::<_, i64>("favorite")? != 0,
         query_timeout_secs: row.get("query_timeout_secs")?,
+        database_environments: {
+            let raw: String = row.get("database_environments")?;
+            serde_json::from_str(&raw).unwrap_or_default()
+        },
         last_connected_at: row.get("last_connected_at")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -53,8 +57,31 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
 const SELECT_COLS: &str = "
   id, name, engine, color_id, environment, read_only, notes,
   plugin_config, secret_ref, ssh_config, ssh_secret_ref, favorite,
-  query_timeout_secs, save_password, last_connected_at, created_at, updated_at
+  query_timeout_secs, save_password, database_environments,
+  last_connected_at, created_at, updated_at
 ";
+
+/// Replace the per-database environment marks. Saving the profile form
+/// leaves them alone.
+pub fn set_database_environments(
+    conn: &Connection,
+    id: &str,
+    marks: &[mystique_connector_api::DatabaseEnvironment],
+) -> AppResult<ConnectionProfile> {
+    for mark in marks {
+        validate_environment(mark.environment.trim()).map_err(AppError::Invalid)?;
+    }
+    let id_n = parse_id(id)?;
+    let text = serde_json::to_string(marks)?;
+    let n = conn.execute(
+        "UPDATE connections SET database_environments = ?1, updated_at = ?2 WHERE id = ?3",
+        params![text, now_iso(), id_n],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("connection '{id}'")));
+    }
+    get_by_id(conn, id)
+}
 
 pub fn list_all(conn: &Connection) -> AppResult<Vec<ConnectionProfile>> {
     let mut stmt = conn.prepare(&format!(

@@ -15,12 +15,13 @@ const V9_SQL: &str = include_str!("../../../migrations/009_connection_defaults.s
 const V10_SQL: &str = include_str!("../../../migrations/010_secrets.sql");
 const V11_SQL: &str = include_str!("../../../migrations/011_save_password.sql");
 const V12_SQL: &str = include_str!("../../../migrations/012_query_history_kind.sql");
+const V13_SQL: &str = include_str!("../../../migrations/013_database_environments.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-pub const SCHEMA_VERSION: i32 = 12;
+pub const SCHEMA_VERSION: i32 = 13;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -163,6 +164,15 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
             conn.execute_batch(V12_SQL)?;
         }
         stamp(conn, 12)?;
+    }
+
+    if current < 13 {
+        if table_exists(conn, "connections")?
+            && !column_exists(conn, "connections", "database_environments")?
+        {
+            conn.execute_batch(V13_SQL)?;
+        }
+        stamp(conn, 13)?;
     }
 
     // Dropped leftover from earlier builds. Live ER is not stored here.
@@ -714,7 +724,7 @@ mod tests {
         // A version 11 database: no column yet, one history row.
         conn.execute_batch(
             "ALTER TABLE query_history DROP COLUMN kind;
-             DELETE FROM schema_migrations WHERE version = 12;
+             DELETE FROM schema_migrations WHERE version >= 12;
              INSERT INTO query_history (body, success, ran_at) VALUES ('SELECT 1', 1, 'now');",
         )
         .unwrap();
@@ -733,5 +743,39 @@ mod tests {
         assert!(conn
             .execute("UPDATE query_history SET kind = 'other'", [])
             .is_err());
+    }
+
+    #[test]
+    fn migrate_013_leaves_existing_profiles_on_their_connection_environment() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        assert!(column_exists(&conn, "connections", "database_environments").unwrap());
+        // A version 12 database: no column yet, one production profile.
+        conn.execute_batch(
+            "ALTER TABLE connections DROP COLUMN database_environments;
+             DELETE FROM schema_migrations WHERE version >= 13;
+             INSERT INTO connections (name, engine, environment, created_at, updated_at)
+               VALUES ('prod', 'postgres', 'production', 'now', 'now');",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap(); // idempotent
+        let (marks, env): (String, String) = conn
+            .query_row(
+                "SELECT database_environments, environment FROM connections",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(marks, "[]");
+        assert_eq!(env, "production");
+        let version: i32 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 13);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 }
