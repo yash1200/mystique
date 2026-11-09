@@ -321,3 +321,58 @@ async fn production_still_asks_during_a_timed_unlock() {
     let _ = mgr.close_session("ro").await;
     let _ = std::fs::remove_file(&path);
 }
+
+#[tokio::test]
+async fn row_preview_reads_the_rows_and_never_writes() {
+    let path = temp_db("row-preview");
+    let mgr = seeded(&path).await;
+    mgr.open_session(open_req(&path, "prod", "production", false))
+        .await
+        .expect("open");
+    mgr.unlock_writes("prod").await.expect("unlock");
+    mgr.execute_query(write("prod", "INSERT INTO t VALUES (1), (2), (3)"))
+        .await
+        .expect("seed rows");
+
+    let preview = |statement: &str| {
+        mgr.preview_write_rows(super::PreviewWriteRowsRequest {
+            session_id: "prod".into(),
+            statement: statement.into(),
+            database: None,
+        })
+    };
+    let update = preview("UPDATE t SET id = id * 10 WHERE id >= 2")
+        .await
+        .expect("preview");
+    assert!(update.available, "{update:?}");
+    assert_eq!(update.total, Some(2));
+    assert_eq!(update.new_columns, ["id (new)"]);
+    assert_eq!(update.rows.len(), 2);
+    assert_eq!(
+        update.columns.last().map(|c| c.name.as_str()),
+        Some("id (new)")
+    );
+
+    let delete = preview("DELETE FROM t").await.expect("preview");
+    assert_eq!(delete.total, Some(3));
+
+    let insert = preview("INSERT INTO t VALUES (7), (8)")
+        .await
+        .expect("preview");
+    assert_eq!(insert.total, Some(2));
+    assert_eq!(insert.columns[0].name, "id");
+
+    let multi = preview("UPDATE t SET id = 1; DELETE FROM t")
+        .await
+        .expect("preview");
+    assert!(!multi.available);
+
+    let count = mgr
+        .execute_query(write("prod", "SELECT COUNT(*), SUM(id) FROM t"))
+        .await
+        .expect("count");
+    assert_eq!(count.rows[0][0], json!(3), "the preview wrote");
+    assert_eq!(count.rows[0][1], json!(6), "the preview wrote");
+    let _ = mgr.close_session("prod").await;
+    let _ = std::fs::remove_file(&path);
+}

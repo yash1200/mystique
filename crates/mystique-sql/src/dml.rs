@@ -23,7 +23,9 @@ pub use edits::{
 };
 pub use plan::{plan_table_edits, EditPlan, PlannedCount, PlannedEdit, PlannedRead};
 pub use preview::distinct_values_sql;
-pub use row_preview::{insert_row_count, row_preview_plan, RowPreviewAction, RowPreviewPlan};
+pub use row_preview::{
+    insert_row_count, row_preview_plan, RowPreviewAction, RowPreviewPlan, TablePath,
+};
 
 /// A grid cell that only holds a large-value preview (`{"$large": true, "preview": …}`).
 /// It cannot be written back or used to find a row.

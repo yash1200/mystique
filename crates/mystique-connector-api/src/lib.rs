@@ -64,6 +64,10 @@ pub use large_cell::{
     LARGE_VALUE_MAX_BYTES,
 };
 pub use metrics::*;
+/// Affected-row preview for the production write dialog.
+pub use mystique_sql::dml::{
+    insert_row_count, row_preview_plan, RowPreviewAction, RowPreviewPlan, TablePath,
+};
 /// Output columns of a plain single-table SELECT (SQLite has no driver provenance).
 pub use mystique_sql::{single_table_select, ProjectedItem, SingleTableSelect};
 /// Databases each write in a batch lands in (per-database production).

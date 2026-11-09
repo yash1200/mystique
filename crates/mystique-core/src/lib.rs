@@ -28,8 +28,8 @@ pub use application::{
     AGENT_MAX_ROWS, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
 };
 pub use connectors::{
-    ConnectionManager, ConnectorRegistry, OpenSessionRequest, TimedUnlockStatus,
-    TIMED_UNLOCK_CHOICES_SECS,
+    ConnectionManager, ConnectorRegistry, OpenSessionRequest, PreviewWriteRowsRequest,
+    TimedUnlockStatus, WriteRowPreview, ROW_PREVIEW_LIMIT, TIMED_UNLOCK_CHOICES_SECS,
 };
 pub use domain::*;
 pub use error::{AppError, AppResult};
@@ -41,8 +41,8 @@ pub use mystique_connector_api::{
     clip_batch_result, clip_query_result, clip_table_preview, ApplyDdlRequest, ApplyDdlResult,
     ApplySchemaDiffRequest, ApplyTableEditsRequest, ApplyTableEditsResult, BatchEvent,
     CatalogColumnRow, CatalogDatabase, CatalogObject, CatalogRelationship, ColumnInfo,
-    ColumnReference, ConnectionConfig, ConnectorError, ConnectorResult, DdlPlan,
-    DescribeTableDefinitionRequest, DescribeTableRequest, DistinctColumnValuesRequest,
+    ColumnReference, ConnectionConfig, ConnectorError, ConnectorResult, DatabaseEnvironment,
+    DdlPlan, DescribeTableDefinitionRequest, DescribeTableRequest, DistinctColumnValuesRequest,
     EngineCapabilities, EngineDescriptor, ExecuteQueryRequest, ExplainPlan, ExplainQueryRequest,
     ExportFormat, ExportObjectRequest, ExportObjectResult, FetchLargeValueRequest,
     FetchLargeValueResult, FetchServerMetricsRequest, FetchTablePreviewRequest,

@@ -45,8 +45,6 @@ pub struct RowPreviewPlan {
     /// The table as written.
     pub table: String,
     /// UPDATE / DELETE: the rows the write would touch, at most `limit`.
-    /// INSERT without a column list: a query that returns no rows, for the
-    /// column names.
     pub rows_sql: Option<String>,
     /// UPDATE / DELETE: how many rows the write would touch.
     pub count_sql: Option<String>,
@@ -54,9 +52,19 @@ pub struct RowPreviewPlan {
     pub new_columns: Vec<String>,
     /// INSERT: the column list, empty when the statement has none.
     pub insert_columns: Vec<String>,
+    /// INSERT without a column list: the table to describe for the names.
+    pub insert_table: Option<TablePath>,
     /// INSERT: the rows to insert, literals as values and anything else as
     /// its SQL text.
     pub insert_rows: Vec<Vec<JsonValue>>,
+}
+
+/// A table name split the way the catalog takes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TablePath {
+    pub database: Option<String>,
+    pub schema: Option<String>,
+    pub table: String,
 }
 
 /// Build the preview for one statement, or say why there is none.
@@ -118,6 +126,7 @@ pub fn row_preview_plan(
                 count_sql: Some(format!("SELECT COUNT(*) FROM {relation}{filter}")),
                 new_columns,
                 insert_columns: Vec::new(),
+                insert_table: None,
                 insert_rows: Vec::new(),
             })
         }
@@ -145,6 +154,7 @@ pub fn row_preview_plan(
                 count_sql: Some(format!("SELECT COUNT(*) FROM {relation}{filter}")),
                 new_columns: Vec::new(),
                 insert_columns: Vec::new(),
+                insert_table: None,
                 insert_rows: Vec::new(),
             })
         }
@@ -163,17 +173,20 @@ pub fn row_preview_plan(
             };
             let insert_columns: Vec<String> =
                 insert.columns.iter().map(|c| c.value.clone()).collect();
-            let rows_sql = insert_columns
-                .is_empty()
-                .then(|| format!("SELECT * FROM {name} WHERE 1 = 0"));
+            let insert_table = if insert_columns.is_empty() {
+                Some(table_path(name, dialect).ok_or_else(|| SHAPE.to_string())?)
+            } else {
+                None
+            };
             let take = usize::try_from(limit).unwrap_or(usize::MAX);
             Ok(RowPreviewPlan {
                 action: RowPreviewAction::Insert,
                 table: name.to_string(),
-                rows_sql,
+                rows_sql: None,
                 count_sql: None,
                 new_columns: Vec::new(),
                 insert_columns,
+                insert_table,
                 insert_rows: values
                     .rows
                     .iter()
@@ -227,6 +240,37 @@ fn single_relation(table: &TableWithJoins) -> Result<(String, String, String), S
         None => name.to_string(),
     };
     Ok((table.relation.to_string(), qualifier, name.to_string()))
+}
+
+/// `d.s.t` (Postgres), `d.t` (MySQL) or `s.t` (Postgres, SQLite).
+fn table_path(name: &sqlparser::ast::ObjectName, dialect: SqlDialect) -> Option<TablePath> {
+    let parts: Vec<String> = name
+        .0
+        .iter()
+        .map(|part| match part {
+            ObjectNamePart::Identifier(ident)
+                if dialect == SqlDialect::Postgres && ident.quote_style.is_none() =>
+            {
+                Some(ident.value.to_lowercase())
+            }
+            ObjectNamePart::Identifier(ident) => Some(ident.value.clone()),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    let path = |database: Option<&String>, schema: Option<&String>, table: &String| TablePath {
+        database: database.cloned(),
+        schema: schema.cloned(),
+        table: table.clone(),
+    };
+    match (dialect, parts.as_slice()) {
+        (_, [table]) => Some(path(None, None, table)),
+        (SqlDialect::Mysql, [database, table]) => Some(path(Some(database), None, table)),
+        (_, [schema, table]) => Some(path(None, Some(schema), table)),
+        (SqlDialect::Postgres, [database, schema, table]) => {
+            Some(path(Some(database), Some(schema), table))
+        }
+        _ => None,
+    }
 }
 
 fn where_clause(selection: Option<&Expr>) -> String {
@@ -328,10 +372,25 @@ mod tests {
                 vec![json!("2"), json!(null), json!(false), json!("now()")],
             ]
         );
-        let plan = pg("INSERT INTO t VALUES (1)");
+        let plan = pg("INSERT INTO Sales.T VALUES (1)");
+        assert_eq!(plan.rows_sql, None);
         assert_eq!(
-            plan.rows_sql.as_deref(),
-            Some("SELECT * FROM t WHERE 1 = 0")
+            plan.insert_table,
+            Some(TablePath {
+                database: None,
+                schema: Some("sales".into()),
+                table: "t".into(),
+            })
+        );
+        let plan =
+            row_preview_plan("INSERT INTO prod.t VALUES (1)", SqlDialect::Mysql, 50).expect("plan");
+        assert_eq!(
+            plan.insert_table,
+            Some(TablePath {
+                database: Some("prod".into()),
+                schema: None,
+                table: "t".into(),
+            })
         );
         assert_eq!(
             insert_row_count("INSERT INTO t VALUES (1), (2)", SqlDialect::Postgres),

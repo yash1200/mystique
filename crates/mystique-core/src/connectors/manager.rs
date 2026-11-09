@@ -25,12 +25,14 @@ mod meta_cache;
 mod metrics;
 mod pin;
 mod query;
+mod row_preview;
 mod run;
 mod table;
 mod target_env;
 mod timed_unlock;
 mod transfer;
 
+pub use row_preview::{PreviewWriteRowsRequest, WriteRowPreview, ROW_PREVIEW_LIMIT};
 pub use timed_unlock::{TimedUnlockStatus, TIMED_UNLOCK_CHOICES_SECS};
 
 pub(crate) use grid_save::GridSaveStore;
