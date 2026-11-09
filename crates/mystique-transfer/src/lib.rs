@@ -15,5 +15,6 @@ pub use encoding::{decode_file, ImportEncoding};
 pub use error::{TransferError, TransferResult};
 pub use export::{ExportColumn, ExportFormat};
 pub use import::{
-    parse_import_file, suggest_map, ImportColumnMap, ImportFormat, ImportOnDuplicate, ParsedTable,
+    parse_import_file, stream_import_file, suggest_map, ImportColumnMap, ImportFormat,
+    ImportOnDuplicate, ImportRecord, ParsedTable,
 };

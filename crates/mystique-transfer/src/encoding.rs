@@ -27,7 +27,7 @@ impl ImportEncoding {
         }
     }
 
-    fn decoder(self) -> &'static encoding_rs::Encoding {
+    pub(crate) fn decoder(self) -> &'static encoding_rs::Encoding {
         match self {
             Self::Utf8 => encoding_rs::UTF_8,
             Self::Utf16Le => encoding_rs::UTF_16LE,

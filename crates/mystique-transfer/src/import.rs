@@ -2,12 +2,14 @@
 
 mod parse;
 mod sql_dump;
+mod stream;
 
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 pub use parse::{parse_import_file, suggest_map, ParsedTable};
+pub use stream::{stream_import_file, ImportRecord};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
