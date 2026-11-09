@@ -156,7 +156,7 @@ pub struct EngineCapabilities {
     #[serde(default = "default_true")]
     pub supports_structure_edit: bool,
     /// Structure edits are limited to adding columns, renaming, and indexes.
-    /// SQLite until its table rebuild keeps the original schema.
+    /// No built-in engine sets it since the SQLite rebuild keeps the schema.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub structure_edit_limited: bool,

@@ -45,7 +45,6 @@ export const sqlite: EngineAdapter = {
 	defaultCapabilities: relationalCapabilities({
 		engine: 'sqlite',
 		sqlDialect: 'sqlite',
-		structureEditLimited: true,
 		supportsTerminateSession: false,
 		bindsSessionToDatabase: false,
 		connectionKind: 'file',
