@@ -15,12 +15,13 @@ const V9_SQL: &str = include_str!("../../../migrations/009_connection_defaults.s
 const V10_SQL: &str = include_str!("../../../migrations/010_secrets.sql");
 const V11_SQL: &str = include_str!("../../../migrations/011_save_password.sql");
 const V12_SQL: &str = include_str!("../../../migrations/012_query_history_kind.sql");
+const V14_SQL: &str = include_str!("../../../migrations/014_tool_access.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-pub const SCHEMA_VERSION: i32 = 12;
+pub const SCHEMA_VERSION: i32 = 14;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -163,6 +164,14 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
             conn.execute_batch(V12_SQL)?;
         }
         stamp(conn, 12)?;
+    }
+
+    if current < 14 {
+        conn.execute_batch(V14_SQL)?;
+        if table_exists(conn, "app_settings")? && table_exists(conn, "connections")? {
+            super::repositories::tool_access::migrate_legacy_settings(conn)?;
+        }
+        stamp(conn, 14)?;
     }
 
     // Dropped leftover from earlier builds. Live ER is not stored here.
@@ -326,6 +335,7 @@ mod tests {
         assert!(column_exists(&conn, "query_history", "affected_rows").unwrap());
         assert!(column_exists(&conn, "query_history", "duration_ms").unwrap());
         assert!(column_exists(&conn, "query_history", "kind").unwrap());
+        assert!(table_exists(&conn, "tool_access").unwrap());
 
         let groups: i32 = conn
             .query_row(
@@ -395,7 +405,9 @@ mod tests {
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, SCHEMA_VERSION);
+        // 013 is taken by the per-database production change (F-03), which
+        // lands on its own branch. Drop the `- 1` when both are merged.
+        assert_eq!(n, SCHEMA_VERSION - 1);
     }
 
     #[test]
@@ -714,7 +726,7 @@ mod tests {
         // A version 11 database: no column yet, one history row.
         conn.execute_batch(
             "ALTER TABLE query_history DROP COLUMN kind;
-             DELETE FROM schema_migrations WHERE version = 12;
+             DELETE FROM schema_migrations WHERE version >= 12;
              INSERT INTO query_history (body, success, ran_at) VALUES ('SELECT 1', 1, 'now');",
         )
         .unwrap();
@@ -733,5 +745,87 @@ mod tests {
         assert!(conn
             .execute("UPDATE query_history SET kind = 'other'", [])
             .is_err());
+    }
+
+    #[test]
+    fn migrate_014_turns_the_mcp_policy_and_allowlist_into_levels() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        // A version 12 database with the old settings and four connections.
+        conn.execute_batch(
+            "DROP TABLE tool_access;
+             DELETE FROM schema_migrations WHERE version > 12;
+             INSERT INTO connections (id, name, engine, environment, created_at, updated_at) VALUES
+               (1, 'local', 'postgres', 'local', 'now', 'now'),
+               (2, 'stage', 'postgres', 'staging', 'now', 'now'),
+               (3, 'prod', 'postgres', 'production', 'now', 'now'),
+               (4, 'hidden', 'postgres', 'local', 'now', 'now');
+             INSERT INTO app_settings (key, value, updated_at) VALUES
+               ('mcp.policy', 'high_risk_write', 'now'),
+               ('mcp.allowlist', '[\"1\", \"2\", \"3\", \"99\", \"x\"]', 'now');",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap(); // idempotent
+
+        let level = |id: i64| -> Option<String> {
+            conn.query_row(
+                "SELECT level FROM tool_access WHERE connection_id = ?1 AND database = ''",
+                [id],
+                |r| r.get(0),
+            )
+            .ok()
+        };
+        // What the old policy could really do on each environment.
+        assert_eq!(level(1).as_deref(), Some("full"));
+        assert_eq!(level(2).as_deref(), Some("write"));
+        assert_eq!(level(3).as_deref(), Some("read"));
+        // Not allowlisted: inherits the MCP default, which is none.
+        assert_eq!(level(4), None);
+        let get = |key: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                [key],
+                |r| r.get(0),
+            )
+            .ok()
+        };
+        assert_eq!(get("mcp.access.level").as_deref(), Some("none"));
+        assert_eq!(get("mcp.policy"), None);
+        assert_eq!(get("mcp.allowlist"), None);
+        let version: i32 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // Deleting a connection drops its levels.
+        conn.execute("DELETE FROM connections WHERE id = 1", [])
+            .unwrap();
+        assert_eq!(level(1), None);
+        assert!(conn
+            .execute("UPDATE tool_access SET level = 'admin'", [])
+            .is_err());
+    }
+
+    #[test]
+    fn migrate_014_without_old_settings_writes_nothing() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tool_access", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        let set: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM app_settings WHERE key LIKE '%.access.level'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(set, 0, "fresh installs use the built-in defaults");
     }
 }

@@ -8,4 +8,5 @@ pub mod queries;
 pub mod secrets;
 pub mod settings;
 pub mod ssh_hosts;
+pub mod tool_access;
 pub mod workspace_tabs;
