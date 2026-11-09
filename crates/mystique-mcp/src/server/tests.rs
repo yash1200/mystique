@@ -245,3 +245,51 @@ async fn an_approval_is_single_use_and_times_out() {
     );
     fx.close().await;
 }
+
+#[tokio::test]
+async fn inspection_tools_are_listed_read_only_and_never_write() {
+    let fx = fixture("production");
+    let listed = fx.rpc("tools/list", json!({})).await;
+    for name in ["sample_rows", "explain_query", "infer_fields"] {
+        let tool = listed["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} not listed"));
+        assert_eq!(tool["annotations"]["readOnlyHint"], json!(true), "{tool}");
+        assert_eq!(tool["annotations"]["destructiveHint"], json!(false));
+    }
+    let tool = |name: &'static str, mut args: JsonValue| {
+        args["connection_id"] = json!(fx.id);
+        fx.rpc("tools/call", json!({ "name": name, "arguments": args }))
+    };
+    // Hidden at MCP's default `none`.
+    let out = tool("sample_rows", json!({ "object": "t" })).await;
+    assert_eq!(out["isError"], json!(true));
+    assert!(text(&out).contains("has no access"), "{out}");
+
+    fx.level("full");
+    fx.call("CREATE TABLE t (id INTEGER)").await;
+    fx.call("INSERT INTO t VALUES (1), (2), (3)").await;
+    fx.level("read");
+    let out = tool("sample_rows", json!({ "object": "t", "limit": 2 })).await;
+    assert_eq!(out["isError"], json!(false), "{out}");
+    assert_eq!(out["structuredContent"]["rows"], json!([[1], [2]]));
+
+    let out = tool(
+        "explain_query",
+        json!({ "sql": "DELETE FROM t WHERE id > 0" }),
+    )
+    .await;
+    assert_eq!(out["isError"], json!(false), "{out}");
+    let out = tool(
+        "explain_query",
+        json!({ "sql": "DELETE FROM t WHERE id > 0", "analyze": true }),
+    )
+    .await;
+    assert_eq!(out["isError"], json!(true), "{out}");
+    let all = tool("sample_rows", json!({ "object": "t" })).await;
+    assert_eq!(all["structuredContent"]["rowCount"], json!(3), "{all}");
+    fx.close().await;
+}

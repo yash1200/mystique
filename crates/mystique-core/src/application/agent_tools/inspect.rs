@@ -85,6 +85,17 @@ fn trimmed(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The catalog the profile opens (`database` in its config). MySQL's preview
+/// needs one; a SQLite file path is not a catalog name, so it is not used.
+fn configured_database(profile: &ConnectionProfile) -> Option<String> {
+    let cfg = &profile.plugin_config;
+    trimmed(
+        cfg.get("database")
+            .or_else(|| cfg.get("db"))
+            .and_then(|v| v.as_str()),
+    )
+}
+
 /// `main.boards` → (`main`, `boards`) on SQL engines when no schema is given.
 /// A Mongo collection name may contain dots, so it is never split.
 fn split_object(
@@ -200,7 +211,7 @@ impl AgentTools {
                 session_id: sid,
                 table: table.clone(),
                 schema: schema.clone(),
-                database: trimmed(database),
+                database: trimmed(database).or_else(|| configured_database(&profile)),
                 max_rows: Some(limit),
                 offset: None,
                 filters: Vec::new(),
