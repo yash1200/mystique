@@ -155,6 +155,8 @@
 		const sid = engineSessionId
 		const db = database
 		if (!sid) return
+		// Tracked: a catalog refresh drops the rows, and this loads them again.
+		if (catalogColumnsCache.byKey[catalogColumnsCache.key(sid, db || null)]) return
 		catalogColumnsCache.load(sid, db || null).catch(() => {})
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
