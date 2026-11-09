@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { QueryResult, StatementResult } from '#core/contracts'
+	import type { ResultColumnSource } from '#engines'
 	import {
 		Badge,
 		Button,
@@ -28,6 +29,8 @@
 	interface Props {
 		runState: RunState
 		resultColumns: QueryResult['columns']
+		/** Source table column per result column, when known (header tooltip). */
+		resultSources?: (ResultColumnSource | null)[]
 		resultPageRows: unknown[][]
 		resultTotal: number
 		resultPageStart: number
@@ -54,6 +57,7 @@
 	let {
 		runState,
 		resultColumns,
+		resultSources = [],
 		resultPageRows,
 		resultTotal,
 		resultPageStart,
@@ -306,6 +310,7 @@
 			{:else}
 				<QueryResultsGrid
 					columns={resultColumns}
+					sources={resultSources}
 					rows={resultPageRows}
 					pageStart={resultPageStart}
 					{identStyle}
