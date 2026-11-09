@@ -9,6 +9,7 @@ use mystique_connector_api::{
 
 use crate::session::{query_failed, SqliteSession};
 
+pub(crate) mod manager;
 pub(crate) mod path;
 
 use path::{build_pool, format_sqlite_url, resolve_path};

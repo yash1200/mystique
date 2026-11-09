@@ -33,7 +33,7 @@ pub(super) async fn terminate_backend_session(
 }
 
 fn collect(
-    pool: &r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
+    pool: &r2d2::Pool<crate::connector::manager::SqliteConnectionManager>,
     include_sessions: bool,
 ) -> ConnectorResult<ServerMetricsSnapshot> {
     let conn = pool

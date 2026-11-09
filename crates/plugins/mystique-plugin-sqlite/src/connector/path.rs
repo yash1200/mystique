@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use super::manager::SqliteConnectionManager;
 use mystique_connector_api::{
     ConnectionConfig, ConnectorError, ConnectorResult, FormattedConnectionUrl,
 };
 use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::OpenFlags;
 
 pub(crate) fn resolve_path(config: &ConnectionConfig) -> ConnectorResult<PathBuf> {

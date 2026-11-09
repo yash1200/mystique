@@ -74,7 +74,6 @@ pub(super) fn read(
     let mut stmt = conn.prepare(&sql).map_err(|err| map_err(control, err))?;
     let columns: Vec<ColumnInfo> = stmt
         .columns()
-        .iter()
         .map(|c| {
             let mut column = stream_column(c.name(), c.decl_type().unwrap_or(""));
             column.pk = keys.iter().any(|k| k == c.name());

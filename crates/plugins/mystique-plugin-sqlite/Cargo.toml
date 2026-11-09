@@ -10,8 +10,7 @@ mystique-connector-api = { path = "../../mystique-connector-api" }
 mystique-sql = { path = "../../mystique-sql" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-rusqlite = { version = "0.32", features = ["bundled", "column_decltype"] }
+rusqlite = { workspace = true, features = ["column_decltype"] }
 r2d2 = "0.8"
-r2d2_sqlite = "0.25"
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
