@@ -6,8 +6,8 @@
  * - One keydown listener (capture phase) for the whole window.
  * - Several handlers may share an id; the newest one whose `when` passes runs,
  *   so a mounted view can take over a chord from the app-wide default.
- * - With a native menu, a command that has a menu item is run by the menu
- *   only. Its accelerator is the binding, and keydown leaves it alone.
+ * - A command that has a native menu item is run by the menu only. Its
+ *   accelerator is the binding, and keydown leaves it alone.
  *
  * The registry knows nothing about features.
  */
@@ -57,8 +57,6 @@ type AnyCommand = Command<any>
 
 export type RegistryEnv = {
 	mac: () => boolean
-	/** The desktop app has a native menu; the browser preview does not. */
-	nativeMenu: () => boolean
 	dialogOpen: () => boolean
 }
 
@@ -178,10 +176,9 @@ export function createCommandRegistry(env: RegistryEnv) {
 		return true
 	}
 
-	/** True when keydown handles this spec (the menu owns it otherwise). */
+	/** True when keydown handles this spec (a native menu item owns it otherwise). */
 	function keyOwned(spec: CommandSpec): boolean {
-		if (!spec.keys) return false
-		return !(spec.menu && env.nativeMenu())
+		return !!spec.keys && !spec.menu
 	}
 
 	/** Dispatch one keydown. True when a command took it. */

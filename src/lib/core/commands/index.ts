@@ -6,7 +6,6 @@
  * at startup, so the shortcuts view lists exactly what the keys do.
  */
 import { listenMenuCommands } from '../ipc/menu'
-import { isTauri } from '../ipc/tauri'
 import { openDialogCount } from '../ui/dialog-stack'
 import { isMacPlatform } from '../util/platform'
 import { createCommandRegistry } from './registry'
@@ -17,7 +16,6 @@ export type { Focus, Scope } from './scope'
 
 export const commands = createCommandRegistry({
 	mac: isMacPlatform,
-	nativeMenu: isTauri,
 	dialogOpen: () => openDialogCount() > 0,
 })
 

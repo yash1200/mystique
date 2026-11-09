@@ -15,14 +15,12 @@ export type Harness = {
 
 export function keymapHarness(opts: {
 	mac: boolean
-	nativeMenu: boolean
 	dialogOpen?: () => boolean
 	/** Only these ids get a handler (default: all). */
 	only?: string[]
 }): Harness {
 	const reg = createCommandRegistry({
 		mac: () => opts.mac,
-		nativeMenu: () => opts.nativeMenu,
 		dialogOpen: opts.dialogOpen ?? (() => false),
 	})
 	const ran: string[] = []

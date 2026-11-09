@@ -21,10 +21,9 @@ function key(init: Partial<KeyboardEventInit> & { code?: string; key?: string })
 	}
 }
 
-function registry(opts: { mac?: boolean; nativeMenu?: boolean; dialog?: () => boolean } = {}) {
+function registry(opts: { mac?: boolean; dialog?: () => boolean } = {}) {
 	return createCommandRegistry({
 		mac: () => opts.mac ?? true,
-		nativeMenu: () => opts.nativeMenu ?? false,
 		dialogOpen: opts.dialog ?? (() => false),
 	})
 }
@@ -225,25 +224,21 @@ describe('focus scopes', () => {
 	it('blocks global commands while a dialog is open, except the ones that allow it', async () => {
 		const { openDialogCount } = await import('../../src/lib/core/ui/dialog-stack')
 		const reg = mounted(registry({ dialog: () => openDialogCount() > 0 }))
-		cleanup.push(reg.declare([cmd.toggleSidebar, cmd.closeTab, cmd.quickOpen]))
+		cleanup.push(reg.declare([cmd.toggleSidebar, cmd.quickOpen]))
 		const toggle = vi.fn()
-		const close = vi.fn()
 		const quick = vi.fn()
 		cleanup.push(
 			reg.register([
 				{ ...cmd.toggleSidebar, run: toggle },
-				{ ...cmd.closeTab, run: close },
 				{ ...cmd.quickOpen, run: quick },
 			]),
 		)
 		const done = pushDialog({ close: () => {}, dismissible: () => true })
 		cleanup.push(done)
 		const b = press(document.body, { code: 'KeyB', metaKey: true })
-		press(document.body, { code: 'KeyW', metaKey: true })
 		press(document.body, { code: 'KeyK', metaKey: true })
 		expect(toggle).not.toHaveBeenCalled()
 		expect(b.defaultPrevented).toBe(false)
-		expect(close).toHaveBeenCalledTimes(1)
 		expect(quick).toHaveBeenCalledTimes(1)
 		done()
 		press(document.body, { code: 'KeyB', metaKey: true })
@@ -309,7 +304,7 @@ describe('platforms', () => {
 
 describe('native menu', () => {
 	it('runs the command bound to a menu item id', () => {
-		const reg = registry({ nativeMenu: true })
+		const reg = registry()
 		cleanup.push(reg.declare([cmd.shortcuts]))
 		const show = vi.fn()
 		cleanup.push(reg.register({ ...cmd.shortcuts, run: show }))
@@ -320,7 +315,7 @@ describe('native menu', () => {
 	})
 
 	it('leaves a menu accelerator to the menu, so the chord runs once', () => {
-		const reg = mounted(registry({ nativeMenu: true }))
+		const reg = mounted(registry())
 		cleanup.push(reg.declare([cmd.closeTab, cmd.reset]))
 		const close = vi.fn()
 		const reset = vi.fn()
@@ -340,17 +335,8 @@ describe('native menu', () => {
 		expect(reset).toHaveBeenCalledTimes(1)
 	})
 
-	it('uses keydown for menu commands in the browser preview', () => {
-		const reg = mounted(registry({ nativeMenu: false }))
-		cleanup.push(reg.declare([cmd.closeTab]))
-		const close = vi.fn()
-		cleanup.push(reg.register({ ...cmd.closeTab, run: close }))
-		press(document.body, { code: 'KeyW', metaKey: true })
-		expect(close).toHaveBeenCalledTimes(1)
-	})
-
 	it('runs from the menu whatever has focus', () => {
-		const reg = registry({ nativeMenu: true, dialog: () => true })
+		const reg = registry({ dialog: () => true })
 		cleanup.push(reg.declare([cmd.save]))
 		const save = vi.fn()
 		cleanup.push(reg.register({ ...cmd.save, run: save }))

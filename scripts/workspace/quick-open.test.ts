@@ -133,7 +133,7 @@ describe('quick open chords', () => {
 		document.body.innerHTML = ''
 	})
 	function keys(mac: boolean): Harness {
-		const h = keymapHarness({ mac, nativeMenu: true })
+		const h = keymapHarness({ mac })
 		harnesses.push(h)
 		return h
 	}
