@@ -1,6 +1,4 @@
 import { commands } from '#core/commands'
-import { catalogStore } from '#features/workspace/catalog'
-import { tablePreview } from '#features/workspace/grid'
 import {
 	findCatalogTable,
 	workspaceSession,
@@ -124,6 +122,11 @@ async function openConnection(id: string) {
 }
 
 async function openCatalogObject(connectionId: string, tableId: string) {
+	// The shortcuts in `bind.ts` load with the app; the grid comes with the workspace.
+	const [{ catalogStore }, { tablePreview }] = await Promise.all([
+		import('#features/workspace/catalog'),
+		import('#features/workspace/grid'),
+	])
 	await focusConnection(connectionId)
 	workspaceStudio.sideMode = 'explorer'
 	const table = findCatalogTable(catalogStore.databases(connectionId), tableId)

@@ -1,5 +1,18 @@
+<script lang="ts" module>
+	import { lazy } from '#core/ui'
+
+	// Only the workspace has changes a reset can lose, so this comes with the
+	// workspace's code and never weighs on the home page.
+	const ResetConfirmModal = lazy(() =>
+		import('#features/workspace/shell').then((m) => ({
+			default: m.ResetConfirmModal,
+		})),
+	)
+</script>
+
 <script lang="ts">
 	import { commands, mountCommands } from '#core/commands'
+	import { Lazy } from '#core/ui'
 	import {
 		applyPreferredUiScale,
 		applyUiScale,
@@ -13,10 +26,10 @@
 	import { ToastContext } from '#features/toast'
 	import {
 		QuickOpen,
+		quickOpen,
 		registerQuickOpenCommands,
 	} from '#features/workspace/quick-open'
 	import { resetGuard } from '#features/workspace/session'
-	import { ResetConfirmModal } from '#features/workspace/shell'
 	import { appPrefs, cmd, KEYMAP } from '#lib/app'
 	import { onDestroy, onMount } from 'svelte'
 	import '../app.css'
@@ -81,8 +94,12 @@
 
 <ToastContext>
 	{@render children()}
-	<QuickOpen />
-	<ResetConfirmModal />
+	<Lazy component={QuickOpen} when={quickOpen.open} fallback="none" />
+	<Lazy
+		component={ResetConfirmModal}
+		when={resetGuard.loss != null}
+		fallback="none"
+	/>
 	<PasswordPromptModal />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}

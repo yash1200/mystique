@@ -1,12 +1,19 @@
+<script lang="ts" module>
+	import { lazy } from '#core/ui'
+
+	// The AI pane brings the agent feature with it; neither is needed until
+	// someone opens these sections.
+	const AiSettings = lazy(() => import('./AiSettings.svelte'))
+	const McpSettings = lazy(() => import('./McpSettings.svelte'))
+</script>
+
 <script lang="ts">
-	import { Icon, IconButton, Modal, type IconName } from '#core/ui'
+	import { Icon, IconButton, Lazy, Modal, type IconName } from '#core/ui'
 	import { cn, overlayFade } from '#core/util'
 	import { appSettingsUi } from '../model.svelte'
 	import type { SettingsSection } from '../prefs'
 	import AboutSettings from './AboutSettings.svelte'
-	import AiSettings from './AiSettings.svelte'
 	import AppearanceSettings from './AppearanceSettings.svelte'
-	import McpSettings from './McpSettings.svelte'
 	import PasswordsSettings from './PasswordsSettings.svelte'
 	import WorkspaceSettings from './WorkspaceSettings.svelte'
 
@@ -178,11 +185,11 @@
 					{:else if appSettingsUi.section === 'passwords'}
 						<PasswordsSettings />
 					{:else if appSettingsUi.section === 'ai'}
-						<AiSettings />
+						<Lazy component={AiSettings} />
 					{:else if appSettingsUi.section === 'about'}
 						<AboutSettings />
 					{:else}
-						<McpSettings />
+						<Lazy component={McpSettings} />
 					{/if}
 				</div>
 			{/key}
