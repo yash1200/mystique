@@ -572,11 +572,11 @@
 				<Icon name="chat" />
 			</span>
 			<div class="min-w-0 flex-1">
-				<p class="m-0 truncate text-body font-semibold leading-none text-fg">
+				<p class="m-0 truncate text-body font-semibold leading-tight text-fg">
 					Agent
 				</p>
 				<p
-					class="m-0 mt-1 truncate text-caption leading-none text-fg-muted"
+					class="m-0 mt-0.5 truncate text-caption leading-tight text-fg-muted"
 					title={connectionLine}
 				>
 					{connectionLine}

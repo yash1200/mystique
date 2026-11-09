@@ -134,13 +134,13 @@
 						>
 					{/if}
 					<span
-						class="min-w-0 flex-1 truncate font-mono text-caption leading-none text-fg"
+						class="min-w-0 flex-1 truncate font-mono text-caption leading-normal text-fg"
 						title={col.name}
 					>
 						{col.name}
 					</span>
 					<span
-						class="max-w-[40%] shrink-0 truncate font-mono text-caption leading-none text-fg-muted"
+						class="max-w-[40%] shrink-0 truncate font-mono text-caption leading-normal text-fg-muted"
 						title={col.dataType}>{col.dataType}</span
 					>
 				</button>

@@ -287,7 +287,7 @@
 						}}
 					>
 						{@render kindMark(tab)}
-						<span class="min-w-0 truncate">{tabLabel(tab)}</span>
+						<span class="min-w-0 truncate leading-normal">{tabLabel(tab)}</span>
 					</button>
 					<button
 						type="button"
@@ -356,7 +356,7 @@
 					class="flex min-w-0 flex-1 items-center gap-1 self-center px-2.5 text-left text-label font-medium leading-none"
 				>
 					{@render kindMark(tab)}
-					<span class="min-w-0 truncate">{tabLabel(tab)}</span>
+					<span class="min-w-0 truncate leading-normal">{tabLabel(tab)}</span>
 				</div>
 				{#if tab.dirty}
 					<span class="mr-1.5 self-center text-label leading-none text-warning"
