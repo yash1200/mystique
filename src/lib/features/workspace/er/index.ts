@@ -1,4 +1,6 @@
 /** ER / model diagram: canvas, layout, DBML snapshot, PNG export. */
+import { lazy } from '#core/ui'
+
 export * from './api'
 export * from './constants'
 export * from './context-menu'
@@ -9,4 +11,5 @@ export * from './layout'
 export * from './live'
 export * from './store.svelte'
 export type * from './types'
-export { default as ErWorkspace } from './ui/ErWorkspace.svelte'
+/** The diagram UI loads when a model tab first opens. */
+export const ErWorkspace = lazy(() => import('./ui/ErWorkspace.svelte'))
