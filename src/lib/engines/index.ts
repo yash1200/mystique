@@ -41,6 +41,9 @@ export { catalogSignature } from './sql/signature'
 
 export { sslModeFromConfig } from './ssl'
 
+export { splitMongoStatements } from './mongodb/statements'
+export type { MongoStatementSpan } from './mongodb/statements'
+
 export { default as EngineFields } from './ui/EngineFields.svelte'
 
 export { OPEN_URL_IMPORT } from './commands'

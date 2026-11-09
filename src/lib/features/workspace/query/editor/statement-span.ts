@@ -2,9 +2,13 @@
  * Editor-side copy of `mystique-sql` `split.rs`.
  * Offsets are JavaScript string indexes, which match the Rust byte offsets
  * for the ASCII batches the splitter tests lock.
+ *
+ * MongoDB is not SQL: `mongo` hands the buffer to the shell splitter, the
+ * editor's copy of the one the backend uses for Run all.
  */
+import { splitMongoStatements } from '#engines'
 
-export type SplitDialect = 'postgres' | 'mysql' | 'sqlite' | 'generic'
+export type SplitDialect = 'postgres' | 'mysql' | 'sqlite' | 'generic' | 'mongo'
 
 export type StatementSpan = {
 	start: number
@@ -24,6 +28,7 @@ export function splitDialectFor(engine: string): SplitDialect {
 	}
 	if (id === 'mysql' || id === 'mariadb' || id === 'tidb') return 'mysql'
 	if (id === 'sqlite' || id === 'turso') return 'sqlite'
+	if (id === 'mongodb' || id === 'mongo' || id === 'documentdb') return 'mongo'
 	return 'generic'
 }
 
@@ -31,6 +36,7 @@ export function splitStatementSpans(
 	sql: string,
 	dialect: SplitDialect,
 ): StatementSpan[] {
+	if (dialect === 'mongo') return splitMongoStatements(sql)
 	const out: StatementSpan[] = []
 	let start = 0
 	let i = 0
