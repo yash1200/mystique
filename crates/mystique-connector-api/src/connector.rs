@@ -14,6 +14,7 @@ use crate::ddl::{ApplyDdlResult, DdlPlan, TableDefinition};
 use crate::error::ConnectorResult;
 use crate::explain::ExplainPlan;
 use crate::form::ConnectionFormSchema;
+use crate::infer::{FieldInference, InferFieldsInput};
 use crate::metrics::{
     FetchServerMetricsInput, ServerMetricsSnapshot, TerminateSessionInput, TerminateSessionResult,
 };
@@ -129,6 +130,17 @@ pub trait ConnectorSession: Send + Sync {
     ) -> ConnectorResult<ExplainPlan> {
         Err(crate::ConnectorError::NotSupported(format!(
             "explain is not supported for engine `{}`",
+            self.engine_id()
+        )))
+    }
+
+    /// Sample a collection and count its field paths and value types.
+    ///
+    /// Document stores only; the default is unsupported. The plugin runs a
+    /// fixed, bounded read (`$sample` for MongoDB), never `$out` / `$merge`.
+    async fn infer_fields(&self, _input: &InferFieldsInput) -> ConnectorResult<FieldInference> {
+        Err(crate::ConnectorError::NotSupported(format!(
+            "field inference is not supported for engine `{}`",
             self.engine_id()
         )))
     }

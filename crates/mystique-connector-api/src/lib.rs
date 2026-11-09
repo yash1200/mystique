@@ -22,6 +22,7 @@ mod ddl;
 mod error;
 mod explain;
 mod form;
+mod infer;
 mod ipc_error;
 mod json_cell;
 mod large_cell;
@@ -53,6 +54,7 @@ pub use explain::{
     EXPLAIN_REJECTED,
 };
 pub use form::*;
+pub use infer::*;
 pub use ipc_error::{IpcError, IpcErrorKind, IpcPrompt};
 pub use json_cell::{json_decimal, json_f64, json_i64, json_u64, JS_MAX_SAFE_INTEGER};
 pub use large_cell::{

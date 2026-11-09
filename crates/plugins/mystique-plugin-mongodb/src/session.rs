@@ -9,11 +9,12 @@ use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan, EngineCapabilities,
     ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
-    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
-    PoolStatus, PreviewImportInput, PreviewImportResult, QueryResult, ServerMetricsSnapshot,
-    TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats,
-    TerminateSessionInput, TerminateSessionResult, ValidatedQuery,
+    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, FieldInference,
+    ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult, InferFieldsInput,
+    ObjectStructure, PinnedSession, PoolStatus, PreviewImportInput, PreviewImportResult,
+    QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition,
+    TablePreviewResult, TablePreviewStats, TerminateSessionInput, TerminateSessionResult,
+    ValidatedQuery,
 };
 
 mod admin;
@@ -24,6 +25,7 @@ mod edits;
 mod encode;
 mod error;
 mod explain;
+mod infer;
 mod large;
 mod metrics;
 mod opts;
@@ -184,6 +186,10 @@ impl ConnectorSession for MongoSession {
         input: &FetchTablePreviewInput,
     ) -> ConnectorResult<TablePreviewResult> {
         preview::fetch_table_preview(self, input).await
+    }
+
+    async fn infer_fields(&self, input: &InferFieldsInput) -> ConnectorResult<FieldInference> {
+        infer::infer_fields(self, input).await
     }
 
     async fn fetch_table_preview_stats(
