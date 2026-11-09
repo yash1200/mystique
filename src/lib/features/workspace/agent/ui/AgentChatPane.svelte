@@ -15,6 +15,7 @@
 		cmd,
 	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
+	import { ACP_PROVIDER, acpSettings, isExternalAgent } from '../acp-settings.svelte'
 	import { sendAgentMessage, updateAgentChat } from '../api'
 	import { agentChat } from '../chat.svelte'
 	import { configuredProviders, resolveAgentProvider } from '../configured'
@@ -44,6 +45,9 @@
 	}: Props = $props()
 
 	const settings = $derived(aiSettings.view)
+	/** Settings → AI → Agent picked an external (ACP) agent. */
+	const external = $derived(isExternalAgent(acpSettings.view))
+	const externalLabel = $derived(acpSettings.view?.agentLabel || 'External agent')
 	/** A run is streaming. It lives in the store, so it survives a remount. */
 	const sending = $derived(agentChat.live !== null)
 	let elapsedSec = $state(0)
@@ -137,16 +141,23 @@
 		const sep = opt.label.indexOf(' · ')
 		return sep >= 0 ? opt.label.slice(sep + 3) : opt.label
 	})
+	/** The agent can take a turn: an external one, or a ready provider + model. */
+	const agentReady = $derived(
+		external ||
+			(providerReady &&
+				!agentChat.modelsLoading &&
+				(agentChat.provider !== 'ollama' || Boolean(agentChat.model.trim()))),
+	)
 	const canSend = $derived(
-		!sending &&
-			Boolean(agentChat.draft.trim()) &&
-			providerReady &&
-			!agentChat.modelsLoading &&
-			(agentChat.provider !== 'ollama' || Boolean(agentChat.model.trim())),
+		!sending && Boolean(agentChat.draft.trim()) && agentReady,
 	)
 	const workingLabel = $derived.by(() => {
 		if (!sending) return ''
-		const who = agentChat.provider === 'ollama' ? 'Ollama' : 'the model'
+		const who = external
+			? externalLabel
+			: agentChat.provider === 'ollama'
+				? 'Ollama'
+				: 'the model'
 		if (elapsedSec < 8) return `Working… ${elapsedSec}s`
 		if (elapsedSec < 25) return `Waiting on ${who}… ${elapsedSec}s`
 		return `Still waiting on ${who}… ${elapsedSec}s`
@@ -195,7 +206,11 @@
 	snapProvider()
 
 	async function loadSettings() {
-		await aiSettings.load()
+		await Promise.all([
+			aiSettings.load(),
+			// Built-in stays the fallback when this read fails.
+			acpSettings.load().catch(() => null),
+		])
 		snapProvider()
 	}
 
@@ -319,7 +334,9 @@
 		const text = (preset ?? agentChat.draft).trim()
 		if ((!text && !fix) || sending) return
 		snapProvider()
+		const viaExternal = external
 		if (
+			!viaExternal &&
 			!configuredProviders(aiSettings.view).some(
 				(p) => p.id === agentChat.provider,
 			)
@@ -356,8 +373,9 @@
 					engine,
 					database,
 					chatId: agentChat.chatId,
-					provider: agentChat.provider,
-					model: agentChat.model,
+					// The external agent picks its own model.
+					provider: viaExternal ? ACP_PROVIDER : agentChat.provider,
+					model: viaExternal ? '' : agentChat.model,
 					text,
 					editorQuery,
 					mentions: resolveMentions(text, mentionTables),
@@ -436,7 +454,7 @@
 
 	$effect(() => {
 		const queued = workspaceSession.pendingAgentPrompt
-		if (!queued || sending || !settings || !providerReady) return
+		if (!queued || sending || !settings || !(external || providerReady)) return
 		untrack(() => {
 			const text = workspaceSession.takePendingAgentPrompt()
 			if (text) void send(text)
@@ -446,7 +464,7 @@
 	// "Fix with AI" from the error banner.
 	$effect(() => {
 		const queued = workspaceSession.pendingAgentFix
-		if (!queued || sending || !settings || !providerReady) return
+		if (!queued || sending || !settings || !(external || providerReady)) return
 		untrack(() => {
 			const fix = workspaceSession.takePendingAgentFix()
 			if (fix) void send('Fix this query.', fix)
@@ -529,8 +547,16 @@
 				<Icon name="chat" />
 			</span>
 			<div class="min-w-0 flex-1">
-				<p class="m-0 truncate text-body font-semibold leading-tight text-fg">
+				<p
+					class="m-0 truncate text-body font-semibold leading-tight text-fg"
+					title={external
+						? `External agent (ACP): ${externalLabel}`
+						: 'Built-in agent'}
+				>
 					Agent
+					<span class="font-normal text-fg-muted">
+						· {external ? externalLabel : 'Built-in'}
+					</span>
 				</p>
 				<p
 					class="m-0 mt-0.5 truncate text-caption leading-tight text-fg-muted"
@@ -593,7 +619,7 @@
 					actionLabel="Open AI settings"
 					onaction={openAiSettings}
 				/>
-			{:else if !hasProvider}
+			{:else if !hasProvider && !external}
 				<AgentChatNotice
 					icon="settings"
 					title="No provider set up"
@@ -657,6 +683,7 @@
 				!hasProvider || (agentChat.modelsLoading && comboOptions.length === 0),
 		}}
 		oncombo={applyCombo}
+		fixedModel={external ? externalLabel : null}
 		onsend={() => void send()}
 		onstop={stop}
 	>

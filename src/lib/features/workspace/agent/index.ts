@@ -1,4 +1,5 @@
 /** In-app query agent: chat pane, markdown rendering, provider settings. */
+export * from './acp-settings.svelte'
 export * from './api'
 export * from './chat.svelte'
 export * from './configured'

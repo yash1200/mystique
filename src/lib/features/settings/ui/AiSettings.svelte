@@ -17,6 +17,7 @@
 	} from '#features/workspace/agent'
 	import { onMount } from 'svelte'
 	import AgentAccessDefault from './AgentAccessDefault.svelte'
+	import AgentBackendSettings from './AgentBackendSettings.svelte'
 
 	const view = $derived(aiSettings.view)
 	const configured = $derived(configuredProviders(view))
@@ -311,6 +312,7 @@
 			{/if}
 		</div>
 	{/if}
+	<AgentBackendSettings />
 	<AgentAccessDefault />
 {/if}
 

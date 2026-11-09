@@ -33,6 +33,8 @@
 		onsend: () => void
 		onstop: () => void
 		footer?: Snippet
+		/** An external agent picks its own model: shown instead of the picker. */
+		fixedModel?: string | null
 	}
 
 	let {
@@ -46,6 +48,7 @@
 		onsend,
 		onstop,
 		footer,
+		fixedModel = null,
 	}: Props = $props()
 
 	const ID = 'agent-composer'
@@ -196,21 +199,31 @@
 			onblur={() => (mention = null)}
 		/>
 		<div class="flex items-center justify-between gap-2 px-2 pt-0.5 pb-1.5">
-			<Select
-				variant="quiet"
-				inputSize="sm"
-				options={combo.options}
-				value={combo.value}
-				placeholder={combo.placeholder}
-				triggerLabel={combo.shortLabel}
-				ariaLabel="Model"
-				disabled={combo.disabled}
-				onchange={oncombo}
-			>
-				{#snippet leading()}
-					<Icon name="sparkle" class="size-3.5" />
-				{/snippet}
-			</Select>
+			{#if fixedModel}
+				<span
+					class="flex min-w-0 items-center gap-1.5 px-1.5 text-caption text-fg-secondary"
+					title="External agent (ACP). It picks its own model."
+				>
+					<Icon name="sparkle" class="size-3.5 shrink-0" />
+					<span class="truncate">{fixedModel}</span>
+				</span>
+			{:else}
+				<Select
+					variant="quiet"
+					inputSize="sm"
+					options={combo.options}
+					value={combo.value}
+					placeholder={combo.placeholder}
+					triggerLabel={combo.shortLabel}
+					ariaLabel="Model"
+					disabled={combo.disabled}
+					onchange={oncombo}
+				>
+					{#snippet leading()}
+						<Icon name="sparkle" class="size-3.5" />
+					{/snippet}
+				</Select>
+			{/if}
 			<div class="flex min-w-0 items-center gap-2">
 				{@render footer?.()}
 				{#if sending}

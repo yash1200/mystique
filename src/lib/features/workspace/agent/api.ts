@@ -1,5 +1,7 @@
 import { Channel, invoke } from '#core/ipc'
 import type {
+	AcpProbe,
+	AcpSettingsView,
 	AgentChat,
 	AgentEvent,
 	AgentFixRequest,
@@ -7,6 +9,7 @@ import type {
 	AgentModelInfo,
 	AgentTableRef,
 	AiSettingsView,
+	SaveAcpSettings,
 	SendAgentResult,
 } from './types'
 
@@ -131,4 +134,21 @@ export async function sendAgentMessage(
 /** Stop the chat's live turn. False when nothing was running. */
 export async function cancelAgentMessage(chatId: string): Promise<boolean> {
 	return invoke('cancel_agent_message', { chatId: asId(chatId) })
+}
+
+/** Settings → AI → Agent: built-in or an external (ACP) agent. */
+export async function getAcpSettings(): Promise<AcpSettingsView> {
+	return invoke('get_acp_settings')
+}
+
+/** Secret-looking environment values are sealed in the vault. */
+export async function saveAcpSettings(
+	input: SaveAcpSettings,
+): Promise<AcpSettingsView> {
+	return invoke('save_acp_settings', { input })
+}
+
+/** Start the saved external agent, run `initialize`, stop it. */
+export async function testAcpAgent(): Promise<AcpProbe> {
+	return invoke('test_acp_agent')
 }
