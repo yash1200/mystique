@@ -273,6 +273,7 @@ pub fn run() {
             ipc::agent::list_agent_messages,
             ipc::agent::update_agent_chat,
             ipc::agent::send_agent_message,
+            ipc::agent::cancel_agent_message,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

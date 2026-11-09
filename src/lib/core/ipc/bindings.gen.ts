@@ -13,11 +13,49 @@ id: string, user: string | null, database: string | null, state: string | null, 
 
 export type AgentChat = { id: string, connectionId: string, title: string, provider: string, model: string, createdAt: string, updatedAt: string, };
 
+/**
+ * Why a run ended without an answer.
+ */
+export type AgentErrorKind = "cancelled" | "timeout" | "provider" | "internal";
+
+/**
+ * One streamed event of an agent run.
+ */
+export type AgentEvent = { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "toolCallStart", id: string, name: string, args: unknown, } | { "type": "toolCallEnd", id: string, ok: boolean, summary: string, 
+/**
+ * The tool card row in local SQLite.
+ */
+messageId?: string, } | { "type": "toolApprovalPending", id: string, approvalId: string, sql: string, 
+/**
+ * Access level the statement needs (`write` / `full`).
+ */
+needed: string, } | { "type": "contextCompacted", droppedMessages: number, trimmedResults: number, } | { "type": "exhausted", turns: number, } | { "type": "done", messageId: string, tokens: AgentTokens, } | { "type": "error", kind: AgentErrorKind, message: string, };
+
+/**
+ * "Fix with AI" from the query error banner: the failed statement, the
+ * error, and where it points (1-based), for the repair prompt.
+ */
+export type AgentFixRequest = { sql: string, error: string, line?: number | null, column?: number | null, };
+
 export type AgentMessage = { id: string, chatId: string, role: string, content: string, toolName: string | null, draftBody: string | null, createdAt: string, };
 
 export type AgentModelInfo = { id: string, label: string, };
 
 export type AgentProviderInfo = { id: string, label: string, needsKey: boolean, defaultModel: string, };
+
+/**
+ * A table the user referenced with `@` or dragged in from the explorer.
+ */
+export type AgentTableRef = { schema?: string | null, name: string, };
+
+/**
+ * Token counts the provider reported for the whole run (all model calls).
+ */
+export type AgentTokens = { input: number, output: number, 
+/**
+ * Input tokens served from the provider's prompt cache.
+ */
+cachedInput: number, };
 
 export type AiKeyStatus = { provider: string, hasKey: boolean, };
 
@@ -1015,9 +1053,21 @@ export type SendAgentMessage = { connectionId: string, connectionName: string, e
 /**
  * Live editor buffer for the active query tab. Not persisted as a chat message.
  */
-editorQuery: string | null, };
+editorQuery: string | null, 
+/**
+ * `@table` references: their columns are looked up and sent with the turn.
+ */
+mentions?: Array<AgentTableRef>, 
+/**
+ * Set by "Fix with AI": the turn opens with the repair prompt.
+ */
+fix?: AgentFixRequest, };
 
-export type SendAgentResult = { chat: AgentChat, user: AgentMessage, assistant: AgentMessage, };
+/**
+ * The run started: the chat (new or existing) and the saved user message.
+ * Everything else arrives on the event channel, ending in `done` or `error`.
+ */
+export type SendAgentResult = { chat: AgentChat, user: AgentMessage, };
 
 /**
  * What this engine can populate in the metrics tab.

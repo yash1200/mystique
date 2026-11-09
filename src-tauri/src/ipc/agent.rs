@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use mystique_agent::{
-    parse_provider, provider_catalog, AgentModelInfo, AiSettingsView, SecretStore,
-    SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED, SETTING_OLLAMA_URL,
+    parse_provider, provider_catalog, AgentEvent, AgentEventSink, AgentModelInfo, AiSettingsView,
+    SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED,
+    SETTING_OLLAMA_URL,
 };
 use mystique_core::{AgentChat, AgentMessage, AppServices, UpdateAgentChatInput};
+use tauri::ipc::Channel;
 use tauri::State;
 
 use super::IpcError;
@@ -171,19 +173,36 @@ pub async fn update_agent_chat(
     .await
 }
 
+/// Start a turn. Returns the chat and the saved user message at once; the
+/// reply streams on `on_event` (batched deltas, tool calls, `done`/`error`).
 #[tauri::command]
 pub async fn send_agent_message(
     state: State<'_, AppState>,
     request: SendAgentMessage,
+    on_event: Channel<AgentEvent>,
 ) -> Result<SendAgentResult, IpcError> {
-    super::guard(async move {
-        let services = std::sync::Arc::clone(&state.services);
-        let secrets = state.agent.secrets().clone();
-        let runtime = state.agent.runtime().clone();
+    let services = Arc::clone(&state.services);
+    let secrets = state.agent.secrets().clone();
+    let runtime = state.agent.runtime().clone();
+    let sink: AgentEventSink = Arc::new(move |event| {
+        let _ = on_event.send(event);
+    });
+    // SQLite writes happen before the run starts; keep them off the worker.
+    super::guard_blocking(move || {
         runtime
-            .send(&services, &secrets, request)
-            .await
+            .send(services, &secrets, request, sink)
             .map_err(IpcError::from)
     })
     .await
+}
+
+/// Stop the chat's live turn (Stop button). The provider request and any
+/// tool call in flight are dropped. False when nothing was running.
+#[tauri::command]
+pub async fn cancel_agent_message(
+    state: State<'_, AppState>,
+    chat_id: String,
+) -> Result<bool, IpcError> {
+    let runtime = state.agent.runtime().clone();
+    super::guard(async move { Ok(runtime.cancel(&chat_id)) }).await
 }

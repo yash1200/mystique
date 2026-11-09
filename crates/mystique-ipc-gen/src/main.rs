@@ -165,6 +165,7 @@ fn roots(c: &mut Collect) {
         agent::AgentModelInfo,
         agent::SendAgentMessage,
         agent::SendAgentResult,
+        agent::AgentEvent,
         // MCP.
         mcp::McpStatus,
         mcp::McpHarness,
