@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use mystique_connector_api::{
-    ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, DdlPlan, ForeignKeyDraft,
-    IndexDraft, TableDefinition,
+    ApplyDdlResult, ColumnDraft, ConnectorError, ConnectorResult, ConstraintDraft, DdlPlan,
+    ForeignKeyDraft, IndexDraft, TableDefinition,
 };
 
 use super::PostgresSession;
@@ -97,6 +97,8 @@ async fn load(
         let data_type: String = pg_col(row, 2)?;
         let nullable: bool = pg_col(row, 3)?;
         let pk = u32::try_from(pg_i32_col(row, 4)?.unwrap_or(0)).unwrap_or(0);
+        let default: Option<String> = pg_col(row, 5)?;
+        let identity: String = pg_col(row, 6)?;
         let definition = tables.entry(table_name.clone()).or_insert_with(|| {
             TableDefinition::loaded(
                 database.map(str::to_string),
@@ -105,9 +107,15 @@ async fn load(
                 "table",
             )
         });
-        definition
-            .columns
-            .push(ColumnDraft::loaded(column_name, data_type, nullable, pk));
+        let identity = match identity.as_str() {
+            "a" => Some("always".to_string()),
+            "d" => Some("by default".to_string()),
+            _ => None,
+        };
+        definition.columns.push(
+            ColumnDraft::loaded(column_name, data_type, nullable, pk)
+                .with_default(default, identity),
+        );
     }
 
     let index_rows = match table {
@@ -129,7 +137,15 @@ async fn load(
         let unique: bool = pg_col(row, 2)?;
         let primary: bool = pg_col(row, 3)?;
         let column_name: String = pg_col(row, 4)?;
-        push_index(definition, index_name, unique, primary, column_name);
+        let index_sql: String = pg_col(row, 5)?;
+        push_index(
+            definition,
+            index_name,
+            unique,
+            primary,
+            column_name,
+            index_sql,
+        );
     }
 
     let fk_rows = match table {
@@ -152,14 +168,46 @@ async fn load(
         let ref_table: String = pg_col(row, 3)?;
         let column_name: String = pg_col(row, 4)?;
         let ref_column: String = pg_col(row, 5)?;
+        let on_delete: String = pg_col(row, 6)?;
+        let on_update: String = pg_col(row, 7)?;
         push_fk(
             definition,
-            name,
-            ref_schema,
-            ref_table,
-            column_name,
-            ref_column,
+            FkRow {
+                name,
+                ref_schema,
+                ref_table,
+                column: column_name,
+                ref_column,
+                on_delete: fk_action(&on_delete),
+                on_update: fk_action(&on_update),
+            },
         );
+    }
+    let constraint_rows = match table {
+        Some(table) => client
+            .query(CONSTRAINTS_ONE, &[&schema, &table])
+            .await
+            .map_err(query_failed)?,
+        None => client
+            .query(CONSTRAINTS_ALL, &[&schema])
+            .await
+            .map_err(query_failed)?,
+    };
+    for row in &constraint_rows {
+        let table_name: String = pg_col(row, 0)?;
+        let Some(definition) = tables.get_mut(&table_name) else {
+            continue;
+        };
+        let name: String = pg_col(row, 1)?;
+        let kind: String = pg_col(row, 2)?;
+        let text: String = pg_col(row, 3)?;
+        let columns: Vec<String> = pg_col(row, 4)?;
+        let constraint = if kind == "c" {
+            ConstraintDraft::loaded("check", name, Vec::new(), Some(check_expression(&text)))
+        } else {
+            ConstraintDraft::loaded("unique", name, columns, None)
+        };
+        definition.constraints.push(constraint);
     }
     Ok(tables.into_values().collect())
 }
@@ -170,6 +218,7 @@ fn push_index(
     unique: bool,
     primary: bool,
     column: String,
+    index_sql: String,
 ) {
     if let Some(index) = definition
         .indexes
@@ -182,39 +231,89 @@ fn push_index(
         }
         return;
     }
-    definition
-        .indexes
-        .push(IndexDraft::loaded(name, vec![column], unique, primary));
+    // `pg_get_indexdef`: partial, expression, and INCLUDE indexes replay as they are.
+    definition.indexes.push(
+        IndexDraft::loaded(name, vec![column], unique, primary).with_definition(Some(index_sql)),
+    );
 }
 
-fn push_fk(
-    definition: &mut TableDefinition,
+struct FkRow {
     name: String,
     ref_schema: String,
     ref_table: String,
     column: String,
     ref_column: String,
-) {
+    on_delete: Option<String>,
+    on_update: Option<String>,
+}
+
+/// `pg_constraint.confdeltype` / `confupdtype` as SQL.
+fn fk_action(code: &str) -> Option<String> {
+    match code {
+        "r" => Some("RESTRICT".into()),
+        "c" => Some("CASCADE".into()),
+        "n" => Some("SET NULL".into()),
+        "d" => Some("SET DEFAULT".into()),
+        _ => None,
+    }
+}
+
+fn push_fk(definition: &mut TableDefinition, row: FkRow) {
     if let Some(fk) = definition
         .foreign_keys
         .iter_mut()
-        .find(|fk| fk.name == name)
+        .find(|fk| fk.name == row.name)
     {
-        fk.columns.push(column.clone());
-        fk.ref_columns.push(ref_column.clone());
+        fk.columns.push(row.column.clone());
+        fk.ref_columns.push(row.ref_column.clone());
         if let Some(original) = fk.original.as_mut() {
-            original.columns.push(column);
-            original.ref_columns.push(ref_column);
+            original.columns.push(row.column);
+            original.ref_columns.push(row.ref_column);
         }
         return;
     }
-    definition.foreign_keys.push(ForeignKeyDraft::loaded(
-        name,
-        vec![column],
-        Some(ref_schema),
-        ref_table,
-        vec![ref_column],
-    ));
+    definition.foreign_keys.push(
+        ForeignKeyDraft::loaded(
+            row.name,
+            vec![row.column],
+            Some(row.ref_schema),
+            row.ref_table,
+            vec![row.ref_column],
+        )
+        .with_actions(row.on_delete, row.on_update),
+    );
+}
+
+/// `CHECK ((a > 0))` from `pg_get_constraintdef` → `(a > 0)`.
+fn check_expression(definition: &str) -> String {
+    let text = definition.trim();
+    let text = text.strip_prefix("CHECK").unwrap_or(text).trim();
+    let text = text.strip_suffix("NOT VALID").unwrap_or(text).trim();
+    let text = text.strip_suffix("NO INHERIT").unwrap_or(text).trim();
+    let inner = text
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+        .filter(|inner| balanced(inner));
+    inner.unwrap_or(text).trim().to_string()
+}
+
+fn balanced(text: &str) -> bool {
+    let mut depth = 0i32;
+    let mut quoted = false;
+    for ch in text.chars() {
+        match ch {
+            '\'' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 fn nonempty(value: Option<&str>) -> Option<&str> {
@@ -262,10 +361,13 @@ SELECT
       ON k.attnum = a.attnum
     WHERE ix.indrelid = c.oid AND ix.indisprimary
     LIMIT 1
-  ), 0)::int4
+  ), 0)::int4,
+  CASE WHEN a.attgenerated = '' THEN pg_catalog.pg_get_expr(d.adbin, d.adrelid) END,
+  a.attidentity::text
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
 WHERE n.nspname = $1
   AND c.relkind IN ('r', 'p')
   AND a.attnum > 0
@@ -286,10 +388,13 @@ SELECT
       ON k.attnum = a.attnum
     WHERE ix.indrelid = c.oid AND ix.indisprimary
     LIMIT 1
-  ), 0)::int4
+  ), 0)::int4,
+  CASE WHEN a.attgenerated = '' THEN pg_catalog.pg_get_expr(d.adbin, d.adrelid) END,
+  a.attidentity::text
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
 WHERE n.nspname = $1
   AND c.relname = $2
   AND c.relkind IN ('r', 'p')
@@ -304,14 +409,19 @@ SELECT
   i.relname::text,
   ix.indisunique,
   ix.indisprimary,
-  a.attname::text
+  COALESCE(a.attname::text, '(expression)'),
+  pg_catalog.pg_get_indexdef(ix.indexrelid)
 FROM pg_catalog.pg_class t
 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_catalog.pg_index ix ON t.oid = ix.indrelid
 JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
-JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON k.attnum > 0
-JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum AND k.attnum > 0
 WHERE n.nspname = $1
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint co
+    WHERE co.conindid = ix.indexrelid AND co.contype IN ('u', 'x')
+  )
   AND t.relkind IN ('r', 'p')
 ORDER BY t.relname, i.relname, k.ord
 "#;
@@ -322,14 +432,19 @@ SELECT
   i.relname::text,
   ix.indisunique,
   ix.indisprimary,
-  a.attname::text
+  COALESCE(a.attname::text, '(expression)'),
+  pg_catalog.pg_get_indexdef(ix.indexrelid)
 FROM pg_catalog.pg_class t
 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_catalog.pg_index ix ON t.oid = ix.indrelid
 JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
-JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON k.attnum > 0
-JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum AND k.attnum > 0
 WHERE n.nspname = $1
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint co
+    WHERE co.conindid = ix.indexrelid AND co.contype IN ('u', 'x')
+  )
   AND t.relname = $2
   AND t.relkind IN ('r', 'p')
 ORDER BY i.relname, k.ord
@@ -342,7 +457,9 @@ SELECT
   nsp_ref.nspname::text,
   rel_ref.relname::text,
   att.attname::text,
-  att_ref.attname::text
+  att_ref.attname::text,
+  con.confdeltype::text,
+  con.confupdtype::text
 FROM pg_catalog.pg_constraint con
 JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
 JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
@@ -365,7 +482,9 @@ SELECT
   nsp_ref.nspname::text,
   rel_ref.relname::text,
   att.attname::text,
-  att_ref.attname::text
+  att_ref.attname::text,
+  con.confdeltype::text,
+  con.confupdtype::text
 FROM pg_catalog.pg_constraint con
 JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
 JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
@@ -380,4 +499,43 @@ WHERE con.contype = 'f'
   AND nsp.nspname = $1
   AND rel.relname = $2
 ORDER BY con.conname, cols.ord
+"#;
+
+const CONSTRAINTS_ALL: &str = r#"
+SELECT
+  rel.relname::text,
+  con.conname::text,
+  con.contype::text,
+  pg_catalog.pg_get_constraintdef(con.oid),
+  COALESCE((
+    SELECT array_agg(att.attname::text ORDER BY k.ord)
+    FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+    JOIN pg_catalog.pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = k.attnum
+  ), ARRAY[]::text[])
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
+WHERE con.contype IN ('c', 'u')
+  AND nsp.nspname = $1
+ORDER BY rel.relname, con.conname
+"#;
+
+const CONSTRAINTS_ONE: &str = r#"
+SELECT
+  rel.relname::text,
+  con.conname::text,
+  con.contype::text,
+  pg_catalog.pg_get_constraintdef(con.oid),
+  COALESCE((
+    SELECT array_agg(att.attname::text ORDER BY k.ord)
+    FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+    JOIN pg_catalog.pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = k.attnum
+  ), ARRAY[]::text[])
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
+WHERE con.contype IN ('c', 'u')
+  AND nsp.nspname = $1
+  AND rel.relname = $2
+ORDER BY con.conname
 "#;
