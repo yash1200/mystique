@@ -106,8 +106,9 @@ export class GridSelection<C extends Col> {
 	focusRow(row: number | null) {
 		this.state = { ...this.state, row }
 	}
-	blurCell() {
-		this.state = { ...this.state, cell: null }
+	/** Set or drop the focused cell only; the focused row and the selection stay. */
+	setCell(cell: CellRef<C> | null) {
+		this.state = { ...this.state, cell }
 	}
 	/** Escape: shrink a multi-selection. False when there was nothing to shrink. */
 	collapse(): boolean {
@@ -119,8 +120,13 @@ export class GridSelection<C extends Col> {
 	clearCells() {
 		this.state = clearCells(this.state)
 	}
-	clear() {
-		this.state = emptySelection()
+	/** Select nothing. `keep` leaves the focused row and/or cell where they are. */
+	clear(keep: { row?: boolean; cell?: boolean } = {}) {
+		this.state = {
+			...emptySelection(),
+			row: keep.row ? this.state.row : null,
+			cell: keep.cell ? this.state.cell : null,
+		}
 	}
 	/** Arrow / Tab. Returns the cell moved to, or null on an empty grid. */
 	move(step: { dRow: number; dCol: number; extend: boolean }, bounds: RowBounds) {
