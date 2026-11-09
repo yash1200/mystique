@@ -1341,4 +1341,10 @@ statements?: Array<string>,
 /**
  * Name to send back as `confirmObjectName` for `confirm` and `typeConfirm`.
  */
-objectName?: string | null, };
+objectName?: string | null, 
+/**
+ * Production only: things to look at before confirming, such as an
+ * `UPDATE` / `DELETE` with no `WHERE` or one that is always true.
+ * A warning, never a block.
+ */
+warnings?: Array<string>, };

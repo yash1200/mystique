@@ -38,6 +38,12 @@ pub fn sql_analyze_guard_risk(text: &str, dialect: SqlDialect) -> WriteRisk {
     }
 }
 
+/// `UPDATE` / `DELETE` statements in `text` that change every row: no
+/// `WHERE`, or one that is always true. Shown on the production dialog.
+pub fn sql_where_warnings(text: &str, dialect: SqlDialect) -> Vec<String> {
+    mystique_sql::where_warnings(text, dialect)
+}
+
 pub fn sql_is_safe_dml(text: &str) -> bool {
     sql_is_safe_dml_for(text, SqlDialect::Generic)
 }

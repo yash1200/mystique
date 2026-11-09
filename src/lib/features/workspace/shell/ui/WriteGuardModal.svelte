@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Field, Input, Modal } from '#core/ui'
+	import { Alert, Button, Field, Input, Modal } from '#core/ui'
 	import {
 		guardCopy,
 		typedNameOk,
@@ -44,6 +44,17 @@
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirm()
 	}}
 >
+	{#if copy?.warnings.length}
+		<div class="mt-3">
+			<Alert tone="warning">
+				<ul class="m-0 list-none space-y-1 p-0">
+					{#each copy.warnings as warning, i (i)}
+						<li>{warning}</li>
+					{/each}
+				</ul>
+			</Alert>
+		</div>
+	{/if}
 	{#if copy?.body}
 		<pre
 			class="mt-3 max-h-64 overflow-auto rounded-md border border-line bg-input px-3 py-2 font-mono text-caption leading-relaxed whitespace-pre-wrap text-fg"

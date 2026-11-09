@@ -671,6 +671,66 @@ async fn staging_writes_like_local_and_asks_once_for_a_drop() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// F-06: production warns, without blocking, about an UPDATE / DELETE that
+/// changes every row. Staging and local ask nothing and warn nothing.
+#[tokio::test]
+async fn production_prompt_warns_about_an_always_true_where() {
+    let path = temp_db("prod-tautology");
+    let mgr = seeded(
+        &path,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t VALUES (1), (2)",
+    )
+    .await;
+    mgr.open_session(sqlite_open(&path, "prod", "production", false))
+        .await
+        .expect("open");
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "DELETE FROM t WHERE 1=1"))
+            .await
+            .expect_err("production asks"),
+    );
+    assert_eq!(prompt.kind, "unlock");
+    assert_eq!(
+        prompt.warnings,
+        vec!["WHERE 1 = 1 is always true: this DELETE removes every row of t.".to_string()]
+    );
+    let wire = serde_json::to_value(&prompt).expect("serialize");
+    assert_eq!(wire["warnings"][0], json!(prompt.warnings[0]));
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "SELECT 1; UPDATE t SET id = id"))
+            .await
+            .expect_err("production asks"),
+    );
+    assert_eq!(
+        prompt.warnings,
+        vec!["UPDATE on t has no WHERE: it changes every row.".to_string()]
+    );
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "DELETE FROM t WHERE id = 1"))
+            .await
+            .expect_err("production asks"),
+    );
+    assert!(prompt.warnings.is_empty());
+    let wire = serde_json::to_value(&prompt).expect("serialize");
+    assert!(wire.get("warnings").is_none(), "{wire}");
+    assert_eq!(count_rows(&mgr, "prod").await, 2);
+    let _ = mgr.close_session("prod").await;
+
+    // Staging runs it without a dialog, so there is nothing to warn in.
+    mgr.open_session(sqlite_open(&path, "stage", "staging", false))
+        .await
+        .expect("open staging");
+    mgr.execute_query(write_req("stage", "DELETE FROM t WHERE 1=1"))
+        .await
+        .expect("staging write runs");
+    assert_eq!(count_rows(&mgr, "stage").await, 0);
+    let _ = mgr.close_session("stage").await;
+    let _ = std::fs::remove_file(&path);
+}
+
 #[tokio::test]
 async fn production_prompts_carry_sql_and_a_typed_drop_unlocks() {
     let path = temp_db("prod-policy");

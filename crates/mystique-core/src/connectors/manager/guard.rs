@@ -1,6 +1,6 @@
 use mystique_connector_api::{
-    confirmation_for, confirmation_unlocks, ConnectorError, ConnectorResult, Environment,
-    WriteAction, WriteGuardPrompt, WriteRisk, WriteState,
+    confirmation_for, confirmation_unlocks, sql_where_warnings, ConnectorError, ConnectorResult,
+    Environment, SqlDialect, WriteAction, WriteGuardPrompt, WriteRisk, WriteState,
 };
 
 use super::ConnectionManager;
@@ -18,6 +18,9 @@ pub(super) struct WriteCheck<'a> {
     pub profile_read_only: bool,
     /// Manual-commit tab.
     pub pinned: bool,
+    /// SQL statements: on production, the dialog warns about an `UPDATE` /
+    /// `DELETE` whose `WHERE` is missing or always true.
+    pub where_dialect: Option<SqlDialect>,
 }
 
 impl<'a> WriteCheck<'a> {
@@ -32,6 +35,7 @@ impl<'a> WriteCheck<'a> {
             confirm_object_name: None,
             profile_read_only: false,
             pinned: false,
+            where_dialect: None,
         }
     }
 }
@@ -84,13 +88,22 @@ impl ConnectionManager {
             expected,
             check.statements,
         )?;
-        let prompt = WriteGuardPrompt::from_confirmation(
+        let mut prompt = WriteGuardPrompt::from_confirmation(
             ask,
             environment,
             connection_name,
             check.preview,
             expected,
         );
+        if let (Some(prompt), Environment::Production, Some(dialect)) =
+            (prompt.as_mut(), env, check.where_dialect)
+        {
+            prompt.warnings = prompt
+                .statements
+                .iter()
+                .flat_map(|sql| sql_where_warnings(sql, dialect))
+                .collect();
+        }
         if prompt.is_none() && confirmation_unlocks(env, check.risk, state) {
             self.write_unlocks
                 .lock()

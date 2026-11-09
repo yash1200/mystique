@@ -539,6 +539,7 @@ impl ConnectionManager {
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,
             pinned: tab_id.is_some(),
+            where_dialect: Some(SqlDialect::from_engine(&engine)),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, plan.worst.write_risk())
         })
         .await?;
