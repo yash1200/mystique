@@ -17,6 +17,7 @@
 	import { statementChipLabel, statementChipTitle } from './batch-view'
 	import type { RunState } from '../run/run-types'
 	import QueryResultsGrid from '../ui/QueryResultsGrid.svelte'
+	import type { LargeLoader } from '#features/workspace/data-grid'
 
 	export type ResultExportAction =
 		| 'download-csv'
@@ -49,6 +50,8 @@
 		submittedText?: string
 		onselectstatement?: (index: number) => void
 		identStyle?: 'postgres' | 'mysql'
+		/** Loads a large value in full (the tab's session, through its transaction). */
+		loadLarge?: LargeLoader | null
 	}
 
 	let {
@@ -75,6 +78,7 @@
 		submittedText = '',
 		onselectstatement,
 		identStyle = 'postgres',
+		loadLarge = null,
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
@@ -309,6 +313,7 @@
 					rows={resultPageRows}
 					pageStart={resultPageStart}
 					{identStyle}
+					{loadLarge}
 				/>
 			{/if}
 			{:else}

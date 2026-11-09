@@ -29,6 +29,8 @@
 		fetchChunk?: (offset: number) => Promise<LargeCellPage>
 		/** Large cell with no primary key. The preview is all we can show. */
 		unfetchable?: boolean
+		/** Why it cannot load (defaults to the table-grid wording). */
+		unfetchableText?: string
 		onapply?: (text: string) => void
 		onclose: () => void
 	}
@@ -41,6 +43,7 @@
 		readonly = false,
 		fetchChunk,
 		unfetchable = false,
+		unfetchableText = UNKEYED_LARGE_CELL,
 		onapply,
 		onclose,
 	}: Props = $props()
@@ -214,7 +217,7 @@
 
 	<div bind:this={editorWrap} class="flex min-h-0 flex-1 flex-col gap-2 p-3">
 		{#if unfetchable}
-			<p class="m-0 text-caption text-fg-muted">{UNKEYED_LARGE_CELL}</p>
+			<p class="m-0 text-caption text-fg-muted">{unfetchableText}</p>
 		{:else if loading}
 			<p class="m-0 text-caption text-fg-muted">
 				Loading {loadedChars.toLocaleString()} / {totalChars.toLocaleString()} characters

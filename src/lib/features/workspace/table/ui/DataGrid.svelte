@@ -26,6 +26,7 @@
 		selectionStats,
 		usesSelectEditor,
 		type GridKeyIntent,
+		type LargeCellLocator,
 	} from '#features/workspace/data-grid'
 	import { registerTabSaver } from '#features/workspace/session'
 	import { appPrefs, cmd } from '#lib/app'
@@ -185,6 +186,13 @@
 		},
 		get sqlDialect() {
 			return sqlDialect
+		},
+		get loadLarge() {
+			const sid = sessionId
+			return sid
+				? (locator: LargeCellLocator, offset: number) =>
+						fetchEngineLargeValue({ sessionId: sid, locator, offset })
+				: null
 		},
 	}
 	const actions = new TableRowActions({

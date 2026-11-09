@@ -14,11 +14,13 @@
 		gridKeyIntent,
 		isLargeCell,
 		isTypingTarget,
-		largeCellHint,
+		largeCellFetchable,
 		numericColumn,
+		QUERY_UNKEYED_LARGE_CELL,
 		selectionStats,
 		valueToEditorText,
 		type IdentStyle,
+		type LargeLoader,
 	} from '#features/workspace/data-grid'
 	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
@@ -48,9 +50,17 @@
 		rows: unknown[][]
 		/** Absolute index of rows[0] in the full result set (for # column). */
 		pageStart: number
+		/** Loads a large value in full. Absent when no session is live. */
+		loadLarge?: LargeLoader | null
 	}
 
-	let { columns, rows, pageStart, identStyle = 'postgres' }: Props = $props()
+	let { columns, rows, pageStart, identStyle = 'postgres', loadLarge = null }: Props = $props()
+
+	function largeHint(cell: { locator?: unknown }): string {
+		return cell.locator
+			? 'Large value. Open the cell to load the full text.'
+			: QUERY_UNKEYED_LARGE_CELL
+	}
 
 	const copyShortcut = `${labelForKey('mod', isMacPlatform())}+C`
 
@@ -85,6 +95,9 @@
 		},
 		get identStyle() {
 			return identStyle
+		},
+		get loadLarge() {
+			return loadLarge
 		},
 		rowCells,
 	}
@@ -439,7 +452,7 @@
 								role="gridcell"
 								aria-selected={isFocused || sel.isCellSelected(absolute, ci)}
 								class="qrg-cell qrg-data border-b border-line/60 px-2.5 font-mono text-label {numericColumn(_col.dataType) ? 'text-right' : ''}"
-								title={isLargeCell(cell) ? largeCellHint(cell) : text}
+								title={isLargeCell(cell) ? largeHint(cell) : text}
 							>
 								{text}
 								{#if isLargeCell(cell)}
@@ -467,8 +480,11 @@
 		rowIndex={cellModal.row}
 		initialText={modalValue}
 		readonly
-		unfetchable={isLargeCell(raw) &&
-			!(raw.locator && raw.locator.keys.length > 0)}
+		unfetchable={isLargeCell(raw) && (!largeCellFetchable(raw) || !loadLarge)}
+		unfetchableText={QUERY_UNKEYED_LARGE_CELL}
+		fetchChunk={isLargeCell(raw) && raw.locator && largeCellFetchable(raw) && loadLarge
+			? (offset) => loadLarge(raw.locator!, offset)
+			: undefined}
 		onclose={() => (cellModal = null)}
 	/>
 {/if}

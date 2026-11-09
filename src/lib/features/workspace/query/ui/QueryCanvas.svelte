@@ -10,12 +10,12 @@
 		ExplainPlan,
 		QueryMode,
 	} from '#core/contracts'
-	import { pinnedTabStatus } from '#core/ipc'
+	import { fetchEngineLargeValue, pinnedTabStatus } from '#core/ipc'
 	import { commands, type CommandContext } from '#core/commands'
 	import { Resizable } from '#core/ui'
 	import { connectionProfiles } from '#features/connections'
 	import { catalogColumnsCache } from '#features/workspace/catalog'
-	import { identStyleFor } from '#features/workspace/data-grid'
+	import { identStyleFor, type LargeLoader } from '#features/workspace/data-grid'
 	import { tabTxnView, workspaceSession } from '#features/workspace/session'
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
@@ -314,11 +314,20 @@
 		if (outcome.kind === 'plan' && tabId === started) explainPlan = outcome.plan
 	}
 
+	/** Large values load through this tab, so an open transaction's rows load too. */
+	const loadLarge = $derived.by((): LargeLoader | null => {
+		const sid = engineSessionId
+		if (!sid) return null
+		const tab = tabId
+		return (locator, offset) =>
+			fetchEngineLargeValue({ sessionId: sid, locator, offset, tabId: tab })
+	})
+
 	async function exportResults(action: ResultExportAction) {
 		if (exporting || !result || !canExportResult(result)) return
 		exporting = action
 		try {
-			await exportResult(action, result, {
+			await exportResult(action, result, loadLarge, {
 				queryText: currentQueryText(),
 				language,
 				connectionName,
@@ -489,6 +498,7 @@
 						void runQuery(cached?.submittedText, cached?.submittedStart ?? 0)
 					}}
 					onaskai={askAiAboutError}
+					{loadLarge}
 				/>
 			{/if}
 		</div>
