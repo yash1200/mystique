@@ -1490,6 +1490,7 @@ fn explain_req(
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     }
 }
 
@@ -1618,6 +1619,84 @@ async fn explain_analyze_delete_on_a_read_only_profile_runs_nothing() {
         json!(1)
     );
     let _ = mgr.close_session("explain-ro").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn plain_explain_of_a_write_is_allowed_in_read_mode_and_runs_nothing() {
+    let path = temp_db("explain-plain-ro");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-plain-seed", "local", false))
+        .await
+        .expect("seed open");
+    mgr.execute_query(write_req(
+        "explain-plain-seed",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t (id) VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+    let _ = mgr.close_session("explain-plain-seed").await;
+    mgr.open_session(sqlite_open(&path, "explain-plain", "production", true))
+        .await
+        .expect("open read-only production");
+
+    let mut req = explain_req("explain-plain", "DELETE FROM t WHERE id = 1", false);
+    req.mode = mystique_connector_api::QueryMode::Read;
+    let plan = mgr
+        .explain_query(req)
+        .await
+        .expect("plain explain of a delete");
+    assert!(!plan.raw.is_empty());
+    assert_eq!(
+        cell(&mgr, "explain-plain", "SELECT COUNT(*) FROM t").await,
+        json!(1)
+    );
+
+    // Analyze would run it, so Read mode still refuses that.
+    let mut analyze = explain_req("explain-plain", "DELETE FROM t WHERE id = 1", true);
+    analyze.mode = mystique_connector_api::QueryMode::Read;
+    assert!(mgr.explain_query(analyze).await.is_err());
+    // Transaction control is never explained.
+    let mut begin = explain_req("explain-plain", "BEGIN", false);
+    begin.mode = mystique_connector_api::QueryMode::Read;
+    assert!(mgr.explain_query(begin).await.is_err());
+    let _ = mgr.close_session("explain-plain").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn explain_binds_named_params() {
+    let path = temp_db("explain-params");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-params", "local", false))
+        .await
+        .expect("open");
+    mgr.execute_query(write_req(
+        "explain-params",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
+    ))
+    .await
+    .expect("seed");
+    let text = "SELECT * FROM t WHERE id = :id AND name = :name";
+    let missing = mgr
+        .explain_query(explain_req("explain-params", text, false))
+        .await
+        .expect_err("no values");
+    assert!(
+        missing.to_string().to_ascii_lowercase().contains("missing"),
+        "{missing}"
+    );
+    let mut req = explain_req("explain-params", text, false);
+    req.params = vec![json!(1), json!("a")];
+    let plan = mgr.explain_query(req).await.expect("explain with params");
+    let rendered = format!("{:?}", plan.root).to_ascii_lowercase();
+    assert!(
+        rendered.contains("primary key") || rendered.contains("search"),
+        "{rendered}"
+    );
+    let _ = mgr.close_session("explain-params").await;
     let _ = std::fs::remove_file(&path);
 }
 

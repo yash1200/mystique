@@ -255,3 +255,71 @@ async fn a_cancelled_run_closes_its_connection_instead_of_pooling_it() {
     }
     session.close().await.ok();
 }
+
+#[tokio::test]
+#[ignore = "needs local Postgres"]
+async fn explain_binds_named_params_like_a_run() {
+    let session = connect(1).await;
+    let session = &*session;
+    run(
+        session,
+        "DROP TABLE IF EXISTS mq_ea_explain",
+        QueryMode::Write,
+    )
+    .await;
+    run(
+        session,
+        "CREATE TABLE mq_ea_explain (id int PRIMARY KEY, name text)",
+        QueryMode::Write,
+    )
+    .await;
+    let plan = gate_sql_batch_in(
+        "SELECT * FROM mq_ea_explain WHERE id = :id AND name = :name",
+        SqlDialect::Postgres,
+        QueryMode::Read,
+        false,
+        &[json!(7), json!("seven")],
+    )
+    .expect("plan");
+    let stmt = &plan.statements[0];
+    let query = mystique_connector_api::ValidatedQuery {
+        text: stmt.sql.clone(),
+        mode: QueryMode::Read,
+        max_rows: 1,
+        timeout_ms: 5_000,
+        collection: None,
+        database: None,
+        control: QueryControl::new(),
+        params: stmt.params.clone(),
+    };
+    let explained = session.explain_query(&query, false).await.expect("explain");
+    assert!(explained.raw.contains("mq_ea_explain"), "{}", explained.raw);
+    let analyzed = session.explain_query(&query, true).await.expect("analyze");
+    assert!(analyzed.raw.contains("Actual"), "{}", analyzed.raw);
+
+    // Plain EXPLAIN of a write does not run it, even with binds.
+    let delete = gate_sql_batch_in(
+        "DELETE FROM mq_ea_explain WHERE id = :id",
+        SqlDialect::Postgres,
+        QueryMode::Write,
+        false,
+        &[json!(7)],
+    )
+    .expect("plan");
+    let delete = &delete.statements[0];
+    let plain = session
+        .explain_query(
+            &mystique_connector_api::ValidatedQuery {
+                text: delete.sql.clone(),
+                params: delete.params.clone(),
+                ..query.clone()
+            },
+            false,
+        )
+        .await
+        .expect("plain explain of a delete");
+    assert!(plain.raw.contains("Delete"), "{}", plain.raw);
+
+    run(session, "DROP TABLE mq_ea_explain", QueryMode::Write).await;
+    session.close().await.ok();
+}

@@ -221,7 +221,8 @@ sqlDialect: string, supportsSchema: boolean, supportsForeignKeys: boolean, suppo
  */
 supportsTransactions: boolean, 
 /**
- * Explain button. The UI does not parse engine text itself.
+ * Explain button. The UI does not parse engine text itself. Off unless
+ * the plugin says so: the default `explain_query` is unsupported.
  */
 supportsExplainPlan: boolean, 
 /**
@@ -331,7 +332,11 @@ raw: string, rawFormat: string, root: PlanNode, warnings?: Array<string>, };
  * IPC body for `explain_engine_query`. Separate from [`crate::ExecuteQueryRequest`]
  * so execute call sites do not grow an analyze flag.
  */
-export type ExplainQueryRequest = { sessionId: string, text: string, analyze?: boolean, mode?: QueryMode, timeoutMs?: number | null, confirmObjectName?: string | null, collection?: string | null, database?: string | null, executionId?: string | null, };
+export type ExplainQueryRequest = { sessionId: string, text: string, analyze?: boolean, mode?: QueryMode, timeoutMs?: number | null, confirmObjectName?: string | null, collection?: string | null, database?: string | null, executionId?: string | null, 
+/**
+ * Values for `:name` / `$1` / `?` placeholders, bound like a normal run.
+ */
+params?: Array<JsonValue>, };
 
 /**
  * Explorer chrome inside one database (plugin-owned; FE must not hardcode).

@@ -185,6 +185,19 @@ mod create_caps_tests {
     }
 
     #[test]
+    fn a_plugin_that_does_not_declare_explain_has_none() {
+        let mut raw = serde_json::to_value(EngineCapabilities::postgres_defaults())
+            .unwrap_or_else(|err| panic!("{err}"));
+        let Some(map) = raw.as_object_mut() else {
+            panic!("capabilities are an object");
+        };
+        map.remove("supportsExplainPlan");
+        let caps: EngineCapabilities =
+            serde_json::from_value(raw).unwrap_or_else(|err| panic!("{err}"));
+        assert!(!caps.supports_explain_plan);
+    }
+
+    #[test]
     fn server_metrics_flags_per_engine() {
         let pg = EngineCapabilities::postgres_defaults();
         assert!(pg.supports_server_metrics);

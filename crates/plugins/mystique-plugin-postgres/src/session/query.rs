@@ -656,9 +656,9 @@ async fn fetch_bound(
 }
 
 #[derive(Debug)]
-struct QBind(serde_json::Value);
+pub(super) struct QBind(serde_json::Value);
 
-fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
+pub(super) fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
     params.iter().cloned().map(QBind).collect()
 }
 

@@ -116,9 +116,13 @@
 	const transactionOpen = $derived(txn.transactionOpen)
 	let analyze = $state(false)
 	let explainPlan = $state<ExplainPlan | null>(null)
-	let paramPrompt = $state<{ text: string; origin: number; slots: ParamSlot[] } | null>(
-		null,
-	)
+	/** `explain`: the values are for an explain, not a run. */
+	let paramPrompt = $state<{
+		text: string
+		origin: number
+		slots: ParamSlot[]
+		explain: boolean
+	} | null>(null)
 	let canvasTab = ''
 	const showTransactions = $derived(capabilities?.supportsTransactions === true)
 	const showExplain = $derived(capabilities?.supportsExplainPlan === true)
@@ -259,26 +263,37 @@
 			bound,
 		)
 		if (outcome.kind === 'params') {
-			paramPrompt = { text: outcome.text, origin: outcome.origin, slots: outcome.slots }
+			paramPrompt = {
+				text: outcome.text,
+				origin: outcome.origin,
+				slots: outcome.slots,
+				explain: false,
+			}
 		}
 	}
 
-	async function explainQuery() {
+	async function explainQuery(body?: string, bound?: unknown[]) {
 		if (runState.status === 'running') return
 		const doc = editorSnap.doc || localText
-		const sqlText = textToRun(
-			doc,
-			splitDialectFor(engine),
-			editorSnap.head,
-			editorSnap.anchor,
-			false,
-		)
+		const sqlText =
+			body ??
+			textToRun(
+				doc,
+				splitDialectFor(engine),
+				editorSnap.head,
+				editorSnap.anchor,
+				false,
+			)
 		if (!sqlText?.trim()) return
 		const started = tabId
 		explainPlan = null
-		const plan = await runExplain(runTarget(), sqlText, analyze)
+		const outcome = await runExplain(runTarget(), sqlText, analyze, bound)
+		if (outcome.kind === 'params') {
+			paramPrompt = { text: outcome.text, origin: 0, slots: outcome.slots, explain: true }
+			return
+		}
 		// The canvas may show another tab by now; that tab gets no plan.
-		if (plan && tabId === started) explainPlan = plan
+		if (outcome.kind === 'plan' && tabId === started) explainPlan = outcome.plan
 	}
 
 	async function exportResults(action: ResultExportAction) {
@@ -469,7 +484,8 @@
 			const pending = paramPrompt
 			paramPrompt = null
 			if (!pending) return
-			void runQuery(pending.text, pending.origin, values)
+			if (pending.explain) void explainQuery(pending.text, values)
+			else void runQuery(pending.text, pending.origin, values)
 		}}
 	/>
 </div>
