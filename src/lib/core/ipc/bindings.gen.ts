@@ -40,7 +40,11 @@ export type ApplyDdlRequest = { sessionId: string, draft: TableDefinition, confi
 
 export type ApplyDdlResult = { applied: Array<string>, message: string, };
 
-export type ApplySchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, confirmObjectName?: string | null, };
+export type ApplySchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, 
+/**
+ * Changes to skip and drops to include. Drops are off unless listed.
+ */
+selection?: DiffSelection, confirmObjectName?: string | null, };
 
 /**
  * IPC request for a grid save. Read-only comes from the live session.
@@ -99,7 +103,15 @@ kind: string, rowCount: number, };
  */
 export type CatalogRelationship = { fromSchema?: string | null, fromTable: string, fromColumn: string, toSchema?: string | null, toTable: string, toColumn: string, name?: string | null, };
 
-export type ColumnDraft = { name: string, dataType: string, nullable: boolean, pkPosition?: number, original?: ColumnOriginal | null, drop?: boolean, };
+export type ColumnDraft = { name: string, dataType: string, nullable: boolean, pkPosition?: number, original?: ColumnOriginal | null, drop?: boolean, 
+/**
+ * Default expression. `None` means no default.
+ */
+defaultValue?: string | null, 
+/**
+ * See [`ColumnOriginal::identity`].
+ */
+identity?: string | null, };
 
 /**
  * One column as described by the engine plugin (developer-facing types).
@@ -128,13 +140,39 @@ export type ColumnOriginal = { name: string, dataType: string, nullable: boolean
  * prints it. MODIFY is rebuilt from it so DEFAULT, ON UPDATE,
  * AUTO_INCREMENT, COMMENT, charset, and collation survive.
  */
-definition?: string | null, };
+definition?: string | null, 
+/**
+ * Default expression as the catalog prints it.
+ */
+defaultValue?: string | null, 
+/**
+ * Identity or auto-increment: `always` / `by default` (Postgres),
+ * `auto_increment` (MySQL), `autoincrement` (SQLite).
+ */
+identity?: string | null, };
 
 /**
  * Foreign-key (or equivalent) target for a column — plugin-owned navigation.
  * The FE shows a jump control; it does not invent relationships.
  */
 export type ColumnReference = { database?: string | null, schema?: string | null, table: string, column: string, };
+
+/**
+ * A column pair the diff treats as a rename.
+ */
+export type ColumnRename = { 
+/**
+ * Source-side name (the name to end with).
+ */
+from: string, 
+/**
+ * Target-side name (the name it has now).
+ */
+to: string, 
+/**
+ * Paired by the heuristic, not by the user.
+ */
+guessed: boolean, };
 
 /**
  * How Home collects / displays connection coordinates.
@@ -182,6 +220,29 @@ password?: string | null, favorite: boolean,
  */
 queryTimeoutSecs: number | null, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
 
+export type ConstraintDraft = { kind: string, name: string, columns?: Array<string>, expression?: string | null, original?: ConstraintOriginal | null, drop?: boolean, };
+
+/**
+ * A CHECK or UNIQUE constraint that is not an index of its own.
+ */
+export type ConstraintOriginal = { 
+/**
+ * `check` or `unique`.
+ */
+kind: string, 
+/**
+ * Empty for an unnamed SQLite constraint.
+ */
+name: string, 
+/**
+ * UNIQUE columns.
+ */
+columns?: Array<string>, 
+/**
+ * CHECK expression, without the `CHECK` keyword.
+ */
+expression?: string | null, };
+
 export type DdlPlan = { statements: Array<string>, warnings: Array<string>, transactional: boolean, requiresRebuild: boolean, 
 /**
  * Shown with the preview. Not a warning, so it does not block apply.
@@ -204,9 +265,35 @@ schema?: string | null,
 database?: string | null, };
 
 /**
+ * Which parts of a schema diff to apply. Drops are opt-in: a dropped
+ * table, column, index, foreign key, or constraint is applied only when
+ * it is listed in `drops`.
+ */
+export type DiffSelection = { 
+/**
+ * Creates and alters to leave out, by change name.
+ */
+skip?: Array<string>, 
+/**
+ * Drops to apply.
+ */
+drops?: Array<DropKey>, };
+
+/**
  * Distinct values for one catalog column. `limit` is clamped to 1000.
  */
 export type DistinctColumnValuesRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, column: string, limit?: number, };
+
+/**
+ * A drop the diff found, and whether the selection includes it.
+ */
+export type DropItem = { kind: string, name: string, included: boolean, };
+
+/**
+ * One drop in a schema diff. `kind` is `table`, `column`, `index`,
+ * `foreignKey`, or `constraint`; for `table`, `name` is the table.
+ */
+export type DropKey = { table: string, kind: string, name: string, };
 
 /**
  * Capability flags returned to the UI / API consumers.
@@ -407,9 +494,13 @@ executionId?: string | null, };
  */
 export type FetchTablePreviewStatsRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, filters?: Array<TableFilter>, codeFilter?: string | null, };
 
-export type ForeignKeyDraft = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, original?: ForeignKeyOriginal | null, drop?: boolean, };
+export type ForeignKeyDraft = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, original?: ForeignKeyOriginal | null, drop?: boolean, onDelete?: string | null, onUpdate?: string | null, };
 
-export type ForeignKeyOriginal = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, };
+export type ForeignKeyOriginal = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, 
+/**
+ * `CASCADE`, `SET NULL`, `SET DEFAULT`, `RESTRICT`. `None` is NO ACTION.
+ */
+onDelete?: string | null, onUpdate?: string | null, };
 
 /**
  * `format_engine_connection_url` request.
@@ -457,9 +548,20 @@ export type IndexDraft = { name: string, columns: Array<string>, unique: boolean
 /**
  * Postgres `CREATE INDEX CONCURRENTLY`. Cannot share a transaction.
  */
-concurrent?: boolean, original?: IndexOriginal | null, drop?: boolean, };
+concurrent?: boolean, original?: IndexOriginal | null, drop?: boolean, 
+/**
+ * See [`IndexOriginal::definition`]. Used to create the index when its
+ * columns were not edited.
+ */
+definition?: string | null, };
 
-export type IndexOriginal = { name: string, columns: Array<string>, unique: boolean, primary?: boolean, };
+export type IndexOriginal = { name: string, columns: Array<string>, unique: boolean, primary?: boolean, 
+/**
+ * The full `CREATE INDEX` as the engine prints it (`pg_get_indexdef`,
+ * `sqlite_master.sql`), so partial, expression, and INCLUDE indexes
+ * are replayed as they are.
+ */
+definition?: string | null, };
 
 /**
  * Stable machine kind of an IPC failure. snake_case on the wire.
@@ -640,7 +742,11 @@ export type PlanField = { label: string, value: string, };
  */
 export type PlanNode = { name: string, rows?: number | null, cost?: number | null, fields?: Array<PlanField>, children?: Array<PlanNode>, };
 
-export type PlanSchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, };
+export type PlanSchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, 
+/**
+ * Changes to skip and drops to include. Drops are off unless listed.
+ */
+selection?: DiffSelection, };
 
 /**
  * Cross-engine pool knobs. Plugins map these onto native pool settings.
@@ -748,7 +854,24 @@ rows: Array<Array<JsonValue>>, rowCount: number, truncated: boolean, durationMs:
  */
 message: string | null, };
 
-export type RenamePair = { from: string, to: string, };
+export type RenamePair = { 
+/**
+ * Name on the source side (the name to end with).
+ */
+from: string, 
+/**
+ * Name on the target side (the name it has now).
+ */
+to: string, 
+/**
+ * Set for a column pair: the source-side table the columns belong to.
+ * `None` pairs two tables.
+ */
+table?: string | null, 
+/**
+ * The user said these two columns are not a rename. Stops the guess.
+ */
+keepApart?: boolean, };
 
 /**
  * Replace all open tabs for a connection (order = array order).
@@ -826,7 +949,20 @@ export type SaveWorkspaceTabInput = { id: string, connectionId: string, kind: st
  */
 export type SavedQuery = { id: string, connectionId: string, name: string, body: string, language: string | null, sortOrder: number, favorite: boolean, createdAt: string, updatedAt: string, };
 
-export type SchemaChange = { name: string, action: string, plan: DdlPlan, draft: TableDefinition, };
+export type SchemaChange = { name: string, action: string, plan: DdlPlan, draft: TableDefinition, 
+/**
+ * Applied with the migration: false for a skipped change, or a table
+ * drop that was not chosen.
+ */
+selected: boolean, 
+/**
+ * Drops inside this change (for `drop`, the table itself).
+ */
+drops: Array<DropItem>, 
+/**
+ * Column renames in this change.
+ */
+columnRenames: Array<ColumnRename>, };
 
 export type SchemaMigration = { changes: Array<SchemaChange>, warnings: Array<string>, };
 
@@ -992,6 +1128,15 @@ statement?: string | null, executed: boolean, message?: string | null, };
 
 export type TableDefinition = { database?: string | null, schema?: string | null, name: string, kind?: string, columns?: Array<ColumnDraft>, indexes?: Array<IndexDraft>, foreignKeys?: Array<ForeignKeyDraft>, 
 /**
+ * CHECK and UNIQUE constraints (UNIQUE ones that are only an index
+ * on this engine stay in `indexes`).
+ */
+constraints?: Array<ConstraintDraft>, 
+/**
+ * Triggers on the table (SQLite: replayed after a rebuild).
+ */
+triggers?: Array<TriggerDefinition>, 
+/**
  * SQLite `sqlite_master.sql` captured when the definition was read.
  */
 schemaRevision?: string | null, validator?: string | null, originalValidator?: string | null, create?: boolean, dropTable?: boolean, 
@@ -1065,6 +1210,12 @@ export type TestResult = { ok: boolean, engine: string,
  * Server / driver version if known.
  */
 serverVersion: string | null, latencyMs: number, message: string, sshHostKey?: SshHostKeyPrompt | null, };
+
+/**
+ * A trigger on the table, as the engine stores it. Read only: SQLite
+ * replays it after a table rebuild.
+ */
+export type TriggerDefinition = { name: string, sql: string, };
 
 /**
  * `update_agent_chat` request. `None` leaves a field as it is.

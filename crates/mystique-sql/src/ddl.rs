@@ -18,22 +18,31 @@ mod mysql;
 mod order;
 mod pg;
 mod sqlite;
+mod sqlite_text;
 mod statements;
 pub mod types;
 mod validate;
 
 #[cfg(test)]
+mod diff_tests;
+#[cfg(test)]
+mod sqlite_tests;
+#[cfg(test)]
 mod tests;
 
-pub use diff::plan_schema_diff;
+pub use diff::{plan_schema_diff, plan_schema_diff_with};
+pub use mysql::mysql_column_default;
+pub use sqlite::steps as sqlite_rebuild_steps;
+pub use sqlite_text::{sqlite_table_extras, SqliteForeignKey, SqliteTableExtras};
 pub use types::{
-    ColumnDraft, ColumnOriginal, DdlPlan, ForeignKeyDraft, ForeignKeyOriginal, IndexDraft,
-    IndexOriginal, RenamePair, SchemaChange, SchemaMigration, TableDefinition,
+    clean_action, ColumnDraft, ColumnOriginal, ColumnRename, ConstraintDraft, ConstraintOriginal,
+    DdlPlan, DiffSelection, DropItem, DropKey, ForeignKeyDraft, ForeignKeyOriginal, IndexDraft,
+    IndexOriginal, RenamePair, SchemaChange, SchemaMigration, TableDefinition, TriggerDefinition,
 };
 
 use crate::SqlDialect;
 use changes::has_structural_edit;
-use validate::{validate_columns, validate_foreign_keys, validate_indexes};
+use validate::{validate_columns, validate_constraints, validate_foreign_keys, validate_indexes};
 
 /// What a structure plan targets: a SQL dialect, or MongoDB (indexes and
 /// validators only). The one SQL dialect enum is [`SqlDialect`]; a generic
@@ -109,9 +118,10 @@ pub fn plan_table_alter(dialect: impl Into<DdlTarget>, draft: &TableDefinition) 
     {
         warnings.push("Views cannot be edited here.".into());
     }
-    validate_columns(draft, &mut warnings);
+    validate_columns(draft, dialect.is_sqlite(), &mut warnings);
     validate_indexes(draft, &mut warnings);
     validate_foreign_keys(draft, &mut warnings);
+    validate_constraints(draft, &mut warnings);
 
     if dialect == DdlTarget::Mongo {
         return mongo::plan_mongo(draft, warnings);
@@ -149,7 +159,9 @@ fn plan_create(dialect: DdlTarget, draft: &TableDefinition, mut warnings: Vec<St
     }
     let mut statements = vec![statements::create_table_sql(dialect, draft)];
     statements.extend(statements::index_statements(dialect, draft, false));
-    statements.extend(statements::foreign_key_statements(dialect, draft));
+    if !dialect.is_sqlite() {
+        statements.extend(statements::foreign_key_statements(dialect, draft).1);
+    }
     let transactional = dialect.is_postgres();
     finish(dialect, statements, warnings, transactional, false, None)
 }

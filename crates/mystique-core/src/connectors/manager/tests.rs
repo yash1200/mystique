@@ -1984,6 +1984,7 @@ fn added_column(name: &str) -> ColumnDraft {
         pk_position: 0,
         original: None,
         drop: false,
+        ..ColumnDraft::default()
     }
 }
 
@@ -2019,6 +2020,7 @@ async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
         concurrent: false,
         original: None,
         drop: false,
+        ..IndexDraft::default()
     };
     let ran = insert_probe(&mgr, "ddl-prod", false).await;
     let err = mgr

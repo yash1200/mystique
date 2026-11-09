@@ -6,9 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 pub use mystique_sql::ddl::{
-    plan_schema_diff, plan_table_alter, ColumnDraft, ColumnOriginal, DdlPlan, DdlTarget,
-    ForeignKeyDraft, ForeignKeyOriginal, IndexDraft, IndexOriginal, RenamePair, SchemaChange,
-    SchemaMigration, TableDefinition,
+    plan_schema_diff, plan_schema_diff_with, plan_table_alter, ColumnDraft, ColumnOriginal,
+    ColumnRename, ConstraintDraft, ConstraintOriginal, DdlPlan, DdlTarget, DiffSelection, DropItem,
+    DropKey, ForeignKeyDraft, ForeignKeyOriginal, IndexDraft, IndexOriginal, RenamePair,
+    SchemaChange, SchemaMigration, TableDefinition, TriggerDefinition,
 };
 
 use crate::WriteRisk;
@@ -53,13 +54,14 @@ pub fn ddl_risk(draft: &TableDefinition) -> WriteRisk {
     }
 }
 
+/// Destructive when a selected change drops a table or a column. A SQLite
+/// rebuild's own `DROP TABLE` of the old copy does not count.
 pub fn migration_risk(changes: &[SchemaChange]) -> WriteRisk {
-    if changes.iter().any(|change| {
-        change.action == "drop"
-            || change.plan.statements.iter().any(|sql| {
-                sql.to_ascii_uppercase().contains("DROP COLUMN") || sql.starts_with("DROP TABLE")
-            })
-    }) {
+    if changes
+        .iter()
+        .filter(|change| change.selected)
+        .any(|change| ddl_risk(&change.draft) == WriteRisk::Destructive)
+    {
         WriteRisk::Destructive
     } else {
         WriteRisk::Write
@@ -132,6 +134,10 @@ pub struct PlanSchemaDiffRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub renames: Vec<RenamePair>,
+    /// Changes to skip and drops to include. Drops are off unless listed.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub selection: DiffSelection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +151,10 @@ pub struct ApplySchemaDiffRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub renames: Vec<RenamePair>,
+    /// Changes to skip and drops to include. Drops are off unless listed.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub selection: DiffSelection,
     #[serde(default)]
     pub confirm_object_name: Option<String>,
 }

@@ -1,5 +1,6 @@
 //! MySQL-only ALTER pieces: MODIFY COLUMN rebuilt from the full definition.
 
+use super::changes::{default_changed, identity_changed};
 use super::statements::quote;
 use super::types::{ColumnDraft, ColumnOriginal};
 use super::DdlTarget;
@@ -90,8 +91,56 @@ pub(super) fn mysql_modify_definition(
             })
             .unwrap_or(words.len())
     });
+    // A changed DEFAULT or AUTO_INCREMENT replaces the old one; the rest stays.
+    let mut extra = Vec::new();
+    let mut slot = slot;
+    if default_changed(original, column) {
+        let mut at = 0;
+        while at < words.len() {
+            if is(&words, at, "DEFAULT") {
+                let span = if at + 1 < words.len() { 2 } else { 1 };
+                words.drain(at..at + span);
+                if at < slot {
+                    slot = slot.saturating_sub(span);
+                }
+            } else {
+                at += 1;
+            }
+        }
+        if let Some(default) = column
+            .default_value
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            extra.push("DEFAULT".to_string());
+            extra.push(default.to_string());
+        }
+    }
+    if identity_changed(original, column) {
+        if let Some(at) = words
+            .iter()
+            .position(|word| word.eq_ignore_ascii_case("AUTO_INCREMENT"))
+        {
+            words.remove(at);
+            if at < slot {
+                slot -= 1;
+            }
+        }
+        if column
+            .identity
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty())
+        {
+            extra.push("AUTO_INCREMENT".to_string());
+        }
+    }
     let null_sql = if column.nullable { "NULL" } else { "NOT NULL" };
-    words.insert(slot.min(words.len()), null_sql.to_string());
+    let slot = slot.min(words.len());
+    words.insert(slot, null_sql.to_string());
+    for (offset, word) in extra.into_iter().enumerate() {
+        words.insert(slot + 1 + offset, word);
+    }
     Ok(format!("{new_type} {}", words.join(" ")))
 }
 
@@ -177,4 +226,21 @@ fn top_level_words(text: &str) -> Vec<String> {
         words.push(word);
     }
     words
+}
+
+/// DEFAULT and AUTO_INCREMENT from a column definition as `SHOW CREATE
+/// TABLE` prints it. `DEFAULT NULL` is no default.
+pub fn mysql_column_default(definition: &str) -> (Option<String>, Option<String>) {
+    let words = top_level_words(definition);
+    let default = words
+        .iter()
+        .position(|word| word.eq_ignore_ascii_case("DEFAULT"))
+        .and_then(|at| words.get(at + 1))
+        .filter(|value| !value.eq_ignore_ascii_case("NULL"))
+        .cloned();
+    let identity = words
+        .iter()
+        .any(|word| word.eq_ignore_ascii_case("AUTO_INCREMENT"))
+        .then(|| "auto_increment".to_string());
+    (default, identity)
 }
