@@ -35,7 +35,12 @@
 		resultRowMenu,
 		resultRowPick,
 	} from '../results-menus'
-	import { RESULT_HEADER_H, cellDisplay, measureColLayout } from '#features/workspace/data-grid'
+	import {
+		RESULT_HEADER_H,
+		binaryPreview,
+		cellDisplay,
+		measureColLayout,
+	} from '#features/workspace/data-grid'
 	import { ResultRowWindow } from '../results-window.svelte'
 	/** Virtualization row height — follows density pref / `--grid-row-height`. */
 	const ROW_H = $derived(appPrefs.gridRowHeightPx)
@@ -427,7 +432,7 @@
 						</div>
 						{#each columns as _col, ci}
 							{@const cell = cells?.[ci]}
-							{@const text = cellDisplay(cell)}
+							{@const text = binaryPreview(cell, _col.dataType) ?? cellDisplay(cell)}
 							{@const isFocused =
 								sel.cell?.row === absolute && sel.cell.col === ci}
 							<div
