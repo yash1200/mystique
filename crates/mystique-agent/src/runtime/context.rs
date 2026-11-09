@@ -373,7 +373,10 @@ mod tests {
         assert!(all.contains("Assistant used a tool - execute_readonly_query("));
         assert!(all.ends_with("User: and customers?"));
         let short = transcript_from(&prior, 60);
-        assert_eq!(short, "Assistant: There are 3 orders.\nUser: and customers?");
+        assert_eq!(
+            short,
+            "Assistant: There are 3 orders.\nUser: and customers?"
+        );
         assert_eq!(transcript_from(&[], 100), "");
     }
 }
