@@ -11,7 +11,6 @@ mystique-tls = { path = "../../mystique-tls" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 mongodb = { version = "3", default-features = true, features = ["cert-key-password"] }
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
