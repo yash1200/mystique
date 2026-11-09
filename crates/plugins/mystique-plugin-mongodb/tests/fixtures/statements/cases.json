@@ -1,0 +1,176 @@
+[
+	{
+		"name": "one call",
+		"text": "db.orders.find({})",
+		"statements": ["db.orders.find({})"]
+	},
+	{
+		"name": "a trailing semicolon is outside the statement",
+		"text": "db.orders.find({});",
+		"statements": ["db.orders.find({})"]
+	},
+	{
+		"name": "two calls on one line",
+		"text": "db.a.find(); db.b.find()",
+		"statements": ["db.a.find()", "db.b.find()"]
+	},
+	{
+		"name": "a line break ends a complete statement",
+		"text": "db.a.find()\ndb.b.find()",
+		"statements": ["db.a.find()", "db.b.find()"]
+	},
+	{
+		"name": "CRLF line breaks",
+		"text": "db.a.find()\r\ndb.b.find()\r\n",
+		"statements": ["db.a.find()", "db.b.find()"]
+	},
+	{
+		"name": "a chain whose lines start with a dot",
+		"text": "db.orders\n  .find({ status: \"A\" })\n  .sort({ n: -1 })\n  .limit(5)\ndb.users.countDocuments()",
+		"statements": [
+			"db.orders\n  .find({ status: \"A\" })\n  .sort({ n: -1 })\n  .limit(5)",
+			"db.users.countDocuments()"
+		]
+	},
+	{
+		"name": "a line that ends with a dot continues",
+		"text": "db.orders.\n  find({})\ndb.x.find()",
+		"statements": ["db.orders.\n  find({})", "db.x.find()"]
+	},
+	{
+		"name": "an object that spans lines",
+		"text": "db.orders.insertOne({\n  a: 1,\n  b: [\n    1,\n    2\n  ]\n})\ndb.orders.find()",
+		"statements": [
+			"db.orders.insertOne({\n  a: 1,\n  b: [\n    1,\n    2\n  ]\n})",
+			"db.orders.find()"
+		]
+	},
+	{
+		"name": "a pipeline that spans lines",
+		"text": "db.orders.aggregate([\n  { $match: {} },\n  { $group: { _id: \"$a\" } }\n]);\n",
+		"statements": ["db.orders.aggregate([\n  { $match: {} },\n  { $group: { _id: \"$a\" } }\n])"]
+	},
+	{
+		"name": "a bare filter and a bare pipeline on their own lines",
+		"text": "{ a: 1 }\n[{ $match: {} }]",
+		"statements": ["{ a: 1 }", "[{ $match: {} }]"]
+	},
+	{
+		"name": "an object on the line after a complete call is its own statement",
+		"text": "db.a.find()\n{ a: 1 }",
+		"statements": ["db.a.find()", "{ a: 1 }"]
+	},
+	{
+		"name": "line comments around and between statements",
+		"text": "// first\ndb.a.find() // all of a\n// second\ndb.b.find()",
+		"statements": ["db.a.find()", "db.b.find()"]
+	},
+	{
+		"name": "a comment line inside a chain",
+		"text": "db.a\n  // pick the collection\n  .find()",
+		"statements": ["db.a\n  // pick the collection\n  .find()"]
+	},
+	{
+		"name": "a block comment across lines inside a chain",
+		"text": "db.a.find()\n/* then\n sort */\n.sort({ a: 1 })",
+		"statements": ["db.a.find()\n/* then\n sort */\n.sort({ a: 1 })"]
+	},
+	{
+		"name": "a semicolon in a block comment",
+		"text": "db.a.find() /* ; */ ; db.b.find()",
+		"statements": ["db.a.find()", "db.b.find()"]
+	},
+	{
+		"name": "a semicolon and a quote in a line comment",
+		"text": "db.a.find() // don't; stop\ndb.b.find()",
+		"statements": ["db.a.find()", "db.b.find()"]
+	},
+	{
+		"name": "comment-only text",
+		"text": "// nothing here\n/* or here */\n",
+		"statements": []
+	},
+	{
+		"name": "blank lines and empty statements",
+		"text": "\n\n;;\n  db.a.find()  ;\n\n;",
+		"statements": ["db.a.find()"]
+	},
+	{
+		"name": "a semicolon in a string",
+		"text": "db.a.find({ note: \"a; b\" }); db.b.find()",
+		"statements": ["db.a.find({ note: \"a; b\" })", "db.b.find()"]
+	},
+	{
+		"name": "an escaped quote and a semicolon in a string",
+		"text": "db.a.find({ s: \"say \\\"hi\\\"; bye\" }); db.b.find()",
+		"statements": ["db.a.find({ s: \"say \\\"hi\\\"; bye\" })", "db.b.find()"]
+	},
+	{
+		"name": "a single-quoted semicolon",
+		"text": "db.a.find({ s: ';' });db.b.find()",
+		"statements": ["db.a.find({ s: ';' })", "db.b.find()"]
+	},
+	{
+		"name": "a template literal with a semicolon and a line break",
+		"text": "`one;\ntwo`\ndb.b.find()",
+		"statements": ["`one;\ntwo`", "db.b.find()"]
+	},
+	{
+		"name": "a template literal inside a call",
+		"text": "db.a.find({ s: `x;\n// not a comment\ny` })\ndb.b.find()",
+		"statements": ["db.a.find({ s: `x;\n// not a comment\ny` })", "db.b.find()"]
+	},
+	{
+		"name": "a backslash line break inside a quoted string",
+		"text": "'a\\\nb'\nc",
+		"statements": ["'a\\\nb'", "c"]
+	},
+	{
+		"name": "an unclosed string ends at the line break; its brackets stay open",
+		"text": "db.a.find({ s: \"open })\ndb.b.find()",
+		"statements": ["db.a.find({ s: \"open })\ndb.b.find()"]
+	},
+	{
+		"name": "an unclosed block comment runs to the end",
+		"text": "db.a.find()\n/* open ; db.b.find()",
+		"statements": ["db.a.find()"]
+	},
+	{
+		"name": "a semicolon inside brackets does not split",
+		"text": "db.a.find({ a: 1; b: 2 })",
+		"statements": ["db.a.find({ a: 1; b: 2 })"]
+	},
+	{
+		"name": "getSiblingDB chains",
+		"text": "db.getSiblingDB(\"reports\")\n  .daily\n  .find({})\ndb.getSiblingDB('x').getCollection('y').deleteMany({})",
+		"statements": [
+			"db.getSiblingDB(\"reports\")\n  .daily\n  .find({})",
+			"db.getSiblingDB('x').getCollection('y').deleteMany({})"
+		]
+	},
+	{
+		"name": "getSiblingDB with the dot at the end of the line",
+		"text": "db.getSiblingDB(\"reports\").\n  daily.find()",
+		"statements": ["db.getSiblingDB(\"reports\").\n  daily.find()"]
+	},
+	{
+		"name": "shell listings",
+		"text": "show collections\nshow dbs",
+		"statements": ["show collections", "show dbs"]
+	},
+	{
+		"name": "an operator at the start of the next line continues",
+		"text": "db.a.countDocuments()\n+ 1\ndb.b.find()",
+		"statements": ["db.a.countDocuments()\n+ 1", "db.b.find()"]
+	},
+	{
+		"name": "a comma at the start of the next line continues",
+		"text": "db.a.find()\n, x",
+		"statements": ["db.a.find()\n, x"]
+	},
+	{
+		"name": "non-ASCII text",
+		"text": "db.a.find({ n: \"é;\" })\ndb.b.find({ n: \"日本\" })",
+		"statements": ["db.a.find({ n: \"é;\" })", "db.b.find({ n: \"日本\" })"]
+	}
+]

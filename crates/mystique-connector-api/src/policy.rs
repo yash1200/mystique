@@ -40,6 +40,14 @@ pub trait EngineQueryPolicy: Send + Sync {
         false
     }
 
+    /// Byte ranges of the statements in `text`, in order, for engines whose
+    /// batches core runs one statement at a time (MongoDB). Default: the whole
+    /// text is one statement. SQL engines are planned by `mystique-sql`
+    /// instead and do not use this.
+    fn split(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        vec![0..text.len()]
+    }
+
     /// Short name for the write-guard prompt. Default: the text, compacted.
     fn op_preview(&self, text: &str) -> String {
         let compact: String = text

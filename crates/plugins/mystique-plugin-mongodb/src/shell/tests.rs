@@ -435,6 +435,17 @@ const PROBES: &[(&str, WriteRisk, bool, bool)] = &[
     (r#"db.orders.find({}).deleteMany({})"#, W, DENY, UNSAFE),
     (r#"db.orders.find({}).frobnicate()"#, W, DENY, UNSAFE),
     (r#"{"op":"frobnicate"}"#, W, DENY, UNSAFE),
+    // More than one statement: the worst one, and safe only when all are.
+    ("db.orders.find({})\ndb.orders.drop()", X, DENY, UNSAFE),
+    ("db.orders.find({});\n{\"op\":\"dropDatabase\"}", X, DENY, UNSAFE),
+    ("db.a.find({})\ndb.a.insertOne({a: 1})", W, DENY, UNSAFE),
+    (
+        "db.a.insertOne({a: 1}); db.a.updateOne({}, {$set: {b: 1}})",
+        W,
+        DENY,
+        SAFE,
+    ),
+    ("db.a.insertOne({a: 1})\ndb.a.frobnicate()", W, DENY, UNSAFE),
 ];
 
 #[test]

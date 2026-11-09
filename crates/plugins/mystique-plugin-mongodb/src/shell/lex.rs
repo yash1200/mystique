@@ -203,3 +203,78 @@ fn hex4(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) -> Option<u3
 pub(crate) fn query_err(msg: &str) -> mystique_connector_api::ConnectorError {
     ConnectorError::Query(msg.to_string())
 }
+
+/// One piece of shell text as the statement splitter sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Skim {
+    /// A character outside strings and comments, other than whitespace.
+    Code(char),
+    /// A whole string literal, quotes included.
+    Str,
+    /// A line break outside strings: `\n`, or a `/* … */` that spans lines.
+    Newline,
+}
+
+/// Walk `text` with [`lex`]'s rules for strings and comments, without
+/// decoding anything and without failing. `visit` gets each piece with its
+/// byte range. An unclosed `'` or `"` string ends at the line break, as in
+/// [`lex`]; an unclosed template or `/*` comment runs to the end.
+pub(crate) fn skim(text: &str, mut visit: impl FnMut(Skim, usize, usize)) {
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if c == '\n' {
+            visit(Skim::Newline, at, at + 1);
+            continue;
+        }
+        if c.is_whitespace() {
+            continue;
+        }
+        if c == '/' {
+            match chars.peek().map(|&(_, n)| n) {
+                Some('/') => {
+                    while chars.next_if(|&(_, n)| n != '\n').is_some() {}
+                    continue;
+                }
+                Some('*') => {
+                    chars.next();
+                    let mut prev = '\0';
+                    let mut end = text.len();
+                    let mut spans_lines = false;
+                    for (i, n) in chars.by_ref() {
+                        if prev == '*' && n == '/' {
+                            end = i + 1;
+                            break;
+                        }
+                        spans_lines |= n == '\n';
+                        prev = n;
+                    }
+                    if spans_lines {
+                        visit(Skim::Newline, at, end);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        if c == '"' || c == '\'' || c == '`' {
+            let mut end = text.len();
+            while let Some(&(i, n)) = chars.peek() {
+                if n == '\n' && c != '`' {
+                    end = i;
+                    break;
+                }
+                chars.next();
+                if n == c {
+                    end = i + 1;
+                    break;
+                }
+                if n == '\\' {
+                    chars.next();
+                }
+            }
+            visit(Skim::Str, at, end);
+            continue;
+        }
+        visit(Skim::Code(c), at, at + c.len_utf8());
+    }
+}

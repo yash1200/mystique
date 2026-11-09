@@ -45,10 +45,28 @@ impl EngineQueryPolicy for MongoQueryPolicy {
     fn op_preview(&self, text: &str) -> String {
         super::preview::op_preview(text)
     }
+
+    fn split(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        super::split::split(text)
+    }
 }
 
-/// Text that does not parse is a write.
+/// Text that does not parse is a write. Text with more than one statement
+/// takes the worst of them, so a caller that classifies a whole buffer (the
+/// agent and MCP write tiers) sees the `drop` in `find(); drop()`.
 pub(crate) fn classify(text: &str) -> WriteRisk {
+    let parts = super::split::split(text);
+    if parts.len() > 1 {
+        return parts
+            .into_iter()
+            .map(|range| classify_one(&text[range]))
+            .max()
+            .unwrap_or(WriteRisk::Write);
+    }
+    classify_one(text)
+}
+
+fn classify_one(text: &str) -> WriteRisk {
     match parse(text) {
         Ok(stmt) => statement_risk(&stmt),
         Err(_) => WriteRisk::Write,
@@ -74,8 +92,17 @@ pub(crate) fn statement_risk(stmt: &Statement) -> WriteRisk {
 }
 
 /// INSERT / UPDATE / REPLACE only: the MCP `safe_write` tier. Deletes,
-/// `bulkWrite`, `findOneAndUpdate` and `$out` / `$merge` are not.
+/// `bulkWrite`, `findOneAndUpdate` and `$out` / `$merge` are not. More than
+/// one statement is safe only when every one of them is.
 pub(crate) fn is_safe_dml(text: &str) -> bool {
+    let parts = super::split::split(text);
+    if parts.len() > 1 {
+        return parts.into_iter().all(|range| is_safe_dml_one(&text[range]));
+    }
+    is_safe_dml_one(text)
+}
+
+fn is_safe_dml_one(text: &str) -> bool {
     let Ok(stmt) = parse(text) else {
         return false;
     };
