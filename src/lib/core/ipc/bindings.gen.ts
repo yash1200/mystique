@@ -317,7 +317,7 @@ supportsExplainPlan: boolean,
 supportsStructureEdit: boolean, 
 /**
  * Structure edits are limited to adding columns, renaming, and indexes.
- * SQLite until its table rebuild keeps the original schema.
+ * No built-in engine sets it since the SQLite rebuild keeps the schema.
  */
 structureEditLimited?: boolean, 
 /**
