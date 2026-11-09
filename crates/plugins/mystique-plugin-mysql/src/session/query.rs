@@ -5,10 +5,11 @@ use std::time::Instant;
 use mysql_async::prelude::*;
 use mysql_async::Value;
 use mystique_connector_api::{
-    affected_message, emit_progress, idle_result, inactivity_limit, opens_transaction,
-    poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase, ConnectorError,
-    ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult, QueryColumn, QueryMode,
-    QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
+    affected_message, emit_progress, finish_progress, idle_result, inactivity_limit,
+    opens_transaction, poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase,
+    ColumnOrigin, ConnectorError, ConnectorResult, InterruptGuard, PlannedStatement,
+    QueryBatchResult, QueryColumn, QueryMode, QueryResult, StatementResult, ValidatedBatch,
+    ValidatedQuery,
 };
 use mystique_sql::SqlDialect;
 use serde_json::Value as JsonValue;
@@ -347,9 +348,7 @@ pub(super) async fn run_planned_batch(
                 }
                 results.push(StatementResult::failed(stmt, 0, &err));
                 emit_progress(&batch.progress, stmt.index, total, BatchPhase::Finished);
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(stmt.index),
@@ -369,9 +368,7 @@ pub(super) async fn run_planned_batch(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -379,9 +376,7 @@ pub(super) async fn run_planned_batch(
             }
         }
     }
-    if let Some(progress) = &batch.progress {
-        progress.flush();
-    }
+    finish_progress(&batch.progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,
@@ -425,7 +420,9 @@ async fn drain_sets(
 }
 
 /// The flag is true when packets were left unread. With `read_all`, rows
-/// past the cap are read and dropped so the connection can run more.
+/// past the cap are read and dropped so the connection can run more. A
+/// statement that reports a count (`DELETE … RETURNING`) is always read to
+/// the end so the count is every changed row, not the rows shown.
 async fn read_mysql_sets<P>(
     qr: &mut mysql_async::QueryResult<'_, '_, P>,
     batch: &ValidatedBatch,
@@ -436,6 +433,7 @@ where
     P: mysql_async::prelude::Protocol,
 {
     let max_rows = batch.max_rows.max(1) as usize;
+    let read_all = read_all || stmt.returns_count;
     let mut sets = Vec::new();
     let mut set_index: u32 = 0;
     let mut max_warnings: u16 = 0;
@@ -449,11 +447,14 @@ where
                 data_type: Some(mysql_type_label(column.column_type()).to_string()),
             })
             .collect();
+        let origins: Vec<Option<ColumnOrigin>> =
+            qr.columns_ref().iter().map(column_origin).collect();
         let affected_at_start = qr.affected_rows();
         max_warnings = max_warnings.max(qr.warnings());
         let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
         let mut truncated = false;
         let mut saw_row = false;
+        let mut seen: u64 = 0;
         loop {
             if batch.control.is_cancelled() {
                 return Err(ConnectorError::Query("Query cancelled.".into()));
@@ -474,6 +475,7 @@ where
                 break;
             };
             saw_row = true;
+            seen = seen.saturating_add(1);
             if columns.is_empty() {
                 continue;
             }
@@ -495,7 +497,7 @@ where
         let has_grid = !columns.is_empty();
         let affected = if stmt.returns_count {
             if has_grid {
-                Some(out_rows.len() as u64)
+                Some(seen)
             } else {
                 Some(affected_at_start)
             }
@@ -524,13 +526,9 @@ where
             duration_ms: started.elapsed().as_millis() as u64,
             message,
         };
-        sets.push(StatementResult::success(
-            stmt,
-            set_index,
-            result,
-            affected,
-            Vec::new(),
-        ));
+        let mut outcome = StatementResult::success(stmt, set_index, result, affected, Vec::new());
+        outcome.column_origins = origins;
+        sets.push(outcome);
         if truncated && !read_all {
             return Ok((sets, true, max_warnings));
         }
@@ -565,4 +563,20 @@ async fn show_warnings(conn: &mut mysql_async::Conn) -> Vec<String> {
         }
     }
     notes
+}
+
+/// `org_table` / `org_name` name a base column. An expression, a derived
+/// table or a literal has an empty `org_table`.
+fn column_origin(column: &mysql_async::Column) -> Option<ColumnOrigin> {
+    let table = column.org_table_str();
+    let name = column.org_name_str();
+    if table.trim().is_empty() || name.trim().is_empty() {
+        return None;
+    }
+    Some(ColumnOrigin::named(
+        Some(column.schema_str().into_owned()),
+        None,
+        table.into_owned(),
+        name.into_owned(),
+    ))
 }

@@ -1,8 +1,8 @@
 //! Multi-statement execution. Plugins run a [`ValidatedBatch`] on one connection.
 //!
-//! Progress is a std callback. The IPC layer adapts it to a Tauri channel and
-//! coalesces repeats. Core does not depend on `mystique-sql`; [`gate_sql_batch`]
-//! is the mapped plan.
+//! Progress is a std callback that the IPC layer adapts to a Tauri channel.
+//! [`ProgressPump`] rate-limits it to one event per 100 ms. Core does not
+//! depend on `mystique-sql`; [`gate_sql_batch`] is the mapped plan.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -94,11 +94,14 @@ pub struct BatchEvent {
     pub phase: BatchPhase,
 }
 
-/// Coalesces repeat progress events to [`PROGRESS_INTERVAL`].
+/// Rate-limits progress to at most one event per [`PROGRESS_INTERVAL`].
 ///
-/// A change of statement index and any `force` event (statement finished, flush)
-/// are delivered immediately. Repeats of the same statement inside the window
-/// collapse to the latest one, which [`ProgressPump::flush`] sends.
+/// The first event goes out at once. Later events inside the window replace
+/// one pending event, which a timer sends when the window ends, so a long
+/// statement that started inside the window is still reported. A batch of
+/// thousands of fast statements costs about ten IPC events a second, not two
+/// per statement. [`ProgressPump::finish`] drops anything pending: the batch
+/// result supersedes it.
 #[derive(Clone)]
 pub struct ProgressPump {
     inner: Arc<PumpInner>,
@@ -106,81 +109,111 @@ pub struct ProgressPump {
 
 struct PumpInner {
     sink: Box<dyn Fn(BatchEvent) + Send + Sync>,
+    interval: Duration,
     state: Mutex<PumpState>,
 }
 
 struct PumpState {
     last_sent: Option<Instant>,
-    last_index: Option<u32>,
     pending: Option<BatchEvent>,
+    timer_armed: bool,
+    finished: bool,
 }
 
 impl ProgressPump {
     pub fn new(sink: impl Fn(BatchEvent) + Send + Sync + 'static) -> Self {
+        Self::with_interval(PROGRESS_INTERVAL, sink)
+    }
+
+    fn with_interval(
+        interval: Duration,
+        sink: impl Fn(BatchEvent) + Send + Sync + 'static,
+    ) -> Self {
         Self {
             inner: Arc::new(PumpInner {
                 sink: Box::new(sink),
+                interval,
                 state: Mutex::new(PumpState {
                     last_sent: None,
-                    last_index: None,
                     pending: None,
+                    timer_armed: false,
+                    finished: false,
                 }),
             }),
         }
     }
 
-    pub fn emit(&self, event: BatchEvent, force: bool) {
-        let mut state = self.lock();
+    pub fn emit(&self, event: BatchEvent) {
+        let mut state = self.inner.lock();
+        if state.finished {
+            return;
+        }
         let now = Instant::now();
-        let index_changed = state.last_index != Some(event.index);
-        let due = state
+        let wait = state
             .last_sent
-            .is_none_or(|sent| now.duration_since(sent) >= PROGRESS_INTERVAL);
-        if force || index_changed || due {
-            // `pending` is a repeat of the statement already delivered. A new
-            // statement replaces it. `flush` still sends a repeat that never
-            // got a later event.
+            .map(|sent| self.inner.interval.saturating_sub(now.duration_since(sent)))
+            .unwrap_or_default();
+        if wait.is_zero() {
             state.pending = None;
             state.last_sent = Some(now);
-            state.last_index = Some(event.index);
             (self.inner.sink)(event);
-        } else {
-            state.pending = Some(event);
+            return;
         }
+        state.pending = Some(event);
+        if state.timer_armed {
+            return;
+        }
+        // Without a runtime the pending event waits for the next `emit`.
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        state.timer_armed = true;
+        let inner = Arc::clone(&self.inner);
+        handle.spawn(async move {
+            tokio::time::sleep(wait).await;
+            let mut state = inner.lock();
+            state.timer_armed = false;
+            if state.finished {
+                return;
+            }
+            if let Some(pending) = state.pending.take() {
+                state.last_sent = Some(Instant::now());
+                (inner.sink)(pending);
+            }
+        });
     }
 
-    /// Sends a coalesced event that was still inside the window.
-    pub fn flush(&self) {
-        let mut state = self.lock();
-        if let Some(pending) = state.pending.take() {
-            state.last_sent = Some(Instant::now());
-            state.last_index = Some(pending.index);
-            (self.inner.sink)(pending);
-        }
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, PumpState> {
-        self.inner
-            .state
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
+    /// The batch is over. Pending and later events are dropped.
+    pub fn finish(&self) {
+        let mut state = self.inner.lock();
+        state.finished = true;
+        state.pending = None;
     }
 }
 
-/// Statement-boundary progress. Finished events are not coalesced.
+impl PumpInner {
+    fn lock(&self) -> std::sync::MutexGuard<'_, PumpState> {
+        self.state.lock().unwrap_or_else(|err| err.into_inner())
+    }
+}
+
+/// Statement-boundary progress, rate-limited by the pump.
 pub fn emit_progress(progress: &Option<ProgressPump>, index: u32, total: u32, phase: BatchPhase) {
     let Some(progress) = progress else {
         return;
     };
-    let force = matches!(phase, BatchPhase::Finished);
-    progress.emit(
-        BatchEvent {
-            index,
-            total,
-            phase,
-        },
-        force,
-    );
+    progress.emit(BatchEvent {
+        index,
+        total,
+        phase,
+    });
+}
+
+/// End of a batch: drop the pump's pending event.
+pub fn finish_progress(progress: &Option<ProgressPump>) {
+    if let Some(progress) = progress {
+        progress.finish();
+    }
 }
 
 /// Validated payload for [`crate::ConnectorSession::execute_batch`].
@@ -222,6 +255,11 @@ pub struct StatementResult {
     pub error_position: Option<crate::SourcePosition>,
     #[serde(default)]
     pub notices: Vec<String>,
+    /// Driver provenance per result column (see [`crate::ColumnOrigin`]).
+    /// Backend only: used to attach large-value locators, never serialized.
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub column_origins: Vec<Option<crate::ColumnOrigin>>,
 }
 
 impl StatementResult {
@@ -242,6 +280,7 @@ impl StatementResult {
             error: None,
             error_position: None,
             notices,
+            column_origins: Vec::new(),
         }
     }
 
@@ -261,6 +300,7 @@ impl StatementResult {
             error: Some(err.user_message()),
             error_position,
             notices: Vec::new(),
+            column_origins: Vec::new(),
         }
     }
 }
@@ -616,10 +656,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pump_keeps_index_changes_and_collapses_repeats() {
+    fn recording_pump(interval: Duration) -> (ProgressPump, Arc<Mutex<Vec<BatchEvent>>>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let pump = ProgressPump::new({
+        let pump = ProgressPump::with_interval(interval, {
             let seen = Arc::clone(&seen);
             move |event| {
                 seen.lock()
@@ -627,19 +666,59 @@ mod tests {
                     .push(event);
             }
         });
-        let started = |index| BatchEvent {
+        (pump, seen)
+    }
+
+    fn started(index: u32) -> BatchEvent {
+        BatchEvent {
             index,
-            total: 2,
+            total: 1_000,
             phase: BatchPhase::Started,
-        };
-        pump.emit(started(0), false);
-        pump.emit(started(0), false);
-        pump.emit(started(1), false);
-        pump.flush();
-        let got = seen.lock().unwrap_or_else(|err| err.into_inner());
+        }
+    }
+
+    #[tokio::test]
+    async fn pump_sends_at_most_one_event_per_window() {
+        let (pump, seen) = recording_pump(Duration::from_millis(100));
+        for index in 0..1_000 {
+            pump.emit(started(index));
+            pump.emit(BatchEvent {
+                phase: BatchPhase::Finished,
+                ..started(index)
+            });
+        }
+        // The first event goes out at once; the rest wait for the window.
+        assert_eq!(seen.lock().unwrap_or_else(|err| err.into_inner()).len(), 1);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let got = seen.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert_eq!(got.len(), 2, "{got:?}");
         assert_eq!(got[0].index, 0);
-        assert_eq!(got[1].index, 1);
+        // The trailing event is the latest one, so the UI shows where the batch is.
+        assert_eq!(got[1].index, 999);
+        assert_eq!(got[1].phase, BatchPhase::Finished);
+    }
+
+    #[tokio::test]
+    async fn a_long_statement_inside_the_window_is_still_reported() {
+        let (pump, seen) = recording_pump(Duration::from_millis(40));
+        pump.emit(started(0));
+        pump.emit(started(1));
+        // Statement 1 is still running when the window ends.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let got = seen.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        assert_eq!(got.iter().map(|e| e.index).collect::<Vec<_>>(), vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn finish_drops_the_pending_event() {
+        let (pump, seen) = recording_pump(Duration::from_millis(40));
+        pump.emit(started(0));
+        pump.emit(started(1));
+        pump.finish();
+        pump.emit(started(2));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let got = seen.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        assert_eq!(got.len(), 1, "{got:?}");
     }
 
     #[test]

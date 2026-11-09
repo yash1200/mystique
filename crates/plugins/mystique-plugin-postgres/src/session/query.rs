@@ -1,13 +1,14 @@
 //! Policy-validated SQL execution for a pooled Postgres session.
 
-use std::pin::pin;
-use std::time::Instant;
+use std::pin::{pin, Pin};
+use std::time::{Duration, Instant};
 
 use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
-    affected_message, emit_progress, opens_transaction, split_sql_statements_for,
-    sql_explain_executes, sql_is_proven_read, BatchPhase, ConnectorError, ConnectorResult,
-    PlannedStatement, QueryBatchResult, QueryColumn, QueryMode, QueryResult, StatementResult,
+    affected_message, emit_progress, finish_progress, inactivity_limit, opens_transaction,
+    poll_until_idle, split_sql_statements_for, sql_explain_executes, sql_is_proven_read,
+    BatchPhase, ColumnOrigin, ConnectorError, ConnectorResult, IdleStop, PlannedStatement,
+    QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult, StatementResult,
     ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
 use mystique_sql::SqlDialect;
@@ -16,8 +17,8 @@ use tokio_postgres::types::{Format, IsNull, ToSql, Type};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
 use super::encode::cell_json;
-use super::PostgresSession;
 use super::{query_failed, query_failed_at, shift_query_position};
+use super::{take_notices, NoticeCapture, PostgresSession, RunClient};
 
 /// Portal name for the capped fetch. Closed before the next statement.
 const ROW_CURSOR: &str = "mystique_row_cap";
@@ -30,23 +31,24 @@ pub(super) async fn execute_query(
 
     // Multi-statement batches: run each in order; return only the last result.
     let start = Instant::now();
-    let client = session.client().await?;
-    let _guard = session.arm_cancel(&client, &query.control);
+    let mut client = session.run_client(&query.control).await?;
 
     let stmts = split_sql_statements_for(&query.text, SqlDialect::Postgres);
     if stmts.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
 
-    let timeout = query.timeout_ms; // 0 turns statement_timeout off.
-                                    // Read mode, and any EXPLAIN that executes its target, must not be able to
-                                    // write even when the classifier misses (data-modifying CTE, parenthesised
-                                    // ANALYZE). ROLLBACK before the connection returns to the pool. SET LOCAL
-                                    // dies with that transaction, so statement_timeout does not leak.
+    // 0 turns statement_timeout off.
+    let timeout = query.timeout_ms;
+    // Read mode, and any EXPLAIN that executes its target, must not be able to
+    // write even when the classifier misses (data-modifying CTE, parenthesised
+    // ANALYZE). ROLLBACK before the connection returns to the pool. SET LOCAL
+    // dies with that transaction, so statement_timeout does not leak.
     let lock_writes = query.mode == QueryMode::Read
         || stmts
             .iter()
             .any(|sql| sql_explain_executes(sql, SqlDialect::Postgres));
+    let watch = Watch::new(&query.control, query.timeout_ms);
 
     let ran = if lock_writes {
         client
@@ -57,15 +59,15 @@ pub(super) async fn execute_query(
             .batch_execute(&format!("SET LOCAL statement_timeout = {timeout}"))
             .await
         {
-            return end_read_only_txn(client, Err(query_failed(err))).await;
+            return end_read_only_txn(&mut client, Err(query_failed(err))).await;
         }
-        let result = run_batch(&client, query, &stmts, true).await;
-        end_read_only_txn(client, result).await?
+        let result = run_batch(&client, query, &stmts, true, watch).await;
+        end_read_only_txn(&mut client, result).await?
     } else {
         let _ = client
             .batch_execute(&format!("SET statement_timeout = {timeout}"))
             .await;
-        let result = run_batch(&client, query, &stmts, false).await;
+        let result = run_batch(&client, query, &stmts, false, watch).await;
         let _ = client.batch_execute("RESET statement_timeout").await;
         result?
     };
@@ -80,9 +82,9 @@ pub(super) async fn execute_batch(
     batch: &ValidatedBatch,
 ) -> ConnectorResult<QueryBatchResult> {
     session.ensure_open()?;
-    let client = session.client().await?;
-    let _guard = session.arm_cancel(&client, &batch.control);
-    let timeout = batch.timeout_ms; // 0 turns statement_timeout off.
+    let mut client = session.run_client(&batch.control).await?;
+    // 0 turns statement_timeout off.
+    let timeout = batch.timeout_ms;
     let lock_writes = batch.mode == QueryMode::Read || batch.explain_executes;
 
     if lock_writes {
@@ -94,29 +96,22 @@ pub(super) async fn execute_batch(
             .batch_execute(&format!("SET LOCAL statement_timeout = {timeout}"))
             .await
         {
-            return end_read_only_txn(client, Err(query_failed(err))).await;
+            return end_read_only_txn(&mut client, Err(query_failed(err))).await;
         }
-        let result = run_planned_batch(&client, batch, true, true, false).await;
-        end_read_only_txn(client, result).await
+        let notices = session.notice_hub().capture(&client).await;
+        let result = run_planned_batch(&client, batch, true, true, false, notices.as_ref()).await;
+        drop(notices);
+        end_read_only_txn(&mut client, result).await
     } else {
-        execute_held(session, &client, batch).await
+        let _ = client
+            .batch_execute(&format!("SET statement_timeout = {timeout}"))
+            .await;
+        let notices = session.notice_hub().capture(&client).await;
+        let result = run_planned_batch(&client, batch, false, false, false, notices.as_ref()).await;
+        drop(notices);
+        let _ = client.batch_execute("RESET statement_timeout").await;
+        result
     }
-}
-
-/// Run on a connection the caller keeps. Does not open or close a transaction.
-pub(super) async fn execute_held(
-    session: &PostgresSession,
-    client: &deadpool_postgres::Object,
-    batch: &ValidatedBatch,
-) -> ConnectorResult<QueryBatchResult> {
-    let _guard = session.arm_cancel(client, &batch.control);
-    let timeout = batch.timeout_ms; // 0 turns statement_timeout off.
-    let _ = client
-        .batch_execute(&format!("SET statement_timeout = {timeout}"))
-        .await;
-    let result = run_planned_batch(client, batch, false, false, false).await;
-    let _ = client.batch_execute("RESET statement_timeout").await;
-    result
 }
 
 /// `in_txn` is whether a transaction block is already open. A cursor SELECT
@@ -128,6 +123,7 @@ pub(super) async fn run_planned_batch(
     locked: bool,
     in_txn: bool,
     auto_begin: bool,
+    notices: Option<&NoticeCapture>,
 ) -> ConnectorResult<QueryBatchResult> {
     let total = u32::try_from(batch.statements.len()).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(batch.statements.len());
@@ -137,6 +133,8 @@ pub(super) async fn run_planned_batch(
             return Err(ConnectorError::Query("Query cancelled.".into()));
         }
         emit_progress(&batch.progress, stmt.index, total, BatchPhase::Started);
+        // Anything the wrapper statements raised is not this statement's.
+        let _ = take_notices(notices);
         let begun = if auto_begin && !in_txn && opens_transaction(stmt, SqlDialect::Postgres) {
             let begun = client.batch_execute("BEGIN").await;
             in_txn = begun.is_ok();
@@ -144,10 +142,13 @@ pub(super) async fn run_planned_batch(
         } else {
             Ok(())
         };
-        let outcome = match begun {
+        let mut outcome = match begun {
             Ok(()) => run_planned(client, batch, stmt, &mut in_txn).await?,
             Err(err) => postgres_statement_error(stmt, query_failed(err), &batch.control)?,
         };
+        // A RAISE before an error is often the explanation, so a failed
+        // statement keeps its notices too.
+        outcome.notices = take_notices(notices);
         let failed = outcome.error.is_some();
         if stmt.txn_boundary && !locked && !failed {
             in_txn = match transaction_state(client).await {
@@ -159,9 +160,7 @@ pub(super) async fn run_planned_batch(
         results.push(outcome);
         emit_progress(&batch.progress, index, total, BatchPhase::Finished);
         if failed {
-            if let Some(progress) = &batch.progress {
-                progress.flush();
-            }
+            finish_progress(&batch.progress);
             return Ok(QueryBatchResult {
                 results,
                 stopped_at: Some(index),
@@ -172,9 +171,7 @@ pub(super) async fn run_planned_batch(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = &batch.progress {
-                    progress.flush();
-                }
+                finish_progress(&batch.progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -182,9 +179,7 @@ pub(super) async fn run_planned_batch(
             }
         }
     }
-    if let Some(progress) = &batch.progress {
-        progress.flush();
-    }
+    finish_progress(&batch.progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,
@@ -210,12 +205,13 @@ async fn run_planned(
             opened = true;
             *in_txn = true;
         }
+        let watch = Watch::new(&batch.control, batch.timeout_ms);
         let fetched = if bound {
-            fetch_bound(client, &stmt.sql, &stmt.params, limit).await
+            fetch_bound(client, &stmt.sql, &stmt.params, limit, watch).await
         } else if stmt.cursor {
-            fetch_cursor(client, &stmt.sql, limit).await
+            fetch_cursor(client, &stmt.sql, limit, watch).await
         } else {
-            fetch_utility(client, &stmt.sql, limit).await
+            fetch_utility(client, &stmt.sql, limit, watch).await
         };
         if opened {
             let end = if fetched.is_ok() {
@@ -240,8 +236,9 @@ async fn run_planned(
             Ok(fetched) => fetched,
             Err(err) => return postgres_statement_error(stmt, err, &batch.control),
         };
+        // `INSERT … RETURNING` changed every row, not only the ones shown.
         let affected = if stmt.returns_count {
-            Some(fetched.rows.len() as u64)
+            Some(fetched.total)
         } else {
             None
         };
@@ -251,6 +248,7 @@ async fn run_planned(
             None
         };
         let row_count = fetched.rows.len() as u64;
+        let origins = fetched.origins;
         let result = QueryResult {
             engine: "postgres".into(),
             mode: batch.mode,
@@ -261,15 +259,9 @@ async fn run_planned(
             duration_ms: started.elapsed().as_millis() as u64,
             message,
         };
-        // Notices are logged by the tokio-postgres connection task and are not
-        // exposed on a pooled client.
-        return Ok(StatementResult::success(
-            stmt,
-            0,
-            result,
-            affected,
-            Vec::new(),
-        ));
+        let mut outcome = StatementResult::success(stmt, 0, result, affected, Vec::new());
+        outcome.column_origins = origins;
+        return Ok(outcome);
     }
 
     if !stmt.params.is_empty() {
@@ -349,7 +341,7 @@ fn postgres_statement_error(
 /// Session advisory locks outlive ROLLBACK. A read that took one (the
 /// classifier missed it) would leave it on the pooled connection.
 pub(super) async fn end_read_only_txn<T>(
-    client: deadpool_postgres::Object,
+    client: &mut RunClient<'_>,
     result: ConnectorResult<T>,
 ) -> ConnectorResult<T> {
     let mut ended = client
@@ -363,7 +355,7 @@ pub(super) async fn end_read_only_txn<T>(
         Ok(()) => result,
         Err(err) => {
             // A failed ROLLBACK would hand the next checkout an open transaction.
-            drop(deadpool_postgres::Object::take(client));
+            client.discard();
             result.and(Err(query_failed(err)))
         }
     }
@@ -374,6 +366,7 @@ async fn run_batch(
     query: &ValidatedQuery,
     stmts: &[String],
     locked: bool,
+    watch: Watch<'_>,
 ) -> ConnectorResult<QueryResult> {
     // A caller bug can pass 0 or a huge cap. The driver ceiling is the hard max.
     let limit = row_limit(query.max_rows);
@@ -404,11 +397,11 @@ async fn run_batch(
                 in_txn = true;
             }
             let fetched = if cursor {
-                fetch_cursor(client, sql, limit).await
+                fetch_cursor(client, sql, limit, watch).await
             } else {
                 // EXPLAIN / SHOW are utility statements. DECLARE would fail and
                 // abort the read-only transaction. Their result sets are small.
-                fetch_utility(client, sql, limit).await
+                fetch_utility(client, sql, limit, watch).await
             };
             if opened {
                 let end = if fetched.is_ok() {
@@ -588,13 +581,23 @@ fn cursor_query(sql: &str) -> &str {
 
 struct Fetched {
     columns: Vec<QueryColumn>,
+    /// RowDescription table oid and attribute number, per column.
+    origins: Vec<Option<ColumnOrigin>>,
     rows: Vec<Vec<serde_json::Value>>,
     truncated: bool,
+    /// Every row the statement returned, kept or not. For a fetch from a
+    /// cursor it is at most `limit + 1`.
+    total: u64,
 }
 
 /// `FETCH limit+1`, then `CLOSE`. The server suspends the portal after that
 /// many rows, so a billion-row series is not generated or buffered.
-async fn fetch_cursor(client: &Client, sql: &str, limit: usize) -> ConnectorResult<Fetched> {
+async fn fetch_cursor(
+    client: &Client,
+    sql: &str,
+    limit: usize,
+    watch: Watch<'_>,
+) -> ConnectorResult<Fetched> {
     let body = cursor_query(sql);
     if body.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
@@ -606,7 +609,12 @@ async fn fetch_cursor(client: &Client, sql: &str, limit: usize) -> ConnectorResu
         return Err(shift_query_position(query_failed_at(&declare, err), prefix));
     }
 
-    let fetched = read_fetch(client, limit, count).await;
+    let fetched = read_fetch(client, limit, count, watch).await;
+    if watch.control.is_cancelled() {
+        // The transaction is aborted and the connection is closed after the
+        // run, so CLOSE would only fail.
+        return fetched;
+    }
     let closed = client
         .batch_execute(&format!("CLOSE {ROW_CURSOR}"))
         .await
@@ -618,9 +626,14 @@ async fn fetch_cursor(client: &Client, sql: &str, limit: usize) -> ConnectorResu
     }
 }
 
-async fn read_fetch(client: &Client, limit: usize, count: i32) -> ConnectorResult<Fetched> {
+async fn read_fetch(
+    client: &Client,
+    limit: usize,
+    count: i32,
+    watch: Watch<'_>,
+) -> ConnectorResult<Fetched> {
     let sql = format!("FETCH {count} FROM {ROW_CURSOR}");
-    read_stream(client, &sql, limit, false).await
+    read_stream(client, &sql, limit, false, watch).await
 }
 
 /// Parameterized reads skip the simple-protocol cursor. `$1` is not valid there.
@@ -629,6 +642,7 @@ async fn fetch_bound(
     sql: &str,
     params: &[serde_json::Value],
     limit: usize,
+    watch: Watch<'_>,
 ) -> ConnectorResult<Fetched> {
     let binds = q_binds(params);
     let refs: Vec<&(dyn ToSql + Sync)> = binds.iter().map(|bind| bind as _).collect();
@@ -636,28 +650,14 @@ async fn fetch_bound(
         .query_raw(sql, refs)
         .await
         .map_err(|err| query_failed_at(sql, err))?;
-    let mut stream = pin!(stream);
-    let capped = collect_capped(&mut stream, limit).await;
-    if !matches!(capped, Ok(ref got) if got.exhausted) {
-        if let Err(err) = finish_stream(&mut stream).await {
-            return Err(query_failed_at(
-                sql,
-                match capped {
-                    Err(fetch_err) => fetch_err,
-                    Ok(_) => err,
-                },
-            ));
-        }
-    }
-    capped
-        .map(rows_from)
-        .map_err(|err| query_failed_at(sql, err))
+    let stream = pin!(stream);
+    drain_capped(stream, limit, watch, |err| query_failed_at(sql, err)).await
 }
 
 #[derive(Debug)]
-struct QBind(serde_json::Value);
+pub(super) struct QBind(serde_json::Value);
 
-fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
+pub(super) fn q_binds(params: &[serde_json::Value]) -> Vec<QBind> {
     params.iter().cloned().map(QBind).collect()
 }
 
@@ -693,8 +693,13 @@ impl ToSql for QBind {
 }
 
 /// Small utility result. Not a cursor, so this is not how large SELECTs run.
-async fn fetch_utility(client: &Client, sql: &str, limit: usize) -> ConnectorResult<Fetched> {
-    read_stream(client, sql, limit, true).await
+async fn fetch_utility(
+    client: &Client,
+    sql: &str,
+    limit: usize,
+    watch: Watch<'_>,
+) -> ConnectorResult<Fetched> {
+    read_stream(client, sql, limit, true, watch).await
 }
 
 async fn read_stream(
@@ -702,6 +707,7 @@ async fn read_stream(
     sql: &str,
     limit: usize,
     locate: bool,
+    watch: Watch<'_>,
 ) -> ConnectorResult<Fetched> {
     let locate_err = |err: tokio_postgres::Error| {
         if locate {
@@ -714,23 +720,89 @@ async fn read_stream(
         .query_raw(sql, std::iter::empty::<i32>())
         .await
         .map_err(locate_err)?;
-    let mut stream = pin!(stream);
-    let capped = collect_capped(&mut stream, limit).await;
-    // A truncated FETCH still owes ReadyForQuery. An error does too. Polling
-    // again after a clean end asks a closed response channel and fails.
-    if !matches!(capped, Ok(ref got) if got.exhausted) {
-        if let Err(err) = finish_stream(&mut stream).await {
-            return Err(locate_err(match capped {
-                Err(fetch_err) => fetch_err,
-                Ok(_) => err,
-            }));
+    let stream = pin!(stream);
+    drain_capped(stream, limit, watch, locate_err).await
+}
+
+/// Keep `limit` rows, then read the rest so the connection owes nothing.
+///
+/// A truncated FETCH still owes ReadyForQuery. An error does too. Polling
+/// again after a clean end asks a closed response channel and fails. A stall
+/// or a cancel ends the read at once: the run closes the connection.
+async fn drain_capped(
+    mut stream: Pin<&mut tokio_postgres::RowStream>,
+    limit: usize,
+    watch: Watch<'_>,
+    map_err: impl Fn(tokio_postgres::Error) -> ConnectorError,
+) -> ConnectorResult<Fetched> {
+    let mut capped = collect_capped(&mut stream, limit, Some(watch))
+        .await
+        .map_err(|stop| stop.into_error(&map_err))?;
+    if !capped.exhausted {
+        let rest = finish_stream(&mut stream, Some(watch))
+            .await
+            .map_err(|stop| stop.into_error(&map_err))?;
+        capped.seen = capped.seen.saturating_add(rest);
+    }
+    let affected = stream.rows_affected();
+    Ok(rows_from(capped, affected))
+}
+
+/// What ends a row read early.
+#[derive(Debug)]
+enum Stop<E> {
+    Driver(E),
+    Idle(IdleStop),
+}
+
+impl<E> Stop<E> {
+    fn into_error(self, map_err: impl Fn(E) -> ConnectorError) -> ConnectorError {
+        match self {
+            Self::Driver(err) => map_err(err),
+            Self::Idle(stop) => stop.into_error(),
         }
     }
-    capped.map(rows_from).map_err(locate_err)
+}
+
+/// Cancel and the stall limit for a row stream.
+#[derive(Clone, Copy)]
+pub(super) struct Watch<'a> {
+    control: &'a QueryControl,
+    stall: Option<Duration>,
+}
+
+impl<'a> Watch<'a> {
+    pub(super) fn new(control: &'a QueryControl, timeout_ms: u64) -> Self {
+        Self {
+            control,
+            stall: inactivity_limit(timeout_ms),
+        }
+    }
+}
+
+/// The next item. The first one waits on the run's overall deadline
+/// (`pg_sleep` is allowed to use it); later gaps are held to the stall limit.
+async fn next_item<S, T, E>(
+    stream: &mut S,
+    watch: Option<Watch<'_>>,
+    first: bool,
+) -> Result<Option<T>, Stop<E>>
+where
+    S: Stream<Item = Result<T, E>> + Unpin,
+{
+    let next = match watch {
+        Some(watch) if !first => poll_until_idle(watch.control, watch.stall, stream.next())
+            .await
+            .map_err(Stop::Idle)?,
+        _ => stream.next().await,
+    };
+    next.transpose().map_err(Stop::Driver)
 }
 
 struct Capped<T> {
     kept: Vec<T>,
+    /// Items pulled, the probe included.
+    seen: usize,
     truncated: bool,
     /// The stream returned `None` before the extra probe row.
     exhausted: bool,
@@ -741,14 +813,17 @@ struct Capped<T> {
 /// The extra item is the truncation probe. It is not stored. Callers that
 /// still owe the server a ReadyForQuery must `finish_stream` when
 /// `exhausted` is false. Memory of `kept` is `limit`, not the source length.
-async fn collect_capped<S, T, E>(mut stream: S, limit: usize) -> Result<Capped<T>, E>
+async fn collect_capped<S, T, E>(
+    mut stream: S,
+    limit: usize,
+    watch: Option<Watch<'_>>,
+) -> Result<Capped<T>, Stop<E>>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
 {
     let mut kept = Vec::new();
     let mut seen = 0usize;
-    while let Some(item) = stream.next().await {
-        let item = item?;
+    while let Some(item) = next_item(&mut stream, watch, seen == 0).await? {
         if kept.len() < limit {
             kept.push(item);
         }
@@ -756,6 +831,7 @@ where
         if seen > limit {
             return Ok(Capped {
                 kept,
+                seen,
                 truncated: true,
                 exhausted: false,
             });
@@ -763,23 +839,29 @@ where
     }
     Ok(Capped {
         kept,
+        seen,
         truncated: false,
         exhausted: true,
     })
 }
 
-async fn finish_stream<S, T, E>(mut stream: S) -> Result<(), E>
+/// Reads the rest of a stream and returns how many items it dropped.
+async fn finish_stream<S, T, E>(mut stream: S, watch: Option<Watch<'_>>) -> Result<usize, Stop<E>>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
 {
-    while let Some(item) = stream.next().await {
-        let _discard = item?;
+    let mut rest = 0usize;
+    while let Some(_discard) = next_item(&mut stream, watch, false).await? {
+        rest = rest.saturating_add(1);
     }
-    Ok(())
+    Ok(rest)
 }
 
-fn rows_from(capped: Capped<tokio_postgres::Row>) -> Fetched {
+/// `affected` is the server's command tag count (`INSERT 0 N`) when the
+/// stream reached its end; the rows seen are the fallback.
+fn rows_from(capped: Capped<tokio_postgres::Row>, affected: Option<u64>) -> Fetched {
     let mut columns = Vec::new();
+    let mut origins = Vec::new();
     let mut rows = Vec::with_capacity(capped.kept.len());
     for row in &capped.kept {
         if columns.is_empty() {
@@ -791,6 +873,11 @@ fn rows_from(capped: Capped<tokio_postgres::Row>) -> Fetched {
                     data_type: Some(c.type_().name().to_string()),
                 })
                 .collect();
+            origins = row
+                .columns()
+                .iter()
+                .map(|c| ColumnOrigin::pg(c.table_oid(), c.column_id()))
+                .collect();
         }
         let mut cells = Vec::with_capacity(row.len());
         for idx in 0..row.len() {
@@ -800,8 +887,10 @@ fn rows_from(capped: Capped<tokio_postgres::Row>) -> Fetched {
     }
     Fetched {
         columns,
+        origins,
         rows,
         truncated: capped.truncated,
+        total: affected.unwrap_or(capped.seen as u64),
     }
 }
 
@@ -853,7 +942,7 @@ mod tests {
             iter: (0u32..).map(Ok),
             pulls: 0,
         };
-        let capped = collect_capped(&mut stream, 10).await.expect("cap");
+        let capped = collect_capped(&mut stream, 10, None).await.expect("cap");
         assert_eq!(capped.kept, (0..10).collect::<Vec<_>>());
         assert!(capped.truncated);
         assert!(!capped.exhausted);
@@ -866,10 +955,51 @@ mod tests {
             iter: (0u32..3).map(Ok),
             pulls: 0,
         };
-        let capped = collect_capped(&mut stream, 10).await.expect("cap");
+        let capped = collect_capped(&mut stream, 10, None).await.expect("cap");
         assert_eq!(capped.kept.len(), 3);
         assert!(!capped.truncated);
         assert!(capped.exhausted);
+    }
+
+    #[tokio::test]
+    async fn a_stall_after_the_first_row_cancels_the_run() {
+        let control = QueryControl::new();
+        let watch = Watch {
+            control: &control,
+            stall: Some(Duration::from_millis(50)),
+        };
+        let stream = futures_util::stream::iter([Ok::<u32, &'static str>(1)])
+            .chain(futures_util::stream::pending());
+        let mut stream = pin!(stream);
+        let stop = collect_capped(&mut stream, 10, Some(watch))
+            .await
+            .err()
+            .expect("a stall");
+        assert!(matches!(stop, Stop::Idle(IdleStop::Inactive)), "{stop:?}");
+        assert!(
+            control.is_cancelled(),
+            "the stall fires the engine interrupt"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_first_row_may_take_longer_than_the_stall_limit() {
+        let control = QueryControl::new();
+        let watch = Watch {
+            control: &control,
+            stall: Some(Duration::from_millis(30)),
+        };
+        let slow_first = futures_util::stream::once(async {
+            tokio::time::sleep(Duration::from_millis(90)).await;
+            Ok::<u32, &'static str>(1)
+        })
+        .chain(futures_util::stream::iter([Ok(2), Ok(3)]));
+        let mut stream = pin!(slow_first);
+        let capped = collect_capped(&mut stream, 10, Some(watch))
+            .await
+            .expect("rows");
+        assert_eq!(capped.kept, vec![1, 2, 3]);
+        assert!(!control.is_cancelled());
     }
 
     #[test]

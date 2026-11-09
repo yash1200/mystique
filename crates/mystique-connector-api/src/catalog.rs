@@ -202,6 +202,52 @@ pub struct FetchTablePreviewStatsRequest {
     pub filters: Vec<TableFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_filter: Option<String>,
+    /// Lets the grid cancel the count with `cancel_engine_query`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    /// Stop the exact COUNT after this long and report the engine's estimate
+    /// instead. Absent: count to the end (the user asked for an exact count).
+    /// Under a budget, an unfiltered table estimated at
+    /// [`SKIP_EXACT_COUNT_ROWS`] or more is not counted at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_budget_ms: Option<u64>,
+}
+
+/// Under a budget, an unfiltered table this large gets the estimate only.
+pub const SKIP_EXACT_COUNT_ROWS: u64 = 10_000_000;
+
+/// How the exact COUNT of a [`TablePreviewCount`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum TableCountOutcome {
+    /// `total_rows` is exact.
+    Exact,
+    /// The count ran past its budget and was cancelled.
+    OverBudget,
+    /// Not run: the estimate is over [`SKIP_EXACT_COUNT_ROWS`].
+    Skipped,
+    /// The user cancelled it.
+    Cancelled,
+    /// The engine failed it (or has no count).
+    #[default]
+    Failed,
+}
+
+/// The grid's background count: [`TablePreviewStats`] plus what happened to
+/// the exact COUNT, and the engine's estimate when the count did not finish.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewCount {
+    pub total_rows: u64,
+    pub total_known: bool,
+    pub references: Vec<TablePreviewColumnRef>,
+    pub outcome: TableCountOutcome,
+    /// Planner estimate (Postgres / MySQL `EXPLAIN`) when not exact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub estimated_rows: Option<u64>,
 }
 
 impl FetchTablePreviewStatsRequest {

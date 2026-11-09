@@ -1,7 +1,7 @@
 //! Distinct values for the grid filter. One catalog column, at most 1000.
 
 use mystique_connector_api::{
-    distinct_values_sql, DistinctColumnValuesInput, QueryControl, QueryMode, ValidatedQuery,
+    distinct_input_sql, DistinctColumnValuesInput, QueryControl, QueryMode, ValidatedQuery,
 };
 use mystique_sql::SqlDialect;
 use serde_json::Value as JsonValue;
@@ -22,15 +22,7 @@ pub(super) async fn distinct_column_values(
         &input.table,
     )
     .await?;
-    let sql = distinct_values_sql(
-        SqlDialect::Postgres,
-        input.database.as_deref(),
-        input.schema.as_deref(),
-        &input.table,
-        &input.column,
-        &described,
-        input.limit,
-    )?;
+    let sql = distinct_input_sql(SqlDialect::Postgres, input, &described)?;
     let result = query::execute_query(
         session,
         &ValidatedQuery {

@@ -19,27 +19,5 @@ export function columnCompletions(
 	return { start: caret - prefix.length, items }
 }
 
-export type DistinctCacheEntry = { at: number; values: string[] }
-
-export const DISTINCT_TTL_MS = 30_000
+/** Distinct values one request may return (the server's cap). */
 export const DISTINCT_LIMIT = 1000
-
-export function distinctCacheKey(
-	sessionId: string,
-	table: string,
-	column: string,
-): string {
-	return `${sessionId}\n${table}\n${column}`
-}
-
-export function readDistinctCache(
-	cache: ReadonlyMap<string, DistinctCacheEntry>,
-	key: string,
-	now: number,
-	ttl = DISTINCT_TTL_MS,
-): string[] | null {
-	const entry = cache.get(key)
-	if (!entry) return null
-	if (now - entry.at > ttl) return null
-	return entry.values
-}

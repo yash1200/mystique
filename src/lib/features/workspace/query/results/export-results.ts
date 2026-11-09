@@ -1,4 +1,9 @@
-/** Download or copy a query result as CSV / JSON / Excel. */
+/**
+ * Download or copy a query result as CSV / JSON / Excel.
+ *
+ * Large values are loaded in full first when the result carries their key;
+ * the rest are written as previews and the toast says how many.
+ */
 import type { QueryResult } from '#core/contracts'
 import { errorMessage } from '#core/ipc'
 import { copyTextToClipboard } from '#core/util'
@@ -6,10 +11,14 @@ import { showToast } from '#features/toast'
 import {
 	buildCsv,
 	buildJson,
+	cellsIncludeLarge,
 	exportFileBaseFromQuery,
 	exportRowsAsCsv,
 	exportRowsAsExcel,
 	exportRowsAsJson,
+	previewsNote,
+	resolveLargeCells,
+	type LargeLoader,
 } from '#features/workspace/data-grid'
 import type { ResultExportAction } from './QueryResultsPanel.svelte'
 
@@ -30,14 +39,22 @@ export function canExportResult(result: QueryResult | null | undefined): boolean
 export async function exportResult(
 	action: ResultExportAction,
 	result: QueryResult,
+	loadLarge: LargeLoader | null,
 	file: Parameters<typeof exportFileBaseFromQuery>[0],
 ) {
 	if (!canExportResult(result)) return
 	const cols = result.columns.map((c) => ({ name: c.name }))
-	const rows = result.rows
 	const fileBase = exportFileBaseFromQuery(file)
 	const copy = action === 'copy-csv' || action === 'copy-json'
 	try {
+		let rows = result.rows
+		let previews = 0
+		if (cellsIncludeLarge(rows)) {
+			const json = result.columns.map((c) => (c.dataType ?? '').toLowerCase().includes('json'))
+			const resolved = await resolveLargeCells(rows, loadLarge, json)
+			rows = resolved.cells
+			previews = resolved.previews
+		}
 		let res
 		switch (action) {
 			case 'download-csv':
@@ -56,7 +73,8 @@ export async function exportResult(
 				res = await copyTextToClipboard(buildJson(cols, rows, true))
 				break
 		}
-		if (res.ok) showToast('success', DONE[action])
+		if (res.ok && previews > 0) showToast('warning', `${DONE[action]}. ${previewsNote(previews)}`)
+		else if (res.ok) showToast('success', DONE[action])
 		else if (!res.cancelled) {
 			showToast('danger', res.error || (copy ? 'Copy failed' : 'Export failed'))
 		}

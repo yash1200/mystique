@@ -61,9 +61,19 @@
 		"statements": ["db.a.find()", "{ a: 1 }"]
 	},
 	{
-		"name": "line comments around and between statements",
+		"name": "a comment above a statement, or after it on its line, is part of it",
 		"text": "// first\ndb.a.find() // all of a\n// second\ndb.b.find()",
-		"statements": ["db.a.find()", "db.b.find()"]
+		"statements": ["// first\ndb.a.find() // all of a", "// second\ndb.b.find()"]
+	},
+	{
+		"name": "a comment after a semicolon leads the next statement",
+		"text": "db.a.find(); // next\ndb.b.find()",
+		"statements": ["db.a.find()", "// next\ndb.b.find()"]
+	},
+	{
+		"name": "a leading comment stays and a trailing comment-only chunk drops",
+		"text": "// all users\ndb.users.find()\n\n/* end */\n;",
+		"statements": ["// all users\ndb.users.find()"]
 	},
 	{
 		"name": "a comment line inside a chain",
@@ -78,12 +88,42 @@
 	{
 		"name": "a semicolon in a block comment",
 		"text": "db.a.find() /* ; */ ; db.b.find()",
-		"statements": ["db.a.find()", "db.b.find()"]
+		"statements": ["db.a.find() /* ; */", "db.b.find()"]
 	},
 	{
 		"name": "a semicolon and a quote in a line comment",
 		"text": "db.a.find() // don't; stop\ndb.b.find()",
-		"statements": ["db.a.find()", "db.b.find()"]
+		"statements": ["db.a.find() // don't; stop", "db.b.find()"]
+	},
+	{
+		"name": "a block comment across lines is a line break",
+		"text": "db.a.find() /* note\n */ db.b.find()",
+		"statements": ["db.a.find()", "/* note\n */ db.b.find()"]
+	},
+	{
+		"name": "a block comment across lines before a chained call",
+		"text": "db.a\n  /* pick\n   the collection */ .find()",
+		"statements": ["db.a\n  /* pick\n   the collection */ .find()"]
+	},
+	{
+		"name": "a closer pops to its opener",
+		"text": "db.a.find({)\ndb.b.find()",
+		"statements": ["db.a.find({)", "db.b.find()"]
+	},
+	{
+		"name": "a stray closer does not swallow the rest",
+		"text": "db.c.find())\ndb.d.find()",
+		"statements": ["db.c.find())", "db.d.find()"]
+	},
+	{
+		"name": "a template interpolation holding a backtick and a brace",
+		"text": "db.a.find({ s: `a ${ \"`}\" } b;\nc` })\ndb.b.find()",
+		"statements": ["db.a.find({ s: `a ${ \"`}\" } b;\nc` })", "db.b.find()"]
+	},
+	{
+		"name": "a minus at the start of the next line starts a statement",
+		"text": "db.a.find()\n-1",
+		"statements": ["db.a.find()", "-1"]
 	},
 	{
 		"name": "comment-only text",

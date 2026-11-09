@@ -60,6 +60,7 @@ export const postgres: EngineAdapter = {
 
 	defaultCapabilities: relationalCapabilities({
 		engine: 'postgres',
+		supportsExplainPlan: true,
 		sqlDialect: 'postgresql',
 		nameExample: 'e.g. local-pg',
 		explorer: {

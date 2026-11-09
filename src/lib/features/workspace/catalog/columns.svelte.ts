@@ -10,6 +10,12 @@ function keyOf(sessionId: string, database: string | null | undefined): string {
 class CatalogColumnsCache {
 	byKey = $state<Record<string, CatalogColumnRow[]>>({})
 	#inflight = new Map<string, Promise<CatalogColumnRow[]>>()
+	/**
+	 * Bumped by `invalidate` and by a forced reload. A load that finishes
+	 * under an older generation is dropped: it describes a catalog the user
+	 * has since refreshed or left.
+	 */
+	#generation = new Map<string, number>()
 
 	key = keyOf
 
@@ -18,6 +24,12 @@ class CatalogColumnsCache {
 		database: string | null | undefined,
 	): CatalogColumnRow[] | undefined => this.byKey[keyOf(sessionId, database)]
 
+	/** The load running for this session and database, if any. */
+	pending = (
+		sessionId: string,
+		database: string | null | undefined,
+	): Promise<CatalogColumnRow[]> | null => this.#inflight.get(keyOf(sessionId, database)) ?? null
+
 	load = async (
 		sessionId: string,
 		database: string | null | undefined,
@@ -25,31 +37,29 @@ class CatalogColumnsCache {
 	): Promise<CatalogColumnRow[]> => {
 		const k = keyOf(sessionId, database)
 		if (!force && this.byKey[k]) return this.byKey[k]
-		const pending = this.#inflight.get(k)
-		if (pending) return pending
+		const running = this.#inflight.get(k)
+		if (running && !force) return running
+		const generation = this.#bump(k, force)
 		const task = listEngineCatalogColumns({
 			sessionId,
 			database: database?.trim() || null,
 		})
 			.then((rows) => {
 				const next = rows ?? []
-				this.byKey = { ...this.byKey, [k]: next }
+				if (this.#generation.get(k) === generation) {
+					this.byKey = { ...this.byKey, [k]: next }
+				}
 				return next
 			})
 			.finally(() => {
-				this.#inflight.delete(k)
+				if (this.#inflight.get(k) === task) this.#inflight.delete(k)
 			})
 		this.#inflight.set(k, task)
 		return task
 	}
 
 	invalidate = (sessionId?: string) => {
-		if (!sessionId) {
-			this.byKey = {}
-			this.#inflight.clear()
-			return
-		}
-		const prefix = `${sessionId}::`
+		const prefix = sessionId ? `${sessionId}::` : ''
 		const next = { ...this.byKey }
 		for (const k of Object.keys(next)) {
 			if (k.startsWith(prefix)) delete next[k]
@@ -58,6 +68,16 @@ class CatalogColumnsCache {
 		for (const k of [...this.#inflight.keys()]) {
 			if (k.startsWith(prefix)) this.#inflight.delete(k)
 		}
+		for (const k of [...this.#generation.keys()]) {
+			if (k.startsWith(prefix)) this.#bump(k, true)
+		}
+	}
+
+	#bump(k: string, force: boolean): number {
+		const current = this.#generation.get(k) ?? 0
+		const next = force ? current + 1 : current
+		this.#generation.set(k, next)
+		return next
 	}
 }
 

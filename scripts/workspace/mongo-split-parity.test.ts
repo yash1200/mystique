@@ -3,9 +3,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { splitMongoStatements } from '../../src/lib/engines/mongodb/statements'
 import {
-	splitDialectFor,
 	splitStatementSpans,
 	statementAt,
+	statementModelFor,
 	submissionStart,
 	textToRun,
 } from '../../src/lib/features/workspace/query/editor/statement-span'
@@ -37,35 +37,33 @@ describe('Mongo statement split matches the backend corpus', () => {
 	}
 })
 
-describe('Mongo run at cursor', () => {
+describe('Mongo run at cursor agrees with Run all', () => {
 	const doc = 'db.orders\n  .find({})\n  .limit(5)\n\n// next\ndb.users.deleteMany({ a: ";" })'
+	const model = statementModelFor('mongodb', 'mql')
 
-	it('uses the shell splitter for the mongodb engine', () => {
-		expect(splitDialectFor('mongodb')).toBe('mongo')
-		expect(splitStatementSpans(doc, 'mongo').map((s) => s.text)).toEqual([
+	it('cuts the buffer where the backend does', () => {
+		expect(model).toBe('mongo')
+		expect(splitStatementSpans(doc, model).map((s) => s.text)).toEqual([
 			'db.orders\n  .find({})\n  .limit(5)',
-			'db.users.deleteMany({ a: ";" })',
+			'// next\ndb.users.deleteMany({ a: ";" })',
 		])
 	})
 
 	it('runs the whole chain from any of its lines', () => {
 		const cursor = doc.indexOf('.limit')
-		expect(textToRun(doc, 'mongo', cursor, cursor, false)).toBe(
+		expect(textToRun(doc, model, cursor, cursor, false)).toBe(
 			'db.orders\n  .find({})\n  .limit(5)',
 		)
-		expect(submissionStart(doc, 'mongo', cursor, cursor, false)).toBe(0)
+		expect(submissionStart(doc, model, cursor, cursor, false)).toBe(0)
 	})
 
-	it('runs the statement the cursor is in, not the one before it', () => {
-		const cursor = doc.indexOf('deleteMany') + 3
-		const hit = statementAt(splitStatementSpans(doc, 'mongo'), cursor)
-		expect(hit?.text).toBe('db.users.deleteMany({ a: ";" })')
-		expect(submissionStart(doc, 'mongo', cursor, cursor, false)).toBe(
-			doc.indexOf('db.users'),
-		)
+	it('a comment line above a statement runs that statement', () => {
+		const cursor = doc.indexOf('// next') + 3
+		const hit = statementAt(splitStatementSpans(doc, model), cursor)
+		expect(hit?.text).toBe('// next\ndb.users.deleteMany({ a: ";" })')
 	})
 
 	it('Run all still sends the whole buffer', () => {
-		expect(textToRun(`  ${doc}\n`, 'mongo', 0, 0, true)).toBe(doc)
+		expect(textToRun(`  ${doc}\n`, model, 0, 0, true)).toBe(doc)
 	})
 })

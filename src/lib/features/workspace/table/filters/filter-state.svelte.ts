@@ -1,7 +1,7 @@
 /**
  * Filter bar and sort state of one table tab: UI rules or a code filter,
  * whether they are applied, the single-column sort, column-name completion,
- * and distinct values for the first rule's column.
+ * and distinct-value completion for the value being typed.
  *
  * The tab's saved preview (filters, code filter, sort) seeds this state on
  * open and on an FK jump; `seedSignature` tells when a new seed arrived.
@@ -12,13 +12,7 @@ import type {
 	TablePreviewSortDir,
 } from '#core/contracts'
 import { distinctColumnValues } from '../api'
-import {
-	columnCompletions,
-	distinctCacheKey,
-	readDistinctCache,
-	DISTINCT_TTL_MS,
-	type DistinctCacheEntry,
-} from './column-complete'
+import { columnCompletions } from './column-complete'
 import {
 	looksLikeJsonFilter,
 	newRule,
@@ -27,6 +21,8 @@ import {
 	rulesToCode,
 } from './filters'
 import type { FilterMode, FilterOp, FilterRule } from './types'
+import { codeValueContext, insertCodeValue, type CodeValueContext } from './value-complete'
+import { ValueSuggester } from './value-suggest.svelte'
 
 export type PreviewSeed = {
 	filters: TablePreviewFilter[] | null
@@ -60,12 +56,13 @@ export class TableFilters {
 	sortColumn = $state<string | null>(null)
 	sortDir = $state<TablePreviewSortDir | null>(null)
 	completions = $state<string[]>([])
-	distinctValues = $state<string[]>([])
+	/** Rule whose value field owns the suggestions, or `code` for the code box. */
+	valueTarget = $state<string | null>(null)
+	readonly values: ValueSuggester
 	/** Signature of the seed last applied. */
 	appliedSeed = $state<string | null>(null)
 	#completionStart = 0
-	#distinctCache = new Map<string, DistinctCacheEntry>()
-	#distinctTimer: ReturnType<typeof setTimeout> | undefined
+	#codeValue: CodeValueContext | null = null
 	readonly #table: () => TableMeta
 	readonly #sessionId: () => string | null
 	readonly #supportsDistinct: () => boolean
@@ -78,6 +75,18 @@ export class TableFilters {
 		this.#table = opts.table
 		this.#sessionId = opts.sessionId
 		this.#supportsDistinct = opts.supportsDistinct
+		this.values = new ValueSuggester({
+			enabled: () => this.#supportsDistinct(),
+			scope: () => {
+				const sid = this.#sessionId()
+				return sid ? `${sid}\n${this.#table().id}` : null
+			},
+			fetch: (column, prefix, limit) => {
+				const sid = this.#sessionId()
+				if (!sid) return Promise.resolve([])
+				return distinctColumnValues({ sessionId: sid, table: this.#table(), column, prefix, limit })
+			},
+		})
 	}
 
 	columnOptions = $derived(this.#columnNames().map((name) => ({ value: name, label: name })))
@@ -171,43 +180,79 @@ export class TableFilters {
 		this.rules = this.rules.map((r) => (r.id === id ? { ...r, ...patch } : r))
 	}
 
+	/**
+	 * Add one rule from a cell ("Filter = value"). An empty first rule is
+	 * reused. In code mode the predicate is appended to `col = 'v'` text; a
+	 * JSON or unparsed code filter is left alone. Returns why it could not.
+	 */
+	addCellRule(column: string, op: FilterOp, value: string): string | null {
+		const rule: FilterRule = { ...newRule(column), op, value }
+		if (this.mode === 'code') {
+			const code = this.code.trim()
+			const parsed = code ? parseCodeFilters(code) : []
+			if (!parsed || looksLikeJsonFilter(code)) {
+				return 'Clear the code filter to add a filter from a cell.'
+			}
+			this.code = rulesToCode([...parsed, rule])
+			return null
+		}
+		const kept = this.active
+			? this.rules.filter((r) => r.column && (!opNeedsValue(r.op) || r.value.trim() !== ''))
+			: []
+		const same = kept.some((r) => r.column === column && r.op === op && r.value === value)
+		this.rules = same ? kept : [...kept, rule]
+		return null
+	}
+
 	updateFirst(patch: Partial<FilterRule>) {
 		const first = this.rules[0]
 		if (!first) this.rules = [{ ...this.makeRule(), ...patch }]
 		else this.updateRule(first.id, patch)
-		if (patch.column) this.#scheduleDistinct(patch.column)
 	}
 
-	#scheduleDistinct(column: string) {
-		if (this.#distinctTimer) clearTimeout(this.#distinctTimer)
-		const sid = this.#sessionId()
-		if (!this.#supportsDistinct() || !sid || !column) {
-			this.distinctValues = []
+	/** The value field of rule `id` was focused or typed in. */
+	onRuleValueInput(id: string) {
+		const rule = this.rules.find((r) => r.id === id)
+		if (!rule || !rule.column || !opNeedsValue(rule.op)) {
+			this.closeValues()
 			return
 		}
-		const table = this.#table()
-		const key = distinctCacheKey(sid, table.id, column)
-		const cached = readDistinctCache(this.#distinctCache, key, Date.now(), DISTINCT_TTL_MS)
-		if (cached) {
-			this.distinctValues = cached
-			return
+		this.valueTarget = id
+		this.values.request(rule.column, rule.value)
+	}
+
+	closeValues() {
+		this.valueTarget = null
+		this.#codeValue = null
+		this.values.clear()
+	}
+
+	/** Put a suggested value in the field (or the code filter) it was asked for. */
+	pickValue(value: string): number | null {
+		const target = this.valueTarget
+		const ctx = this.#codeValue
+		this.closeValues()
+		if (target === 'code' && ctx) {
+			const next = insertCodeValue(this.code, ctx, value)
+			this.code = next.code
+			return next.caret
 		}
-		this.#distinctTimer = setTimeout(() => {
-			void distinctColumnValues({ sessionId: sid, table, column })
-				.then((values) => {
-					this.#distinctCache.set(key, { at: Date.now(), values })
-					this.distinctValues = values
-				})
-				.catch(() => {
-					this.distinctValues = []
-				})
-		}, 300)
+		if (target) this.updateRule(target, { value })
+		return null
 	}
 
 	onCodeInput(value: string, caret: number) {
 		const found = columnCompletions(value, caret, this.#columnNames())
 		this.#completionStart = found.start
 		this.completions = found.items
+		const ctx = found.items.length > 0 ? null : codeValueContext(value, caret, this.#columnNames())
+		if (!ctx) {
+			if (this.valueTarget === 'code') this.closeValues()
+			return
+		}
+		this.#codeValue = ctx
+		this.valueTarget = 'code'
+		this.values.request(ctx.column, ctx.prefix)
 	}
 
 	pickCompletion(item: string) {
@@ -265,6 +310,6 @@ export class TableFilters {
 	}
 
 	dispose() {
-		if (this.#distinctTimer) clearTimeout(this.#distinctTimer)
+		this.values.dispose()
 	}
 }

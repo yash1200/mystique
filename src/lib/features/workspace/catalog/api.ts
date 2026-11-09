@@ -8,6 +8,7 @@ import type {
 	TableMeta,
 	TablePreviewFilter,
 	TablePreviewResult,
+	TablePreviewCount,
 	TablePreviewSort,
 	TablePreviewStats,
 } from '#core/contracts'
@@ -196,13 +197,18 @@ export async function loadTablePreview(
 	return previewToTableMeta(table, preview)
 }
 
-/** Background COUNT + FK refs after the page is already on screen. */
+/**
+ * Background COUNT + FK refs next to the page. `budgetMs` stops the exact
+ * count and returns the engine estimate instead; without it the count runs
+ * to the end. `executionId` lets the grid cancel it.
+ */
 export async function loadTablePreviewStats(
 	sessionId: string,
 	table: TableMeta,
 	filters: TablePreviewFilter[] = [],
 	codeFilter: string | null = null,
-): Promise<TablePreviewStats> {
+	opts: { executionId?: string | null; budgetMs?: number | null } = {},
+): Promise<TablePreviewCount> {
 	return fetchEngineTablePreviewStats({
 		sessionId,
 		table: table.name,
@@ -210,6 +216,8 @@ export async function loadTablePreviewStats(
 		database: table.database || null,
 		filters,
 		codeFilter,
+		executionId: opts.executionId ?? null,
+		countBudgetMs: opts.budgetMs ?? null,
 	})
 }
 

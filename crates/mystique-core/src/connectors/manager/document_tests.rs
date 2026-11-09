@@ -213,7 +213,7 @@ async fn each_statement_runs_in_order_with_its_own_result() {
         .expect("batch");
 
     let want = [
-        "db.a.find({})",
+        "// three statements\ndb.a.find({})",
         "db.b\n  .insertOne({ x: \"1;2\" })",
         "db.c.find({}).limit(2)",
     ];
@@ -239,19 +239,14 @@ async fn each_statement_runs_in_order_with_its_own_result() {
         ]
     );
 
+    // The pump sends the first event and coalesces the rest of a fast batch;
+    // the result supersedes what it still held.
     let events = events.lock().expect("events").clone();
-    let seen: Vec<_> = events.iter().map(|e| (e.index, e.total, e.phase)).collect();
     assert_eq!(
-        seen,
-        [
-            (0, 3, BatchPhase::Started),
-            (0, 3, BatchPhase::Finished),
-            (1, 3, BatchPhase::Started),
-            (1, 3, BatchPhase::Finished),
-            (2, 3, BatchPhase::Started),
-            (2, 3, BatchPhase::Finished),
-        ]
+        events.first().map(|e| (e.index, e.total, e.phase)),
+        Some((0, 3, BatchPhase::Started))
     );
+    assert!(events.iter().all(|e| e.total == 3), "{events:?}");
 
     let rows = history.0.lock().expect("history").clone();
     let bodies: Vec<_> = rows.iter().map(|row| row.body.as_str()).collect();
@@ -528,12 +523,10 @@ async fn a_manual_commit_tab_runs_each_statement_on_its_pin() {
         Some(3)
     );
     assert!(mgr.pin_status("tab-1").await.in_transaction);
-    let finished = events
-        .lock()
-        .expect("events")
-        .iter()
-        .filter(|e| e.phase == BatchPhase::Finished)
-        .count();
-    assert_eq!(finished, 3);
+    let first = events.lock().expect("events").first().cloned();
+    assert_eq!(
+        first.map(|e| (e.index, e.total, e.phase)),
+        Some((0, 4, BatchPhase::Started))
+    );
     let _ = mgr.rollback_tab("tab-1").await;
 }

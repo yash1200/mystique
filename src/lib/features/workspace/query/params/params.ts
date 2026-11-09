@@ -134,6 +134,10 @@ function scanPlaces(sql: string, dialect: SplitDialect): RawPlace[] {
 			index = skipBlock(sql, index + 2)
 			continue
 		}
+		if (postgres && escapeStringStart(sql, index)) {
+			index = skipString(sql, index + 2, 39, true)
+			continue
+		}
 		if (sql.charCodeAt(index) === 39) {
 			index = skipString(sql, index + 1, 39, dialect === 'mysql')
 			continue
@@ -222,6 +226,22 @@ function skipBlock(sql: string, index: number): number {
 		index += 1
 	}
 	return sql.length
+}
+
+/**
+ * Postgres `E'…'` (or `e'…'`): backslash escapes apply inside, so `\'` does
+ * not close it. The `E` must start a word (`date'…'` is a plain string).
+ */
+function escapeStringStart(sql: string, index: number): boolean {
+	const code = sql.charCodeAt(index)
+	if (code !== 69 && code !== 101) return false
+	if (sql.charCodeAt(index + 1) !== 39) return false
+	return index === 0 || !isWordCode(sql.charCodeAt(index - 1))
+}
+
+/** Identifier characters, `$`, and anything non-ASCII (Unicode identifiers). */
+function isWordCode(code: number): boolean {
+	return isIdentByte(code) || code === 36 || code > 127
 }
 
 function skipString(sql: string, index: number, quote: number, backslash: boolean): number {

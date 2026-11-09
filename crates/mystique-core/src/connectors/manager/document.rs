@@ -13,10 +13,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    emit_progress, position_at, BatchPhase, ConnectorError, ConnectorResult, ConnectorSession,
-    EngineQueryPolicy, ExecuteQueryRequest, PlannedStatement, ProgressPump, QueryBatchResult,
-    QueryControl, QueryMode, SqlRange, StatementKind, StatementResult, ValidatedQuery, WriteAction,
-    WriteRisk,
+    emit_progress, finish_progress, position_at, BatchPhase, ConnectorError, ConnectorResult,
+    ConnectorSession, EngineQueryPolicy, ExecuteQueryRequest, PlannedStatement, ProgressPump,
+    QueryBatchResult, QueryControl, QueryMode, SqlRange, StatementKind, StatementResult,
+    ValidatedQuery, WriteAction, WriteRisk,
 };
 
 use super::guard::WriteCheck;
@@ -123,9 +123,8 @@ impl ConnectionManager {
                 self.run_document_statements(session.as_ref(), &req, &statements, &run),
             )
             .await;
-        if let Some(progress) = &run.progress {
-            progress.flush();
-        }
+        // The batch result supersedes anything the pump still holds.
+        finish_progress(&run.progress);
         if let Ok(batch) = result.as_mut() {
             place_document_errors(text, batch);
         }

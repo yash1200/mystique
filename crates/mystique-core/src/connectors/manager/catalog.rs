@@ -5,21 +5,50 @@ use mystique_connector_api::{
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
+use super::meta_cache::{MetaKey, MetaValue};
 use super::ConnectionManager;
 
 impl ConnectionManager {
     /// Column metadata with plugin-owned type labels (e.g. `timestamptz`).
+    /// Cached per session; see [`super::meta_cache`].
     pub async fn describe_table(
         &self,
         req: DescribeTableRequest,
     ) -> ConnectorResult<Vec<ColumnInfo>> {
-        let session = self.session(&req.session_id).await?;
-        self.with_metadata(session.describe_table(
+        self.describe_cached(
+            &req.session_id,
             req.database.as_deref(),
             req.schema.as_deref(),
             &req.table,
-        ))
+        )
         .await
+    }
+
+    pub(super) async fn describe_cached(
+        &self,
+        session_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+    ) -> ConnectorResult<Vec<ColumnInfo>> {
+        let key = MetaKey::Describe {
+            database: database.map(str::to_string),
+            schema: schema.map(str::to_string),
+            table: table.to_string(),
+        };
+        if let Some(MetaValue::Describe(columns)) = self.meta.get(session_id, &key) {
+            return Ok(columns);
+        }
+        let session = self.session(session_id).await?;
+        let columns = self
+            .with_metadata(session.describe_table(database, schema, table))
+            .await?;
+        // An empty description is usually a table that does not exist yet.
+        if !columns.is_empty() {
+            self.meta
+                .put(session_id, key, MetaValue::Describe(columns.clone()));
+        }
+        Ok(columns)
     }
 
     /// Bulk column listing for ER / catalog (plugin-normalized types).
@@ -27,16 +56,35 @@ impl ConnectionManager {
         &self,
         req: ListCatalogColumnsRequest,
     ) -> ConnectorResult<Vec<CatalogColumnRow>> {
+        let key = MetaKey::Columns {
+            database: req.database.clone(),
+            schema: req.schema.clone(),
+        };
+        if let Some(MetaValue::Columns(rows)) = self.meta.get(&req.session_id, &key) {
+            return Ok(rows);
+        }
         let session = self.session(&req.session_id).await?;
-        self.with_metadata(
-            session.list_catalog_columns(req.database.as_deref(), req.schema.as_deref()),
-        )
-        .await
+        let rows = self
+            .with_metadata(
+                session.list_catalog_columns(req.database.as_deref(), req.schema.as_deref()),
+            )
+            .await?;
+        self.meta
+            .put(&req.session_id, key, MetaValue::Columns(rows.clone()));
+        Ok(rows)
     }
+
     pub async fn list_catalog(
         &self,
         req: ListCatalogRequest,
     ) -> ConnectorResult<Vec<CatalogDatabase>> {
+        let key = MetaKey::Catalog {
+            preferred: req.preferred_database.clone(),
+            include_objects: req.include_objects,
+        };
+        if let Some(MetaValue::Catalog(databases)) = self.meta.get(&req.session_id, &key) {
+            return Ok(databases);
+        }
         let meta = self.session_meta(&req.session_id).await?;
         let mut databases = self
             .with_metadata(
@@ -45,6 +93,8 @@ impl ConnectionManager {
             )
             .await?;
         hide_system_schemas(&meta.product_id, &mut databases);
+        self.meta
+            .put(&req.session_id, key, MetaValue::Catalog(databases.clone()));
         Ok(databases)
     }
 
@@ -54,8 +104,27 @@ impl ConnectionManager {
     ) -> ConnectorResult<Vec<CatalogRelationship>> {
         let meta = self.session_meta(&req.session_id).await?;
         reject_beyond_depth(&meta.caps, DepthFeature::Er)?;
-        self.with_metadata(meta.session.list_relationships(req.database.as_deref()))
-            .await
+        let key = MetaKey::Relationships {
+            database: req.database.clone(),
+        };
+        if let Some(MetaValue::Relationships(rows)) = self.meta.get(&req.session_id, &key) {
+            return Ok(rows);
+        }
+        let rows = self
+            .with_metadata(meta.session.list_relationships(req.database.as_deref()))
+            .await?;
+        self.meta
+            .put(&req.session_id, key, MetaValue::Relationships(rows.clone()));
+        Ok(rows)
+    }
+
+    /// Explorer refresh, or anything else that knows the catalog changed.
+    /// `database` limits the drop to one database; `None` drops the session.
+    pub fn invalidate_metadata(&self, session_id: &str, database: Option<&str>) {
+        match database.map(str::trim).filter(|db| !db.is_empty()) {
+            Some(db) => self.meta.invalidate_database(session_id, db),
+            None => self.meta.invalidate(session_id),
+        }
     }
 
     /// Plugin-owned structure (columns, indexes, triggers, relations, …).

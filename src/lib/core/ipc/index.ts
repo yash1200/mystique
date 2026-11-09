@@ -7,5 +7,6 @@
 export * from './engines'
 export * from './runs'
 export * from './menu'
+export * from './quit'
 export * from './error'
 export { invoke } from './invoke'

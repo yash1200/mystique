@@ -1,26 +1,35 @@
 //! One pooled Postgres connection held for a manual-commit tab.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, InterruptGuard, PinnedSession, QueryBatchResult, QueryControl,
-    ValidatedBatch,
+    RowSink, RowSource, ValidatedBatch,
 };
 
 use super::query::{run_planned_batch, transaction_state, TxnState};
 use super::query_failed;
-use super::{PgCancelTls, PostgresSession};
+use super::stream::{stream_rows, Wrap};
+use super::{NoticeHub, PgCancelTls, PostgresSession};
 
 pub struct PostgresPin {
     client: Option<deadpool_postgres::Object>,
     cancel_tls: PgCancelTls,
+    notices: NoticeHub,
     state: TxnState,
 }
 
 impl PostgresPin {
-    pub fn new(client: deadpool_postgres::Object, cancel_tls: PgCancelTls) -> Self {
+    pub(crate) fn new(
+        client: deadpool_postgres::Object,
+        cancel_tls: PgCancelTls,
+        notices: NoticeHub,
+    ) -> Self {
         Self {
             client: Some(client),
             cancel_tls,
+            notices,
             state: TxnState::Idle,
         }
     }
@@ -75,7 +84,9 @@ impl PinnedSession for PostgresPin {
         // cursor is declared directly; its own BEGIN … COMMIT would commit
         // the open writes.
         let in_txn = self.state != TxnState::Idle;
-        let result = run_planned_batch(client, batch, false, in_txn, true).await;
+        let notices = self.notices.capture(client).await;
+        let result = run_planned_batch(client, batch, false, in_txn, true, notices.as_ref()).await;
+        drop(notices);
         let _ = client.batch_execute("RESET statement_timeout").await;
         self.refresh().await;
         result
@@ -91,6 +102,30 @@ impl PinnedSession for PostgresPin {
 
     fn in_transaction(&self) -> bool {
         self.state != TxnState::Idle
+    }
+
+    async fn stream_rows(
+        &mut self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        self.refresh().await;
+        if self.state == TxnState::Failed {
+            return Err(ConnectorError::Query(
+                "This tab's transaction has failed. Roll it back before exporting from it.".into(),
+            ));
+        }
+        let wrap = if self.state == TxnState::Open {
+            Wrap::Savepoint
+        } else {
+            Wrap::Snapshot
+        };
+        let client = self.client()?;
+        let _guard = Self::arm(client, &self.cancel_tls, control);
+        let result = stream_rows(client, wrap, source, control, sink).await;
+        self.refresh().await;
+        result
     }
 }
 

@@ -308,6 +308,28 @@ export const cmd = {
 		group: 'query',
 		keys: 'Mod+Shift+F',
 	}),
+	// Ctrl+Alt on every platform: Cmd+Alt+arrows add cursors in the editor,
+	// and Ctrl+Alt+letter is AltGr on Windows.
+	prevStatement: defineCommand({
+		id: 'query.prev-statement',
+		title: 'Go to previous statement',
+		group: 'query',
+		keys: 'Ctrl+Alt+Up',
+		repeat: true,
+	}),
+	nextStatement: defineCommand({
+		id: 'query.next-statement',
+		title: 'Go to next statement',
+		group: 'query',
+		keys: 'Ctrl+Alt+Down',
+		repeat: true,
+	}),
+	selectStatement: defineCommand({
+		id: 'query.select-statement',
+		title: 'Select statement at cursor',
+		group: 'query',
+		keys: 'Mod+Shift+Space',
+	}),
 
 	// Table
 	gridRefresh: defineCommand({

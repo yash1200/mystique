@@ -3,6 +3,7 @@
  * values and views, copy formats, selection stats, grid keys, and the
  * windowed table view. The query results grid and the table tab build on it.
  */
+export * from './binary'
 export * from './cell-value'
 export * from './cell-view'
 export * from './column-editor'

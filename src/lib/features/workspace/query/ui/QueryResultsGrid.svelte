@@ -5,6 +5,7 @@
 	 * core, so they behave as in the table grid.
 	 */
 	import type { QueryResult } from '#core/contracts'
+	import { resultColumnTitle, type ResultColumnSource } from '#engines'
 	import { ContextMenu } from '#core/ui'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import {
@@ -14,11 +15,13 @@
 		gridKeyIntent,
 		isLargeCell,
 		isTypingTarget,
-		largeCellHint,
+		largeCellFetchable,
 		numericColumn,
+		QUERY_UNKEYED_LARGE_CELL,
 		selectionStats,
 		valueToEditorText,
 		type IdentStyle,
+		type LargeLoader,
 	} from '#features/workspace/data-grid'
 	import { appPrefs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
@@ -35,7 +38,12 @@
 		resultRowMenu,
 		resultRowPick,
 	} from '../results-menus'
-	import { RESULT_HEADER_H, cellDisplay, measureColLayout } from '#features/workspace/data-grid'
+	import {
+		RESULT_HEADER_H,
+		binaryPreview,
+		cellDisplay,
+		measureColLayout,
+	} from '#features/workspace/data-grid'
 	import { ResultRowWindow } from '../results-window.svelte'
 	/** Virtualization row height — follows density pref / `--grid-row-height`. */
 	const ROW_H = $derived(appPrefs.gridRowHeightPx)
@@ -43,14 +51,31 @@
 
 	interface Props {
 		columns: QueryResult['columns']
+		/** Source table column per result column, when known (header tooltip). */
+		sources?: (ResultColumnSource | null)[]
 		identStyle?: IdentStyle
 		/** Rows for the current page (may be up to 50k). */
 		rows: unknown[][]
 		/** Absolute index of rows[0] in the full result set (for # column). */
 		pageStart: number
+		/** Loads a large value in full. Absent when no session is live. */
+		loadLarge?: LargeLoader | null
 	}
 
-	let { columns, rows, pageStart, identStyle = 'postgres' }: Props = $props()
+	let {
+		columns,
+		sources = [],
+		rows,
+		pageStart,
+		identStyle = 'postgres',
+		loadLarge = null,
+	}: Props = $props()
+
+	function largeHint(cell: { locator?: unknown }): string {
+		return cell.locator
+			? 'Large value. Open the cell to load the full text.'
+			: QUERY_UNKEYED_LARGE_CELL
+	}
 
 	const copyShortcut = `${labelForKey('mod', isMacPlatform())}+C`
 
@@ -85,6 +110,9 @@
 		},
 		get identStyle() {
 			return identStyle
+		},
+		get loadLarge() {
+			return loadLarge
 		},
 		rowCells,
 	}
@@ -389,7 +417,7 @@
 					data-result-col={ci}
 					role="columnheader"
 					class="qrg-cell border-b border-line px-2.5 font-mono text-caption font-semibold text-fg-secondary"
-					title={col.dataType ?? undefined}
+					title={resultColumnTitle(col.name, col.dataType, sources[ci])}
 				>
 					<span class="min-w-0 truncate">{col.name}</span>
 					{#if col.dataType}
@@ -427,7 +455,7 @@
 						</div>
 						{#each columns as _col, ci}
 							{@const cell = cells?.[ci]}
-							{@const text = cellDisplay(cell)}
+							{@const text = binaryPreview(cell, _col.dataType) ?? cellDisplay(cell)}
 							{@const isFocused =
 								sel.cell?.row === absolute && sel.cell.col === ci}
 							<div
@@ -439,7 +467,7 @@
 								role="gridcell"
 								aria-selected={isFocused || sel.isCellSelected(absolute, ci)}
 								class="qrg-cell qrg-data border-b border-line/60 px-2.5 font-mono text-label {numericColumn(_col.dataType) ? 'text-right' : ''}"
-								title={isLargeCell(cell) ? largeCellHint(cell) : text}
+								title={isLargeCell(cell) ? largeHint(cell) : text}
 							>
 								{text}
 								{#if isLargeCell(cell)}
@@ -467,8 +495,11 @@
 		rowIndex={cellModal.row}
 		initialText={modalValue}
 		readonly
-		unfetchable={isLargeCell(raw) &&
-			!(raw.locator && raw.locator.keys.length > 0)}
+		unfetchable={isLargeCell(raw) && (!largeCellFetchable(raw) || !loadLarge)}
+		unfetchableText={QUERY_UNKEYED_LARGE_CELL}
+		fetchChunk={isLargeCell(raw) && raw.locator && largeCellFetchable(raw) && loadLarge
+			? (offset) => loadLarge(raw.locator!, offset)
+			: undefined}
 		onclose={() => (cellModal = null)}
 	/>
 {/if}

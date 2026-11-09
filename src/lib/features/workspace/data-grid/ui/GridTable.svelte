@@ -24,6 +24,7 @@
 	import { untrack } from 'svelte'
 	import { selectOptionsForColumn, usesSelectEditor } from '../column-editor'
 	import { numericColumn } from '../cell-value'
+	import { binaryPreview } from '../binary'
 	import { isLargeCell, largeCellHint } from '../large-cell'
 	import { layoutColumns, type GridColumnLayout } from '../column-layout'
 	import {
@@ -558,7 +559,7 @@
 								{@const col = part.column}
 								{@const raw = row[col.name]}
 								{@const isNull = raw === null || raw === undefined}
-								{@const shown = cellDisplay(raw)}
+								{@const shown = binaryPreview(raw, col.type) ?? cellDisplay(raw)}
 								{@const dirty = isDirty(i, col.name)}
 								{@const isEditing = editing?.row === i && editing.col === col.name}
 								{@const isFocused =

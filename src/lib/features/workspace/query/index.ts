@@ -13,6 +13,7 @@ export * from './saved/save.svelte'
 export * from './saved/saved-api'
 export type * from './saved/saved-types'
 export { pruneEditorStates } from './editor/held'
+export { prefetchQueryEditor, type QueryPrefetchTarget } from './prefetch'
 /** The editor and CodeMirror load when a query tab first opens. */
 export const QueryCanvas = lazy(() => import('./ui/QueryCanvas.svelte'))
 export { default as QueryListPanel } from './ui/QueryListPanel.svelte'

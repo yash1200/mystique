@@ -67,7 +67,7 @@ export function relationalCapabilities(
 		supportsWrite: false,
 		supportsCancelQuery: true,
 		supportsTransactions: true,
-		supportsExplainPlan: true,
+		supportsExplainPlan: false,
 		supportsStructureEdit: true,
 		supportsDistinctValues: true,
 		supportsQuery: true,

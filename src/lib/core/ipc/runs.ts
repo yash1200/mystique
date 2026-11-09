@@ -5,7 +5,7 @@
  */
 import { cancelEngineQuery } from './engines'
 
-export type RunKind = 'query' | 'preview' | 'export'
+export type RunKind = 'query' | 'preview' | 'count' | 'export'
 
 const runs = new Map<string, Map<RunKind, string>>()
 

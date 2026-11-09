@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use mystique_connector_api::{
-    affected_message, emit_progress, opens_transaction, split_sql_statements_for,
+    affected_message, emit_progress, finish_progress, opens_transaction, split_sql_statements_for,
     sql_explain_executes, BatchPhase, ConnectorError, ConnectorResult, PlannedStatement,
     ProgressPump, QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult,
     StatementResult, ValidatedBatch, ValidatedQuery, NO_TIMEOUT,
@@ -264,9 +264,7 @@ pub(super) fn run_on_connection(
         results.push(outcome);
         emit_progress(progress, index, total, BatchPhase::Finished);
         if failed {
-            if let Some(progress) = progress {
-                progress.flush();
-            }
+            finish_progress(progress);
             return Ok(QueryBatchResult {
                 results,
                 stopped_at: Some(index),
@@ -277,9 +275,7 @@ pub(super) fn run_on_connection(
                 if let Some(last) = results.last_mut() {
                     last.error = Some(err.to_string());
                 }
-                if let Some(progress) = progress {
-                    progress.flush();
-                }
+                finish_progress(progress);
                 return Ok(QueryBatchResult {
                     results,
                     stopped_at: Some(index),
@@ -287,9 +283,7 @@ pub(super) fn run_on_connection(
             }
         }
     }
-    if let Some(progress) = progress {
-        progress.flush();
-    }
+    finish_progress(progress);
     Ok(QueryBatchResult {
         results,
         stopped_at: None,
@@ -329,6 +323,7 @@ fn run_sqlite_statement(
         let mut out_rows = Vec::new();
         let mut truncated = false;
         let mut saw_row = false;
+        let mut seen: u64 = 0;
         let mut last_row = Instant::now();
         loop {
             let next = match rows_iter.next() {
@@ -339,8 +334,16 @@ fn run_sqlite_statement(
                 break;
             };
             stalled(control, saw_row && opts.watch_stalls, last_row)?;
+            seen = seen.saturating_add(1);
             if out_rows.len() >= max_rows {
                 truncated = true;
+                // `DELETE … RETURNING` reports every changed row, so keep
+                // counting. A plain read stops at the cap.
+                if stmt.returns_count {
+                    saw_row = true;
+                    last_row = Instant::now();
+                    continue;
+                }
                 break;
             }
             let mut cells = Vec::with_capacity(col_count);
@@ -355,11 +358,7 @@ fn run_sqlite_statement(
             saw_row = true;
             last_row = Instant::now();
         }
-        let affected = if stmt.returns_count {
-            Some(out_rows.len() as u64)
-        } else {
-            None
-        };
+        let affected = if stmt.returns_count { Some(seen) } else { None };
         let message = if truncated {
             Some(format!("Result truncated to {max_rows} rows."))
         } else {
@@ -449,11 +448,13 @@ mod tests {
     use std::fs;
 
     use mystique_connector_api::{
-        ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedQuery,
+        ConnectionConfig, DatabaseConnector, PoolConfig, QueryControl, QueryMode, ValidatedBatch,
+        ValidatedQuery,
     };
     use serde_json::json;
 
     use crate::SqliteConnector;
+    use mystique_sql::SqlDialect;
 
     fn query(text: &str, mode: QueryMode) -> ValidatedQuery {
         ValidatedQuery {
@@ -629,6 +630,67 @@ mod tests {
         let err = result.expect("query future").expect_err("cancelled");
         let msg = err.to_string().to_ascii_lowercase();
         assert!(msg.contains("cancel") || msg.contains("interrupt"), "{msg}");
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn returning_counts_every_changed_row_past_the_cap() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = SqliteConnector
+            .connect(&ConnectionConfig {
+                engine: "sqlite".into(),
+                plugin_config: json!({ "path": path.to_string_lossy() }),
+                password: None,
+                pool: PoolConfig {
+                    max_size: 1,
+                    min_idle: 0,
+                    acquire_timeout_ms: 3_000,
+                    idle_timeout_secs: 5,
+                },
+            })
+            .await
+            .expect("connect");
+        session
+            .execute_query(&query(
+                "CREATE TABLE t (id INTEGER); \
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 120) \
+                 INSERT INTO t SELECT i FROM n",
+                QueryMode::Write,
+            ))
+            .await
+            .expect("seed");
+        let plan = mystique_connector_api::gate_sql_batch(
+            "DELETE FROM t RETURNING id",
+            SqlDialect::Sqlite,
+            QueryMode::Write,
+        )
+        .expect("plan");
+        let ran = session
+            .execute_batch(&ValidatedBatch {
+                statements: plan.statements,
+                mode: QueryMode::Write,
+                max_rows: 10,
+                timeout_ms: 5_000,
+                explain_executes: false,
+                collection: None,
+                database: None,
+                control: QueryControl::new(),
+                progress: None,
+            })
+            .await
+            .expect("delete");
+        let stmt = &ran.results[0];
+        assert_eq!(stmt.affected_rows, Some(120));
+        let result = stmt.result.as_ref().expect("rows");
+        assert_eq!(result.rows.len(), 10);
+        assert!(result.truncated);
+        let count = session
+            .execute_query(&query("SELECT COUNT(*) FROM t", QueryMode::Read))
+            .await
+            .expect("count");
+        assert_eq!(count.rows[0][0], json!(0));
         let _ = session.close().await;
         let _ = fs::remove_file(&path);
     }

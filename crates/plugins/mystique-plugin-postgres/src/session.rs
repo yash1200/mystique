@@ -1,17 +1,18 @@
 //! Pooled PostgreSQL session — thin [`ConnectorSession`] facade over focused modules.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
-    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
-    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
-    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, InterruptGuard, ObjectStructure,
-    PinnedSession, PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult,
-    QueryControl, QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult,
+    CatalogRelationship, ColumnInfo, ColumnOrigin, ConnectorError, ConnectorResult,
+    ConnectorSession, DdlPlan, EngineCapabilities, ExplainPlan, ExportObjectInput,
+    ExportObjectResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
+    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
+    PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl,
+    QueryResult, RowSink, RowSource, ServerMetricsSnapshot, TableAdminInput, TableAdminResult,
     TableDefinition, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
     TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
@@ -28,9 +29,11 @@ mod metrics;
 mod pin;
 mod preview;
 mod query;
+mod stream;
 mod structure;
 mod transfer;
 
+pub(super) use crate::connector::notices::{take_notices, NoticeCapture, NoticeHub};
 pub(super) use crate::connector::pool::{
     pg_col, pg_i32_col, pg_u32_col, query_failed, query_failed_at, shift_query_position,
     PgCancelTls,
@@ -42,25 +45,38 @@ pub struct PostgresSession {
     closed: AtomicBool,
     /// Cloned into `CancelToken::cancel_query` so SSL cancels use the same TLS.
     cancel_tls: PgCancelTls,
+    notices: NoticeHub,
 }
 
 impl PostgresSession {
-    pub fn new(pool: Pool, max_size: u32, cancel_tls: PgCancelTls) -> Self {
+    pub(crate) fn new(
+        pool: Pool,
+        max_size: u32,
+        cancel_tls: PgCancelTls,
+        notices: NoticeHub,
+    ) -> Self {
         Self {
             pool,
             max_size,
             closed: AtomicBool::new(false),
             cancel_tls,
+            notices,
         }
     }
 
+    pub(super) fn notice_hub(&self) -> &NoticeHub {
+        &self.notices
+    }
+
+    /// Check out a connection for one cancellable run and arm its interrupt.
+    ///
     /// `FnOnce` is sync. The cancel connection is spawned so the query task can
     /// keep polling and still `RESET` / `ROLLBACK`.
-    pub(super) fn arm_cancel<'a>(
+    pub(super) async fn run_client<'a>(
         &self,
-        client: &deadpool_postgres::Object,
         control: &'a QueryControl,
-    ) -> InterruptGuard<'a> {
+    ) -> ConnectorResult<RunClient<'a>> {
+        let client = self.client().await?;
         let token = client.cancel_token();
         let tls = self.cancel_tls.clone();
         control.set_interrupt(move || {
@@ -71,7 +87,11 @@ impl PostgresSession {
                 tls.cancel_query(token).await;
             });
         });
-        InterruptGuard::new(control)
+        Ok(RunClient {
+            client: Some(client),
+            control,
+            discard: false,
+        })
     }
 
     pub(super) fn ensure_open(&self) -> ConnectorResult<()> {
@@ -87,6 +107,51 @@ impl PostgresSession {
             .get()
             .await
             .map_err(|e| ConnectorError::Pool(crate::connector::pool::format_error(&e)))
+    }
+}
+
+/// A pooled connection held by one cancellable run.
+///
+/// On drop the run's interrupt is cleared, then the connection goes back to
+/// the pool only if the run was not cancelled (or timed out, which cancels)
+/// and did not panic. Otherwise it is closed: the server may still be
+/// finishing the statement, and the session state (an open transaction, a
+/// `SET`) is unknown. A run that returns early with `?` is covered too.
+pub(super) struct RunClient<'a> {
+    /// `Some` until `drop`.
+    client: Option<deadpool_postgres::Object>,
+    control: &'a QueryControl,
+    discard: bool,
+}
+
+impl RunClient<'_> {
+    /// Close the connection when the run ends, whatever the outcome.
+    pub(super) fn discard(&mut self) {
+        self.discard = true;
+    }
+}
+
+impl std::ops::Deref for RunClient<'_> {
+    type Target = deadpool_postgres::Object;
+
+    fn deref(&self) -> &Self::Target {
+        match self.client.as_ref() {
+            Some(client) => client,
+            // Only `drop` takes the connection out.
+            None => unreachable!("RunClient used after drop"),
+        }
+    }
+}
+
+impl Drop for RunClient<'_> {
+    fn drop(&mut self) {
+        self.control.clear_interrupt();
+        let Some(client) = self.client.take() else {
+            return;
+        };
+        if self.discard || self.control.is_cancelled() || std::thread::panicking() {
+            drop(deadpool_postgres::Object::take(client));
+        }
     }
 }
 
@@ -150,7 +215,11 @@ impl ConnectorSession for PostgresSession {
     async fn begin_pinned(&self) -> ConnectorResult<Box<dyn PinnedSession + Send>> {
         self.ensure_open()?;
         let client = self.client().await?;
-        Ok(Box::new(pin::PostgresPin::new(client, self.cancel_tls())))
+        Ok(Box::new(pin::PostgresPin::new(
+            client,
+            self.cancel_tls(),
+            self.notices.clone(),
+        )))
     }
 
     async fn describe_table(
@@ -205,11 +274,29 @@ impl ConnectorSession for PostgresSession {
         preview::fetch_table_preview_stats(self, input).await
     }
 
-    async fn fetch_large_value(
+    async fn estimate_table_rows(
         &self,
-        input: &FetchLargeValueInput,
-    ) -> ConnectorResult<FetchLargeValueResult> {
-        large::fetch_large_value(self, input).await
+        input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<Option<u64>> {
+        preview::estimate_table_rows(self, input).await
+    }
+
+    async fn stream_rows(
+        &self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        self.ensure_open()?;
+        let client = self.run_client(control).await?;
+        stream::stream_rows(&client, stream::Wrap::Snapshot, source, control, sink).await
+    }
+
+    async fn name_column_origins(
+        &self,
+        origins: Vec<Option<ColumnOrigin>>,
+    ) -> ConnectorResult<Vec<Option<ColumnOrigin>>> {
+        large::name_column_origins(self, origins).await
     }
 
     async fn list_catalog(

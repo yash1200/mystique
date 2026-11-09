@@ -7,11 +7,15 @@
 //! With auto-commit off, the first write opens a transaction on every engine
 //! (see [`opens_transaction`]). Reads before it run without one.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::Serialize;
 
 use crate::batch::{PlannedStatement, QueryBatchResult, StatementKind, ValidatedBatch};
+use crate::cancel::QueryControl;
 use crate::error::ConnectorResult;
+use crate::stream::{RowSink, RowSource};
 use crate::SqlDialect;
 
 /// A connection that outlives a single statement.
@@ -24,6 +28,23 @@ pub trait PinnedSession: Send {
     async fn commit(&mut self) -> ConnectorResult<()>;
     async fn rollback(&mut self) -> ConnectorResult<()>;
     fn in_transaction(&self) -> bool;
+
+    /// Stream rows on this connection, inside the open transaction, so an
+    /// export or a large-value read sees the tab's uncommitted changes.
+    ///
+    /// Must leave the transaction as it was: a failed or cancelled read does
+    /// not abort or end it (Postgres reads under a savepoint). Default:
+    /// not supported, and callers say so rather than read outside it.
+    async fn stream_rows(
+        &mut self,
+        _source: &RowSource,
+        _control: &Arc<QueryControl>,
+        _sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        Err(crate::ConnectorError::NotSupported(
+            "Reading through this tab's open transaction is not supported for this engine.".into(),
+        ))
+    }
 }
 
 /// What the editor shows for one tab.

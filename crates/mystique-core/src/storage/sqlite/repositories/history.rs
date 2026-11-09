@@ -2,7 +2,7 @@ use rusqlite::{named_params, params, Connection};
 
 use crate::domain::{
     now_iso, redact_history_text, AppendHistoryInput, HistoryList, QueryHistoryItem,
-    QueryHistoryPage, QueryHistorySource, QUERY_HISTORY_CAP,
+    QueryHistoryKind, QueryHistoryPage, QueryHistorySource, QUERY_HISTORY_CAP,
 };
 use crate::error::AppResult;
 use crate::storage::sqlite::repositories::ids::{id_string, id_string_opt, parse_id_opt};
@@ -14,7 +14,7 @@ const DATABASE_MAX: usize = 256;
 const LIST_SQL: &str = "
 SELECT id, connection_id, engine, body, language, success,
        row_count, duration_ms, error_message, ran_at,
-       \"database\", affected_rows, source
+       \"database\", affected_rows, source, kind
 FROM query_history
 WHERE (:conn IS NULL OR connection_id = :conn)
   AND (:pat IS NULL OR body LIKE :pat ESCAPE '\\')
@@ -30,6 +30,7 @@ LIMIT :lim
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueryHistoryItem> {
     let success_i: i64 = row.get("success")?;
     let source: String = row.get("source")?;
+    let kind: String = row.get("kind")?;
     Ok(QueryHistoryItem {
         id: id_string(row, "id")?,
         connection_id: id_string_opt(row, "connection_id")?,
@@ -44,6 +45,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueryHistoryItem> {
         database: row.get("database")?,
         affected_rows: row.get("affected_rows")?,
         source: QueryHistorySource::parse(&source),
+        kind: QueryHistoryKind::parse(&kind),
     })
 }
 
@@ -70,6 +72,7 @@ pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHi
         .map(|text| clip_chars(&text, ERROR_MAX));
     let database = stored_database(input.database.as_deref());
     let source = input.source.as_str();
+    let kind = input.kind.as_str();
 
     conn.execute_batch("BEGIN IMMEDIATE")?;
     let inserted = conn.execute(
@@ -77,8 +80,8 @@ pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHi
         INSERT INTO query_history (
           connection_id, engine, body, language, success,
           row_count, duration_ms, error_message, ran_at,
-          \"database\", affected_rows, source
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+          \"database\", affected_rows, source, kind
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
         ",
         params![
             connection_id_n,
@@ -93,6 +96,7 @@ pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHi
             database.as_deref(),
             input.affected_rows,
             source,
+            kind,
         ],
     );
     if let Err(err) = inserted {
@@ -122,6 +126,7 @@ pub fn append(conn: &Connection, input: AppendHistoryInput) -> AppResult<QueryHi
         database,
         affected_rows: input.affected_rows,
         source: input.source,
+        kind: input.kind,
     })
 }
 
@@ -319,6 +324,7 @@ mod tests {
                 database: Some("app".into()),
                 affected_rows: Some(1),
                 source: QueryHistorySource::Ui,
+                kind: QueryHistoryKind::Query,
             },
         )
         .expect("append")
@@ -510,6 +516,29 @@ mod tests {
     }
 
     #[test]
+    fn append_masks_account_passwords_and_keeps_data_sql() {
+        let conn = setup();
+        let altered = append_body(&conn, Some("1"), "ALTER USER app WITH PASSWORD 'hunter2'");
+        assert_eq!(altered.body, "ALTER USER app WITH PASSWORD '***'");
+        let created = append_body(
+            &conn,
+            Some("1"),
+            "CREATE USER 'u'@'%' IDENTIFIED BY 'hunter2'; SET PASSWORD FOR u = 'hunter3'",
+        );
+        assert!(!created.body.contains("hunter"), "{}", created.body);
+        let data = append_body(&conn, Some("1"), "UPDATE users SET password = 'kept'");
+        assert_eq!(data.body, "UPDATE users SET password = 'kept'");
+        let stored: String = conn
+            .query_row(
+                "SELECT group_concat(body, ' | ') FROM query_history",
+                [],
+                |row| row.get(0),
+            )
+            .expect("stored");
+        assert!(!stored.contains("hunter"), "{stored}");
+    }
+
+    #[test]
     fn append_drops_uri_userinfo_and_a_database_uri() {
         let conn = setup();
         let item = append(
@@ -526,6 +555,7 @@ mod tests {
                 database: Some("mongodb://alice:secret-token@127.0.0.1/app".into()),
                 affected_rows: None,
                 source: QueryHistorySource::Mcp,
+                kind: QueryHistoryKind::Query,
             },
         )
         .expect("append");

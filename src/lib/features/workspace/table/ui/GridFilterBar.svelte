@@ -18,7 +18,13 @@
 		completions?: string[]
 		onCodeInput?: (value: string, caret: number) => void
 		onPickCompletion?: (item: string) => void
-		distinctValues?: string[]
+		/** Distinct values for the field named by `valueTarget` (a rule id or `code`). */
+		valueSuggestions?: string[]
+		valueTarget?: string | null
+		onValueInput?: (ruleId: string) => void
+		/** Returns the code-filter caret after the insert, if any. */
+		onPickValue?: (value: string) => number | null
+		onCloseValues?: () => void
 	}
 
 	let {
@@ -37,11 +43,109 @@
 		completions = [],
 		onCodeInput,
 		onPickCompletion,
-		distinctValues = [],
+		valueSuggestions = [],
+		valueTarget = null,
+		onValueInput,
+		onPickValue,
+		onCloseValues,
 	}: Props = $props()
 
-	const distinctListId = $props.id()
+	const listId = $props.id()
+	let codeWrap = $state<HTMLDivElement | null>(null)
+	/** Highlighted suggestion; -1 is none (Enter applies the filter). */
+	let active = $state(-1)
+
+	const codeItems = $derived(
+		completions.length > 0 ? completions : valueTarget === 'code' ? valueSuggestions : [],
+	)
+
+	$effect(() => {
+		void valueSuggestions
+		void completions
+		active = -1
+	})
+
+	function listFor(target: string): string[] {
+		return target === 'code' ? codeItems : valueTarget === target ? valueSuggestions : []
+	}
+
+	function pick(target: string, item: string) {
+		active = -1
+		if (target === 'code' && completions.length > 0) {
+			onPickCompletion?.(item)
+			return
+		}
+		const caret = onPickValue?.(item) ?? null
+		if (target === 'code' && caret != null) {
+			queueMicrotask(() => {
+				const input = codeWrap?.querySelector('input')
+				input?.focus()
+				input?.setSelectionRange(caret, caret)
+			})
+		}
+	}
+
+	/** Arrow keys walk the list, Enter picks or applies, Escape closes. */
+	function onFieldKeydown(e: KeyboardEvent, target: string) {
+		const items = listFor(target)
+		if (items.length > 0) {
+			if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+				e.preventDefault()
+				const step = e.key === 'ArrowDown' ? 1 : -1
+				active = Math.max(-1, Math.min(items.length - 1, active + step))
+				return
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault()
+				e.stopPropagation()
+				onCloseValues?.()
+				return
+			}
+			if ((e.key === 'Enter' || e.key === 'Tab') && active >= 0) {
+				const item = items[active]
+				if (item != null) {
+					e.preventDefault()
+					pick(target, item)
+					return
+				}
+			}
+		}
+		if (e.key === 'Enter') {
+			e.preventDefault()
+			onCloseValues?.()
+			onApply()
+		}
+	}
 </script>
+
+{#snippet suggestions(target: string)}
+	{@const items = listFor(target)}
+	{#if items.length > 0}
+		<ul
+			id="{listId}-{target}"
+			role="listbox"
+			aria-label={target === 'code' && completions.length > 0 ? 'Columns' : 'Values'}
+			class="absolute top-full left-0 z-30 mt-1 max-h-48 max-w-full min-w-36 overflow-auto rounded-md border border-line bg-elevated py-1 shadow-sm"
+		>
+			{#each items as item, i (item)}
+				<li role="option" aria-selected={i === active}>
+					<button
+						type="button"
+						tabindex="-1"
+						class="block w-full truncate px-2 py-1 text-left font-mono text-label text-fg hover:bg-hover {i ===
+						active
+							? 'bg-hover'
+							: ''}"
+						onmousedown={(e) => e.preventDefault()}
+						onclick={() => pick(target, item)}
+					>
+						{item}
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+{/snippet}
 
 <!-- Filters: fixed single-row height so UI ↔ code does not shift layout -->
 <div class="shrink-0 border-b border-line bg-elevated px-2.5 py-2">
@@ -80,62 +184,49 @@
 						onchange={(v) => onUpdateFirst({ op: v as FilterOp })}
 					/>
 				</div>
-				<div class="min-w-0 flex-1">
+				<div class="relative min-w-0 flex-1">
 					<Input
 						inputSize="sm"
 						class="font-mono"
 						placeholder={opNeedsValue(rule.op) ? 'Value' : '—'}
 						value={rule.value}
 						disabled={!opNeedsValue(rule.op)}
-						oninput={(e) =>
+						role="combobox"
+						aria-expanded={listFor(rule.id).length > 0}
+						aria-controls="{listId}-{rule.id}"
+						aria-autocomplete="list"
+						oninput={(e) => {
 							onUpdateFirst({
 								value: (e.currentTarget as HTMLInputElement).value,
-							})}
-						list={distinctValues.length > 0 ? distinctListId : undefined}
-						onkeydown={(e) => {
-							if (e.key === 'Enter') {
-								e.preventDefault()
-								onApply()
-							}
+							})
+							onValueInput?.(rule.id)
 						}}
+						onfocus={() => onValueInput?.(rule.id)}
+						onblur={() => onCloseValues?.()}
+						onkeydown={(e) => onFieldKeydown(e, rule.id)}
 					/>
+					{@render suggestions(rule.id)}
 				</div>
 			{/if}
 		{:else}
-			<div class="relative min-w-0 flex-1">
+			<div class="relative min-w-0 flex-1" bind:this={codeWrap}>
 				<Input
 					inputSize="sm"
 					class="font-mono"
 					placeholder={codePlaceholder}
 					bind:value={filterCode}
+					role="combobox"
+					aria-expanded={codeItems.length > 0}
+					aria-controls="{listId}-code"
+					aria-autocomplete="list"
 					oninput={(e) => {
 						const el = e.currentTarget as HTMLInputElement
 						onCodeInput?.(el.value, el.selectionStart ?? el.value.length)
 					}}
-					onkeydown={(e) => {
-						if (e.key === 'Enter') {
-							e.preventDefault()
-							onApply()
-						}
-					}}
+					onblur={() => onCloseValues?.()}
+					onkeydown={(e) => onFieldKeydown(e, 'code')}
 				/>
-				{#if completions.length > 0}
-					<ul
-						class="absolute top-full left-0 z-30 mt-1 max-h-40 min-w-36 overflow-auto rounded-md border border-line bg-elevated py-1 shadow-sm"
-					>
-						{#each completions as item (item)}
-							<li>
-								<button
-									type="button"
-									class="block w-full px-2 py-1 text-left font-mono text-label text-fg hover:bg-hover"
-									onclick={() => onPickCompletion?.(item)}
-								>
-									{item}
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{/if}
+				{@render suggestions('code')}
 			</div>
 		{/if}
 
@@ -209,25 +300,28 @@
 							onchange={(v) => onUpdateRule(rule.id, { op: v as FilterOp })}
 						/>
 					</div>
-					<div class="min-w-0 flex-1">
+					<div class="relative min-w-0 flex-1">
 						<Input
 							inputSize="sm"
 							class="font-mono"
 							placeholder={opNeedsValue(rule.op) ? 'Value' : '—'}
 							value={rule.value}
 							disabled={!opNeedsValue(rule.op)}
-							oninput={(e) =>
+							role="combobox"
+							aria-expanded={listFor(rule.id).length > 0}
+							aria-controls="{listId}-{rule.id}"
+							aria-autocomplete="list"
+							oninput={(e) => {
 								onUpdateRule(rule.id, {
 									value: (e.currentTarget as HTMLInputElement).value,
-								})}
-							list={distinctValues.length > 0 ? distinctListId : undefined}
-							onkeydown={(e) => {
-								if (e.key === 'Enter') {
-									e.preventDefault()
-									onApply()
-								}
+								})
+								onValueInput?.(rule.id)
 							}}
+							onfocus={() => onValueInput?.(rule.id)}
+							onblur={() => onCloseValues?.()}
+							onkeydown={(e) => onFieldKeydown(e, rule.id)}
 						/>
+						{@render suggestions(rule.id)}
 					</div>
 					<div class="flex h-control-sm shrink-0 items-center gap-1">
 						<IconButton
@@ -244,12 +338,5 @@
 				</div>
 			{/each}
 		</div>
-	{/if}
-	{#if distinctValues.length > 0}
-		<datalist id={distinctListId}>
-			{#each distinctValues as value (value)}
-				<option {value}></option>
-			{/each}
-		</datalist>
 	{/if}
 </div>

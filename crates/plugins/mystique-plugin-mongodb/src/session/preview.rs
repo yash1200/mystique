@@ -149,14 +149,22 @@ pub(super) async fn fetch_table_preview_stats(
         .database(&db_name)
         .collection::<Document>(&input.table);
     let filter = compile_mongo_preview_predicate(&input.filters, input.code_filter.as_deref())?;
-    let total_rows = if filter.is_empty() {
-        coll.estimated_document_count().await.unwrap_or(0)
+    // The same server time limit as the page itself.
+    let limit = Duration::from_millis(FETCH_TIMEOUT_MS);
+    let total = if filter.is_empty() {
+        // Metadata only. A failure leaves the total unknown, not zero.
+        mongo_drive(
+            &input.control,
+            coll.estimated_document_count().max_time(limit),
+        )
+        .await
+        .ok()
     } else {
-        coll.count_documents(filter).await.map_err(query_failed)?
+        Some(mongo_drive(&input.control, coll.count_documents(filter).max_time(limit)).await?)
     };
     Ok(TablePreviewStats {
-        total_rows,
-        total_known: true,
+        total_rows: total.unwrap_or(0),
+        total_known: total.is_some(),
         references: Vec::new(),
     })
 }

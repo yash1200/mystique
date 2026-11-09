@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use mystique_connector_api::{
-    BatchEvent, BatchPhase, ConnectorError, ConnectorResult, ExecuteQueryRequest, ProgressPump,
-    QueryBatchResult, QueryMode, QueryResult, SqlRange, StatementResult, ValidatedQuery,
-    WriteAction,
+    emit_progress, finish_progress, BatchPhase, ConnectorError, ConnectorResult,
+    ExecuteQueryRequest, ProgressPump, QueryBatchResult, QueryMode, QueryResult, SqlRange,
+    StatementResult, ValidatedQuery, WriteAction,
 };
 
 use super::document::{document_statement, statement_kind, DocumentRun};
@@ -88,16 +88,7 @@ impl ConnectionManager {
         if let Some(tab) = tab_id.as_deref() {
             self.ensure_tab_pin(&req.session_id, tab).await?;
         }
-        if let Some(progress) = &progress {
-            progress.emit(
-                BatchEvent {
-                    index: 0,
-                    total: 1,
-                    phase: BatchPhase::Started,
-                },
-                false,
-            );
-        }
+        emit_progress(&progress, 0, 1, BatchPhase::Started);
         let validated = ValidatedQuery {
             text: req.text,
             mode,
@@ -126,33 +117,13 @@ impl ConnectionManager {
                     ),
                 )
                 .await;
-            if let Some(progress) = &progress {
-                progress.emit(
-                    BatchEvent {
-                        index: 0,
-                        total: 1,
-                        phase: BatchPhase::Finished,
-                    },
-                    true,
-                );
-                progress.flush();
-            }
+            finish_progress(&progress);
             return batch;
         }
         let result = self
             .drive_registered(&control, timeout_ms, session.execute_query(&validated))
             .await;
-        if let Some(progress) = &progress {
-            progress.emit(
-                BatchEvent {
-                    index: 0,
-                    total: 1,
-                    phase: BatchPhase::Finished,
-                },
-                true,
-            );
-            progress.flush();
-        }
+        finish_progress(&progress);
         let result = result?;
         let end = u32::try_from(validated.text.len()).unwrap_or(u32::MAX);
         Ok(QueryBatchResult {
@@ -166,6 +137,7 @@ impl ConnectionManager {
                 error: None,
                 error_position: None,
                 notices: Vec::new(),
+                column_origins: Vec::new(),
             }],
             stopped_at: None,
         })

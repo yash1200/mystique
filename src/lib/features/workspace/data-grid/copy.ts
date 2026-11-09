@@ -3,6 +3,7 @@
  * and tell the user how it went. Both grids use this; each keeps its own
  * wording for the message.
  */
+import { errorMessage } from '#core/ipc'
 import { copyTextToClipboard } from '#core/util'
 import { showStatus, showToast } from '#features/toast'
 import {
@@ -13,7 +14,15 @@ import {
 	type CopyColumn,
 	type IdentStyle,
 } from './copy-as'
-import { cellsIncludeLarge, isLargeCell, largeCellText, PARTIAL_COPY_MESSAGE } from './large-cell'
+import {
+	cellsIncludeLarge,
+	isLargeCell,
+	largeCellText,
+	PARTIAL_COPY_MESSAGE,
+	previewsNote,
+	resolveLargeCells,
+	type LargeLoader,
+} from './large-cell'
 import {
 	buildCsv,
 	buildJson,
@@ -99,4 +108,33 @@ export async function copyCells(text: string, message: string, cells: unknown[][
 	const partial = cellsIncludeLarge(cells)
 	const res = await copyTextToClipboard(text)
 	notifyCopy(res, partial ? `${message}. ${PARTIAL_COPY_MESSAGE}` : message, partial)
+}
+
+/**
+ * Copy with every large value loaded in full first, so "Copy as" never
+ * writes a preview silently. Values that cannot be loaded (no key in the
+ * row) stay previews and the message says how many. `json[c]` parses
+ * column `c`'s loaded text back to JSON.
+ */
+export async function copyCellsFull(
+	build: (cells: unknown[][]) => string,
+	message: string,
+	cells: unknown[][],
+	load: LargeLoader | null | undefined,
+	json: readonly boolean[] = [],
+) {
+	if (!cellsIncludeLarge(cells)) {
+		await copyCells(build(cells), message, cells)
+		return
+	}
+	let resolved
+	try {
+		resolved = await resolveLargeCells(cells, load, json)
+	} catch (err) {
+		showToast('danger', `Copy failed: ${errorMessage(err)}`)
+		return
+	}
+	const res = await copyTextToClipboard(build(resolved.cells))
+	const partial = resolved.previews > 0
+	notifyCopy(res, partial ? `${message}. ${previewsNote(resolved.previews)}` : message, partial)
 }

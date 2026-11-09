@@ -173,11 +173,25 @@ pub(super) async fn fetch_table_preview_stats(
     )?;
     let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
     let count_fut = async {
+        // Cancelled up front when the manager skips the count; stopped by
+        // the budget or the grid otherwise. FK targets load either way.
+        if input.control.is_cancelled() {
+            return Err(mystique_connector_api::ConnectorError::Query(
+                "Count skipped.".into(),
+            ));
+        }
         let mut conn = session.conn().await?;
-        let total = crate::rows::query_first_opt::<u64>(&mut conn, &count_sql)
-            .await?
-            .unwrap_or(0);
-        ConnectorResult::Ok(total)
+        arm_kill(&session.pool(), conn.id(), &input.control);
+        let guard = InterruptGuard::new(&input.control);
+        let total = crate::rows::query_first_opt::<u64>(&mut conn, &count_sql).await;
+        drop(guard);
+        if input.control.is_cancelled() {
+            let _ = conn.disconnect().await;
+            return Err(mystique_connector_api::ConnectorError::Query(
+                "Query cancelled.".into(),
+            ));
+        }
+        ConnectorResult::Ok(total?.unwrap_or(0))
     };
     let refs_fut = catalog::table_references(
         session,
@@ -196,4 +210,76 @@ pub(super) async fn fetch_table_preview_stats(
             .map(|(column, references)| TablePreviewColumnRef { column, references })
             .collect(),
     })
+}
+
+/// The optimizer's row estimate for the same table and filters:
+/// `EXPLAIN FORMAT=JSON SELECT 1 FROM … WHERE …`.
+pub(super) async fn estimate_table_rows(
+    session: &MysqlSession,
+    input: &FetchTablePreviewInput,
+) -> ConnectorResult<Option<u64>> {
+    session.ensure_open()?;
+    let target = qualify_table(
+        SqlDialect::Mysql,
+        input.database.as_deref(),
+        input.schema.as_deref(),
+        &input.table,
+    );
+    let where_sql = sql_preview_where(
+        SqlDialect::Mysql,
+        &input.filters,
+        input.code_filter.as_deref(),
+    )?;
+    let sql = format!("EXPLAIN FORMAT=JSON SELECT 1 FROM {target}{where_sql}");
+    let mut conn = session.conn().await?;
+    let Some(text) = crate::rows::query_first_opt::<String>(&mut conn, &sql).await? else {
+        return Ok(None);
+    };
+    Ok(serde_json::from_str::<JsonValue>(&text)
+        .ok()
+        .and_then(|plan| explain_rows(&plan)))
+}
+
+/// Rows the plan produces after the WHERE. Format version 2 (MySQL 9+,
+/// `explain_json_format_version = 2`) has `query_plan.estimated_rows`;
+/// version 1 has one table under `query_block`.
+fn explain_rows(plan: &JsonValue) -> Option<u64> {
+    let number = |v: &JsonValue| v.as_f64().or_else(|| v.as_str()?.parse().ok());
+    if let Some(rows) = plan
+        .get("query_plan")
+        .and_then(|top| top.get("estimated_rows"))
+        .and_then(number)
+    {
+        return Some(rows.max(0.0).round() as u64);
+    }
+    let table = plan.get("query_block")?.get("table")?;
+    if let Some(rows) = table.get("rows_produced_per_join").and_then(number) {
+        return Some(rows.max(0.0).round() as u64);
+    }
+    let scanned = table.get("rows_examined_per_scan").and_then(number)?;
+    let filtered = table.get("filtered").and_then(number).unwrap_or(100.0);
+    Some((scanned * filtered / 100.0).max(0.0).round() as u64)
+}
+
+#[cfg(test)]
+mod estimate_tests {
+    use super::explain_rows;
+    use serde_json::json;
+
+    #[test]
+    fn explain_rows_reads_the_single_table() {
+        let plan = json!({ "query_block": { "table": {
+            "rows_examined_per_scan": 1000, "rows_produced_per_join": 100, "filtered": "10.00"
+        } } });
+        assert_eq!(explain_rows(&plan), Some(100));
+        let older = json!({ "query_block": { "table": {
+            "rows_examined_per_scan": 1000, "filtered": "25.00"
+        } } });
+        assert_eq!(explain_rows(&older), Some(250));
+        let impossible = json!({ "query_block": { "message": "Impossible WHERE" } });
+        assert_eq!(explain_rows(&impossible), None);
+        let v2 = json!({ "query_plan": { "operation": "Filter", "estimated_rows": 42.4,
+            "inputs": [{ "estimated_rows": 1000.0 }] } });
+        assert_eq!(explain_rows(&v2), Some(42));
+    }
 }

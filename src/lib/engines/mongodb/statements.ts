@@ -1,132 +1,214 @@
 /**
- * Mongo shell statements in the editor: the run-at-cursor range and the gutter
- * run markers. Copy of `crates/plugins/mystique-plugin-mongodb/src/shell/split.rs`,
- * which cuts Run all on the backend; both are held to
- * `crates/plugins/mystique-plugin-mongodb/tests/fixtures/statements/cases.json`.
+ * Statements in a Mongo shell buffer, for run-at-cursor and the gutter.
  *
- * A statement ends at a `;` outside brackets, or at a line break outside
- * brackets, unless the line ends with a character that needs more
- * (`CONTINUES_LINE`) or the next line starts with one that cannot begin a
- * statement (`CONTINUES_NEXT`, e.g. `.find()`). Strings and comments follow the
- * shell lexer: an unclosed `'` / `"` ends at the line break, a template literal
- * spans lines. A range runs from the first to the last code character, so
- * comments, whitespace and the `;` around it are outside.
+ * The server runs one statement at a time, so the editor has to find where
+ * each one starts and ends. Shell text is JavaScript-like, not SQL:
  *
- * Offsets are JavaScript string indexes. Rust reports byte offsets; the corpus
- * compares statement text, so non-ASCII buffers agree on text, not offsets.
+ * - `;` ends a statement outside brackets.
+ * - A newline outside brackets also ends one, unless the statement clearly
+ *   goes on: the line ends with an operator or `,` / `.` / `:`, or the next
+ *   code starts with `.` (a chained `.sort()` on its own line), a closing
+ *   bracket, `,` or an operator. This is how JavaScript's automatic
+ *   semicolons treat these cases.
+ * - `( [ {` nest. Strings (`'…'`, `"…"`, backslash escapes, closed by a
+ *   newline when unterminated), template literals with `${ … }`, and
+ *   `//` / `/* … *\/` comments are opaque. A block comment that spans lines
+ *   counts as a line break, as in JavaScript.
+ * - Comment-only chunks are not statements. A comment above a statement is
+ *   part of it, as in SQL.
+ *
+ * The backend cuts Run all with a port of this file,
+ * `crates/plugins/mystique-plugin-mongodb/src/shell/split.rs`. Both are held
+ * to `crates/plugins/mystique-plugin-mongodb/tests/fixtures/statements/cases.json`
+ * (`scripts/workspace/mongo-split-parity.test.ts` and `split::tests::corpus`).
+ * Offsets here are UTF-16 indexes; Rust's are bytes. The corpus compares text.
  */
+import type { StatementSpan } from '../sql/split'
 
-export type MongoStatementSpan = {
-	start: number
-	end: number
-	text: string
+const NEWLINE = 10
+const SLASH = 47
+const STAR = 42
+const BACKSLASH = 92
+const BACKTICK = 96
+
+// Strings, not module-level Sets: a `new Set(…)` at the top counts as a side
+// effect and would pull this file into the startup chunk through `#engines`.
+/** The line ends with one of these: the statement goes on. */
+const CONTINUES_AFTER = '.,:=+-*/?&|!<>'
+/** The next code starts with one of these: it belongs to this statement. */
+const CONTINUES_BEFORE = '.)]},?:=+*&|<>'
+
+function oneOf(chars: string, code: number): boolean {
+	return code >= 0 && chars.includes(String.fromCharCode(code))
 }
 
-const CONTINUES_LINE = '.,([{:?+-*/%&|^!~=<>'
-const CONTINUES_NEXT = '.,)]}:?+-*/%&|^=<>'
+const OPENER: Record<number, string> = { 41: '(', 93: '[', 125: '{' }
 
-/** `ch` is one of the characters in `set`. An empty `ch` is not. */
-function oneOf(set: string, ch: string): boolean {
-	return ch.length === 1 && set.includes(ch)
-}
+type Frame = '(' | '[' | '{' | '`' | '${'
 
-type Piece ={ kind: 'code'; ch: string } | { kind: 'str' } | { kind: 'newline' }
+export function splitMongoStatements(src: string): StatementSpan[] {
+	const out: StatementSpan[] = []
+	const stack: Frame[] = []
+	let start = 0
+	/** Last code character of the current statement, or -1 before any. */
+	let last = -1
 
-/** Rust `char::is_whitespace`: JS `\s` without U+FEFF, plus U+0085. */
-function isSpace(ch: string): boolean {
-	if (ch === '\u0085') return true
-	if (ch === '﻿') return false
-	return /\s/.test(ch)
-}
+	const finish = (end: number) => {
+		if (last >= 0) pushTrimmed(out, src, start, end)
+		last = -1
+	}
 
-/** Walk `text` with the shell lexer's rules for strings and comments. */
-function skim(
-	text: string,
-	visit: (piece: Piece, start: number, end: number) => void,
-): void {
+	/**
+	 * A line break outside brackets: the statement ends at `end` and the next
+	 * one starts at `next`, unless it clearly goes on. `after` is where to look
+	 * for the next code.
+	 */
+	const lineBreak = (end: number, next: number, after: number) => {
+		if (last < 0 || oneOf(CONTINUES_AFTER, last)) return
+		if (oneOf(CONTINUES_BEFORE, nextCode(src, after))) return
+		finish(end)
+		start = next
+	}
+
 	let i = 0
-	while (i < text.length) {
-		const at = i
-		const cp = text.codePointAt(i) ?? 0
-		const ch = String.fromCodePoint(cp)
-		i += ch.length
-		if (ch === '\n') {
-			visit({ kind: 'newline' }, at, i)
+	while (i < src.length) {
+		const c = src.charCodeAt(i)
+		const top = stack[stack.length - 1]
+		if (top === '`') {
+			if (c === BACKSLASH) {
+				i += 2
+			} else if (c === BACKTICK) {
+				stack.pop()
+				last = c
+				i += 1
+			} else if (c === 36 && src.charCodeAt(i + 1) === 123) {
+				stack.push('${')
+				i += 2
+			} else {
+				i += 1
+			}
 			continue
 		}
-		if (isSpace(ch)) continue
-		if (ch === '/') {
-			const next = text[i]
-			if (next === '/') {
-				while (i < text.length && text[i] !== '\n') i += 1
-				continue
-			}
-			if (next === '*') {
-				i += 1
-				const close = text.indexOf('*/', i)
-				const end = close < 0 ? text.length : close + 2
-				const spansLines = text.slice(i, close < 0 ? end : close).includes('\n')
-				i = end
-				if (spansLines) visit({ kind: 'newline' }, at, end)
-				continue
-			}
-		}
-		if (ch === '"' || ch === "'" || ch === '`') {
-			let end = text.length
-			while (i < text.length) {
-				const n = text[i]
-				if (n === '\n' && ch !== '`') {
-					end = i
-					break
-				}
-				i += 1
-				if (n === ch) {
-					end = i
-					break
-				}
-				if (n === '\\' && i < text.length) {
-					i += String.fromCodePoint(text.codePointAt(i) ?? 0).length
-				}
-			}
-			visit({ kind: 'str' }, at, end)
+		if (c === SLASH && src.charCodeAt(i + 1) === SLASH) {
+			i = lineEnd(src, i)
 			continue
 		}
-		visit({ kind: 'code', ch }, at, i)
+		if (c === SLASH && src.charCodeAt(i + 1) === STAR) {
+			const end = blockCommentEnd(src, i)
+			// As in JavaScript, a block comment that spans lines is a line break.
+			// The comment then leads the next statement.
+			if (stack.length === 0 && src.slice(i + 2, end).includes('\n')) {
+				lineBreak(i, i, end)
+			}
+			i = end
+			continue
+		}
+		if (c === 39 || c === 34) {
+			i = stringEnd(src, i + 1, c)
+			last = c
+			continue
+		}
+		if (c === BACKTICK) {
+			stack.push('`')
+			last = c
+			i += 1
+			continue
+		}
+		if (c === 40 || c === 91 || c === 123) {
+			stack.push(String.fromCharCode(c) as Frame)
+			last = c
+			i += 1
+			continue
+		}
+		if (c === 41 || c === 93 || c === 125) {
+			if (c === 125 && top === '${') stack.pop()
+			else closeFrame(stack, OPENER[c] as Frame)
+			last = c
+			i += 1
+			continue
+		}
+		if (stack.length === 0 && c === 59) {
+			finish(i)
+			start = i + 1
+			i += 1
+			continue
+		}
+		if (stack.length === 0 && c === NEWLINE) {
+			lineBreak(i, i + 1, i + 1)
+			i += 1
+			continue
+		}
+		if (!isSpace(c)) last = c
+		i += 1
+	}
+	finish(src.length)
+	return out
+}
+
+/** Pop to the matching opener. A stray closer is ignored. */
+function closeFrame(stack: Frame[], opener: Frame): void {
+	for (let k = stack.length - 1; k >= 0; k -= 1) {
+		const frame = stack[k]
+		if (frame === '`' || frame === '${') return
+		if (frame === opener) {
+			stack.length = k
+			return
+		}
 	}
 }
 
-/** Each statement in `text`, in order. Empty and comment-only chunks are skipped. */
-export function splitMongoStatements(text: string): MongoStatementSpan[] {
-	const ranges: Array<[number, number]> = []
-	let current: [number, number] | null = null
-	let depth = 0
-	let last = ''
-	let lineBreak = false
-	skim(text, (piece, start, end) => {
-		if (piece.kind === 'newline') {
-			if (depth === 0 && current) lineBreak = true
-			return
+function isSpace(c: number): boolean {
+	return c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0xfeff
+}
+
+function lineEnd(src: string, from: number): number {
+	const at = src.indexOf('\n', from)
+	return at < 0 ? src.length : at
+}
+
+function blockCommentEnd(src: string, from: number): number {
+	const at = src.indexOf('*/', from + 2)
+	return at < 0 ? src.length : at + 2
+}
+
+/** After the closing quote. An unterminated string stops before the newline. */
+function stringEnd(src: string, from: number, quote: number): number {
+	let i = from
+	while (i < src.length) {
+		const c = src.charCodeAt(i)
+		if (c === BACKSLASH) {
+			i += 2
+			continue
 		}
-		if (piece.kind === 'code' && piece.ch === ';' && depth === 0) {
-			if (current) ranges.push(current)
-			current = null
-			lineBreak = false
-			return
+		if (c === quote) return i + 1
+		if (c === NEWLINE) return i
+		i += 1
+	}
+	return src.length
+}
+
+/** First code character at or after `from`, skipping space and comments. */
+function nextCode(src: string, from: number): number {
+	let i = from
+	while (i < src.length) {
+		const c = src.charCodeAt(i)
+		if (isSpace(c)) {
+			i += 1
+		} else if (c === SLASH && src.charCodeAt(i + 1) === SLASH) {
+			i = lineEnd(src, i)
+		} else if (c === SLASH && src.charCodeAt(i + 1) === STAR) {
+			i = blockCommentEnd(src, i)
+		} else {
+			return c
 		}
-		const first = piece.kind === 'code' ? piece.ch : '"'
-		if (lineBreak && !oneOf(CONTINUES_LINE, last) && !oneOf(CONTINUES_NEXT, first)) {
-			if (current) ranges.push(current)
-			current = null
-		}
-		lineBreak = false
-		if (current) current[1] = end
-		else current = [start, end]
-		last = first
-		if (first === '(' || first === '[' || first === '{') depth += 1
-		else if (first === ')' || first === ']' || first === '}') {
-			depth = Math.max(0, depth - 1)
-		}
-	})
-	if (current) ranges.push(current)
-	return ranges.map(([start, end]) => ({ start, end, text: text.slice(start, end) }))
+	}
+	return -1
+}
+
+function pushTrimmed(out: StatementSpan[], src: string, start: number, end: number): void {
+	let from = start
+	let to = end
+	while (from < to && isSpace(src.charCodeAt(from))) from += 1
+	while (to > from && isSpace(src.charCodeAt(to - 1))) to -= 1
+	if (from < to) out.push({ start: from, end: to, text: src.slice(from, to) })
 }

@@ -2,18 +2,19 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
-    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
-    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
-    PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryResult,
-    ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult,
-    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedBatch,
-    ValidatedQuery,
+    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult,
+    FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus,
+    PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl, QueryResult, RowSink,
+    RowSource, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition,
+    TablePreviewResult, TablePreviewStats, TerminateSessionInput, TerminateSessionResult,
+    ValidatedBatch, ValidatedQuery,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -27,11 +28,11 @@ mod encode;
 mod error;
 mod explain;
 mod interrupt;
-mod large;
 mod metrics;
 mod pin;
 mod preview;
 mod query;
+mod stream;
 mod structure;
 mod transfer;
 
@@ -194,11 +195,28 @@ impl ConnectorSession for SqliteSession {
         preview::fetch_table_preview_stats(self, input).await
     }
 
-    async fn fetch_large_value(
+    async fn stream_rows(
         &self,
-        input: &FetchLargeValueInput,
-    ) -> ConnectorResult<FetchLargeValueResult> {
-        large::fetch_large_value(self, input).await
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        self.ensure_open()?;
+        let pool = self.pool();
+        let (tx, rx) = stream::channel();
+        let source = source.clone();
+        let reader_control = Arc::clone(control);
+        let reader = tokio::task::spawn_blocking(move || -> ConnectorResult<()> {
+            let conn = pool
+                .get()
+                .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+            stream::read(&conn, &source, &reader_control, &tx)
+        });
+        let pumped = stream::pump(rx, sink).await;
+        let read = reader
+            .await
+            .map_err(|e| ConnectorError::Internal(e.to_string()))?;
+        pumped.and(read)
     }
 
     async fn list_catalog(

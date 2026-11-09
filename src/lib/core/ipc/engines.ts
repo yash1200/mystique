@@ -42,11 +42,12 @@ import type {
 	SshHostKeyPrompt,
 	TableAdminRequest,
 	TableAdminResult,
+	TablePreviewCount,
 	TablePreviewResult,
-	TablePreviewStats,
 	TerminateSessionRequest,
 	TerminateSessionResult,
 	TestResult,
+	TransferProgress,
 } from '../contracts/engines'
 import type {
 	ApplyDdlRequest,
@@ -223,7 +224,7 @@ export async function fetchEngineTablePreview(
 
 export async function fetchEngineTablePreviewStats(
 	request: FetchTablePreviewStatsRequest,
-): Promise<TablePreviewStats> {
+): Promise<TablePreviewCount> {
 	return invoke('fetch_engine_table_preview_stats', { request })
 }
 
@@ -247,10 +248,27 @@ export async function applyEngineTableAdmin(
 }
 
 /** Plugin-owned full-object file export (100-row chunks, no row cap). */
+/** Streams the table to a file. `onRows` gets the rows written so far. */
 export async function exportEngineObject(
 	request: ExportObjectRequest,
+	onRows?: (rows: number) => void,
 ): Promise<ExportObjectResult> {
-	return invoke('export_engine_object', { request })
+	const channel = new Channel<TransferProgress>()
+	if (onRows) channel.onmessage = (event) => onRows(event.rows)
+	return invoke('export_engine_object', { request, onProgress: channel })
+}
+
+/** Exports and imports still running on the backend (the quit guard asks). */
+export async function runningEngineTransfers(): Promise<number> {
+	return invoke('running_engine_transfers')
+}
+
+/** Explorer refresh: the backend re-reads catalog metadata next time. */
+export async function invalidateEngineMetadata(
+	sessionId: string,
+	database?: string | null,
+): Promise<void> {
+	return invoke('invalidate_engine_metadata', { sessionId, database: database ?? null })
 }
 
 export async function previewEngineImport(
@@ -259,10 +277,14 @@ export async function previewEngineImport(
 	return invoke('preview_engine_import', { request })
 }
 
+/** Imports the file batch by batch. `onRows` gets the rows written so far. */
 export async function importEngineObject(
 	request: ImportObjectRequest,
+	onRows?: (rows: number) => void,
 ): Promise<ImportObjectResult> {
-	return invoke('import_engine_object', { request })
+	const channel = new Channel<TransferProgress>()
+	if (onRows) channel.onmessage = (event) => onRows(event.rows)
+	return invoke('import_engine_object', { request, onProgress: channel })
 }
 
 export async function describeEngineTableDefinition(

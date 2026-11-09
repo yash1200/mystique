@@ -83,11 +83,14 @@ export type {
 	TablePreviewColumnRef,
 	TablePreviewResult,
 	TablePreviewStats,
+	TablePreviewCount,
+	TableCountOutcome,
 	TableRowDelete,
 	TableRowInsert,
 	TableRowUpdate,
 	TerminateSessionRequest,
 	TerminateSessionResult,
+	TransferProgress,
 	TestResult,
 } from '../ipc/bindings.gen'
 

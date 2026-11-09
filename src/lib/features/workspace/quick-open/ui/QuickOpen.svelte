@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { pushDialog } from '#core/ui'
+	import { focusTrap } from '#core/ui/focus-trap.js'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
 	import { catalogStore } from '#features/workspace/catalog'
 	import { historyStore, savedStore } from '#features/workspace/query'
 	import { workspaceSession } from '#features/workspace/session'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
 	import { quickOpen } from '../chrome.svelte'
 	import { SearchGeneration } from '../generation'
+	import { warmSessionCatalogs } from '../warm'
 	import {
 		collectQuickOpenItems,
+		groupQuickOpenItems,
+		QUICK_OPEN_PER_GROUP,
 		quickOpenKindLabel,
 		rankQuickOpenItems,
 		type QuickOpenItem,
@@ -107,15 +111,39 @@
 		void tick().then(() => el?.focus())
 	})
 
-	const ranked = $derived(
-		quickOpen.open
-			? rankQuickOpenItems(
-					collectQuickOpenItems(source),
-					quickOpen.query,
-					quickOpen.query.trim() ? 40 : 50,
-				)
-			: [],
-	)
+	// Open sessions whose catalog never loaded (never shown this run) load
+	// it now, two at a time, so their tables can be found. Closing stops
+	// the queue; loads already running still fill the store.
+	$effect(() => {
+		if (!quickOpen.open) return
+		const ids = untrack(() => workspaceSession.sessions.map((s) => s.profile.id))
+		const stop = new AbortController()
+		void warmSessionCatalogs(ids, stop.signal)
+		return () => stop.abort()
+	})
+
+	const groups = $derived.by(() => {
+		if (!quickOpen.open) return []
+		const searching = quickOpen.query.trim().length > 0
+		const items = collectQuickOpenItems(source)
+		if (!searching) return groupQuickOpenItems(rankQuickOpenItems(items, '', 50))
+		return groupQuickOpenItems(
+			rankQuickOpenItems(items, quickOpen.query, items.length),
+			QUICK_OPEN_PER_GROUP,
+			60,
+		)
+	})
+	/** Rows in display order; arrow keys and indexes follow it. */
+	const ranked = $derived(groups.flatMap((group) => group.items))
+	const startOf = $derived.by(() => {
+		const starts: number[] = []
+		let at = 0
+		for (const group of groups) {
+			starts.push(at)
+			at += group.items.length
+		}
+		return starts
+	})
 	const cursor = $derived(
 		ranked.length === 0 ? 0 : Math.min(active, ranked.length - 1),
 	)
@@ -231,6 +259,7 @@
 			role="dialog"
 			aria-modal="true"
 			aria-label="Quick open"
+			use:focusTrap={() => quickOpen.open}
 		>
 			<div class="border-b border-line p-2">
 				<input
@@ -262,45 +291,68 @@
 						No matches
 					</p>
 				{:else}
-					{#each ranked as item, index (item.id)}
-						<button
-							type="button"
-							id="quick-open-opt-{index}"
-							data-index={index}
-							role="option"
-							aria-selected={index === cursor}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
-							cursor
-								? 'bg-accent-muted'
-								: 'hover:bg-hover'}"
-							onpointerenter={() => (active = index)}
-							onclick={() => void choose(item)}
+					{#each groups as group, g (group.id)}
+						<div
+							role="group"
+							aria-labelledby="quick-open-group-{g}"
+							class={g > 0 ? 'mt-1 border-t border-line pt-1' : ''}
 						>
-							{#if item.colorId}
-								<span
-									class="size-2 shrink-0 rounded-full"
-									style="background: {colorHex(item.colorId)}"
-									aria-hidden="true"
-								></span>
-							{:else}
-								<span class="size-2 shrink-0" aria-hidden="true"></span>
-							{/if}
-							<span
-								class="w-8 shrink-0 truncate text-caption font-medium text-fg-muted"
-								>{item.mark}</span
+							<div
+								id="quick-open-group-{g}"
+								class="flex items-center gap-1.5 px-2 pb-0.5 pt-1 text-micro font-semibold uppercase tracking-wider text-fg-muted"
 							>
-							<span class="min-w-0 flex-1">
-								<span class="block truncate text-label text-fg"
-									>{item.title}</span
+								{#if group.colorId}
+									<span
+										class="size-1.5 shrink-0 rounded-full"
+										style="background: {colorHex(group.colorId)}"
+										aria-hidden="true"
+									></span>
+								{/if}
+								<span class="truncate">{group.label}</span>
+							</div>
+							{#each group.items as item, i (item.id)}
+								{@const index = (startOf[g] ?? 0) + i}
+								<button
+									type="button"
+									id="quick-open-opt-{index}"
+									data-index={index}
+									role="option"
+									tabindex="-1"
+									aria-selected={index === cursor}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
+									cursor
+										? 'bg-accent-muted'
+										: 'hover:bg-hover'}"
+									onpointerenter={() => (active = index)}
+									onclick={() => void choose(item)}
 								>
-								<span class="block truncate text-caption text-fg-muted"
-									>{item.detail}</span
-								>
-							</span>
-							<span class="shrink-0 text-caption text-fg-muted"
-								>{quickOpenKindLabel(item)}</span
-							>
-						</button>
+									{#if item.colorId}
+										<span
+											class="size-2 shrink-0 rounded-full"
+											style="background: {colorHex(item.colorId)}"
+											aria-hidden="true"
+										></span>
+									{:else}
+										<span class="size-2 shrink-0" aria-hidden="true"></span>
+									{/if}
+									<span
+										class="w-8 shrink-0 truncate text-caption font-medium text-fg-muted"
+										>{item.mark}</span
+									>
+									<span class="min-w-0 flex-1">
+										<span class="block truncate text-label text-fg"
+											>{item.title}</span
+										>
+										<span class="block truncate text-caption text-fg-muted"
+											>{item.detail}</span
+										>
+									</span>
+									<span class="shrink-0 text-caption text-fg-muted"
+										>{quickOpenKindLabel(item)}</span
+									>
+								</button>
+							{/each}
+						</div>
 					{/each}
 				{/if}
 			</div>

@@ -561,6 +561,7 @@ fn import_req(session_id: &str, path: &str) -> mystique_connector_api::ImportObj
         encoding: mystique_connector_api::ImportEncoding::Utf8,
         mapping: Vec::new(),
         on_duplicate: mystique_connector_api::ImportOnDuplicate::UpdateOnDuplicate,
+        execution_id: None,
     }
 }
 
@@ -604,7 +605,7 @@ async fn import_into_production_needs_no_extra_prompt() {
     mgr.open_session(sqlite_open(&db_path, "prod", "production", false))
         .await
         .expect("open prod");
-    mgr.import_object(import_req("prod", &csv_path.to_string_lossy()))
+    mgr.import_object(import_req("prod", &csv_path.to_string_lossy()), None)
         .await
         .expect("import");
     assert_eq!(count_rows(&mgr, "prod").await, 1);
@@ -828,7 +829,7 @@ async fn import_into_read_only_session_ignores_client_flag() {
         .await
         .expect("open read-only");
     let err = mgr
-        .import_object(import_req("ro", &csv_path.to_string_lossy()))
+        .import_object(import_req("ro", &csv_path.to_string_lossy()), None)
         .await
         .expect_err("client flag must not override the session");
     assert!(
@@ -1490,6 +1491,7 @@ fn explain_req(
         collection: None,
         database: None,
         execution_id: None,
+        params: Vec::new(),
     }
 }
 
@@ -1618,6 +1620,84 @@ async fn explain_analyze_delete_on_a_read_only_profile_runs_nothing() {
         json!(1)
     );
     let _ = mgr.close_session("explain-ro").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn plain_explain_of_a_write_is_allowed_in_read_mode_and_runs_nothing() {
+    let path = temp_db("explain-plain-ro");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-plain-seed", "local", false))
+        .await
+        .expect("seed open");
+    mgr.execute_query(write_req(
+        "explain-plain-seed",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t (id) VALUES (1)",
+    ))
+    .await
+    .expect("seed");
+    let _ = mgr.close_session("explain-plain-seed").await;
+    mgr.open_session(sqlite_open(&path, "explain-plain", "production", true))
+        .await
+        .expect("open read-only production");
+
+    let mut req = explain_req("explain-plain", "DELETE FROM t WHERE id = 1", false);
+    req.mode = mystique_connector_api::QueryMode::Read;
+    let plan = mgr
+        .explain_query(req)
+        .await
+        .expect("plain explain of a delete");
+    assert!(!plan.raw.is_empty());
+    assert_eq!(
+        cell(&mgr, "explain-plain", "SELECT COUNT(*) FROM t").await,
+        json!(1)
+    );
+
+    // Analyze would run it, so Read mode still refuses that.
+    let mut analyze = explain_req("explain-plain", "DELETE FROM t WHERE id = 1", true);
+    analyze.mode = mystique_connector_api::QueryMode::Read;
+    assert!(mgr.explain_query(analyze).await.is_err());
+    // Transaction control is never explained.
+    let mut begin = explain_req("explain-plain", "BEGIN", false);
+    begin.mode = mystique_connector_api::QueryMode::Read;
+    assert!(mgr.explain_query(begin).await.is_err());
+    let _ = mgr.close_session("explain-plain").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn explain_binds_named_params() {
+    let path = temp_db("explain-params");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    mgr.open_session(sqlite_open(&path, "explain-params", "local", false))
+        .await
+        .expect("open");
+    mgr.execute_query(write_req(
+        "explain-params",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
+    ))
+    .await
+    .expect("seed");
+    let text = "SELECT * FROM t WHERE id = :id AND name = :name";
+    let missing = mgr
+        .explain_query(explain_req("explain-params", text, false))
+        .await
+        .expect_err("no values");
+    assert!(
+        missing.to_string().to_ascii_lowercase().contains("missing"),
+        "{missing}"
+    );
+    let mut req = explain_req("explain-params", text, false);
+    req.params = vec![json!(1), json!("a")];
+    let plan = mgr.explain_query(req).await.expect("explain with params");
+    let rendered = format!("{:?}", plan.root).to_ascii_lowercase();
+    assert!(
+        rendered.contains("primary key") || rendered.contains("search"),
+        "{rendered}"
+    );
+    let _ = mgr.close_session("explain-params").await;
     let _ = std::fs::remove_file(&path);
 }
 
@@ -1984,6 +2064,7 @@ fn added_column(name: &str) -> ColumnDraft {
         pk_position: 0,
         original: None,
         drop: false,
+        ..ColumnDraft::default()
     }
 }
 
@@ -2019,6 +2100,7 @@ async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
         concurrent: false,
         original: None,
         drop: false,
+        ..IndexDraft::default()
     };
     let ran = insert_probe(&mgr, "ddl-prod", false).await;
     let err = mgr
@@ -2159,6 +2241,133 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
     let _ = mgr.close_session("ui-hist").await;
     let _ = mgr.close_session("agent:1").await;
     let _ = mgr.close_session("mcp:1").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn history_logs_grid_saves_rollbacks_ddl_and_explain_analyze() {
+    use crate::domain::QueryHistoryKind;
+
+    let path = temp_db("history-kinds");
+    let _ = std::fs::remove_file(&path);
+    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    db.with_conn(|c| {
+        c.execute(
+            "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
+             VALUES ('kinds', 'sqlite', 'slate', 'local', 0, '{}', 'now', 'now')",
+            [],
+        )?;
+        Ok(())
+    })
+    .expect("profile");
+    let services = crate::application::AppServices::with_secrets(
+        db,
+        ConnectionManager::bootstrap(),
+        crate::secrets::SecretStore::memory(),
+    );
+    let mgr = services.connections();
+    let mut open = sqlite_open(&path, "kinds", "local", false);
+    open.profile_id = Some("1".into());
+    mgr.open_session(open).await.expect("open");
+    mgr.execute_query(write_req(
+        "kinds",
+        "CREATE TABLE docs (id INTEGER PRIMARY KEY, n INTEGER); INSERT INTO docs VALUES (1, 10)",
+    ))
+    .await
+    .expect("seed");
+
+    let column = |name: &str| mystique_connector_api::TableEditColumn {
+        name: name.into(),
+        data_type: "integer".into(),
+        nullable: true,
+        pk: name == "id",
+    };
+    let saved = mgr
+        .apply_table_edits(mystique_connector_api::ApplyTableEditsRequest {
+            session_id: "kinds".into(),
+            table: "docs".into(),
+            schema: None,
+            database: None,
+            columns: vec![column("id"), column("n")],
+            updates: vec![mystique_connector_api::TableRowUpdate {
+                original: [("id".into(), json!(1)), ("n".into(), json!(10))]
+                    .into_iter()
+                    .collect(),
+                values: [("n".into(), json!(11))].into_iter().collect(),
+            }],
+            inserts: Vec::new(),
+            deletes: Vec::new(),
+            confirm_object_name: None,
+            dry_run: false,
+        })
+        .await
+        .expect("grid save");
+    mgr.rollback_table_edits(mystique_connector_api::RollbackTableEditsRequest {
+        session_id: "kinds".into(),
+        save_id: saved.save_id.expect("save id"),
+        confirm_object_name: None,
+    })
+    .await
+    .expect("rollback");
+
+    let mut draft = mgr
+        .describe_table_definition(mystique_connector_api::DescribeTableDefinitionRequest {
+            session_id: "kinds".into(),
+            table: "docs".into(),
+            schema: None,
+            database: None,
+            kind: None,
+        })
+        .await
+        .expect("describe");
+    draft.columns.push(added_column("note"));
+    mgr.apply_ddl(mystique_connector_api::ApplyDdlRequest {
+        session_id: "kinds".into(),
+        draft,
+        confirm_object_name: None,
+    })
+    .await
+    .expect("add column");
+
+    mgr.explain_query(explain_req("kinds", "SELECT * FROM docs", true))
+        .await
+        .expect("explain analyze");
+    // A plain explain runs nothing and is not logged.
+    mgr.explain_query(explain_req("kinds", "SELECT 1", false))
+        .await
+        .expect("plain explain");
+
+    let page = services
+        .history()
+        .list_for_connection("1", 50)
+        .expect("list");
+    let of = |kind: QueryHistoryKind| {
+        page.iter()
+            .filter(|row| row.kind == kind)
+            .collect::<Vec<_>>()
+    };
+    let grid = of(QueryHistoryKind::GridSave);
+    assert_eq!(grid.len(), 1, "{page:?}");
+    assert!(grid[0].body.contains("UPDATE"), "{}", grid[0].body);
+    assert_eq!(grid[0].affected_rows, Some(1));
+    let rollback = of(QueryHistoryKind::Rollback);
+    assert_eq!(rollback.len(), 1, "{page:?}");
+    assert!(rollback[0].success);
+    assert!(rollback[0].body.contains("UPDATE"), "{}", rollback[0].body);
+    let ddl = of(QueryHistoryKind::Ddl);
+    assert_eq!(ddl.len(), 1, "{page:?}");
+    assert!(ddl[0].body.contains("note"), "{}", ddl[0].body);
+    let analyze = of(QueryHistoryKind::ExplainAnalyze);
+    assert_eq!(analyze.len(), 1, "{page:?}");
+    assert_eq!(analyze[0].body, "EXPLAIN ANALYZE SELECT * FROM docs");
+    assert!(page
+        .iter()
+        .all(|row| row.kind != QueryHistoryKind::Query || !row.body.contains("SELECT 1")));
+    assert!(of(QueryHistoryKind::Query)
+        .iter()
+        .any(|row| row.body.contains("CREATE TABLE docs")));
+
+    let _ = mgr.close_session("kinds").await;
     let _ = std::fs::remove_file(&path);
 }
 

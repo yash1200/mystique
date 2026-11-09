@@ -10,20 +10,22 @@
 		ExplainPlan,
 		QueryMode,
 	} from '#core/contracts'
-	import { pinnedTabStatus } from '#core/ipc'
+	import { fetchEngineLargeValue, pinnedTabStatus } from '#core/ipc'
 	import { commands, type CommandContext } from '#core/commands'
 	import { Resizable } from '#core/ui'
 	import { connectionProfiles } from '#features/connections'
 	import { catalogColumnsCache } from '#features/workspace/catalog'
-	import { identStyleFor } from '#features/workspace/data-grid'
+	import { identStyleFor, type LargeLoader } from '#features/workspace/data-grid'
+	import { resultColumnSources } from '#engines'
 	import { tabTxnView, workspaceSession } from '#features/workspace/session'
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'
 	import { RESULT_PAGE_SIZE_DEFAULT } from '../constants'
+	import type { CatalogFeed } from '../editor/completion-gate'
 	import QueryEditor from '../editor/QueryEditor.svelte'
-	import { noteEditorEdit } from '../editor/query-diagnostic'
+	import { noteEditorEdit, utf16Index } from '../editor/query-diagnostic'
 	import {
-		splitDialectFor,
+		statementModelFor,
 		submissionStart,
 		textToRun,
 	} from '../editor/statement-span'
@@ -116,9 +118,13 @@
 	const transactionOpen = $derived(txn.transactionOpen)
 	let analyze = $state(false)
 	let explainPlan = $state<ExplainPlan | null>(null)
-	let paramPrompt = $state<{ text: string; origin: number; slots: ParamSlot[] } | null>(
-		null,
-	)
+	/** `explain`: the values are for an explain, not a run. */
+	let paramPrompt = $state<{
+		text: string
+		origin: number
+		slots: ParamSlot[]
+		explain: boolean
+	} | null>(null)
 	let canvasTab = ''
 	const showTransactions = $derived(capabilities?.supportsTransactions === true)
 	const showExplain = $derived(capabilities?.supportsExplainPlan === true)
@@ -150,7 +156,9 @@
 		const sid = engineSessionId
 		const db = database
 		if (!sid) return
-		void catalogColumnsCache.load(sid, db || null)
+		// Tracked: a catalog refresh drops the rows, and this loads them again.
+		if (catalogColumnsCache.byKey[catalogColumnsCache.key(sid, db || null)]) return
+		catalogColumnsCache.load(sid, db || null).catch(() => {})
 	})
 	const placeholder = $derived(queryPlaceholder(engine))
 	const effectiveMode = $derived<QueryMode>(readOnly ? 'read' : 'write')
@@ -162,10 +170,25 @@
 		),
 	)
 
+	// Counted without splitting: a large document would allocate every line per keystroke.
 	const lineCount = $derived.by(() => {
-		if (!localText) return 1
-		return localText.split('\n').length
+		let lines = 1
+		for (let at = localText.indexOf('\n'); at >= 0; at = localText.indexOf('\n', at + 1)) {
+			lines += 1
+		}
+		return lines
 	})
+
+	/** Read by the editor when a completion is requested. */
+	function catalogFeed(): CatalogFeed | null {
+		const sid = engineSessionId
+		if (!sid) return null
+		return {
+			key: catalogColKey,
+			rows: catalogColumns,
+			pending: catalogColumnsCache.pending(sid, database || null),
+		}
+	}
 
 	// One canvas instance covers every query tab. Reset the bits `{#key}` used to drop.
 	$effect(() => {
@@ -214,6 +237,21 @@
 		resultPage(result?.rows ?? [], cachedRun?.resultPage ?? 0, RESULT_PAGE_SIZE_DEFAULT),
 	)
 	const canExport = $derived(canExportResult(result))
+	/** `schema.table.column` per result column, read from the statement text. */
+	const resultSources = $derived.by(() => {
+		if (!result || language === 'mql' || catalogColumns.length === 0) return []
+		const submitted = cachedRun?.submittedText ?? ''
+		const range = batchResults[activeIndex]?.sqlRange
+		const text = range
+			? submitted.slice(utf16Index(submitted, range.start), utf16Index(submitted, range.end))
+			: submitted
+		return resultColumnSources(
+			text,
+			result.columns.map((c) => c.name),
+			catalogColumns,
+			identStyleFor(engine, capabilities?.sqlDialect ?? '') === 'mysql',
+		)
+	})
 
 	/**
 	 * This tab's run settings, read now. A run keeps them to the end, so it
@@ -259,33 +297,53 @@
 			bound,
 		)
 		if (outcome.kind === 'params') {
-			paramPrompt = { text: outcome.text, origin: outcome.origin, slots: outcome.slots }
+			paramPrompt = {
+				text: outcome.text,
+				origin: outcome.origin,
+				slots: outcome.slots,
+				explain: false,
+			}
 		}
 	}
 
-	async function explainQuery() {
+	async function explainQuery(body?: string, bound?: unknown[]) {
 		if (runState.status === 'running') return
 		const doc = editorSnap.doc || localText
-		const sqlText = textToRun(
-			doc,
-			splitDialectFor(engine),
-			editorSnap.head,
-			editorSnap.anchor,
-			false,
-		)
+		const sqlText =
+			body ??
+			textToRun(
+				doc,
+				statementModelFor(engine, language),
+				editorSnap.head,
+				editorSnap.anchor,
+				false,
+			)
 		if (!sqlText?.trim()) return
 		const started = tabId
 		explainPlan = null
-		const plan = await runExplain(runTarget(), sqlText, analyze)
+		const outcome = await runExplain(runTarget(), sqlText, analyze, bound)
+		if (outcome.kind === 'params') {
+			paramPrompt = { text: outcome.text, origin: 0, slots: outcome.slots, explain: true }
+			return
+		}
 		// The canvas may show another tab by now; that tab gets no plan.
-		if (plan && tabId === started) explainPlan = plan
+		if (outcome.kind === 'plan' && tabId === started) explainPlan = outcome.plan
 	}
+
+	/** Large values load through this tab, so an open transaction's rows load too. */
+	const loadLarge = $derived.by((): LargeLoader | null => {
+		const sid = engineSessionId
+		if (!sid) return null
+		const tab = tabId
+		return (locator, offset) =>
+			fetchEngineLargeValue({ sessionId: sid, locator, offset, tabId: tab })
+	})
 
 	async function exportResults(action: ResultExportAction) {
 		if (exporting || !result || !canExportResult(result)) return
 		exporting = action
 		try {
-			await exportResult(action, result, {
+			await exportResult(action, result, loadLarge, {
 				queryText: currentQueryText(),
 				language,
 				connectionName,
@@ -333,7 +391,7 @@
 	/** ⌘Enter / ⌘⇧Enter with focus in the tab but outside the editor. */
 	function runFromKeys(all: boolean) {
 		const doc = editorSnap.doc || currentQueryText()
-		const dialect = splitDialectFor(engine)
+		const dialect = statementModelFor(engine, language)
 		const text = textToRun(doc, dialect, editorSnap.head, editorSnap.anchor, all)
 		if (!text) return
 		void runQuery(
@@ -383,6 +441,7 @@
 				{lineCount}
 				{language}
 				{catalogColumns}
+				{catalogFeed}
 				bind:collection
 				canRun={!!localText.trim()}
 				canCancel={capabilities?.supportsCancelQuery === true}
@@ -432,6 +491,7 @@
 					identStyle={identStyleFor(engine, capabilities?.sqlDialect ?? '')}
 					{runState}
 					resultColumns={result?.columns ?? []}
+					{resultSources}
 					resultPageRows={page.rows}
 					resultTotal={page.total}
 					resultPageStart={page.start}
@@ -455,6 +515,7 @@
 						void runQuery(cached?.submittedText, cached?.submittedStart ?? 0)
 					}}
 					onaskai={askAiAboutError}
+					{loadLarge}
 				/>
 			{/if}
 		</div>
@@ -469,7 +530,8 @@
 			const pending = paramPrompt
 			paramPrompt = null
 			if (!pending) return
-			void runQuery(pending.text, pending.origin, values)
+			if (pending.explain) void explainQuery(pending.text, values)
+			else void runQuery(pending.text, pending.origin, values)
 		}}
 	/>
 </div>

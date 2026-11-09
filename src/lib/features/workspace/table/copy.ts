@@ -7,6 +7,7 @@ import { showStatus, showToast } from '#features/toast'
 import {
 	cellText,
 	copyCells,
+	copyCellsFull,
 	identStyleFor,
 	isLargeCell,
 	isSqlCopyFormat,
@@ -18,6 +19,7 @@ import {
 	type CellRef,
 	type CopyFormat,
 	type GridSelection,
+	type LargeLoader,
 	type TextCopyFormat,
 } from '#features/workspace/data-grid'
 
@@ -26,6 +28,15 @@ export type TableCopySource = {
 	rows: readonly Record<string, unknown>[]
 	engine: string
 	sqlDialect: string
+	/** Loads large values in full before a copy. */
+	loadLarge?: LargeLoader | null
+}
+
+function jsonColumns(names: readonly string[], table: TableMeta): boolean[] {
+	return names.map((name) => {
+		const type = table.columns.find((c) => c.name === name)?.type ?? ''
+		return type.toLowerCase().includes('json')
+	})
 }
 
 const FORMAT_LABEL: Record<CopyFormat, string> = {
@@ -49,7 +60,7 @@ export function copyTableRows(src: TableCopySource, indices: readonly number[], 
 	const cells = objectsToRows(columns, objects)
 	const count = objects.length
 	if (count === 0) return
-	let text: string
+	let build: (cells: unknown[][]) => string
 	if (isSqlCopyFormat(format)) {
 		const cols = table.columns.map((c) => ({ name: c.name, dataType: c.type, pk: !!c.pk }))
 		const target = {
@@ -58,9 +69,9 @@ export function copyTableRows(src: TableCopySource, indices: readonly number[], 
 			database: table.database,
 			schema: table.schema,
 		}
-		text = sqlCopyText(format, target, cols, cells)
+		build = (full) => sqlCopyText(format, target, cols, full)
 	} else {
-		text = textCopyText(format, columns, cells)
+		build = (full) => textCopyText(format, columns, full)
 	}
 	const message =
 		format === 'copy'
@@ -68,7 +79,8 @@ export function copyTableRows(src: TableCopySource, indices: readonly number[], 
 				? 'Row copied'
 				: `${count} rows copied`
 			: `Copied ${count === 1 ? 'row' : `${count} rows`} as ${FORMAT_LABEL[format]}`
-	void copyCells(text, message, cells)
+	const json = jsonColumns(columns.map((c) => c.name), table)
+	void copyCellsFull(build, message, cells, src.loadLarge, json)
 }
 
 /**
@@ -93,17 +105,24 @@ export function copyTableSelection(
 	const n = block.count === 1 ? 'cell' : `${block.count} cells`
 	const message =
 		format === 'copy' ? `${block.count} cells copied` : `Copied ${n} as ${FORMAT_LABEL[format]}`
-	void copyCells(textCopyText(format, columns, cells), message, cells)
+	const json = jsonColumns(block.cols, src.table)
+	void copyCellsFull((full) => textCopyText(format, columns, full), message, cells, src.loadLarge, json)
 }
 
 /**
- * The focused cell. NULL copies as empty text (paste-friendly); a large cell
- * copies its preview until the modal has loaded the rest. In a `copy` event
- * the text goes straight into its clipboard data.
+ * The focused cell. NULL copies as empty text (paste-friendly). A large cell
+ * with a key loads in full and copies that; one without copies its preview
+ * and says so. In a `copy` event the text goes straight into its clipboard
+ * data (a large value cannot load in time, so it is written afterwards).
  */
 export function copyTableCell(src: TableCopySource, cell: CellRef, e?: ClipboardEvent) {
 	const v = src.rows[cell.row]?.[cell.col]
 	const partial = isLargeCell(v)
+	if (partial && src.loadLarge && v.locator && v.locator.keys.length > 0) {
+		e?.preventDefault()
+		void copyCellsFull((full) => cellText(full[0]?.[0]), 'Cell copied', [[v]], src.loadLarge)
+		return
+	}
 	const text = v === null || v === undefined ? '' : partial ? largeCellText(v) : cellText(v)
 	if (e?.clipboardData) {
 		e.preventDefault()

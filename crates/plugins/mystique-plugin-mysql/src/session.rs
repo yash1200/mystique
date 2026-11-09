@@ -1,6 +1,7 @@
 //! Pooled MySQL / MariaDB session — thin [`ConnectorSession`] facade over focused modules.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use mysql_async::prelude::*;
@@ -8,13 +9,13 @@ use mysql_async::Pool;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
     CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
-    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
-    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
-    ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
-    PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryResult,
-    ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition, TablePreviewResult,
-    TablePreviewStats, TerminateSessionInput, TerminateSessionResult, ValidatedBatch,
-    ValidatedQuery,
+    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult,
+    FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput, ImportChunkResult,
+    ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession, PoolStatus,
+    PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl, QueryResult, RowSink,
+    RowSource, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition,
+    TablePreviewResult, TablePreviewStats, TerminateSessionInput, TerminateSessionResult,
+    ValidatedBatch, ValidatedQuery,
 };
 
 mod admin;
@@ -25,12 +26,12 @@ mod distinct;
 mod edits;
 mod encode;
 mod explain;
-mod large;
 mod metrics;
 mod pin;
 mod preview;
 mod query;
 mod read_only;
+mod stream;
 mod structure;
 mod transfer;
 
@@ -43,16 +44,25 @@ pub struct MysqlSession {
     edit_pool: Pool,
     max_size: u32,
     read_only: ReadOnlyVar,
+    /// MariaDB spells analyze `ANALYZE FORMAT=JSON`, not `EXPLAIN ANALYZE`.
+    mariadb: bool,
     closed: AtomicBool,
 }
 
 impl MysqlSession {
-    pub(crate) fn new(pool: Pool, edit_pool: Pool, max_size: u32, read_only: ReadOnlyVar) -> Self {
+    pub(crate) fn new(
+        pool: Pool,
+        edit_pool: Pool,
+        max_size: u32,
+        read_only: ReadOnlyVar,
+        mariadb: bool,
+    ) -> Self {
         Self {
             pool,
             edit_pool,
             max_size,
             read_only,
+            mariadb,
             closed: AtomicBool::new(false),
         }
     }
@@ -194,11 +204,21 @@ impl ConnectorSession for MysqlSession {
         preview::fetch_table_preview_stats(self, input).await
     }
 
-    async fn fetch_large_value(
+    async fn estimate_table_rows(
         &self,
-        input: &FetchLargeValueInput,
-    ) -> ConnectorResult<FetchLargeValueResult> {
-        large::fetch_large_value(self, input).await
+        input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<Option<u64>> {
+        preview::estimate_table_rows(self, input).await
+    }
+
+    async fn stream_rows(
+        &self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        let mut conn = self.conn().await?;
+        stream::stream_rows(&self.pool, &mut conn, source, control, sink).await
     }
 
     async fn list_catalog(

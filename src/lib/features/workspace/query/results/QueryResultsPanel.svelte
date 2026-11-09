@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { QueryResult, StatementResult } from '#core/contracts'
+	import type { ResultColumnSource } from '#engines'
 	import {
 		Badge,
 		Button,
@@ -17,6 +18,7 @@
 	import { statementChipLabel, statementChipTitle } from './batch-view'
 	import type { RunState } from '../run/run-types'
 	import QueryResultsGrid from '../ui/QueryResultsGrid.svelte'
+	import type { LargeLoader } from '#features/workspace/data-grid'
 
 	export type ResultExportAction =
 		| 'download-csv'
@@ -28,6 +30,8 @@
 	interface Props {
 		runState: RunState
 		resultColumns: QueryResult['columns']
+		/** Source table column per result column, when known (header tooltip). */
+		resultSources?: (ResultColumnSource | null)[]
 		resultPageRows: unknown[][]
 		resultTotal: number
 		resultPageStart: number
@@ -49,11 +53,14 @@
 		submittedText?: string
 		onselectstatement?: (index: number) => void
 		identStyle?: 'postgres' | 'mysql'
+		/** Loads a large value in full (the tab's session, through its transaction). */
+		loadLarge?: LargeLoader | null
 	}
 
 	let {
 		runState,
 		resultColumns,
+		resultSources = [],
 		resultPageRows,
 		resultTotal,
 		resultPageStart,
@@ -75,6 +82,7 @@
 		submittedText = '',
 		onselectstatement,
 		identStyle = 'postgres',
+		loadLarge = null,
 	}: Props = $props()
 
 	let menu = $state<{ x: number; y: number } | null>(null)
@@ -306,9 +314,11 @@
 			{:else}
 				<QueryResultsGrid
 					columns={resultColumns}
+					sources={resultSources}
 					rows={resultPageRows}
 					pageStart={resultPageStart}
 					{identStyle}
+					{loadLarge}
 				/>
 			{/if}
 			{:else}

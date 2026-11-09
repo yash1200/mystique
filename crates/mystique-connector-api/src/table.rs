@@ -8,8 +8,9 @@ mod sql;
 pub use admin::*;
 pub use edits::*;
 pub use export::{
-    export_object_with_preview, ExportFormat, ExportObjectInput, ExportObjectRequest,
-    ExportObjectResult, EXPORT_CHUNK_SIZE,
+    export_object_with_preview, stream_table_by_preview, ExportFormat, ExportObjectInput,
+    ExportObjectRequest, ExportObjectResult, ExportSink, ExportWriter, RowProgress,
+    TransferProgress, EXPORT_CHUNK_SIZE,
 };
 pub use filters::{
     mongo_filter_json, parse_code_filter_rules, preview_sort_field, preview_sort_sql,
@@ -23,7 +24,7 @@ pub use import::{
     IMPORT_PREVIEW_ROWS,
 };
 pub use sql::{
-    compile_delete, compile_insert, compile_update, compile_upsert, distinct_values_sql,
-    plan_table_edits, qualify_table, quote_ident, sql_literal, EditPlan, PlannedCount, PlannedEdit,
-    PlannedRead, SqlIdentStyle,
+    compile_delete, compile_insert, compile_update, compile_upsert, distinct_input_sql,
+    distinct_values_sql, plan_table_edits, qualify_table, quote_ident, sql_literal, EditPlan,
+    PlannedCount, PlannedEdit, PlannedRead, SqlIdentStyle,
 };

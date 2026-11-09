@@ -13,12 +13,13 @@ mod ipc;
 mod logging;
 mod menu;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use mystique_agent::AgentService;
 use mystique_core::{AppDatabase, AppServices};
 use mystique_mcp::McpService;
-use tauri::{image::Image, Manager};
+use tauri::{image::Image, Emitter, Manager};
 
 use crate::menu::NativeMenuState;
 
@@ -43,6 +44,53 @@ pub struct AppState {
     pub agent: AgentService,
     /// App log directory, for the diagnostics bundle. `None` if the OS gave none.
     pub log_dir: Option<std::path::PathBuf>,
+    /// Set once the user chose to quit with transfers still running.
+    pub quit_confirmed: AtomicBool,
+    /// When a quit was last held. A second quit soon after goes through, so
+    /// the app can always be quit even if the window cannot answer.
+    pub quit_held_at: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+/// A second quit within this long of a held one is not held again.
+const QUIT_AGAIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Window event: a quit or close was held because exports or imports run.
+const QUIT_REQUESTED: &str = "quit-requested";
+
+/// True when closing now would cut off a running export or import. The
+/// window is told and asks the user; `confirm_quit` quits after that.
+fn hold_quit(app: &tauri::AppHandle) -> bool {
+    let Some(state) = app.try_state::<AppState>() else {
+        return false;
+    };
+    if state.quit_confirmed.load(Ordering::SeqCst) {
+        return false;
+    }
+    let running = state.services.connections().running_transfers();
+    if running == 0 {
+        return false;
+    }
+    if let Ok(mut held) = state.quit_held_at.lock() {
+        if held.is_some_and(|at| at.elapsed() < QUIT_AGAIN) {
+            tracing::info!(running, "quit asked twice: cancelling transfers");
+            state.quit_confirmed.store(true, Ordering::SeqCst);
+            state.services.connections().cancel_transfers();
+            return false;
+        }
+        *held = Some(std::time::Instant::now());
+    }
+    tracing::info!(running, "quit held: transfers are running");
+    let _ = app.emit(QUIT_REQUESTED, running);
+    true
+}
+
+/// The user chose to quit while transfers run: cancel them, then exit.
+/// Partial exports are removed (they are staged), imported batches stay.
+#[tauri::command]
+fn confirm_quit(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    state.quit_confirmed.store(true, Ordering::SeqCst);
+    state.services.connections().cancel_transfers();
+    app.exit(0);
 }
 
 /// Native menu. Stays sync: no keychain and no SQLite. See `ipc/mod.rs`.
@@ -63,6 +111,13 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .menu(|app| menu::build_menu(app, &NativeMenuState::default()))
         .on_menu_event(|app, event| menu::handle_menu_event(app, event.id().as_ref()))
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" && hold_quit(window.app_handle()) {
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(|app| {
             let log_dir = app.path().app_log_dir().ok();
             if let Some(dir) = &log_dir {
@@ -103,6 +158,8 @@ pub fn run() {
                 mcp,
                 agent,
                 log_dir,
+                quit_confirmed: AtomicBool::new(false),
+                quit_held_at: std::sync::Mutex::new(None),
             });
             apply_app_icon(app).map_err(|e| format!("app icon: {e}"))?;
             Ok(())
@@ -142,6 +199,9 @@ pub fn run() {
             ipc::engines::export_engine_object,
             ipc::engines::preview_engine_import,
             ipc::engines::import_engine_object,
+            ipc::engines::running_engine_transfers,
+            ipc::engines::invalidate_engine_metadata,
+            confirm_quit,
             ipc::engines::describe_engine_object_structure,
             ipc::engines::describe_engine_table_definition,
             ipc::engines::list_engine_table_definitions,
@@ -200,6 +260,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if hold_quit(app) {
+                    api.prevent_exit();
+                }
+                return;
+            }
             if let tauri::RunEvent::Exit = event {
                 tracing::info!("mystique exiting");
                 let Some(state) = app.try_state::<AppState>() else {

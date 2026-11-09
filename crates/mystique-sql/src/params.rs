@@ -395,6 +395,10 @@ fn scan_placeholders(sql: &str, dialect: SqlDialect) -> Vec<RawPlace> {
             index = skip_block_comment(bytes, index + 2);
             continue;
         }
+        if postgres && escape_string_start(bytes, index) {
+            index = skip_string(bytes, index + 2, b'\'', true);
+            continue;
+        }
         if bytes[index] == b'\'' {
             index = skip_string(bytes, index + 1, b'\'', dialect == SqlDialect::Mysql);
             continue;
@@ -487,6 +491,20 @@ fn skip_block_comment(bytes: &[u8], mut index: usize) -> usize {
         index += 1;
     }
     bytes.len()
+}
+
+/// Postgres `E'…'` (or `e'…'`): backslash escapes apply inside, so `\'`
+/// does not close it. The `E` must start a word (`name'` is not one).
+fn escape_string_start(bytes: &[u8], index: usize) -> bool {
+    matches!(bytes[index], b'E' | b'e')
+        && bytes.get(index + 1) == Some(&b'\'')
+        && (index == 0 || !is_word_byte(bytes[index - 1]))
+}
+
+/// Identifier bytes, plus `$` (Postgres allows it after the first letter) and
+/// any non-ASCII byte (part of a Unicode identifier).
+fn is_word_byte(byte: u8) -> bool {
+    is_ident_byte(byte) || byte == b'$' || !byte.is_ascii()
 }
 
 fn skip_string(bytes: &[u8], mut index: usize, quote: u8, backslash: bool) -> usize {
@@ -757,6 +775,27 @@ mod tests {
         let local = sql.find(needle).expect("needle in driver sql");
         let offset = start + script.source_offset(text, start, text.len(), dialect, local);
         text.get(offset..).unwrap_or("")
+    }
+
+    #[test]
+    fn postgres_escape_strings_hide_a_name_after_an_escaped_quote() {
+        assert_eq!(
+            labels(r"SELECT E'it\'s :no', e'\\', :yes", SqlDialect::Postgres),
+            vec![":yes"]
+        );
+        // Standard strings keep `\` literal, and `date'…'` is not an `E''`.
+        assert_eq!(
+            labels(r"SELECT 'a\', :p, date'b\', :q", SqlDialect::Postgres),
+            vec![":p", ":q"]
+        );
+        // Other dialects have no `E''`: the `E` is a name.
+        assert_eq!(labels(r"SELECT E'a\', :p", SqlDialect::Sqlite), vec![":p"]);
+        let sql = r"SELECT E'\'' || :x";
+        assert_eq!(labels(sql, SqlDialect::Postgres), vec![":x"]);
+        assert_eq!(
+            ScriptParams::mask(sql, SqlDialect::Postgres).len(),
+            sql.len()
+        );
     }
 
     #[test]

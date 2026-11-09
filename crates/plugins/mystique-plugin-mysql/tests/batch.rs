@@ -6,8 +6,10 @@ use std::collections::BTreeMap;
 
 use common::{connect, count, run_batch, write};
 use mystique_connector_api::{
-    ApplyTableEditsInput, QueryMode, TableEditColumn, TableRowUpdate, ValidatedQuery,
+    gate_sql_batch_in, ApplyTableEditsInput, QueryControl, QueryMode, TableEditColumn,
+    TableRowUpdate, ValidatedBatch, ValidatedQuery,
 };
+use mystique_sql::SqlDialect;
 use serde_json::json;
 
 #[tokio::test]
@@ -72,6 +74,66 @@ async fn batch_continues_after_a_truncated_select() {
 
     write(session, "DROP TABLE s4_trunc").await;
     session.close().await.ok();
+}
+
+#[tokio::test]
+#[ignore = "needs local MySQL"]
+async fn a_pinned_batch_continues_after_a_truncated_select() {
+    let session = connect().await;
+    let session = session.as_ref();
+    write(session, "DROP TABLE IF EXISTS mq_ea_trunc_pin").await;
+    write(session, "CREATE TABLE mq_ea_trunc_pin (id INT PRIMARY KEY)").await;
+    write(
+        session,
+        "INSERT INTO mq_ea_trunc_pin VALUES (1), (2), (3), (4), (5)",
+    )
+    .await;
+
+    let mut pin = session.begin_pinned().await.expect("pin");
+    let ran = pin
+        .execute(&pinned_batch(
+            "SELECT id FROM mq_ea_trunc_pin ORDER BY id; \
+             INSERT INTO mq_ea_trunc_pin VALUES (6); \
+             SELECT COUNT(*) FROM mq_ea_trunc_pin; \
+             SELECT id FROM mq_ea_trunc_pin",
+        ))
+        .await
+        .expect("pinned batch");
+    assert_eq!(ran.stopped_at, None, "{:?}", ran.results);
+    assert_eq!(ran.results.len(), 4, "{:?}", ran.results);
+    assert!(ran.results[0].result.as_ref().is_some_and(|r| r.truncated));
+    assert_eq!(ran.results[1].affected_rows, Some(1));
+    let counted = ran.results[2].result.as_ref().expect("count");
+    assert_eq!(counted.rows[0][0].to_string().trim_matches('"'), "6");
+    // The capped last set leaves packets on the pinned connection. The next
+    // run on the same pin must still work.
+    assert!(ran.results[3].result.as_ref().is_some_and(|r| r.truncated));
+    let next = pin
+        .execute(&pinned_batch("SELECT COUNT(*) FROM mq_ea_trunc_pin"))
+        .await
+        .expect("next run on the pin");
+    assert!(next.results[0].error.is_none(), "{:?}", next.results);
+    pin.rollback().await.expect("rollback");
+    drop(pin);
+
+    write(session, "DROP TABLE mq_ea_trunc_pin").await;
+    session.close().await.ok();
+}
+
+fn pinned_batch(sql: &str) -> ValidatedBatch {
+    let plan =
+        gate_sql_batch_in(sql, SqlDialect::Mysql, QueryMode::Write, true, &[]).expect("plan");
+    ValidatedBatch {
+        statements: plan.statements,
+        mode: QueryMode::Write,
+        max_rows: 2,
+        timeout_ms: 10_000,
+        explain_executes: plan.explain_executes,
+        collection: None,
+        database: None,
+        control: QueryControl::new(),
+        progress: None,
+    }
 }
 
 #[tokio::test]

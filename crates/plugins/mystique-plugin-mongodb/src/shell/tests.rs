@@ -6,12 +6,18 @@
 //! (`shell_query::parse_mongo_call`). `new` is set only where the shared
 //! parser does something else, with the reason. `exec` is a summary of the
 //! call the executor runs (`err` when it refuses the text; `db/coll` when the
-//! text names a database).
+//! text names a database; ` o={…}` lists the options the executor applies).
+//!
+//! Rows added with E-09 (options arguments, #175) record the Phase D parser
+//! as `old`: it read options arguments and then dropped them.
 
 use mongodb::bson::{Bson, Document};
 use mystique_connector_api::{EngineQueryPolicy, QueryMode, WriteRisk};
 
-use super::parse::{parse_executable, BulkModel, Executable, Listing, MongoOp, ShellWrite, Target};
+use super::parse::{
+    parse_executable, DeleteModel, Executable, FindAndModify, Listing, Modify, MongoOp,
+    ReadOptions, ShellWrite, Target, UpdateModel, WriteMethod, WriteModel, WriteOptions,
+};
 use super::policy::MongoQueryPolicy;
 
 use WriteRisk::{Destructive as X, Read as R, Write as W};
@@ -68,19 +74,19 @@ const CORPUS: &[Row] = &[
     Row { text: r#"db.orders.aggregate([{$lookup: {from: "x", pipeline: [{$out: "y"}], as: "z"}}])"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$lookup":{"from":"x","pipeline":[{"$out":"y"}],"as":"z"}}]"# }, new: None },
     Row { text: r#"db.orders.aggregate([{$match: {}}, {$drop: "t"}])"#, old: Seen { risk: X, read: false, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}},{"$drop":"t"}]"# }, new: None },
     Row { text: "db.orders.aggregate([{$match: {}}]).pretty()", old: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}]"# }, new: None },
-    Row { text: "db.orders.aggregate([{$match: {}}], {allowDiskUse: true})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}]"# }, new: None },
+    Row { text: "db.orders.aggregate([{$match: {}}], {allowDiskUse: true})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}]"# }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}] o={"allowDiskUse":true}"# }, why: "E-09: aggregate options are applied" }) },
     Row { text: "db.orders.insertOne({a: 1})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "insertone", exec: r#"insertOne orders {"a":1}"# }, new: None },
     Row { text: "db.orders.insertMany([{a: 1}, {a: 2}])", old: Seen { risk: W, read: false, write: true, safe: true, preview: "insertmany", exec: r#"insertMany orders [{"a":1},{"a":2}]"# }, new: None },
     Row { text: "db.orders.updateOne({a: 1}, {$set: {b: 2}})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "updateone", exec: r#"updateOne orders {"a":1} {"$set":{"b":2}}"# }, new: None },
-    Row { text: "db.orders.updateMany({a: 1}, {$set: {b: 2}}, {upsert: true})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "updatemany", exec: r#"updateMany orders {"a":1} {"$set":{"b":2}}"# }, new: None },
+    Row { text: "db.orders.updateMany({a: 1}, {$set: {b: 2}}, {upsert: true})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "updatemany", exec: r#"updateMany orders {"a":1} {"$set":{"b":2}}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: true, preview: "updatemany", exec: r#"updateMany orders {"a":1} {"$set":{"b":2}} o={"upsert":true}"# }, why: "E-09: upsert is applied; still a write and still the safe_write tier" }) },
     Row { text: "db.orders.updateMany({}, [{$set: {b: 2}}])", old: Seen { risk: W, read: false, write: true, safe: true, preview: "updatemany", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: true, preview: "updatemany", exec: "err" }, why: "validate now refuses what the executor cannot run, before the write guard asks to confirm it (update pipelines)" }) },
     Row { text: r#"db.orders.deleteOne({_id: ObjectId("64f123456789abcdef123456")})"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "deleteone", exec: r#"deleteOne orders {"_id":{"$oid":"64f123456789abcdef123456"}}"# }, new: None },
     Row { text: "db.orders.deleteMany({})", old: Seen { risk: W, read: false, write: true, safe: false, preview: "deletemany", exec: "deleteMany orders {}" }, new: None },
     Row { text: "db.orders.deleteMany()", old: Seen { risk: W, read: false, write: true, safe: false, preview: "deletemany", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: false, preview: "deletemany", exec: "err" }, why: "validate now refuses what the executor cannot run, before the write guard asks to confirm it (no filter)" }) },
     Row { text: "db.orders.replaceOne({a: 1}, {a: 2})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "replaceone", exec: r#"replaceOne orders {"a":1} {"a":2}"# }, new: None },
-    Row { text: r#"db.orders.findOneAndUpdate({a: 1}, {$set: {b: 2}}, {returnDocument: "after"})"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandupdate", exec: r#"findOneAndUpdate orders {"a":1} {"$set":{"b":2}}"# }, new: None },
-    Row { text: "db.orders.findOneAndDelete({a: 1})", old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneanddelete", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: false, preview: "findoneanddelete", exec: "err" }, why: "validate now refuses what the executor cannot run, before the write guard asks to confirm it" }) },
-    Row { text: "db.orders.findOneAndReplace({a: 1}, {a: 2})", old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandreplace", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: false, preview: "findoneandreplace", exec: "err" }, why: "validate now refuses what the executor cannot run, before the write guard asks to confirm it" }) },
+    Row { text: r#"db.orders.findOneAndUpdate({a: 1}, {$set: {b: 2}}, {returnDocument: "after"})"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandupdate", exec: r#"findOneAndUpdate orders {"a":1} {"$set":{"b":2}}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandupdate", exec: r#"findOneAndUpdate orders {"a":1} {"$set":{"b":2}} o={"returnDocument":"after"}"# }, why: "E-09: returnDocument is applied" }) },
+    Row { text: "db.orders.findOneAndDelete({a: 1})", old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneanddelete", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneanddelete", exec: r#"findOneAndDelete orders {"a":1}"# }, why: "E-09: the executor runs findOneAndDelete (Phase D refused it at validate)" }) },
+    Row { text: "db.orders.findOneAndReplace({a: 1}, {a: 2})", old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandreplace", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandreplace", exec: r#"findOneAndReplace orders {"a":1} {"a":2}"# }, why: "E-09: the executor runs findOneAndReplace (Phase D refused it at validate)" }) },
     Row { text: "db.orders.bulkWrite([{insertOne: {document: {a: 1}}}, {deleteOne: {filter: {a: 1}}}])", old: Seen { risk: W, read: false, write: true, safe: false, preview: "bulkwrite", exec: r#"bulkWrite orders [insertOne {"a":1},deleteOne {"a":1}]"# }, new: None },
     Row { text: "db.orders.insert({a: 1})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "insert", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: true, preview: "insert", exec: "err" }, why: "validate now refuses what the executor cannot run, before the write guard asks to confirm it (legacy insert)" }) },
     Row { text: "db.orders.update({a: 1}, {$set: {b: 1}})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "update", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: true, preview: "update", exec: "err" }, why: "validate now refuses what the executor cannot run, before the write guard asks to confirm it (legacy update)" }) },
@@ -162,6 +168,34 @@ const CORPUS: &[Row] = &[
     Row { text: "hello", old: Seen { risk: W, read: false, write: false, safe: false, preview: "hello", exec: "err" }, new: None },
     Row { text: "db.orders.find({a: 1}", old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: false, preview: "db.orders.find({a:1}", exec: "err" }, why: "text that does not parse is a write" }) },
     Row { text: r#"db.orders.find({a: "unterminated})"#, old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: false, preview: r#"db.orders.find({a:"unterminated})"#, exec: "err" }, why: "text that does not parse is a write" }) },
+    // E-09 (#175): options arguments. `old` is the Phase D parser.
+    Row { text: "db.orders.find({a: 1}, {b: 1}, {sort: {b: -1}, limit: 3, skip: 2})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: r#"find orders {"a":1} p={"b":1}"# }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: r#"find orders {"a":1} p={"b":1} s={"b":-1} l=3 k=2"# }, why: "E-09: the third find argument (options) is applied" }) },
+    Row { text: r#"db.orders.find({}, null, {projection: {b: 1}, hint: "a_1", maxTimeMS: 500, batchSize: 10, allowDiskUse: true, comment: "x"})"#, old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "err" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: r#"find orders {} p={"b":1} o={"batchSize":10,"allowDiskUse":true,"hint":"a_1","maxTimeMS":500,"comment":"x"}"# }, why: "E-09: a null projection is none; find options are applied" }) },
+    Row { text: "db.orders.find({}, {a: 1}, {projection: {b: 1}})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: r#"find orders {} p={"a":1}"# }, new: Some(Change { seen: Seen { risk: R, read: false, write: false, safe: false, preview: "find", exec: "err" }, why: "E-09: a projection in both places is refused instead of dropping one" }) },
+    Row { text: "db.orders.find({}, {}, {}, {})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "find orders {} p={}" }, new: Some(Change { seen: Seen { risk: R, read: false, write: false, safe: false, preview: "find", exec: "err" }, why: "E-09: arguments after the options are refused, not dropped" }) },
+    Row { text: "db.orders.find({}, {}, {frobnicate: 1})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "find orders {} p={}" }, new: Some(Change { seen: Seen { risk: R, read: false, write: false, safe: false, preview: "find", exec: "err" }, why: "E-09: an unknown option is refused, not dropped" }) },
+    Row { text: r#"db.orders.find({}).hint({a: 1}).maxTimeMS(250).collation({locale: "fr"}).batchSize(5).allowDiskUse().comment("c")"#, old: Seen { risk: R, read: false, write: false, safe: false, preview: "find", exec: "err" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: r#"find orders {} o={"batchSize":5,"allowDiskUse":true,"hint":{"a":1},"collation":{"locale":"fr"},"maxTimeMS":250,"comment":"c"}"# }, why: "E-09: cursor option chains run" }) },
+    Row { text: "db.orders.find({}).limit(0)", old: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "find orders {} l=0" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "find", exec: "find orders {}" }, why: "E-09: limit 0 is no limit, as on the server (Phase D read one row)" }) },
+    Row { text: r#"db.orders.findOne({a: 1}, null, {sort: {a: 1}})"#, old: Seen { risk: R, read: false, write: false, safe: false, preview: "findone", exec: "err" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "findone", exec: r#"find orders {"a":1} s={"a":1} l=1"# }, why: "E-09: findOne takes the find options" }) },
+    Row { text: r#"db.orders.aggregate([{$match: {}}], {maxTimeMS: 100, collation: {locale: "en"}, hint: "a_1", batchSize: 5, let: {v: 1}})"#, old: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}]"# }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}] o={"batchSize":5,"let":{"v":1},"hint":"a_1","collation":{"locale":"en"},"maxTimeMS":100}"# }, why: "E-09: aggregate options are applied" }) },
+    Row { text: r#"db.orders.aggregate([{$out: "t"}], {allowDiskUse: true, bypassDocumentValidation: true})"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$out":"t"}]"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$out":"t"}] o={"allowDiskUse":true,"bypassDocumentValidation":true}"# }, why: "E-09: options are applied; $out keeps it a write" }) },
+    Row { text: "db.orders.aggregate([{$match: {}}], {out: 1})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "aggregate", exec: r#"aggregate orders [{"$match":{}}]"# }, new: Some(Change { seen: Seen { risk: R, read: false, write: false, safe: false, preview: "aggregate", exec: "err" }, why: "E-09: an unknown aggregate option is refused, not dropped" }) },
+    Row { text: "db.orders.countDocuments({a: 1}, {limit: 5, skip: 1, hint: {a: 1}})", old: Seen { risk: R, read: true, write: true, safe: false, preview: "countdocuments", exec: r#"count orders {"a":1}"# }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "countdocuments", exec: r#"count orders {"a":1} o={"limit":5,"skip":1,"hint":{"a":1}}"# }, why: "E-09: count options are applied" }) },
+    Row { text: "db.orders.estimatedDocumentCount()", old: Seen { risk: R, read: false, write: false, safe: false, preview: "estimateddocumentcount", exec: "err" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "estimateddocumentcount", exec: "estimatedCount orders" }, why: "E-09: estimatedDocumentCount runs, as a read" }) },
+    Row { text: "db.orders.estimatedDocumentCount({maxTimeMS: 50})", old: Seen { risk: R, read: false, write: false, safe: false, preview: "estimateddocumentcount", exec: "err" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "estimateddocumentcount", exec: r#"estimatedCount orders o={"maxTimeMS":50}"# }, why: "E-09: estimatedDocumentCount runs, with its options" }) },
+    Row { text: r#"db.orders.distinct("city", {}, {collation: {locale: "en", strength: 2}})"#, old: Seen { risk: R, read: true, write: true, safe: false, preview: "distinct", exec: "distinct orders city {}" }, new: Some(Change { seen: Seen { risk: R, read: true, write: true, safe: false, preview: "distinct", exec: r#"distinct orders city {} o={"collation":{"locale":"en","strength":2}}"# }, why: "E-09: distinct options are applied" }) },
+    Row { text: "db.orders.insertMany([{a: 1}, {a: 2}], {ordered: false})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "insertmany", exec: r#"insertMany orders [{"a":1},{"a":2}]"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: true, preview: "insertmany", exec: r#"insertMany orders [{"a":1},{"a":2}] o={"ordered":false}"# }, why: "E-09: ordered is applied" }) },
+    Row { text: r#"db.orders.insertOne({a: 1}, {writeConcern: {w: "majority"}, comment: "c"})"#, old: Seen { risk: W, read: false, write: true, safe: true, preview: "insertone", exec: r#"insertOne orders {"a":1}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: true, preview: "insertone", exec: r#"insertOne orders {"a":1} o={"comment":"c","writeConcern":{"w":"majority"}}"# }, why: "E-09: insert options are applied" }) },
+    Row { text: r#"db.orders.updateOne({a: 1}, {$set: {"x.$[e].v": 1}}, {arrayFilters: [{"e.k": 2}], upsert: true, maxTimeMS: 900})"#, old: Seen { risk: W, read: false, write: true, safe: true, preview: "updateone", exec: r#"updateOne orders {"a":1} {"$set":{"x.$[e].v":1}}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: true, preview: "updateone", exec: r#"updateOne orders {"a":1} {"$set":{"x.$[e].v":1}} o={"upsert":true,"arrayFilters":[{"e.k":2}],"maxTimeMS":900}"# }, why: "E-09: upsert, arrayFilters and maxTimeMS are applied" }) },
+    Row { text: "db.orders.updateOne({a: 1}, {$set: {b: 1}}, {upsret: true})", old: Seen { risk: W, read: false, write: true, safe: true, preview: "updateone", exec: r#"updateOne orders {"a":1} {"$set":{"b":1}}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: true, preview: "updateone", exec: "err" }, why: "E-09: a misspelt option is refused instead of running without it" }) },
+    Row { text: r#"db.orders.replaceOne({a: 1}, {a: 2}, {upsert: true, hint: "a_1", collation: {locale: "fr"}})"#, old: Seen { risk: W, read: false, write: true, safe: true, preview: "replaceone", exec: r#"replaceOne orders {"a":1} {"a":2}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: true, preview: "replaceone", exec: r#"replaceOne orders {"a":1} {"a":2} o={"upsert":true,"collation":{"locale":"fr"},"hint":"a_1"}"# }, why: "E-09: replace options are applied" }) },
+    Row { text: r#"db.orders.deleteMany({a: 1}, {collation: {locale: "fr"}, hint: {a: 1}})"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "deletemany", exec: r#"deleteMany orders {"a":1}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "deletemany", exec: r#"deleteMany orders {"a":1} o={"collation":{"locale":"fr"},"hint":{"a":1}}"# }, why: "E-09: delete options are applied" }) },
+    Row { text: r#"db.orders.findOneAndUpdate({a: 1}, {$inc: {n: 1}}, {upsert: true, returnDocument: "before", projection: {n: 1}, sort: {n: -1}})"#, old: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandupdate", exec: r#"findOneAndUpdate orders {"a":1} {"$inc":{"n":1}}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandupdate", exec: r#"findOneAndUpdate orders {"a":1} {"$inc":{"n":1}} o={"upsert":true,"returnDocument":"before","projection":{"n":1},"sort":{"n":-1}}"# }, why: "E-09: findOneAndUpdate options are applied; upsert stays a write" }) },
+    Row { text: "db.orders.findOneAndReplace({a: 1}, {a: 2}, {returnNewDocument: true, upsert: true})", old: Seen { risk: W, read: false, write: false, safe: false, preview: "findoneandreplace", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneandreplace", exec: r#"findOneAndReplace orders {"a":1} {"a":2} o={"upsert":true,"returnDocument":"after"}"# }, why: "E-09: findOneAndReplace runs with its options" }) },
+    Row { text: "db.orders.findOneAndDelete({a: 1}, {sort: {a: 1}, projection: {_id: 1}})", old: Seen { risk: W, read: false, write: false, safe: false, preview: "findoneanddelete", exec: "err" }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "findoneanddelete", exec: r#"findOneAndDelete orders {"a":1} o={"projection":{"_id":1},"sort":{"a":1}}"# }, why: "E-09: findOneAndDelete runs with its options" }) },
+    Row { text: "db.orders.bulkWrite([{updateOne: {filter: {a: 1}, update: {$set: {b: 1}}, upsert: true}}, {deleteMany: {filter: {c: 1}, collation: {locale: \"en\"}}}], {ordered: false})", old: Seen { risk: W, read: false, write: true, safe: false, preview: "bulkwrite", exec: r#"bulkWrite orders [updateOne {"a":1} {"$set":{"b":1}},deleteMany {"c":1}]"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: false, preview: "bulkwrite", exec: r#"bulkWrite orders [updateOne {"a":1} {"$set":{"b":1}} o={"upsert":true},deleteMany {"c":1} o={"collation":{"locale":"en"}}] o={"ordered":false}"# }, why: "E-09: per-operation and bulkWrite options are applied" }) },
+    Row { text: "db.orders.bulkWrite([{deleteOne: {filter: {a: 1}, limit: 1}}])", old: Seen { risk: W, read: false, write: true, safe: false, preview: "bulkwrite", exec: r#"bulkWrite orders [deleteOne {"a":1}]"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: false, safe: false, preview: "bulkwrite", exec: "err" }, why: "E-09: an unknown key in a bulkWrite operation is refused, not dropped" }) },
+    Row { text: r#"{"op": "updateOne", "filter": {"a": 1}, "update": {"$set": {"b": 1}}, "options": {"upsert": true}}"#, old: Seen { risk: W, read: false, write: true, safe: true, preview: "updateone", exec: r#"updateOne - {"a":1} {"$set":{"b":1}}"# }, new: Some(Change { seen: Seen { risk: W, read: false, write: true, safe: true, preview: "updateone", exec: r#"updateOne - {"a":1} {"$set":{"b":1}} o={"upsert":true}"# }, why: "E-09: a command's `options` object is applied" }) },
 ];
 
 fn json(doc: &Document) -> String {
@@ -180,6 +214,123 @@ fn target(t: &Target) -> String {
         Some(db) => format!("{db}/{coll}"),
         None => coll.to_string(),
     }
+}
+
+/// ` o={…}` for the options that are set, in a fixed order. Empty when none.
+fn opts(pairs: Vec<(&str, Option<Bson>)>) -> String {
+    let mut set = Document::new();
+    for (key, value) in pairs {
+        if let Some(value) = value {
+            set.insert(key, value);
+        }
+    }
+    if set.is_empty() {
+        String::new()
+    } else {
+        format!(" o={}", json(&set))
+    }
+}
+
+fn int(n: Option<u64>) -> Option<Bson> {
+    n.map(|n| Bson::Int64(i64::try_from(n).unwrap_or(i64::MAX)))
+}
+
+fn read_pairs(read: &ReadOptions) -> Vec<(&'static str, Option<Bson>)> {
+    vec![
+        ("hint", read.hint.clone()),
+        ("collation", read.collation.clone().map(Bson::Document)),
+        ("maxTimeMS", int(read.max_time_ms)),
+        ("comment", read.comment.clone()),
+    ]
+}
+
+fn write_pairs(w: &WriteOptions) -> Vec<(&'static str, Option<Bson>)> {
+    vec![
+        ("ordered", w.ordered.map(Bson::Boolean)),
+        (
+            "bypassDocumentValidation",
+            w.bypass_document_validation.map(Bson::Boolean),
+        ),
+        ("comment", w.comment.clone()),
+        ("let", w.let_vars.clone().map(Bson::Document)),
+        ("writeConcern", w.write_concern.clone().map(Bson::Document)),
+        ("maxTimeMS", int(w.max_time_ms)),
+    ]
+}
+
+fn update_pairs(m: &UpdateModel) -> Vec<(&'static str, Option<Bson>)> {
+    vec![
+        ("upsert", m.upsert.map(Bson::Boolean)),
+        (
+            "arrayFilters",
+            m.array_filters
+                .clone()
+                .map(|f| Bson::Array(f.into_iter().map(Bson::Document).collect())),
+        ),
+        ("collation", m.collation.clone().map(Bson::Document)),
+        ("hint", m.hint.clone()),
+        ("sort", m.sort.clone().map(Bson::Document)),
+    ]
+}
+
+fn delete_pairs(m: &DeleteModel) -> Vec<(&'static str, Option<Bson>)> {
+    vec![
+        ("collation", m.collation.clone().map(Bson::Document)),
+        ("hint", m.hint.clone()),
+    ]
+}
+
+/// One model: its name, documents and own options.
+fn model(m: &WriteModel) -> (String, Vec<(&'static str, Option<Bson>)>) {
+    match m {
+        WriteModel::InsertOne(d) => (format!("insertOne {}", json(d)), Vec::new()),
+        WriteModel::UpdateOne(u) => (
+            format!("updateOne {} {}", json(&u.filter), json(&u.update)),
+            update_pairs(u),
+        ),
+        WriteModel::UpdateMany(u) => (
+            format!("updateMany {} {}", json(&u.filter), json(&u.update)),
+            update_pairs(u),
+        ),
+        WriteModel::ReplaceOne(u) => (
+            format!("replaceOne {} {}", json(&u.filter), json(&u.update)),
+            update_pairs(u),
+        ),
+        WriteModel::DeleteOne(d) => (format!("deleteOne {}", json(&d.filter)), delete_pairs(d)),
+        WriteModel::DeleteMany(d) => (format!("deleteMany {}", json(&d.filter)), delete_pairs(d)),
+    }
+}
+
+fn find_and_modify(at: &str, f: &FindAndModify) -> String {
+    let body = match &f.modify {
+        Modify::Update(u) | Modify::Replace(u) => format!(" {}", json(u)),
+        Modify::Delete => String::new(),
+    };
+    let mut pairs = vec![
+        ("upsert", f.upsert.map(Bson::Boolean)),
+        (
+            "returnDocument",
+            f.return_after
+                .map(|after| Bson::String(if after { "after" } else { "before" }.into())),
+        ),
+        ("projection", f.projection.clone().map(Bson::Document)),
+        ("sort", f.sort.clone().map(Bson::Document)),
+        (
+            "arrayFilters",
+            f.array_filters
+                .clone()
+                .map(|v| Bson::Array(v.into_iter().map(Bson::Document).collect())),
+        ),
+        ("collation", f.collation.clone().map(Bson::Document)),
+        ("hint", f.hint.clone()),
+    ];
+    pairs.extend(write_pairs(&f.options));
+    format!(
+        "{} {at} {}{body}{}",
+        f.method(),
+        json(&f.filter),
+        opts(pairs)
+    )
 }
 
 /// The executor's parse, summarised. `err` when it refuses the text.
@@ -206,51 +357,84 @@ fn exec(text: &str) -> String {
             if let Some(n) = p.skip {
                 s.push_str(&format!(" k={n}"));
             }
+            let mut pairs = vec![
+                ("batchSize", p.batch_size.map(|n| Bson::Int64(i64::from(n)))),
+                ("allowDiskUse", p.allow_disk_use.map(Bson::Boolean)),
+            ];
+            pairs.extend(read_pairs(&p.read));
+            s.push_str(&opts(pairs));
             s
         }
-        MongoOp::Aggregate(pipeline) => format!("aggregate {at} {}", docs(&pipeline)),
-        MongoOp::Count(filter) => format!("count {at} {}", json(&filter)),
-        MongoOp::Distinct { field, filter } => format!("distinct {at} {field} {}", json(&filter)),
-        MongoOp::Write(w) => match w {
-            ShellWrite::InsertOne(d) => format!("insertOne {at} {}", json(&d)),
-            ShellWrite::InsertMany(d) => format!("insertMany {at} {}", docs(&d)),
-            ShellWrite::UpdateOne { filter, update } => {
-                format!("updateOne {at} {} {}", json(&filter), json(&update))
+        MongoOp::Aggregate(a) => {
+            let mut pairs = vec![
+                ("allowDiskUse", a.allow_disk_use.map(Bson::Boolean)),
+                ("batchSize", a.batch_size.map(|n| Bson::Int64(i64::from(n)))),
+                (
+                    "bypassDocumentValidation",
+                    a.bypass_document_validation.map(Bson::Boolean),
+                ),
+                ("let", a.let_vars.clone().map(Bson::Document)),
+            ];
+            pairs.extend(read_pairs(&a.read));
+            format!("aggregate {at} {}{}", docs(&a.pipeline), opts(pairs))
+        }
+        MongoOp::Count(c) => {
+            let mut pairs = vec![("limit", int(c.limit)), ("skip", int(c.skip))];
+            pairs.extend(read_pairs(&c.read));
+            format!("count {at} {}{}", json(&c.filter), opts(pairs))
+        }
+        MongoOp::EstimatedCount(read) => format!("estimatedCount {at}{}", opts(read_pairs(&read))),
+        MongoOp::Distinct {
+            field,
+            filter,
+            read,
+        } => format!(
+            "distinct {at} {field} {}{}",
+            json(&filter),
+            opts(read_pairs(&read))
+        ),
+        MongoOp::Write(ShellWrite::FindAndModify(f)) => find_and_modify(&at, &f),
+        MongoOp::Write(ShellWrite::Models {
+            method,
+            models,
+            options,
+        }) => match method {
+            WriteMethod::InsertMany => {
+                let inserted: Vec<Document> = models
+                    .iter()
+                    .filter_map(|m| match m {
+                        WriteModel::InsertOne(d) => Some(d.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                format!(
+                    "insertMany {at} {}{}",
+                    docs(&inserted),
+                    opts(write_pairs(&options))
+                )
             }
-            ShellWrite::UpdateMany { filter, update } => {
-                format!("updateMany {at} {} {}", json(&filter), json(&update))
-            }
-            ShellWrite::ReplaceOne {
-                filter,
-                replacement,
-            } => format!("replaceOne {at} {} {}", json(&filter), json(&replacement)),
-            ShellWrite::DeleteOne(d) => format!("deleteOne {at} {}", json(&d)),
-            ShellWrite::DeleteMany(d) => format!("deleteMany {at} {}", json(&d)),
-            ShellWrite::FindOneAndUpdate { filter, update } => {
-                format!("findOneAndUpdate {at} {} {}", json(&filter), json(&update))
-            }
-            ShellWrite::Bulk(models) => format!(
-                "bulkWrite {at} [{}]",
+            WriteMethod::BulkWrite => format!(
+                "bulkWrite {at} [{}]{}",
                 models
                     .iter()
-                    .map(|m| match m {
-                        BulkModel::InsertOne(d) => format!("insertOne {}", json(d)),
-                        BulkModel::UpdateOne { filter, update } => {
-                            format!("updateOne {} {}", json(filter), json(update))
-                        }
-                        BulkModel::UpdateMany { filter, update } => {
-                            format!("updateMany {} {}", json(filter), json(update))
-                        }
-                        BulkModel::ReplaceOne {
-                            filter,
-                            replacement,
-                        } => format!("replaceOne {} {}", json(filter), json(replacement)),
-                        BulkModel::DeleteOne(d) => format!("deleteOne {}", json(d)),
-                        BulkModel::DeleteMany(d) => format!("deleteMany {}", json(d)),
+                    .map(|m| {
+                        let (name, pairs) = model(m);
+                        format!("{name}{}", opts(pairs))
                     })
                     .collect::<Vec<_>>()
-                    .join(",")
+                    .join(","),
+                opts(write_pairs(&options))
             ),
+            // One model: `updateOne orders {filter} {update} o={…}`.
+            _ => {
+                let Some(only) = models.first() else {
+                    return "err".into();
+                };
+                let (name, mut pairs) = model(only);
+                pairs.extend(write_pairs(&options));
+                let (_, rest) = name.split_once(' ').unwrap_or((name.as_str(), ""));
+                format!("{} {at} {rest}{}", method.name(), opts(pairs))
+            }
         },
     }
 }
@@ -321,9 +505,16 @@ fn no_row_loses_risk_unless_it_runs_as_a_read() {
     for row in CORPUS {
         let new = row.new.as_ref().map_or(&row.old, |c| &c.seen);
         if new.risk < row.old.risk {
-            let read_call = ["find ", "aggregate ", "count ", "distinct ", "list "]
-                .iter()
-                .any(|p| new.exec.starts_with(p));
+            let read_call = [
+                "find ",
+                "aggregate ",
+                "count ",
+                "estimatedCount ",
+                "distinct ",
+                "list ",
+            ]
+            .iter()
+            .any(|p| new.exec.starts_with(p));
             assert!(
                 read_call,
                 "{:?} lost risk but runs as {}",
@@ -346,6 +537,8 @@ fn executed_writes_are_never_reads() {
         "deleteOne ",
         "deleteMany ",
         "findOneAndUpdate ",
+        "findOneAndReplace ",
+        "findOneAndDelete ",
         "bulkWrite ",
     ];
     for row in CORPUS {
@@ -510,10 +703,11 @@ fn preview_names_the_operation() {
 }
 
 mod parse {
-    use mongodb::bson::Bson;
+    use mongodb::bson::{doc, Bson};
 
     use super::super::parse::{
-        parse, parse_executable, Executable, MongoCall, MongoOp, ShellWrite, Statement,
+        parse, parse_executable, Executable, Modify, MongoCall, MongoOp, ShellWrite, Statement,
+        WriteMethod, WriteModel, WriteOptions,
     };
     use super::super::value::parse_document;
 
@@ -600,10 +794,162 @@ mod parse {
         let c = call(
             r#"db.orders.bulkWrite([{insertOne:{document:{a:1}}},{deleteMany:{filter:{a:1}}}])"#,
         );
-        let MongoOp::Write(ShellWrite::Bulk(models)) = c.op else {
+        let MongoOp::Write(ShellWrite::Models {
+            method: WriteMethod::BulkWrite,
+            models,
+            ..
+        }) = c.op
+        else {
             panic!("bulk");
         };
         assert_eq!(models.len(), 2);
+    }
+
+    fn models(text: &str) -> (Vec<WriteModel>, WriteOptions) {
+        match call(text).op {
+            MongoOp::Write(ShellWrite::Models {
+                models, options, ..
+            }) => (models, options),
+            other => panic!("{text}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_options_reach_the_statement() {
+        let (models, options) = models(
+            r#"db.t.updateMany({a: 1}, {$set: {"x.$[e]": 1}}, {upsert: true, arrayFilters: [{e: 2}], collation: {locale: "fr"}, hint: "a_1", let: {v: 1}, comment: "c", writeConcern: {w: 1}, maxTimeMS: 7})"#,
+        );
+        let [WriteModel::UpdateMany(m)] = models.as_slice() else {
+            panic!("{models:?}");
+        };
+        assert_eq!(m.upsert, Some(true));
+        assert_eq!(m.array_filters, Some(vec![doc! { "e": 2 }]));
+        assert_eq!(m.collation, Some(doc! { "locale": "fr" }));
+        assert_eq!(m.hint, Some(Bson::String("a_1".into())));
+        assert_eq!(m.sort, None);
+        assert_eq!(options.let_vars, Some(doc! { "v": 1 }));
+        assert_eq!(options.comment, Some(Bson::String("c".into())));
+        assert_eq!(options.write_concern, Some(doc! { "w": 1 }));
+        assert_eq!(options.max_time_ms, Some(7));
+        assert_eq!(options.ordered, None);
+    }
+
+    #[test]
+    fn update_many_takes_no_sort() {
+        let err = match parse_executable("db.t.updateMany({}, {$set: {a: 1}}, {sort: {a: 1}})") {
+            Err(err) => err.to_string(),
+            Ok(ok) => panic!("{ok:?}"),
+        };
+        assert!(err.contains("`sort`"), "{err}");
+        assert!(err.contains("upsert"), "lists what it takes: {err}");
+    }
+
+    #[test]
+    fn find_and_modify_options() {
+        let MongoOp::Write(ShellWrite::FindAndModify(f)) = call(
+            r#"db.t.findOneAndUpdate({a: 1}, {$inc: {n: 1}}, {upsert: true, returnDocument: "after", projection: {n: 1}, sort: {n: -1}, arrayFilters: [{x: 1}], maxTimeMS: 30})"#,
+        )
+        .op
+        else {
+            panic!("findAndModify");
+        };
+        assert_eq!(f.method(), "findOneAndUpdate");
+        assert_eq!(f.modify, Modify::Update(doc! { "$inc": { "n": 1 } }));
+        assert_eq!(f.upsert, Some(true));
+        assert_eq!(f.return_after, Some(true));
+        assert_eq!(f.projection, Some(doc! { "n": 1 }));
+        assert_eq!(f.sort, Some(doc! { "n": -1 }));
+        assert_eq!(f.array_filters, Some(vec![doc! { "x": 1 }]));
+        assert_eq!(f.options.max_time_ms, Some(30));
+    }
+
+    #[test]
+    fn return_document_must_be_before_or_after() {
+        for bad in [
+            r#"db.t.findOneAndUpdate({}, {$set: {a: 1}}, {returnDocument: "new"})"#,
+            r#"db.t.findOneAndUpdate({}, {$set: {a: 1}}, {returnDocument: "after", returnNewDocument: false})"#,
+            r#"db.t.findOneAndDelete({}, {upsert: true})"#,
+            r#"db.t.findOneAndReplace({}, {a: 1}, {arrayFilters: []})"#,
+        ] {
+            assert!(parse_executable(bad).is_err(), "{bad}");
+        }
+        assert!(parse_executable(
+            r#"db.t.findOneAndUpdate({}, {$set: {a: 1}}, {returnDocument: "before", returnNewDocument: false})"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn option_values_are_checked() {
+        for bad in [
+            "db.t.find({}, {}, {limit: \"5\"})",
+            "db.t.find({}, {}, {skip: -1})",
+            "db.t.find({}, {}, {hint: 5})",
+            "db.t.find({}, {}, {collation: {strength: 2}})",
+            "db.t.find({}, {}, 5)",
+            "db.t.insertOne({a: 1}, {writeConcern: {w: true}})",
+            "db.t.insertMany([{a: 1}], {ordered: \"no\"})",
+            "db.t.insertMany([])",
+            "db.t.aggregate([], {batchSize: -5})",
+        ] {
+            assert!(parse_executable(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn null_options_are_absent() {
+        let MongoOp::Find(p) = call("db.t.find({}, null, {limit: null, sort: null})").op else {
+            panic!("find");
+        };
+        assert_eq!(p.limit, None);
+        assert_eq!(p.sort, None);
+        assert!(parse_executable("db.t.updateOne({}, {$set: {a: 1}}, null)").is_ok());
+    }
+
+    #[test]
+    fn max_time_zero_is_no_limit() {
+        let MongoOp::Find(p) = call("db.t.find({}, {}, {maxTimeMS: 0})").op else {
+            panic!("find");
+        };
+        assert_eq!(p.read.max_time_ms, None);
+    }
+
+    #[test]
+    fn find_one_keeps_limit_one_over_an_option() {
+        let MongoOp::Find(p) = call("db.t.findOne({}, {}, {limit: 9, skip: 2})").op else {
+            panic!("find");
+        };
+        assert_eq!(p.limit, Some(1));
+        assert_eq!(p.skip, Some(2));
+    }
+
+    #[test]
+    fn bulk_model_options_and_ordered() {
+        let (models, options) = models(
+            r#"db.t.bulkWrite([{replaceOne: {filter: {a: 1}, replacement: {a: 2}, upsert: true, hint: {a: 1}}}, {deleteOne: {filter: {a: 3}, collation: {locale: "en"}}}], {ordered: false, bypassDocumentValidation: true})"#,
+        );
+        assert_eq!(options.ordered, Some(false));
+        assert_eq!(options.bypass_document_validation, Some(true));
+        let [WriteModel::ReplaceOne(r), WriteModel::DeleteOne(d)] = models.as_slice() else {
+            panic!("{models:?}");
+        };
+        assert_eq!(r.upsert, Some(true));
+        assert_eq!(r.hint, Some(Bson::Document(doc! { "a": 1 })));
+        assert_eq!(d.collation, Some(doc! { "locale": "en" }));
+    }
+
+    #[test]
+    fn command_options_use_the_method_keys() {
+        assert!(parse_executable(
+            r#"{"op": "deleteMany", "filter": {}, "options": {"upsert": true}}"#
+        )
+        .is_err());
+        let (models, _) =
+            models(r#"{"op": "deleteOne", "filter": {"a": 1}, "options": {"hint": "a_1"}}"#);
+        let [WriteModel::DeleteOne(d)] = models.as_slice() else {
+            panic!("{models:?}");
+        };
+        assert_eq!(d.hint, Some(Bson::String("a_1".into())));
     }
 
     #[test]

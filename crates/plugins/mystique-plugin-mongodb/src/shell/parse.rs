@@ -10,7 +10,8 @@ use mongodb::bson::{Bson, Document};
 use mystique_connector_api::{ConnectorError, ConnectorResult};
 
 use super::lex::{lex, query_err, Tok};
-use super::value::{call_args, describe, literal, to_document, Cursor, Lit};
+use super::options::{self, Options};
+use super::value::{call_args, describe, literal, to_bson, to_document, Cursor, Lit};
 
 /// `show dbs` / `listDatabases`, `show collections` / `listCollections`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,12 +298,29 @@ pub(crate) struct MongoCall {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)] // built once per query, moved straight into dispatch
 pub(crate) enum MongoOp {
     Find(FindSpec),
-    Aggregate(Vec<Document>),
-    Count(Document),
-    Distinct { field: String, filter: Document },
+    Aggregate(AggregateSpec),
+    Count(CountSpec),
+    EstimatedCount(ReadOptions),
+    Distinct {
+        field: String,
+        filter: Document,
+        read: ReadOptions,
+    },
     Write(ShellWrite),
+}
+
+/// Options any read takes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct ReadOptions {
+    /// An index name (`Bson::String`) or key pattern (`Bson::Document`).
+    pub hint: Option<Bson>,
+    pub collation: Option<Document>,
+    /// The `maxTimeMS` the user typed. The profile timeout still caps it.
+    pub max_time_ms: Option<u64>,
+    pub comment: Option<Bson>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -310,52 +328,146 @@ pub(crate) struct FindSpec {
     pub filter: Document,
     pub projection: Option<Document>,
     pub sort: Option<Document>,
+    /// An explicit limit. `None` reads up to the row cap.
     pub limit: Option<i64>,
     pub skip: Option<u64>,
+    pub batch_size: Option<u32>,
+    pub allow_disk_use: Option<bool>,
+    pub read: ReadOptions,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct AggregateSpec {
+    pub pipeline: Vec<Document>,
+    pub allow_disk_use: Option<bool>,
+    pub batch_size: Option<u32>,
+    pub bypass_document_validation: Option<bool>,
+    pub let_vars: Option<Document>,
+    pub read: ReadOptions,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct CountSpec {
+    pub filter: Document,
+    pub limit: Option<u64>,
+    pub skip: Option<u64>,
+    pub read: ReadOptions,
+}
+
+/// The writes that run as `insert` / `update` / `delete` commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WriteMethod {
+    InsertOne,
+    InsertMany,
+    UpdateOne,
+    UpdateMany,
+    ReplaceOne,
+    DeleteOne,
+    DeleteMany,
+    BulkWrite,
+}
+
+impl WriteMethod {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::InsertOne => "insertOne",
+            Self::InsertMany => "insertMany",
+            Self::UpdateOne => "updateOne",
+            Self::UpdateMany => "updateMany",
+            Self::ReplaceOne => "replaceOne",
+            Self::DeleteOne => "deleteOne",
+            Self::DeleteMany => "deleteMany",
+            Self::BulkWrite => "bulkWrite",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)] // built once per query, moved straight into dispatch
 pub(crate) enum ShellWrite {
-    InsertOne(Document),
-    InsertMany(Vec<Document>),
-    UpdateOne {
-        filter: Document,
-        update: Document,
+    /// insertOne … deleteMany are one model; insertMany and bulkWrite many.
+    Models {
+        method: WriteMethod,
+        models: Vec<WriteModel>,
+        options: WriteOptions,
     },
-    UpdateMany {
-        filter: Document,
-        update: Document,
-    },
-    ReplaceOne {
-        filter: Document,
-        replacement: Document,
-    },
-    DeleteOne(Document),
-    DeleteMany(Document),
-    FindOneAndUpdate {
-        filter: Document,
-        update: Document,
-    },
-    Bulk(Vec<BulkModel>),
+    FindAndModify(FindAndModify),
+}
+
+/// Options on the write command as a whole.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct WriteOptions {
+    /// `None` is ordered, as on the server.
+    pub ordered: Option<bool>,
+    pub bypass_document_validation: Option<bool>,
+    pub comment: Option<Bson>,
+    pub let_vars: Option<Document>,
+    pub write_concern: Option<Document>,
+    /// The `maxTimeMS` the user typed. The profile timeout still caps it.
+    pub max_time_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum BulkModel {
+pub(crate) enum WriteModel {
     InsertOne(Document),
-    UpdateOne {
-        filter: Document,
-        update: Document,
-    },
-    UpdateMany {
-        filter: Document,
-        update: Document,
-    },
-    ReplaceOne {
-        filter: Document,
-        replacement: Document,
-    },
-    DeleteOne(Document),
-    DeleteMany(Document),
+    UpdateOne(UpdateModel),
+    UpdateMany(UpdateModel),
+    ReplaceOne(UpdateModel),
+    DeleteOne(DeleteModel),
+    DeleteMany(DeleteModel),
+}
+
+/// One update statement. For `replaceOne`, `update` is the replacement.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct UpdateModel {
+    pub filter: Document,
+    pub update: Document,
+    pub upsert: Option<bool>,
+    pub array_filters: Option<Vec<Document>>,
+    pub collation: Option<Document>,
+    pub hint: Option<Bson>,
+    pub sort: Option<Document>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct DeleteModel {
+    pub filter: Document,
+    pub collation: Option<Document>,
+    pub hint: Option<Bson>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Modify {
+    Update(Document),
+    Replace(Document),
+    Delete,
+}
+
+/// `findOneAndUpdate` / `findOneAndReplace` / `findOneAndDelete`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FindAndModify {
+    pub filter: Document,
+    pub modify: Modify,
+    pub upsert: Option<bool>,
+    /// `Some(true)` returns the document after the change.
+    pub return_after: Option<bool>,
+    pub projection: Option<Document>,
+    pub sort: Option<Document>,
+    pub array_filters: Option<Vec<Document>>,
+    pub collation: Option<Document>,
+    pub hint: Option<Bson>,
+    /// `ordered` is never set here.
+    pub options: WriteOptions,
+}
+
+impl FindAndModify {
+    pub(crate) fn method(&self) -> &'static str {
+        match self.modify {
+            Modify::Update(_) => "findOneAndUpdate",
+            Modify::Replace(_) => "findOneAndReplace",
+            Modify::Delete => "findOneAndDelete",
+        }
+    }
 }
 
 /// What the executor runs.
@@ -382,7 +494,10 @@ pub(crate) fn lower(stmt: &Statement) -> ConnectorResult<Executable> {
         },
         Statement::Pipeline(items) => MongoCall {
             target: Target::default(),
-            op: MongoOp::Aggregate(documents(items)?),
+            op: MongoOp::Aggregate(AggregateSpec {
+                pipeline: documents(items)?,
+                ..AggregateSpec::default()
+            }),
         },
         Statement::Command(obj) => MongoCall {
             target: Target::default(),
@@ -406,13 +521,26 @@ fn lower_call(call: &ShellCall) -> ConnectorResult<MongoCall> {
         collection: call.collection.clone(),
     };
     let args = &call.args;
+    let name = call.method.as_str();
+    // The options argument at `at`, read against `allowed`. An argument after
+    // it is refused.
+    let options = |at: usize, allowed: &[&str]| -> ConnectorResult<Options> {
+        if args.len() > at + 1 {
+            return Err(query_err(&format!(
+                "{name}() takes at most {} arguments.",
+                at + 1
+            )));
+        }
+        Options::from_lit(name, args.get(at), allowed)
+    };
     let op = match method.as_str() {
         "find" | "findone" => {
-            let mut spec = FindSpec {
-                filter: optional_doc(args.first())?,
-                projection: args.get(1).map(to_document).transpose()?,
-                ..FindSpec::default()
-            };
+            let opts = options(2, options::FIND)?;
+            let mut spec = find_spec(
+                optional_doc(args.first())?,
+                projection_arg(args.get(1))?,
+                &opts,
+            )?;
             for link in &call.chain {
                 find_chain(&mut spec, link)?;
             }
@@ -425,44 +553,97 @@ fn lower_call(call: &ShellCall) -> ConnectorResult<MongoCall> {
             });
         }
         "aggregate" => match args.first() {
-            Some(Lit::Array(items)) => MongoOp::Aggregate(documents(items)?),
+            Some(Lit::Array(items)) => {
+                aggregate_op(documents(items)?, &options(1, options::AGGREGATE)?)?
+            }
             _ => return Err(query_err("aggregate() takes a pipeline array `[ ... ]`.")),
         },
-        "count" | "countdocuments" => MongoOp::Count(optional_doc(args.first())?),
+        "count" | "countdocuments" => {
+            count_op(optional_doc(args.first())?, &options(1, options::COUNT)?)?
+        }
+        "estimateddocumentcount" => {
+            MongoOp::EstimatedCount(read_options(&options(0, options::ESTIMATED_COUNT)?)?)
+        }
         "distinct" => {
             let field = match args.first() {
                 Some(Lit::Str(s) | Lit::Ident(s)) if !s.is_empty() => s.clone(),
                 _ => return Err(query_err("distinct needs a field name.")),
             };
-            MongoOp::Distinct {
+            distinct_op(
                 field,
-                filter: optional_doc(args.get(1))?,
-            }
+                optional_doc(args.get(1))?,
+                &options(2, options::DISTINCT)?,
+            )?
         }
-        "insertone" => MongoOp::Write(ShellWrite::InsertOne(required_doc(args.first())?)),
-        "insertmany" => MongoOp::Write(ShellWrite::InsertMany(doc_array(args.first())?)),
+        "insertone" => insert_op(
+            WriteMethod::InsertOne,
+            vec![required_doc(args.first())?],
+            &options(1, options::INSERT_ONE)?,
+        )?,
+        "insertmany" => insert_op(
+            WriteMethod::InsertMany,
+            doc_array(args.first())?,
+            &options(1, options::INSERT_MANY)?,
+        )?,
         "updateone" => {
             let (filter, update) = two_docs(args, "updateOne")?;
-            MongoOp::Write(ShellWrite::UpdateOne { filter, update })
+            update_op(
+                WriteMethod::UpdateOne,
+                filter,
+                update,
+                &options(2, options::UPDATE_ONE)?,
+            )?
         }
         "updatemany" => {
             let (filter, update) = two_docs(args, "updateMany")?;
-            MongoOp::Write(ShellWrite::UpdateMany { filter, update })
+            update_op(
+                WriteMethod::UpdateMany,
+                filter,
+                update,
+                &options(2, options::UPDATE_MANY)?,
+            )?
         }
         "replaceone" => {
             let (filter, replacement) = two_docs(args, "replaceOne")?;
-            MongoOp::Write(ShellWrite::ReplaceOne {
+            update_op(
+                WriteMethod::ReplaceOne,
                 filter,
                 replacement,
-            })
+                &options(2, options::REPLACE_ONE)?,
+            )?
         }
-        "deleteone" => MongoOp::Write(ShellWrite::DeleteOne(required_doc(args.first())?)),
-        "deletemany" => MongoOp::Write(ShellWrite::DeleteMany(required_doc(args.first())?)),
+        "deleteone" => delete_op(
+            WriteMethod::DeleteOne,
+            required_doc(args.first())?,
+            &options(1, options::DELETE)?,
+        )?,
+        "deletemany" => delete_op(
+            WriteMethod::DeleteMany,
+            required_doc(args.first())?,
+            &options(1, options::DELETE)?,
+        )?,
         "findoneandupdate" => {
             let (filter, update) = two_docs(args, "findOneAndUpdate")?;
-            MongoOp::Write(ShellWrite::FindOneAndUpdate { filter, update })
+            find_and_modify(
+                filter,
+                Modify::Update(update),
+                &options(2, options::FIND_ONE_AND_UPDATE)?,
+            )?
         }
-        "bulkwrite" => MongoOp::Write(ShellWrite::Bulk(bulk_models(&doc_array(args.first())?)?)),
+        "findoneandreplace" => {
+            let (filter, replacement) = two_docs(args, "findOneAndReplace")?;
+            find_and_modify(
+                filter,
+                Modify::Replace(replacement),
+                &options(2, options::FIND_ONE_AND_REPLACE)?,
+            )?
+        }
+        "findoneanddelete" => find_and_modify(
+            required_doc(args.first())?,
+            Modify::Delete,
+            &options(1, options::FIND_ONE_AND_DELETE)?,
+        )?,
+        "bulkwrite" => bulk_op(&doc_array(args.first())?, &options(1, options::BULK_WRITE)?)?,
         _ => {
             return Err(query_err(&format!(
                 "Mongo method `.{}()` is not supported.",
@@ -481,17 +662,228 @@ fn lower_call(call: &ShellCall) -> ConnectorResult<MongoCall> {
     Ok(MongoCall { target, op })
 }
 
+fn read_options(opts: &Options) -> ConnectorResult<ReadOptions> {
+    Ok(ReadOptions {
+        hint: opts.hint()?,
+        collation: opts.collation()?,
+        max_time_ms: opts.max_time_ms()?,
+        comment: opts.any("comment"),
+    })
+}
+
+fn write_options(opts: &Options) -> ConnectorResult<WriteOptions> {
+    Ok(WriteOptions {
+        ordered: opts.bool("ordered")?,
+        bypass_document_validation: opts.bool("bypassDocumentValidation")?,
+        comment: opts.any("comment"),
+        let_vars: opts.doc("let")?,
+        write_concern: opts.write_concern()?,
+        max_time_ms: opts.max_time_ms()?,
+    })
+}
+
+/// `find(filter, projection, options)`. The projection may come from either
+/// place, not both.
+fn find_spec(
+    filter: Document,
+    projection: Option<Document>,
+    opts: &Options,
+) -> ConnectorResult<FindSpec> {
+    let in_options = opts.doc("projection")?;
+    if projection.is_some() && in_options.is_some() {
+        return Err(query_err(
+            "find() takes the projection as the second argument or as option `projection`, not both.",
+        ));
+    }
+    Ok(FindSpec {
+        filter,
+        projection: projection.or(in_options),
+        sort: opts.doc("sort")?,
+        // `limit: 0` is no limit, as on the server.
+        limit: opts.int("limit")?.filter(|n| *n != 0),
+        skip: opts.uint("skip")?,
+        batch_size: opts.u32("batchSize")?,
+        allow_disk_use: opts.bool("allowDiskUse")?,
+        read: read_options(opts)?,
+    })
+}
+
+fn aggregate_op(pipeline: Vec<Document>, opts: &Options) -> ConnectorResult<MongoOp> {
+    Ok(MongoOp::Aggregate(AggregateSpec {
+        pipeline,
+        allow_disk_use: opts.bool("allowDiskUse")?,
+        batch_size: opts.u32("batchSize")?,
+        bypass_document_validation: opts.bool("bypassDocumentValidation")?,
+        let_vars: opts.doc("let")?,
+        read: read_options(opts)?,
+    }))
+}
+
+fn count_op(filter: Document, opts: &Options) -> ConnectorResult<MongoOp> {
+    Ok(MongoOp::Count(CountSpec {
+        filter,
+        limit: opts.uint("limit")?.filter(|n| *n != 0),
+        skip: opts.uint("skip")?,
+        read: read_options(opts)?,
+    }))
+}
+
+fn distinct_op(field: String, filter: Document, opts: &Options) -> ConnectorResult<MongoOp> {
+    Ok(MongoOp::Distinct {
+        field,
+        filter,
+        read: read_options(opts)?,
+    })
+}
+
+fn insert_op(method: WriteMethod, docs: Vec<Document>, opts: &Options) -> ConnectorResult<MongoOp> {
+    if docs.is_empty() {
+        return Err(query_err(&format!(
+            "{}() needs at least one document.",
+            method.name()
+        )));
+    }
+    Ok(MongoOp::Write(ShellWrite::Models {
+        method,
+        models: docs.into_iter().map(WriteModel::InsertOne).collect(),
+        options: write_options(opts)?,
+    }))
+}
+
+fn update_model(
+    filter: Document,
+    update: Document,
+    opts: &Options,
+) -> ConnectorResult<UpdateModel> {
+    Ok(UpdateModel {
+        filter,
+        update,
+        upsert: opts.bool("upsert")?,
+        array_filters: opts.docs("arrayFilters")?,
+        collation: opts.collation()?,
+        hint: opts.hint()?,
+        sort: opts.doc("sort")?,
+    })
+}
+
+fn delete_model(filter: Document, opts: &Options) -> ConnectorResult<DeleteModel> {
+    Ok(DeleteModel {
+        filter,
+        collation: opts.collation()?,
+        hint: opts.hint()?,
+    })
+}
+
+fn update_op(
+    method: WriteMethod,
+    filter: Document,
+    update: Document,
+    opts: &Options,
+) -> ConnectorResult<MongoOp> {
+    let model = update_model(filter, update, opts)?;
+    let model = match method {
+        WriteMethod::UpdateMany => WriteModel::UpdateMany(model),
+        WriteMethod::ReplaceOne => WriteModel::ReplaceOne(model),
+        _ => WriteModel::UpdateOne(model),
+    };
+    Ok(MongoOp::Write(ShellWrite::Models {
+        method,
+        models: vec![model],
+        options: write_options(opts)?,
+    }))
+}
+
+fn delete_op(method: WriteMethod, filter: Document, opts: &Options) -> ConnectorResult<MongoOp> {
+    let model = delete_model(filter, opts)?;
+    let model = match method {
+        WriteMethod::DeleteMany => WriteModel::DeleteMany(model),
+        _ => WriteModel::DeleteOne(model),
+    };
+    Ok(MongoOp::Write(ShellWrite::Models {
+        method,
+        models: vec![model],
+        options: write_options(opts)?,
+    }))
+}
+
+fn find_and_modify(filter: Document, modify: Modify, opts: &Options) -> ConnectorResult<MongoOp> {
+    Ok(MongoOp::Write(ShellWrite::FindAndModify(FindAndModify {
+        filter,
+        modify,
+        upsert: opts.bool("upsert")?,
+        return_after: opts.return_after()?,
+        projection: opts.doc("projection")?,
+        sort: opts.doc("sort")?,
+        array_filters: opts.docs("arrayFilters")?,
+        collation: opts.collation()?,
+        hint: opts.hint()?,
+        options: write_options(opts)?,
+    })))
+}
+
+fn bulk_op(docs: &[Document], opts: &Options) -> ConnectorResult<MongoOp> {
+    Ok(MongoOp::Write(ShellWrite::Models {
+        method: WriteMethod::BulkWrite,
+        models: bulk_models(docs)?,
+        options: write_options(opts)?,
+    }))
+}
+
+fn projection_arg(arg: Option<&Lit>) -> ConnectorResult<Option<Document>> {
+    match arg {
+        None | Some(Lit::Null) => Ok(None),
+        Some(lit) => to_document(lit).map(Some),
+    }
+}
+
 fn find_chain(spec: &mut FindSpec, link: &Chained) -> ConnectorResult<()> {
     let first = link.args.first();
     match link.method.to_ascii_lowercase().as_str() {
         "sort" => spec.sort = Some(required_doc(first)?),
         "project" | "projection" => spec.projection = Some(required_doc(first)?),
-        "limit" => spec.limit = Some(int_arg(first, "limit")?),
+        // `.limit(0)` is no limit, as on the server.
+        "limit" => spec.limit = Some(int_arg(first, "limit")?).filter(|n| *n != 0),
         "skip" => spec.skip = Some(int_arg(first, "skip")?.max(0) as u64),
+        "hint" => {
+            spec.read.hint = Some(match first {
+                Some(Lit::Str(name)) => Bson::String(name.clone()),
+                Some(lit @ Lit::Object(_)) => Bson::Document(to_document(lit)?),
+                _ => return Err(query_err(".hint() needs an index name or a key pattern.")),
+            })
+        }
+        "collation" => {
+            let collation = required_doc(first)?;
+            options::check_collation(".collation()", &collation)?;
+            spec.read.collation = Some(collation);
+        }
+        "maxtimems" => {
+            let ms = int_arg(first, "maxTimeMS")?;
+            spec.read.max_time_ms = u64::try_from(ms).ok().filter(|ms| *ms > 0);
+        }
+        "batchsize" => {
+            let size = int_arg(first, "batchSize")?;
+            spec.batch_size = Some(
+                u32::try_from(size)
+                    .map_err(|_| query_err(".batchSize() needs a positive integer"))?,
+            );
+        }
+        "allowdiskuse" => {
+            spec.allow_disk_use = Some(match first {
+                None => true,
+                Some(Lit::Bool(b)) => *b,
+                _ => return Err(query_err(".allowDiskUse() takes true or false")),
+            })
+        }
+        "comment" => {
+            spec.read.comment = match first {
+                Some(lit) => Some(to_bson(lit)?),
+                None => return Err(query_err(".comment() needs a value")),
+            }
+        }
         "pretty" | "toarray" | "explain" => {}
         _ => {
             return Err(query_err(&format!(
-                "unsupported chain `.{}()` — use .sort / .limit / .skip / .project",
+                "unsupported chain `.{}()` — use .sort / .limit / .skip / .project / .hint / .collation / .maxTimeMS / .batchSize / .allowDiskUse / .comment",
                 link.method
             )))
         }
@@ -540,7 +932,36 @@ fn documents(items: &[Lit]) -> ConnectorResult<Vec<Document>> {
     items.iter().map(to_document).collect()
 }
 
-/// `{ op: "…", … }`. Field names follow the JSON command shape.
+/// The shell spelling of a command `op`, for messages.
+fn command_name(op: &str) -> &str {
+    const NAMES: &[&str] = &[
+        "aggregate",
+        "count",
+        "countDocuments",
+        "estimatedDocumentCount",
+        "distinct",
+        "insertOne",
+        "insertMany",
+        "updateOne",
+        "updateMany",
+        "replaceOne",
+        "deleteOne",
+        "deleteMany",
+        "remove",
+        "findOneAndUpdate",
+        "findOneAndReplace",
+        "findOneAndDelete",
+        "bulkWrite",
+    ];
+    NAMES
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(op))
+        .copied()
+        .unwrap_or(op)
+}
+
+/// `{ op: "…", … }`. Field names follow the JSON command shape. Options go
+/// in `options: { … }`, with the keys the shell method takes.
 fn command_op(stmt: &Statement, obj: &Lit) -> ConnectorResult<MongoOp> {
     let ops = stmt.command_ops();
     let op = match ops.as_slice() {
@@ -555,6 +976,7 @@ fn command_op(stmt: &Statement, obj: &Lit) -> ConnectorResult<MongoOp> {
     if op.is_empty() {
         return Err(query_err("Mongo command is missing `op`."));
     }
+    let name = command_name(&op);
     let field = |key: &str| obj.get(key);
     let required = |key: &str| -> ConnectorResult<Document> {
         let lit =
@@ -568,43 +990,86 @@ fn command_op(stmt: &Statement, obj: &Lit) -> ConnectorResult<MongoOp> {
             None => Err(query_err(&format!("{op} requires `{key}`."))),
         }
     };
+    let options = |allowed: &[&str]| Options::from_lit(name, field("options"), allowed);
     Ok(match op.as_str() {
-        "aggregate" => MongoOp::Aggregate(match field("pipeline") {
-            Some(_) => array("pipeline")?,
-            None => Vec::new(),
-        }),
-        "count" | "countdocuments" => MongoOp::Count(optional_doc(field("filter"))?),
+        "aggregate" => aggregate_op(
+            match field("pipeline") {
+                Some(_) => array("pipeline")?,
+                None => Vec::new(),
+            },
+            &options(options::AGGREGATE)?,
+        )?,
+        "count" | "countdocuments" => {
+            count_op(optional_doc(field("filter"))?, &options(options::COUNT)?)?
+        }
+        "estimateddocumentcount" => {
+            MongoOp::EstimatedCount(read_options(&options(options::ESTIMATED_COUNT)?)?)
+        }
         "distinct" => {
             let field_name = match field("field") {
                 Some(Lit::Str(s)) if !s.is_empty() => s.clone(),
                 _ => return Err(query_err("distinct requires `field`.")),
             };
-            MongoOp::Distinct {
-                field: field_name,
-                filter: optional_doc(field("filter"))?,
-            }
+            distinct_op(
+                field_name,
+                optional_doc(field("filter"))?,
+                &options(options::DISTINCT)?,
+            )?
         }
-        "insertone" => MongoOp::Write(ShellWrite::InsertOne(required("doc")?)),
-        "insertmany" => MongoOp::Write(ShellWrite::InsertMany(array("docs")?)),
-        "updateone" => MongoOp::Write(ShellWrite::UpdateOne {
-            filter: required("filter")?,
-            update: required("update")?,
-        }),
-        "updatemany" => MongoOp::Write(ShellWrite::UpdateMany {
-            filter: required("filter")?,
-            update: required("update")?,
-        }),
-        "replaceone" => MongoOp::Write(ShellWrite::ReplaceOne {
-            filter: required("filter")?,
-            replacement: required("replacement").or_else(|_| required("doc"))?,
-        }),
-        "deleteone" => MongoOp::Write(ShellWrite::DeleteOne(required("filter")?)),
-        "deletemany" | "remove" => MongoOp::Write(ShellWrite::DeleteMany(required("filter")?)),
-        "findoneandupdate" => MongoOp::Write(ShellWrite::FindOneAndUpdate {
-            filter: required("filter")?,
-            update: required("update")?,
-        }),
-        "bulkwrite" => MongoOp::Write(ShellWrite::Bulk(bulk_models(&array("ops")?)?)),
+        "insertone" => insert_op(
+            WriteMethod::InsertOne,
+            vec![required("doc")?],
+            &options(options::INSERT_ONE)?,
+        )?,
+        "insertmany" => insert_op(
+            WriteMethod::InsertMany,
+            array("docs")?,
+            &options(options::INSERT_MANY)?,
+        )?,
+        "updateone" => update_op(
+            WriteMethod::UpdateOne,
+            required("filter")?,
+            required("update")?,
+            &options(options::UPDATE_ONE)?,
+        )?,
+        "updatemany" => update_op(
+            WriteMethod::UpdateMany,
+            required("filter")?,
+            required("update")?,
+            &options(options::UPDATE_MANY)?,
+        )?,
+        "replaceone" => update_op(
+            WriteMethod::ReplaceOne,
+            required("filter")?,
+            required("replacement").or_else(|_| required("doc"))?,
+            &options(options::REPLACE_ONE)?,
+        )?,
+        "deleteone" => delete_op(
+            WriteMethod::DeleteOne,
+            required("filter")?,
+            &options(options::DELETE)?,
+        )?,
+        "deletemany" | "remove" => delete_op(
+            WriteMethod::DeleteMany,
+            required("filter")?,
+            &options(options::DELETE)?,
+        )?,
+        "findoneandupdate" => find_and_modify(
+            required("filter")?,
+            Modify::Update(required("update")?),
+            &options(options::FIND_ONE_AND_UPDATE)?,
+        )?,
+        "findoneandreplace" => find_and_modify(
+            required("filter")?,
+            Modify::Replace(required("replacement").or_else(|_| required("doc"))?),
+            &options(options::FIND_ONE_AND_REPLACE)?,
+        )?,
+        "findoneanddelete" => find_and_modify(
+            required("filter")?,
+            Modify::Delete,
+            &options(options::FIND_ONE_AND_DELETE)?,
+        )?,
+        "bulkwrite" => bulk_op(&array("ops")?, &options(options::BULK_WRITE)?)?,
         other => {
             return Err(ConnectorError::NotSupported(format!(
                 "Mongo op `{other}` is not implemented."
@@ -613,7 +1078,7 @@ fn command_op(stmt: &Statement, obj: &Lit) -> ConnectorResult<MongoOp> {
     })
 }
 
-fn bulk_models(docs: &[Document]) -> ConnectorResult<Vec<BulkModel>> {
+fn bulk_models(docs: &[Document]) -> ConnectorResult<Vec<WriteModel>> {
     let models = docs
         .iter()
         .map(bulk_model)
@@ -624,7 +1089,9 @@ fn bulk_models(docs: &[Document]) -> ConnectorResult<Vec<BulkModel>> {
     Ok(models)
 }
 
-fn bulk_model(doc: &Document) -> ConnectorResult<BulkModel> {
+/// `{ updateOne: { filter, update, upsert, … } }`. A body takes the same
+/// per-statement options as the single-statement method.
+fn bulk_model(doc: &Document) -> ConnectorResult<WriteModel> {
     let mut keys = doc.keys();
     let Some(key) = keys.next() else {
         return Err(query_err("bulkWrite operation is empty."));
@@ -635,28 +1102,48 @@ fn bulk_model(doc: &Document) -> ConnectorResult<BulkModel> {
     let Some(body) = doc.get(key).and_then(Bson::as_document) else {
         return Err(query_err(&format!("bulkWrite `{key}` needs an object.")));
     };
-    let field = |name: &str| -> ConnectorResult<Document> {
-        body.get(name)
-            .and_then(Bson::as_document)
-            .cloned()
-            .ok_or_else(|| query_err(&format!("bulkWrite needs `{name}`.")))
-    };
+    let label = format!("bulkWrite {key}");
+    let body = |allowed: &[&str]| Options::new(&label, body.clone(), allowed);
     match key.to_ascii_lowercase().as_str() {
-        "insertone" => Ok(BulkModel::InsertOne(field("document")?)),
-        "updateone" => Ok(BulkModel::UpdateOne {
-            filter: field("filter")?,
-            update: field("update")?,
-        }),
-        "updatemany" => Ok(BulkModel::UpdateMany {
-            filter: field("filter")?,
-            update: field("update")?,
-        }),
-        "replaceone" => Ok(BulkModel::ReplaceOne {
-            filter: field("filter")?,
-            replacement: field("replacement")?,
-        }),
-        "deleteone" => Ok(BulkModel::DeleteOne(field("filter")?)),
-        "deletemany" => Ok(BulkModel::DeleteMany(field("filter")?)),
+        "insertone" => Ok(WriteModel::InsertOne(
+            body(options::BULK_INSERT)?.required_doc("document")?,
+        )),
+        "updateone" => {
+            let opts = body(options::BULK_UPDATE_ONE)?;
+            let (filter, update) = (opts.required_doc("filter")?, opts.required_doc("update")?);
+            Ok(WriteModel::UpdateOne(update_model(filter, update, &opts)?))
+        }
+        "updatemany" => {
+            let opts = body(options::BULK_UPDATE_MANY)?;
+            let (filter, update) = (opts.required_doc("filter")?, opts.required_doc("update")?);
+            Ok(WriteModel::UpdateMany(update_model(filter, update, &opts)?))
+        }
+        "replaceone" => {
+            let opts = body(options::BULK_REPLACE)?;
+            let (filter, replacement) = (
+                opts.required_doc("filter")?,
+                opts.required_doc("replacement")?,
+            );
+            Ok(WriteModel::ReplaceOne(update_model(
+                filter,
+                replacement,
+                &opts,
+            )?))
+        }
+        "deleteone" => {
+            let opts = body(options::BULK_DELETE)?;
+            Ok(WriteModel::DeleteOne(delete_model(
+                opts.required_doc("filter")?,
+                &opts,
+            )?))
+        }
+        "deletemany" => {
+            let opts = body(options::BULK_DELETE)?;
+            Ok(WriteModel::DeleteMany(delete_model(
+                opts.required_doc("filter")?,
+                &opts,
+            )?))
+        }
         other => Err(query_err(&format!(
             "bulkWrite op `{other}` is not supported."
         ))),

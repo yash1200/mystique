@@ -149,14 +149,15 @@ pub struct EngineCapabilities {
     /// Manual commit on a pinned connection. Mongo is on only for a replica set.
     #[serde(default = "default_true")]
     pub supports_transactions: bool,
-    /// Explain button. The UI does not parse engine text itself.
-    #[serde(default = "default_true")]
+    /// Explain button. The UI does not parse engine text itself. Off unless
+    /// the plugin says so: the default `explain_query` is unsupported.
+    #[serde(default)]
     pub supports_explain_plan: bool,
     /// Structure tab can preview and apply a DDL plan. The UI does not build SQL.
     #[serde(default = "default_true")]
     pub supports_structure_edit: bool,
     /// Structure edits are limited to adding columns, renaming, and indexes.
-    /// SQLite until its table rebuild keeps the original schema.
+    /// No built-in engine sets it since the SQLite rebuild keeps the schema.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub structure_edit_limited: bool,

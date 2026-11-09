@@ -2,19 +2,22 @@
  * Copy from the query results grid: one cell, a cell block, or whole rows,
  * in the shared "Copy as" formats. Results have no table, so INSERT and
  * UPDATE name it `results`.
+ *
+ * Large values load in full first when the result carries their key
+ * (`loadLarge`); the rest copy as previews and the message says how many.
  */
 import type { QueryResult } from '#core/contracts'
 import {
 	cellClipboardText,
 	copyCells,
-	isLargeCell,
+	copyCellsFull,
 	isSqlCopyFormat,
-	largeCellText,
 	sqlCopyText,
 	textCopyText,
 	type CopyFormat,
 	type GridSelection,
 	type IdentStyle,
+	type LargeLoader,
 } from '#features/workspace/data-grid'
 import type { CellsCopyFormat } from './results-menus'
 
@@ -23,6 +26,8 @@ export type ResultSource = {
 	/** One row's cells by absolute index, or null outside the page. */
 	rowCells: (absRow: number) => unknown[] | null
 	identStyle: IdentStyle
+	/** Loads a large value in full (query tab session, through its transaction). */
+	loadLarge?: LargeLoader | null
 }
 
 const FORMAT_LABEL: Record<CopyFormat, string> = {
@@ -40,6 +45,14 @@ function exportColumns(src: ResultSource): { name: string }[] {
 	return src.columns.map((c) => ({ name: c.name }))
 }
 
+function jsonFlags(src: ResultSource, cols: readonly number[]): boolean[] {
+	return cols.map((i) => (src.columns[i]?.dataType ?? '').toLowerCase().includes('json'))
+}
+
+function allColumns(src: ResultSource): number[] {
+	return src.columns.map((_, i) => i)
+}
+
 function copyResultCell(
 	src: ResultSource,
 	absRow: number,
@@ -48,16 +61,30 @@ function copyResultCell(
 ) {
 	const value = src.rowCells(absRow)?.[col]
 	const cells = [[value]]
+	const json = jsonFlags(src, [col])
 	if (format === 'json') {
-		const text = isLargeCell(value)
-			? largeCellText(value)
-			: `${JSON.stringify(value === undefined ? null : value, null, 2)}\n`
-		void copyCells(text, 'Copied as JSON', cells)
+		void copyCellsFull(
+			(full) => `${JSON.stringify(full[0]?.[0] === undefined ? null : full[0][0], null, 2)}\n`,
+			'Copied as JSON',
+			cells,
+			src.loadLarge,
+			json,
+		)
 	} else if (format === 'tsv') {
 		const column = { name: src.columns[col]?.name ?? 'value' }
-		void copyCells(textCopyText('copy', [column], cells), 'Copied as TSV', cells)
+		void copyCellsFull(
+			(full) => textCopyText('copy', [column], full),
+			'Copied as TSV',
+			cells,
+			src.loadLarge,
+		)
 	} else {
-		void copyCells(cellClipboardText(value), 'Cell copied', cells)
+		void copyCellsFull(
+			(full) => cellClipboardText(full[0]?.[0]),
+			'Cell copied',
+			cells,
+			src.loadLarge,
+		)
 	}
 }
 
@@ -78,11 +105,18 @@ export function copyResultCells(
 		block.cols.map((c) => (block.has(r, c) ? (src.rowCells(r)?.[c] ?? '') : '')),
 	)
 	const n = block.count
+	const json = jsonFlags(src, block.cols)
 	if (format === 'json') {
-		void copyCells(textCopyText('json', cols, cells), `Copied ${n} cells as JSON`, cells)
+		void copyCellsFull(
+			(full) => textCopyText('json', cols, full),
+			`Copied ${n} cells as JSON`,
+			cells,
+			src.loadLarge,
+			json,
+		)
 	} else {
 		const message = format === 'tsv' ? `Copied ${n} cells as TSV` : `${n} cells copied`
-		void copyCells(textCopyText('copy', cols, cells), message, cells)
+		void copyCellsFull((full) => textCopyText('copy', cols, full), message, cells, src.loadLarge)
 	}
 }
 
@@ -91,16 +125,32 @@ export function copyResultRows(src: ResultSource, indices: number[], format: Cop
 	const n = cells.length
 	if (n === 0) return
 	const label = FORMAT_LABEL[format]
+	const json = jsonFlags(src, allColumns(src))
 	if (format === 'copy') {
 		const message = n === 1 ? 'Row copied' : `${n} rows copied`
-		void copyCells(textCopyText('copy', exportColumns(src), cells), message, cells)
+		void copyCellsFull(
+			(full) => textCopyText('copy', exportColumns(src), full),
+			message,
+			cells,
+			src.loadLarge,
+		)
 	} else if (isSqlCopyFormat(format)) {
 		const cols = src.columns.map((c) => ({ name: c.name, dataType: c.dataType ?? '' }))
-		const text = sqlCopyText(format, { style: src.identStyle, table: 'results' }, cols, cells)
-		void copyCells(text, `Copied as ${label}`, cells)
+		void copyCellsFull(
+			(full) => sqlCopyText(format, { style: src.identStyle, table: 'results' }, cols, full),
+			`Copied as ${label}`,
+			cells,
+			src.loadLarge,
+		)
 	} else {
 		const message = n === 1 ? `Copied as ${label}` : `Copied ${n} rows as ${label}`
-		void copyCells(textCopyText(format, exportColumns(src), cells), message, cells)
+		void copyCellsFull(
+			(full) => textCopyText(format, exportColumns(src), full),
+			message,
+			cells,
+			src.loadLarge,
+			format === 'json' ? json : [],
+		)
 	}
 }
 

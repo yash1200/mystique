@@ -1,69 +1,259 @@
-//! Where one shell statement ends and the next begins.
+//! Where one shell statement ends and the next begins, for Run all.
 //!
-//! The editor's copy is `src/lib/engines/mongodb/statements.ts`; both are
-//! held to `tests/fixtures/statements/cases.json`, so run-at-cursor and
-//! Run all cut a buffer the same way.
+//! A port of the editor's statement model,
+//! `src/lib/engines/mongodb/statements.ts`, so Run all and run-at-cursor cut
+//! a buffer the same way. Both are held to
+//! `tests/fixtures/statements/cases.json`.
 //!
-//! A statement ends at a `;` outside brackets, or at a line break outside
-//! brackets, as in JavaScript without semicolons. The line break does not end
-//! it when the line ends with a character that needs more ([`CONTINUES_LINE`],
-//! `db.orders.` or `x,`) or the next line starts with one that cannot begin a
-//! statement ([`CONTINUES_NEXT`], `.find()`). Strings and comments are read
-//! with the lexer's rules, so a `;` or a line break inside them is text. A
-//! range covers the statement's first to last code character: whitespace,
-//! comments around it and the `;` are outside it. Empty and comment-only
-//! chunks yield nothing.
+//! - `;` ends a statement outside brackets.
+//! - A line break outside brackets also ends one, unless the statement
+//!   clearly goes on: the line ends with one of [`CONTINUES_AFTER`]
+//!   (`db.orders.`, `x,`), or the next code starts with one of
+//!   [`CONTINUES_BEFORE`] (a chained `.sort()` on its own line, a closer).
+//!   A block comment that spans lines is a line break, as in JavaScript.
+//! - `( [ {` nest, and a stray closer is ignored. Strings follow the lexer:
+//!   backslash escapes, and an unclosed `'` / `"` ends at the line break.
+//!   Template literals span lines and nest `${ … }`. Comments are opaque.
+//! - Comment-only chunks are not statements. A comment above a statement,
+//!   or after it on its line, is part of it, as in SQL.
+//!
+//! This scans characters instead of [`super::lex`] tokens: the lexer drops
+//! offsets and refuses syntax the executor cannot run, and a buffer has to
+//! be cut even when one of its statements will then fail to parse.
 
 use std::ops::Range;
 
-use super::lex::{skim, Skim};
+/// The line ends with one of these: the statement goes on.
+pub(crate) const CONTINUES_AFTER: &str = ".,:=+-*/?&|!<>";
 
-/// The last character of a line that keeps the statement going.
-pub(crate) const CONTINUES_LINE: &str = ".,([{:?+-*/%&|^!~=<>";
+/// The next code starts with one of these: it belongs to this statement.
+pub(crate) const CONTINUES_BEFORE: &str = ".)]},?:=+*&|<>";
 
-/// The first character of a line that continues the previous statement.
-pub(crate) const CONTINUES_NEXT: &str = ".,)]}:?+-*/%&|^=<>";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Frame {
+    Paren,
+    Bracket,
+    Brace,
+    Template,
+    /// `${` inside a template literal.
+    Interpolation,
+}
 
-/// Byte ranges of each statement in `text`, in order.
+/// Byte ranges of the statements in `text`, in order.
 pub(crate) fn split(text: &str) -> Vec<Range<usize>> {
-    let mut out = Vec::new();
-    let mut current: Option<Range<usize>> = None;
-    let mut depth = 0usize;
-    let mut last = '\0';
-    let mut line_break = false;
-    skim(text, |piece, start, end| {
-        let first = match piece {
-            Skim::Newline => {
-                line_break |= depth == 0 && current.is_some();
-                return;
+    Splitter {
+        src: text,
+        out: Vec::new(),
+        stack: Vec::new(),
+        start: 0,
+        last: None,
+    }
+    .run()
+}
+
+struct Splitter<'a> {
+    src: &'a str,
+    out: Vec<Range<usize>>,
+    stack: Vec<Frame>,
+    start: usize,
+    /// Last code character of the current statement.
+    last: Option<char>,
+}
+
+impl Splitter<'_> {
+    fn run(mut self) -> Vec<Range<usize>> {
+        let src = self.src;
+        let bytes = src.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let c = char_at(src, i);
+            let top = self.stack.last().copied();
+            if top == Some(Frame::Template) {
+                match c {
+                    '\\' => i = after_char(src, i + 1),
+                    '`' => {
+                        self.stack.pop();
+                        self.last = Some(c);
+                        i += 1;
+                    }
+                    '$' if bytes.get(i + 1) == Some(&b'{') => {
+                        self.stack.push(Frame::Interpolation);
+                        i += 2;
+                    }
+                    _ => i += c.len_utf8(),
+                }
+                continue;
             }
-            Skim::Code(';') if depth == 0 => {
-                out.extend(current.take());
-                line_break = false;
-                return;
+            match c {
+                '/' if bytes.get(i + 1) == Some(&b'/') => i = line_end(src, i),
+                '/' if bytes.get(i + 1) == Some(&b'*') => {
+                    let end = block_comment_end(src, i);
+                    let spans_lines = src.get(i + 2..end).is_some_and(|body| body.contains('\n'));
+                    if self.stack.is_empty() && spans_lines {
+                        // The comment leads the next statement.
+                        self.line_break(i, i, end);
+                    }
+                    i = end;
+                }
+                '\'' | '"' => {
+                    i = string_end(src, i + 1, c);
+                    self.last = Some(c);
+                }
+                '`' | '(' | '[' | '{' => {
+                    self.stack.push(match c {
+                        '`' => Frame::Template,
+                        '(' => Frame::Paren,
+                        '[' => Frame::Bracket,
+                        _ => Frame::Brace,
+                    });
+                    self.last = Some(c);
+                    i += 1;
+                }
+                ')' | ']' | '}' => {
+                    if c == '}' && top == Some(Frame::Interpolation) {
+                        self.stack.pop();
+                    } else {
+                        self.close(match c {
+                            ')' => Frame::Paren,
+                            ']' => Frame::Bracket,
+                            _ => Frame::Brace,
+                        });
+                    }
+                    self.last = Some(c);
+                    i += 1;
+                }
+                ';' if self.stack.is_empty() => {
+                    self.finish(i);
+                    self.start = i + 1;
+                    i += 1;
+                }
+                '\n' if self.stack.is_empty() => {
+                    self.line_break(i, i + 1, i + 1);
+                    i += 1;
+                }
+                _ => {
+                    if !is_space(c) {
+                        self.last = Some(c);
+                    }
+                    i += c.len_utf8();
+                }
             }
-            Skim::Code(c) => c,
-            Skim::Str => '"',
+        }
+        self.finish(bytes.len());
+        self.out
+    }
+
+    /// Pop to the matching opener. A stray closer is ignored, and one never
+    /// reaches past a template literal.
+    fn close(&mut self, opener: Frame) {
+        let stop = self.stack.iter().rposition(|frame| {
+            *frame == opener || matches!(frame, Frame::Template | Frame::Interpolation)
+        });
+        if let Some(k) = stop {
+            if self.stack.get(k) == Some(&opener) {
+                self.stack.truncate(k);
+            }
+        }
+    }
+
+    /// A line break outside brackets: the statement ends at `end` and the
+    /// next starts at `next`, unless it clearly goes on. The next code is
+    /// looked for from `after`.
+    fn line_break(&mut self, end: usize, next: usize, after: usize) {
+        let Some(last) = self.last else {
+            return;
         };
-        if std::mem::take(&mut line_break)
-            && !CONTINUES_LINE.contains(last)
-            && !CONTINUES_NEXT.contains(first)
-        {
-            out.extend(current.take());
+        if CONTINUES_AFTER.contains(last) {
+            return;
         }
-        match &mut current {
-            Some(range) => range.end = end,
-            None => current = Some(start..end),
+        if next_code(self.src, after).is_some_and(|c| CONTINUES_BEFORE.contains(c)) {
+            return;
         }
-        last = first;
-        match first {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            _ => {}
+        self.finish(end);
+        self.start = next;
+    }
+
+    fn finish(&mut self, end: usize) {
+        if self.last.take().is_some() {
+            let chunk = self.src.get(self.start..end).unwrap_or_default();
+            let trimmed = chunk.trim_start_matches(is_space);
+            let from = self.start + (chunk.len() - trimmed.len());
+            let to = from + trimmed.trim_end_matches(is_space).len();
+            if from < to {
+                self.out.push(from..to);
+            }
         }
-    });
-    out.extend(current);
-    out
+    }
+}
+
+/// The editor's whitespace: ASCII space and controls, NBSP and BOM.
+fn is_space(c: char) -> bool {
+    matches!(c, ' ' | '\t'..='\r' | '\u{a0}' | '\u{feff}')
+}
+
+fn char_at(src: &str, i: usize) -> char {
+    src.get(i..)
+        .and_then(|rest| rest.chars().next())
+        .unwrap_or('\0')
+}
+
+/// Just past the character at `i`, or the end.
+fn after_char(src: &str, i: usize) -> usize {
+    if i >= src.len() {
+        return src.len();
+    }
+    i + char_at(src, i).len_utf8()
+}
+
+fn line_end(src: &str, from: usize) -> usize {
+    src.get(from..)
+        .and_then(|rest| rest.find('\n'))
+        .map_or(src.len(), |at| from + at)
+}
+
+fn block_comment_end(src: &str, from: usize) -> usize {
+    src.get(from + 2..)
+        .and_then(|rest| rest.find("*/"))
+        .map_or(src.len(), |at| from + 2 + at + 2)
+}
+
+/// Just past the closing quote. An unclosed string stops before the newline.
+fn string_end(src: &str, from: usize, quote: char) -> usize {
+    let mut i = from;
+    while i < src.len() {
+        let c = char_at(src, i);
+        if c == '\\' {
+            i = after_char(src, i + 1);
+            continue;
+        }
+        if c == quote {
+            return i + 1;
+        }
+        if c == '\n' {
+            return i;
+        }
+        i += c.len_utf8();
+    }
+    src.len()
+}
+
+/// The first code character at or after `from`, past space and comments.
+fn next_code(src: &str, from: usize) -> Option<char> {
+    let bytes = src.as_bytes();
+    let mut i = from;
+    while i < src.len() {
+        let c = char_at(src, i);
+        if is_space(c) {
+            i += c.len_utf8();
+        } else if c == '/' && bytes.get(i + 1) == Some(&b'/') {
+            i = line_end(src, i);
+        } else if c == '/' && bytes.get(i + 1) == Some(&b'*') {
+            i = block_comment_end(src, i);
+        } else {
+            return Some(c);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

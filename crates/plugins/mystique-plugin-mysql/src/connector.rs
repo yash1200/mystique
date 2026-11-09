@@ -152,12 +152,15 @@ impl DatabaseConnector for MysqlConnector {
                 .unwrap_or_default()
         };
         let read_only = ReadOnlyVar::detect(&config.engine, &version);
+        let mariadb = config.engine.eq_ignore_ascii_case("mariadb")
+            || version.to_ascii_lowercase().contains("mariadb");
 
         Ok(Box::new(MysqlSession::new(
             pool,
             edit_pool,
             config.pool.max_size,
             read_only,
+            mariadb,
         )))
     }
 }

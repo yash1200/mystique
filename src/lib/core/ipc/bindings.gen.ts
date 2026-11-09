@@ -34,13 +34,17 @@ export type AppendHistoryInput = { connectionId?: string | null, engine?: string
 /**
  * Catalog name. A URI is dropped at insert.
  */
-database?: string | null, affectedRows?: number | null, source?: QueryHistorySource, };
+database?: string | null, affectedRows?: number | null, source?: QueryHistorySource, kind?: QueryHistoryKind, };
 
 export type ApplyDdlRequest = { sessionId: string, draft: TableDefinition, confirmObjectName?: string | null, };
 
 export type ApplyDdlResult = { applied: Array<string>, message: string, };
 
-export type ApplySchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, confirmObjectName?: string | null, };
+export type ApplySchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, 
+/**
+ * Changes to skip and drops to include. Drops are off unless listed.
+ */
+selection?: DiffSelection, confirmObjectName?: string | null, };
 
 /**
  * IPC request for a grid save. Read-only comes from the live session.
@@ -99,7 +103,15 @@ kind: string, rowCount: number, };
  */
 export type CatalogRelationship = { fromSchema?: string | null, fromTable: string, fromColumn: string, toSchema?: string | null, toTable: string, toColumn: string, name?: string | null, };
 
-export type ColumnDraft = { name: string, dataType: string, nullable: boolean, pkPosition?: number, original?: ColumnOriginal | null, drop?: boolean, };
+export type ColumnDraft = { name: string, dataType: string, nullable: boolean, pkPosition?: number, original?: ColumnOriginal | null, drop?: boolean, 
+/**
+ * Default expression. `None` means no default.
+ */
+defaultValue?: string | null, 
+/**
+ * See [`ColumnOriginal::identity`].
+ */
+identity?: string | null, };
 
 /**
  * One column as described by the engine plugin (developer-facing types).
@@ -128,13 +140,39 @@ export type ColumnOriginal = { name: string, dataType: string, nullable: boolean
  * prints it. MODIFY is rebuilt from it so DEFAULT, ON UPDATE,
  * AUTO_INCREMENT, COMMENT, charset, and collation survive.
  */
-definition?: string | null, };
+definition?: string | null, 
+/**
+ * Default expression as the catalog prints it.
+ */
+defaultValue?: string | null, 
+/**
+ * Identity or auto-increment: `always` / `by default` (Postgres),
+ * `auto_increment` (MySQL), `autoincrement` (SQLite).
+ */
+identity?: string | null, };
 
 /**
  * Foreign-key (or equivalent) target for a column — plugin-owned navigation.
  * The FE shows a jump control; it does not invent relationships.
  */
 export type ColumnReference = { database?: string | null, schema?: string | null, table: string, column: string, };
+
+/**
+ * A column pair the diff treats as a rename.
+ */
+export type ColumnRename = { 
+/**
+ * Source-side name (the name to end with).
+ */
+from: string, 
+/**
+ * Target-side name (the name it has now).
+ */
+to: string, 
+/**
+ * Paired by the heuristic, not by the user.
+ */
+guessed: boolean, };
 
 /**
  * How Home collects / displays connection coordinates.
@@ -182,6 +220,29 @@ password?: string | null, favorite: boolean,
  */
 queryTimeoutSecs: number | null, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
 
+export type ConstraintDraft = { kind: string, name: string, columns?: Array<string>, expression?: string | null, original?: ConstraintOriginal | null, drop?: boolean, };
+
+/**
+ * A CHECK or UNIQUE constraint that is not an index of its own.
+ */
+export type ConstraintOriginal = { 
+/**
+ * `check` or `unique`.
+ */
+kind: string, 
+/**
+ * Empty for an unnamed SQLite constraint.
+ */
+name: string, 
+/**
+ * UNIQUE columns.
+ */
+columns?: Array<string>, 
+/**
+ * CHECK expression, without the `CHECK` keyword.
+ */
+expression?: string | null, };
+
 export type DdlPlan = { statements: Array<string>, warnings: Array<string>, transactional: boolean, requiresRebuild: boolean, 
 /**
  * Shown with the preview. Not a warning, so it does not block apply.
@@ -204,9 +265,39 @@ schema?: string | null,
 database?: string | null, };
 
 /**
+ * Which parts of a schema diff to apply. Drops are opt-in: a dropped
+ * table, column, index, foreign key, or constraint is applied only when
+ * it is listed in `drops`.
+ */
+export type DiffSelection = { 
+/**
+ * Creates and alters to leave out, by change name.
+ */
+skip?: Array<string>, 
+/**
+ * Drops to apply.
+ */
+drops?: Array<DropKey>, };
+
+/**
  * Distinct values for one catalog column. `limit` is clamped to 1000.
  */
-export type DistinctColumnValuesRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, column: string, limit?: number, };
+export type DistinctColumnValuesRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, column: string, limit?: number, 
+/**
+ * Only values whose text starts with this (filter-value completion).
+ */
+prefix?: string | null, };
+
+/**
+ * A drop the diff found, and whether the selection includes it.
+ */
+export type DropItem = { kind: string, name: string, included: boolean, };
+
+/**
+ * One drop in a schema diff. `kind` is `table`, `column`, `index`,
+ * `foreignKey`, or `constraint`; for `table`, `name` is the table.
+ */
+export type DropKey = { table: string, kind: string, name: string, };
 
 /**
  * Capability flags returned to the UI / API consumers.
@@ -221,7 +312,8 @@ sqlDialect: string, supportsSchema: boolean, supportsForeignKeys: boolean, suppo
  */
 supportsTransactions: boolean, 
 /**
- * Explain button. The UI does not parse engine text itself.
+ * Explain button. The UI does not parse engine text itself. Off unless
+ * the plugin says so: the default `explain_query` is unsupported.
  */
 supportsExplainPlan: boolean, 
 /**
@@ -230,7 +322,7 @@ supportsExplainPlan: boolean,
 supportsStructureEdit: boolean, 
 /**
  * Structure edits are limited to adding columns, renaming, and indexes.
- * SQLite until its table rebuild keeps the original schema.
+ * No built-in engine sets it since the SQLite rebuild keeps the schema.
  */
 structureEditLimited?: boolean, 
 /**
@@ -331,7 +423,11 @@ raw: string, rawFormat: string, root: PlanNode, warnings?: Array<string>, };
  * IPC body for `explain_engine_query`. Separate from [`crate::ExecuteQueryRequest`]
  * so execute call sites do not grow an analyze flag.
  */
-export type ExplainQueryRequest = { sessionId: string, text: string, analyze?: boolean, mode?: QueryMode, timeoutMs?: number | null, confirmObjectName?: string | null, collection?: string | null, database?: string | null, executionId?: string | null, };
+export type ExplainQueryRequest = { sessionId: string, text: string, analyze?: boolean, mode?: QueryMode, timeoutMs?: number | null, confirmObjectName?: string | null, collection?: string | null, database?: string | null, executionId?: string | null, 
+/**
+ * Values for `:name` / `$1` / `?` placeholders, bound like a normal run.
+ */
+params?: Array<JsonValue>, };
 
 /**
  * Explorer chrome inside one database (plugin-owned; FE must not hardcode).
@@ -361,13 +457,23 @@ export type ExportFormat = "csv" | "json" | "jsonl" | "sql";
  */
 export type ExportObjectRequest = { sessionId: string, name: string, schema?: string | null, database?: string | null, kind?: string | null, format: ExportFormat, path: string, 
 /**
- * Same id as a table-tab preview, so closing the tab stops the export.
+ * Cancel token for this export. The transfer queue owns it.
  */
-executionId?: string | null, };
+executionId?: string | null, 
+/**
+ * A query tab whose open transaction the export reads through, so rows
+ * it changed but has not committed are exported as the tab sees them.
+ */
+tabId?: string | null, };
 
 export type ExportObjectResult = { path: string, rowCount: number, format: ExportFormat, };
 
-export type FetchLargeValueRequest = { sessionId: string, locator: LargeCellLocator, offset?: number, limit?: number | null, executionId?: string | null, };
+export type FetchLargeValueRequest = { sessionId: string, locator: LargeCellLocator, offset?: number, limit?: number | null, executionId?: string | null, 
+/**
+ * A query tab with an open transaction reads the value through it, so
+ * a row the tab changed but has not committed still loads as shown.
+ */
+tabId?: string | null, };
 
 export type FetchLargeValueResult = { text: string, offset: number, nextOffset?: number | null, totalChars: number, };
 
@@ -405,11 +511,26 @@ executionId?: string | null, };
 /**
  * Deferred COUNT + FK targets. Does not block first paint of a table.
  */
-export type FetchTablePreviewStatsRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, filters?: Array<TableFilter>, codeFilter?: string | null, };
+export type FetchTablePreviewStatsRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, filters?: Array<TableFilter>, codeFilter?: string | null, 
+/**
+ * Lets the grid cancel the count with `cancel_engine_query`.
+ */
+executionId?: string | null, 
+/**
+ * Stop the exact COUNT after this long and report the engine's estimate
+ * instead. Absent: count to the end (the user asked for an exact count).
+ * Under a budget, an unfiltered table estimated at
+ * [`SKIP_EXACT_COUNT_ROWS`] or more is not counted at all.
+ */
+countBudgetMs?: number | null, };
 
-export type ForeignKeyDraft = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, original?: ForeignKeyOriginal | null, drop?: boolean, };
+export type ForeignKeyDraft = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, original?: ForeignKeyOriginal | null, drop?: boolean, onDelete?: string | null, onUpdate?: string | null, };
 
-export type ForeignKeyOriginal = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, };
+export type ForeignKeyOriginal = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, 
+/**
+ * `CASCADE`, `SET NULL`, `SET DEFAULT`, `RESTRICT`. `None` is NO ACTION.
+ */
+onDelete?: string | null, onUpdate?: string | null, };
 
 /**
  * `format_engine_connection_url` request.
@@ -445,7 +566,11 @@ export type ImportEncoding = "utf8" | "utf16Le" | "utf16Be" | "windows1252" | "i
 
 export type ImportFormat = "csv" | "json" | "jsonl" | "sql";
 
-export type ImportObjectRequest = { sessionId: string, name: string, schema?: string | null, database?: string | null, kind?: string | null, path: string, format: ImportFormat, encoding?: ImportEncoding, mapping?: Array<ImportColumnMap>, onDuplicate?: ImportOnDuplicate, };
+export type ImportObjectRequest = { sessionId: string, name: string, schema?: string | null, database?: string | null, kind?: string | null, path: string, format: ImportFormat, encoding?: ImportEncoding, mapping?: Array<ImportColumnMap>, onDuplicate?: ImportOnDuplicate, 
+/**
+ * Cancel token for this import. The transfer queue owns it.
+ */
+executionId?: string | null, };
 
 export type ImportObjectResult = { inserted: number, updated: number, format: ImportFormat, message?: string | null, };
 
@@ -457,9 +582,20 @@ export type IndexDraft = { name: string, columns: Array<string>, unique: boolean
 /**
  * Postgres `CREATE INDEX CONCURRENTLY`. Cannot share a transaction.
  */
-concurrent?: boolean, original?: IndexOriginal | null, drop?: boolean, };
+concurrent?: boolean, original?: IndexOriginal | null, drop?: boolean, 
+/**
+ * See [`IndexOriginal::definition`]. Used to create the index when its
+ * columns were not edited.
+ */
+definition?: string | null, };
 
-export type IndexOriginal = { name: string, columns: Array<string>, unique: boolean, primary?: boolean, };
+export type IndexOriginal = { name: string, columns: Array<string>, unique: boolean, primary?: boolean, 
+/**
+ * The full `CREATE INDEX` as the engine prints it (`pg_get_indexdef`,
+ * `sqlite_master.sql`), so partial, expression, and INCLUDE indexes
+ * are replayed as they are.
+ */
+definition?: string | null, };
 
 /**
  * Stable machine kind of an IPC failure. snake_case on the wire.
@@ -488,9 +624,12 @@ export type IpcPrompt = { "type": "writeGuard" } & WriteGuardPrompt | { "type": 
 export type JsonValue = unknown;
 
 /**
- * One primary-key value, already in the js-safe JSON form the grid uses.
+ * One key value, already in the js-safe JSON form the grid uses.
+ * `data_type` lets the engine bind it as that type (a MySQL integer key
+ * is bound as an integer, a decimal one cast on the parameter side), so
+ * the column is never cast and the key index is used.
  */
-export type LargeCellKey = { column: string, value: JsonValue, };
+export type LargeCellKey = { column: string, value: JsonValue, dataType?: string | null, };
 
 /**
  * Handed back by the grid to load the rest of one cell. No SQL text.
@@ -640,7 +779,11 @@ export type PlanField = { label: string, value: string, };
  */
 export type PlanNode = { name: string, rows?: number | null, cost?: number | null, fields?: Array<PlanField>, children?: Array<PlanNode>, };
 
-export type PlanSchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, };
+export type PlanSchemaDiffRequest = { sessionId: string, source: Array<TableDefinition>, target: Array<TableDefinition>, renames?: Array<RenamePair>, 
+/**
+ * Changes to skip and drops to include. Drops are off unless listed.
+ */
+selection?: DiffSelection, };
 
 /**
  * Cross-engine pool knobs. Plugins map these onto native pool settings.
@@ -720,7 +863,13 @@ export type QueryHistoryItem = { id: string, connectionId: string | null, engine
 /**
  * Catalog or database name. Never a connection URL.
  */
-database: string | null, affectedRows: number | null, source: QueryHistorySource, };
+database: string | null, affectedRows: number | null, source: QueryHistorySource, kind: QueryHistoryKind, };
+
+/**
+ * What wrote the row. A query run is `query`; the rest are app actions the
+ * history lists so a change can be traced.
+ */
+export type QueryHistoryKind = "query" | "grid_save" | "ddl" | "rollback" | "explain_analyze";
 
 export type QueryHistoryPage = { items: Array<QueryHistoryItem>, hasMore: boolean, };
 
@@ -748,7 +897,24 @@ rows: Array<Array<JsonValue>>, rowCount: number, truncated: boolean, durationMs:
  */
 message: string | null, };
 
-export type RenamePair = { from: string, to: string, };
+export type RenamePair = { 
+/**
+ * Name on the source side (the name to end with).
+ */
+from: string, 
+/**
+ * Name on the target side (the name it has now).
+ */
+to: string, 
+/**
+ * Set for a column pair: the source-side table the columns belong to.
+ * `None` pairs two tables.
+ */
+table?: string | null, 
+/**
+ * The user said these two columns are not a rename. Stops the guess.
+ */
+keepApart?: boolean, };
 
 /**
  * Replace all open tabs for a connection (order = array order).
@@ -826,7 +992,20 @@ export type SaveWorkspaceTabInput = { id: string, connectionId: string, kind: st
  */
 export type SavedQuery = { id: string, connectionId: string, name: string, body: string, language: string | null, sortOrder: number, favorite: boolean, createdAt: string, updatedAt: string, };
 
-export type SchemaChange = { name: string, action: string, plan: DdlPlan, draft: TableDefinition, };
+export type SchemaChange = { name: string, action: string, plan: DdlPlan, draft: TableDefinition, 
+/**
+ * Applied with the migration: false for a skipped change, or a table
+ * drop that was not chosen.
+ */
+selected: boolean, 
+/**
+ * Drops inside this change (for `drop`, the table itself).
+ */
+drops: Array<DropItem>, 
+/**
+ * Column renames in this change.
+ */
+columnRenames: Array<ColumnRename>, };
 
 export type SchemaMigration = { changes: Array<SchemaChange>, warnings: Array<string>, };
 
@@ -990,7 +1169,21 @@ export type TableAdminResult = { op: TableAdminOp,
  */
 statement?: string | null, executed: boolean, message?: string | null, };
 
+/**
+ * How the exact COUNT of a [`TablePreviewCount`] ended.
+ */
+export type TableCountOutcome = "exact" | "over_budget" | "skipped" | "cancelled" | "failed";
+
 export type TableDefinition = { database?: string | null, schema?: string | null, name: string, kind?: string, columns?: Array<ColumnDraft>, indexes?: Array<IndexDraft>, foreignKeys?: Array<ForeignKeyDraft>, 
+/**
+ * CHECK and UNIQUE constraints (UNIQUE ones that are only an index
+ * on this engine stay in `indexes`).
+ */
+constraints?: Array<ConstraintDraft>, 
+/**
+ * Triggers on the table (SQLite: replayed after a rebuild).
+ */
+triggers?: Array<TriggerDefinition>, 
 /**
  * SQLite `sqlite_master.sql` captured when the definition was read.
  */
@@ -1016,6 +1209,16 @@ export type TableFilter = { column: string,
 op: string, value?: string, };
 
 export type TablePreviewColumnRef = { column: string, references: ColumnReference, };
+
+/**
+ * The grid's background count: [`TablePreviewStats`] plus what happened to
+ * the exact COUNT, and the engine's estimate when the count did not finish.
+ */
+export type TablePreviewCount = { totalRows: number, totalKnown: boolean, references: Array<TablePreviewColumnRef>, outcome: TableCountOutcome, 
+/**
+ * Planner estimate (Postgres / MySQL `EXPLAIN`) when not exact.
+ */
+estimatedRows?: number, };
 
 /**
  * Stable preview payload: columns + rows in plugin-defined order.
@@ -1065,6 +1268,17 @@ export type TestResult = { ok: boolean, engine: string,
  * Server / driver version if known.
  */
 serverVersion: string | null, latencyMs: number, message: string, sshHostKey?: SshHostKeyPrompt | null, };
+
+/**
+ * Rows exported or imported so far, sent over IPC while a transfer runs.
+ */
+export type TransferProgress = { rows: number, };
+
+/**
+ * A trigger on the table, as the engine stores it. Read only: SQLite
+ * replays it after a table rebuild.
+ */
+export type TriggerDefinition = { name: string, sql: string, };
 
 /**
  * `update_agent_chat` request. `None` leaves a field as it is.

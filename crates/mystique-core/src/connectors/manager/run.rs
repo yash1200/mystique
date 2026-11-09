@@ -4,6 +4,7 @@
 //! registers it before any other work. A cancel that arrives before the run
 //! is kept for a minute, so the run starts already cancelled.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -41,7 +42,7 @@ impl ConnectionManager {
             return Ok(());
         }
         let control = {
-            let mut running = self.running.lock().await;
+            let mut running = self.running_lock();
             running.retain(|_, run| run.early.is_none_or(|at| at.elapsed() < EARLY_CANCEL_TTL));
             match running.get(id) {
                 Some(run) => Arc::clone(&run.control),
@@ -63,18 +64,21 @@ impl ConnectionManager {
         Ok(())
     }
 
+    fn running_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Inflight>> {
+        self.running.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
     /// Call first, before history, gates, guards, or pins. A run cancelled
     /// before it registered gets a control that is already cancelled.
-    pub(super) async fn begin_run(
-        &self,
-        session_id: &str,
-        execution_id: Option<String>,
-    ) -> (String, Arc<QueryControl>) {
+    ///
+    /// The run stays registered until the returned guard drops, so an early
+    /// return, a dropped future or a panic cannot leave it behind.
+    pub(super) fn begin_run(&self, session_id: &str, execution_id: Option<String>) -> RunGuard<'_> {
         let id = execution_id
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let mut running = self.running.lock().await;
+        let mut running = self.running_lock();
         let control = match running.remove(&id) {
             Some(prev) if prev.early.is_some() => prev.control,
             _ => QueryControl::new(),
@@ -87,22 +91,22 @@ impl ConnectionManager {
                 early: None,
             },
         );
-        (id, control)
+        RunGuard {
+            manager: self,
+            id,
+            control,
+        }
     }
 
     pub(super) async fn session_busy(&self, session_id: &str) -> bool {
-        self.running
-            .lock()
-            .await
+        self.running_lock()
             .values()
             .any(|run| run.early.is_none() && run.session_id == session_id)
     }
 
     pub(super) async fn cancel_runs_for(&self, session_id: &str) -> bool {
         let controls: Vec<Arc<QueryControl>> = self
-            .running
-            .lock()
-            .await
+            .running_lock()
             .values()
             .filter(|run| run.early.is_none() && run.session_id == session_id)
             .map(|run| Arc::clone(&run.control))
@@ -112,10 +116,6 @@ impl ConnectionManager {
             control.cancel();
         }
         any
-    }
-
-    pub(super) async fn finish_run(&self, id: &str) {
-        self.running.lock().await.remove(id);
     }
 
     /// Overall deadline. On timeout, cancel (which fires the engine interrupt)
@@ -185,6 +185,27 @@ impl ConnectionManager {
         let result = fut.await;
         drop(permit);
         result
+    }
+}
+
+/// One registered run. Dropping it unregisters the execution id.
+pub(super) struct RunGuard<'a> {
+    manager: &'a ConnectionManager,
+    id: String,
+    pub control: Arc<QueryControl>,
+}
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        let mut running = self.manager.running_lock();
+        // An early cancel stored under the same id after this run started
+        // belongs to a later run; only this run's own entry is removed.
+        if running
+            .get(&self.id)
+            .is_some_and(|run| Arc::ptr_eq(&run.control, &self.control))
+        {
+            running.remove(&self.id);
+        }
     }
 }
 
@@ -407,7 +428,7 @@ mod tests {
         assert!(err.to_string().contains("cancelled"), "{err}");
         // The plugin never saw the statement.
         assert_eq!(*seen.lock().unwrap_or_else(|err| err.into_inner()), 0);
-        assert!(mgr.running.lock().await.is_empty());
+        assert!(mgr.running_lock().is_empty());
         // The early cancel is used once; the next run with a new id runs.
         mgr.execute_query(request(Some(30_000), Some("run-next")))
             .await
@@ -484,6 +505,38 @@ mod tests {
             .expect_err("timeout");
         assert!(started.elapsed() < Duration::from_secs(3), "hung");
         assert!(matches!(err, ConnectorError::Timeout(_)), "{err}");
-        assert!(mgr.running.lock().await.is_empty());
+        assert!(mgr.running_lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_dropped_run_unregisters_itself() {
+        let mgr = ConnectionManager::bootstrap();
+        let _seen = insert_probe(&mgr, true).await;
+        let mgr = Arc::new(mgr);
+        let running = Arc::clone(&mgr);
+        let task = tokio::spawn(async move {
+            running
+                .execute_query(request(Some(120_000), Some("run-dropped")))
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(mgr.running_lock().contains_key("run-dropped"));
+        // The caller goes away mid-run (an aborted IPC call, a closed agent turn).
+        task.abort();
+        let _ = task.await;
+        assert!(mgr.running_lock().is_empty(), "the run stayed registered");
+        assert!(!mgr.session_busy("probe").await);
+    }
+
+    #[tokio::test]
+    async fn an_older_run_ending_leaves_a_newer_run_with_the_same_id() {
+        let mgr = ConnectionManager::bootstrap();
+        let older = mgr.begin_run("probe", Some("reused".into()));
+        let newer = mgr.begin_run("probe", Some("reused".into()));
+        drop(older);
+        mgr.cancel_query("reused").await.expect("cancel");
+        assert!(newer.control.is_cancelled(), "the newer run lost its slot");
+        drop(newer);
+        assert!(mgr.running_lock().is_empty());
     }
 }

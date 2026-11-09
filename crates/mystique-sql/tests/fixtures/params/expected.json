@@ -1,0 +1,8 @@
+{
+	"backslash.mysql.sql": [":y", "?"],
+	"basics.postgres.sql": [":a", ":b2"],
+	"escape-contrast.postgres.sql": [],
+	"escape-contrast.sqlite.sql": [":p"],
+	"escape-strings.postgres.sql": [":real", ":y"],
+	"typed-literal.postgres.sql": [":after"]
+}
