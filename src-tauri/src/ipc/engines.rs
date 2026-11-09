@@ -164,12 +164,16 @@ pub async fn execute_pinned_batch(
             let _ = on_progress.send(event);
         });
         let connections = state.services.connections();
+        let session_id = request.session_id.clone();
+        let text = request.text.clone();
         match connections
             .execute_pinned_batch(request, tab_id.clone(), Some(progress))
             .await
         {
             Ok(mut result) => {
-                mystique_core::clip_batch_result(&mut result);
+                connections
+                    .clip_batch_for(&session_id, &text, &mut result)
+                    .await;
                 Ok(result)
             }
             // The tab learns whether its transaction survived the failure.
@@ -288,12 +292,13 @@ pub async fn execute_engine_batch(
         let progress = mystique_core::ProgressPump::new(move |event| {
             let _ = on_progress.send(event);
         });
-        let mut result = state
-            .services
-            .connections()
-            .execute_batch(request, Some(progress))
-            .await?;
-        mystique_core::clip_batch_result(&mut result);
+        let connections = state.services.connections();
+        let session_id = request.session_id.clone();
+        let text = request.text.clone();
+        let mut result = connections.execute_batch(request, Some(progress)).await?;
+        connections
+            .clip_batch_for(&session_id, &text, &mut result)
+            .await;
         Ok(result)
     })
     .await
@@ -489,14 +494,47 @@ pub async fn preview_engine_import(
 pub async fn import_engine_object(
     state: State<'_, AppState>,
     request: mystique_core::ImportObjectRequest,
+    on_progress: tauri::ipc::Channel<mystique_core::TransferProgress>,
 ) -> Result<mystique_core::ImportObjectResult, IpcError> {
     super::guard(async move {
         state
             .services
             .connections()
-            .import_object(request)
+            .import_object(request, Some(transfer_progress(on_progress)))
             .await
             .map_err(IpcError::from)
+    })
+    .await
+}
+
+/// Rows done so far, to the transfer queue in the window.
+fn transfer_progress(
+    channel: tauri::ipc::Channel<mystique_core::TransferProgress>,
+) -> mystique_core::RowProgress {
+    mystique_core::RowProgress(Arc::new(move |rows| {
+        let _ = channel.send(mystique_core::TransferProgress { rows });
+    }))
+}
+
+/// Exports and imports still running. The window asks before quitting.
+#[tauri::command]
+pub async fn running_engine_transfers(state: State<'_, AppState>) -> Result<usize, IpcError> {
+    super::guard(async move { Ok(state.services.connections().running_transfers()) }).await
+}
+
+/// Explorer refresh: drop cached catalog metadata for a session.
+#[tauri::command]
+pub async fn invalidate_engine_metadata(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: Option<String>,
+) -> Result<(), IpcError> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .invalidate_metadata(&session_id, database.as_deref());
+        Ok(())
     })
     .await
 }
@@ -505,12 +543,13 @@ pub async fn import_engine_object(
 pub async fn export_engine_object(
     state: State<'_, AppState>,
     request: mystique_core::ExportObjectRequest,
+    on_progress: tauri::ipc::Channel<mystique_core::TransferProgress>,
 ) -> Result<mystique_core::ExportObjectResult, IpcError> {
     super::guard(async move {
         state
             .services
             .connections()
-            .export_object(request)
+            .export_object(request, Some(transfer_progress(on_progress)))
             .await
             .map_err(IpcError::from)
     })

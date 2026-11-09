@@ -3,6 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::batch::{BatchPhase, QueryBatchResult, StatementResult, ValidatedBatch};
+use crate::cancel::QueryControl;
 use crate::capabilities::EngineCapabilities;
 use crate::catalog::{
     CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo, FetchTablePreviewInput,
@@ -20,6 +21,7 @@ use crate::object_structure::ObjectStructure;
 use crate::pin::PinnedSession;
 use crate::pool::{PoolStatus, TestResult};
 use crate::query::{QueryResult, ValidatedQuery};
+use crate::stream::{RowSink, RowSource};
 use crate::table::{
     ApplyTableEditsInput, ApplyTableEditsResult, DistinctColumnValuesInput, ExportObjectInput,
     ExportObjectResult, ImportChunkInput, ImportChunkResult, ImportObjectInput, ImportObjectResult,
@@ -281,6 +283,52 @@ pub trait ConnectorSession: Send + Sync {
             "fetch_large_value not implemented for engine `{}`",
             self.engine_id()
         )))
+    }
+
+    /// Stream rows into `sink` in batches as the driver returns them.
+    ///
+    /// SQL plugins read a table through one server-side cursor or result
+    /// stream (one snapshot, bounded memory). The default pages through
+    /// [`ConnectorSession::fetch_table_preview`] by offset, and cannot run a
+    /// [`RowSource::Select`].
+    async fn stream_rows(
+        &self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        match source {
+            RowSource::Table {
+                database,
+                schema,
+                table,
+            } => {
+                crate::table::stream_table_by_preview(
+                    self,
+                    database.as_deref(),
+                    schema.as_deref(),
+                    table,
+                    control,
+                    sink,
+                )
+                .await
+            }
+            RowSource::Select { .. } => Err(crate::ConnectorError::NotSupported(format!(
+                "streaming a statement is not supported for engine `{}`",
+                self.engine_id()
+            ))),
+        }
+    }
+
+    /// Turn driver provenance into names. Postgres reports a table oid and an
+    /// attribute number per result column; the plugin looks up the schema,
+    /// table and column names. Origins that already carry names pass through.
+    /// Default: unchanged.
+    async fn name_column_origins(
+        &self,
+        origins: Vec<Option<crate::ColumnOrigin>>,
+    ) -> ConnectorResult<Vec<Option<crate::ColumnOrigin>>> {
+        Ok(origins)
     }
 
     /// Explorer tree: databases + tables/collections (plugin-owned listing SQL / APIs).

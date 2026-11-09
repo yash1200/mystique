@@ -18,6 +18,8 @@ mod explain;
 mod grid_save;
 mod guard;
 mod history;
+mod large;
+mod meta_cache;
 mod metrics;
 mod pin;
 mod query;
@@ -142,6 +144,12 @@ pub struct ConnectionManager {
     history: std::sync::Mutex<Option<std::sync::Arc<dyn history::QueryHistoryWriter>>>,
     /// App SQLite rollback store. Empty when the app database is not open.
     grid_saves: std::sync::Mutex<Option<std::sync::Arc<dyn grid_save::GridSaveStore>>>,
+    /// Catalog metadata per session and database. See `meta_cache`.
+    meta: meta_cache::MetaCache,
+    /// Large values read for the cell modal, paged from one read.
+    large_values: large::LargeValueCache,
+    /// Background exports and imports, for the queue and the quit guard.
+    transfers: transfer::TransferRegistry,
 }
 
 impl ConnectionManager {
@@ -157,6 +165,9 @@ impl ConnectionManager {
             open_gates: Mutex::new(HashMap::new()),
             history: std::sync::Mutex::new(None),
             grid_saves: std::sync::Mutex::new(None),
+            meta: meta_cache::MetaCache::default(),
+            large_values: large::LargeValueCache::default(),
+            transfers: transfer::TransferRegistry::default(),
         }
     }
 
@@ -371,6 +382,8 @@ impl ConnectionManager {
 
     pub async fn close_session(&self, session_id: &str) -> ConnectorResult<()> {
         self.rollback_pins_for_session(session_id).await;
+        self.meta.invalidate(session_id);
+        self.large_values.forget_session(session_id);
         let busy = self.cancel_runs_for(session_id).await;
         let live = {
             let mut guard = self.sessions.write().await;
@@ -609,3 +622,5 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;

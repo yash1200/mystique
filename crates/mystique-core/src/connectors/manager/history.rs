@@ -329,6 +329,7 @@ mod tests {
                     error: None,
                     error_position: None,
                     notices: Vec::new(),
+                    column_origins: Vec::new(),
                 },
                 StatementResult {
                     index: 1,
@@ -343,6 +344,7 @@ mod tests {
                     error: None,
                     error_position: None,
                     notices: Vec::new(),
+                    column_origins: Vec::new(),
                 },
             ],
             stopped_at: None,

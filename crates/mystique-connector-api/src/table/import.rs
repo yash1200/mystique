@@ -10,13 +10,17 @@ pub use mystique_transfer::{ImportColumnMap, ImportEncoding, ImportFormat, Impor
 pub use run::{import_chunk_sql, import_object_from_file, preview_import_with_describe};
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use super::export::RowProgress;
+use crate::cancel::QueryControl;
 use crate::catalog::ColumnInfo;
 
-pub const IMPORT_CHUNK_SIZE: usize = 100;
+/// Rows per write batch (one multi-row statement set per batch).
+pub const IMPORT_CHUNK_SIZE: usize = 500;
 pub const IMPORT_PREVIEW_ROWS: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +114,9 @@ pub struct ImportObjectRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub on_duplicate: ImportOnDuplicate,
+    /// Cancel token for this import. The transfer queue owns it.
+    #[serde(default)]
+    pub execution_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +130,9 @@ pub struct ImportObjectInput {
     pub encoding: ImportEncoding,
     pub mapping: Vec<ImportColumnMap>,
     pub on_duplicate: ImportOnDuplicate,
+    /// Cancel stops before the next batch. Batches already written stay.
+    pub control: Arc<QueryControl>,
+    pub progress: Option<RowProgress>,
 }
 
 impl ImportObjectRequest {
@@ -137,6 +147,8 @@ impl ImportObjectRequest {
             encoding: self.encoding,
             mapping: self.mapping,
             on_duplicate: self.on_duplicate,
+            control: QueryControl::new(),
+            progress: None,
         }
     }
 }

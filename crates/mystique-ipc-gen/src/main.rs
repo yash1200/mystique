@@ -114,6 +114,7 @@ fn roots(c: &mut Collect) {
         core::ImportObjectResult,
         core::ExportObjectRequest,
         core::ExportObjectResult,
+        core::TransferProgress,
         core::TableAdminRequest,
         core::TableAdminResult,
         core::DescribeTableDefinitionRequest,

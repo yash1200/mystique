@@ -1,13 +1,14 @@
 //! One pooled MySQL connection held for a manual-commit tab.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use mysql_async::prelude::Queryable;
 use mysql_async::Pool;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, InterruptGuard, PinnedSession, QueryBatchResult,
-    ValidatedBatch,
+    ConnectorError, ConnectorResult, InterruptGuard, PinnedSession, QueryBatchResult, QueryControl,
+    RowSink, RowSource, ValidatedBatch,
 };
 
 use super::cancel::{self, arm_kill};
@@ -106,6 +107,19 @@ impl PinnedSession for MysqlPin {
 
     fn in_transaction(&self) -> bool {
         self.open.load(Ordering::SeqCst)
+    }
+
+    async fn stream_rows(
+        &mut self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        let pool = self.pool.clone();
+        let conn = self.conn_mut()?;
+        let result = super::stream::stream_rows(&pool, conn, source, control, sink).await;
+        self.refresh().await;
+        result
     }
 }
 

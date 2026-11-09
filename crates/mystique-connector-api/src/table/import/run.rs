@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde_json::Value as JsonValue;
 
 use mystique_sql::dml::{compile_insert, compile_upsert};
-use mystique_transfer::{parse_import_file, suggest_map};
+use mystique_transfer::{parse_import_file, stream_import_file, suggest_map, ImportRecord};
 
 use super::super::edits::{ApplyTableEditsInput, TableEditColumn, TableRowInsert};
 use super::{
@@ -63,11 +63,7 @@ fn column_names(columns: &[ColumnInfo]) -> Vec<&str> {
     columns.iter().map(|c| c.name.as_str()).collect()
 }
 
-fn remap_row(
-    keys: &[String],
-    row: &[JsonValue],
-    mapping: &[ImportColumnMap],
-) -> BTreeMap<String, JsonValue> {
+fn remap_record(record: &ImportRecord, mapping: &[ImportColumnMap]) -> BTreeMap<String, JsonValue> {
     let mut out = BTreeMap::new();
     for map in mapping {
         let Some(col) = map
@@ -78,9 +74,8 @@ fn remap_row(
         else {
             continue;
         };
-        let idx = keys.iter().position(|k| k == &map.file_key);
-        let val = idx
-            .and_then(|i| row.get(i))
+        let val = record
+            .get(&map.file_key)
             .cloned()
             .unwrap_or(JsonValue::Null);
         out.insert(col.to_string(), val);
@@ -88,6 +83,15 @@ fn remap_row(
     out
 }
 
+/// Records parsed per batch handed from the reader thread.
+const PARSE_BATCH: usize = IMPORT_CHUNK_SIZE;
+/// Parsed batches the reader may run ahead of the writes.
+const PARSE_QUEUE: usize = 2;
+
+/// Parse the file on a reader thread and write it in [`IMPORT_CHUNK_SIZE`]
+/// batches as it is read. Memory is a few batches whatever the file size.
+/// Each batch is one write; a cancel or a failure stops before the next one
+/// and says how many rows were already written (they are kept).
 pub async fn import_object_from_file(
     session: &dyn ConnectorSession,
     input: &ImportObjectInput,
@@ -114,61 +118,103 @@ pub async fn import_object_from_file(
             "Target object has no columns.".into(),
         ));
     }
-    let parsed = parse_import_file(&input.path, input.format, input.encoding, None)?;
-    let mapping = if input.mapping.is_empty() {
-        suggest_map(&parsed.keys, &column_names(&columns))
-    } else {
-        input.mapping.clone()
-    };
-    if mapping.iter().all(|m| {
-        m.table_column
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-    }) {
-        return Err(ConnectorError::InvalidConfig(
-            "Map at least one file field to a column.".into(),
-        ));
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<ImportRecord>>(PARSE_QUEUE);
+    let path = input.path.clone();
+    let format = input.format;
+    let encoding = input.encoding;
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let spawned = std::thread::Builder::new()
+        .name("mystique-import".into())
+        .spawn(move || {
+            let parsed = stream_import_file(&path, format, encoding, PARSE_BATCH, &mut |batch| {
+                tx.blocking_send(batch).is_ok()
+            });
+            let _ = done_tx.send(parsed);
+        });
+    if let Err(err) = spawned {
+        return Err(ConnectorError::Internal(format!(
+            "could not start the import reader: {err}"
+        )));
     }
 
+    let mut mapping = input.mapping.clone();
     let mut inserted = 0u64;
     let mut updated = 0u64;
-    let mut chunk: Vec<BTreeMap<String, JsonValue>> = Vec::with_capacity(IMPORT_CHUNK_SIZE);
-    for row in &parsed.rows {
-        let mapped = remap_row(&parsed.keys, row, &mapping);
-        if mapped.is_empty() {
-            continue;
+    let written = |inserted: u64, updated: u64| inserted + updated;
+    let stopped = |rows: u64, why: String| -> ConnectorError {
+        if rows == 0 {
+            ConnectorError::Query(why)
+        } else {
+            ConnectorError::Query(format!(
+                "{why} {rows} row(s) were already imported and are kept."
+            ))
         }
-        chunk.push(mapped);
-        if chunk.len() >= IMPORT_CHUNK_SIZE {
+    };
+    while let Some(records) = rx.recv().await {
+        if input.control.is_cancelled() {
+            return Err(stopped(
+                written(inserted, updated),
+                "Import cancelled.".into(),
+            ));
+        }
+        if mapping.is_empty() {
+            let keys: Vec<String> = records
+                .first()
+                .map(|r| r.keys().cloned().collect())
+                .unwrap_or_default();
+            mapping = suggest_map(&keys, &column_names(&columns));
+        }
+        if mapping.iter().all(|m| {
+            m.table_column
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+        }) {
+            return Err(ConnectorError::InvalidConfig(
+                "Map at least one file field to a column.".into(),
+            ));
+        }
+        let rows: Vec<BTreeMap<String, JsonValue>> = records
+            .iter()
+            .map(|record| remap_record(record, &mapping))
+            .filter(|row| !row.is_empty())
+            .collect();
+        drop(records);
+        for chunk in rows.chunks(IMPORT_CHUNK_SIZE) {
             let result = session
                 .import_chunk(&ImportChunkInput {
                     name: input.name.clone(),
                     schema: input.schema.clone(),
                     database: input.database.clone(),
                     columns: columns.clone(),
-                    rows: std::mem::take(&mut chunk),
+                    rows: chunk.to_vec(),
                     on_duplicate: input.on_duplicate,
                 })
-                .await?;
+                .await
+                .map_err(|err| stopped(written(inserted, updated), err.user_message()))?;
             inserted += result.inserted;
             updated += result.updated;
+            if let Some(progress) = &input.progress {
+                (progress.0)(written(inserted, updated));
+            }
         }
     }
-    if !chunk.is_empty() {
-        let result = session
-            .import_chunk(&ImportChunkInput {
-                name: input.name.clone(),
-                schema: input.schema.clone(),
-                database: input.database.clone(),
-                columns: columns.clone(),
-                rows: chunk,
-                on_duplicate: input.on_duplicate,
-            })
-            .await?;
-        inserted += result.inserted;
-        updated += result.updated;
+    // The reader's own error (a bad row, an unreadable file).
+    match done_rx.await {
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => {
+            return Err(stopped(
+                written(inserted, updated),
+                ConnectorError::from(err).user_message(),
+            ))
+        }
+        Err(_) => {
+            return Err(ConnectorError::Internal(
+                "the import reader stopped without a result".into(),
+            ))
+        }
     }
 
     Ok(ImportObjectResult {

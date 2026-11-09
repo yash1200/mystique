@@ -1,13 +1,16 @@
 //! One pooled Postgres connection held for a manual-commit tab.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use mystique_connector_api::{
     ConnectorError, ConnectorResult, InterruptGuard, PinnedSession, QueryBatchResult, QueryControl,
-    ValidatedBatch,
+    RowSink, RowSource, ValidatedBatch,
 };
 
 use super::query::{run_planned_batch, transaction_state, TxnState};
 use super::query_failed;
+use super::stream::{stream_rows, Wrap};
 use super::{NoticeHub, PgCancelTls, PostgresSession};
 
 pub struct PostgresPin {
@@ -99,6 +102,30 @@ impl PinnedSession for PostgresPin {
 
     fn in_transaction(&self) -> bool {
         self.state != TxnState::Idle
+    }
+
+    async fn stream_rows(
+        &mut self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        self.refresh().await;
+        if self.state == TxnState::Failed {
+            return Err(ConnectorError::Query(
+                "This tab's transaction has failed. Roll it back before exporting from it.".into(),
+            ));
+        }
+        let wrap = if self.state == TxnState::Open {
+            Wrap::Savepoint
+        } else {
+            Wrap::Snapshot
+        };
+        let client = self.client()?;
+        let _guard = Self::arm(client, &self.cancel_tls, control);
+        let result = stream_rows(client, wrap, source, control, sink).await;
+        self.refresh().await;
+        result
     }
 }
 

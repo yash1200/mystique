@@ -4,11 +4,10 @@ use mystique_connector_api::{
     plan_schema_diff, plan_table_alter, ApplyDdlRequest, ApplyDdlResult, ApplySchemaDiffRequest,
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
     ConnectorResult, DdlTarget, DescribeTableDefinitionRequest, DistinctColumnValuesRequest,
-    FetchLargeValueRequest, FetchLargeValueResult, FetchTablePreviewRequest,
-    FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
-    PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableDefinition, TablePreviewResult, TablePreviewStats, WriteAction, WriteRisk,
-    DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
+    FetchTablePreviewRequest, FetchTablePreviewStatsRequest, ListTableDefinitionsRequest,
+    PlanDdlRequest, PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest,
+    TableAdminResult, TableDefinition, TablePreviewResult, TablePreviewStats, WriteAction,
+    WriteRisk, DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -78,6 +77,8 @@ impl ConnectionManager {
             .await;
         }
         let mut result = saved?;
+        // Values kept for the cell modal predate this save.
+        self.large_values.forget_session(&session_id);
         self.remember_save(
             &session_id,
             input.database.as_deref(),
@@ -123,18 +124,6 @@ impl ConnectionManager {
         session.fetch_table_preview_stats(&req.into_input()).await
     }
 
-    pub async fn fetch_large_value(
-        &self,
-        req: FetchLargeValueRequest,
-    ) -> ConnectorResult<FetchLargeValueResult> {
-        let run = self.begin_run(&req.session_id, req.execution_id.clone());
-        let control = &run.control;
-        let session = self.session(&req.session_id).await?;
-        let mut input = req.into_input();
-        input.control = Arc::clone(control);
-        self.drive_registered(control, FETCH_TIMEOUT_MS, session.fetch_large_value(&input))
-            .await
-    }
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
     pub async fn apply_table_admin(
         &self,
@@ -186,8 +175,11 @@ impl ConnectionManager {
                 "Name may only contain letters, numbers, and underscore.".into(),
             ));
         }
+        let session_id = req.session_id.clone();
         let input = req.into_input();
-        meta.session.apply_table_admin(&input).await
+        let result = meta.session.apply_table_admin(&input).await;
+        self.meta.invalidate(&session_id);
+        result
     }
 
     pub async fn describe_table_definition(
@@ -305,6 +297,8 @@ impl ConnectionManager {
         started: std::time::Instant,
         result: &ConnectorResult<ApplyDdlResult>,
     ) {
+        // Applied or failed part way, the catalog may have changed.
+        self.meta.invalidate(session_id);
         let sql = match result {
             Ok(done) if !done.applied.is_empty() => done.applied.clone(),
             Ok(_) => return,

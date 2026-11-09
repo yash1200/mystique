@@ -31,6 +31,9 @@ pub(super) struct TabPin {
     pin: AsyncMutex<Box<dyn PinnedSession + Send>>,
     idle: Duration,
     last_used: std::sync::Mutex<Instant>,
+    /// Exports and value reads running on this pin. A busy pin is never idle:
+    /// a long export must not have its transaction reaped under it.
+    busy: std::sync::atomic::AtomicUsize,
 }
 
 impl TabPin {
@@ -41,6 +44,9 @@ impl TabPin {
     }
 
     fn expired(&self) -> bool {
+        if self.busy.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            return false;
+        }
         self.last_used
             .lock()
             .map(|slot| slot.elapsed() >= self.idle)
@@ -49,7 +55,7 @@ impl TabPin {
 }
 
 impl ConnectionManager {
-    async fn gate_for(&self, key: &str) -> Arc<AsyncMutex<()>> {
+    pub(super) async fn gate_for(&self, key: &str) -> Arc<AsyncMutex<()>> {
         let mut gates = self.open_gates.lock().await;
         if let Some(gate) = gates.get(key) {
             return Arc::clone(gate);
@@ -123,6 +129,7 @@ impl ConnectionManager {
             pin: AsyncMutex::new(boxed),
             idle,
             last_used: std::sync::Mutex::new(Instant::now()),
+            busy: std::sync::atomic::AtomicUsize::new(0),
         });
         self.pins
             .lock()
@@ -164,6 +171,9 @@ impl ConnectionManager {
         };
         let mut pin = tab.pin.lock().await;
         let open = pin.in_transaction();
+        if open {
+            self.meta.invalidate(&tab.session_id);
+        }
         pin.rollback().await?;
         Ok(PinStatus {
             rolled_back: open,
@@ -204,6 +214,8 @@ impl ConnectionManager {
             return Err(ConnectorError::Query(ROLLED_BACK.into()));
         }
         let mut pin = tab.pin.lock().await;
+        // DDL in the transaction becomes visible to the pool, or is undone.
+        self.meta.invalidate(&tab.session_id);
         if commit {
             pin.commit().await?;
         } else {
@@ -405,6 +417,55 @@ impl ConnectionManager {
     }
 }
 
+/// A tab's pinned connection, borrowed for an export or a value read.
+pub(super) struct PinRead {
+    tab: Arc<TabPin>,
+}
+
+impl PinRead {
+    /// Stream through the tab's open transaction. The pin is marked busy for
+    /// the whole read so the idle reaper leaves it alone.
+    pub(super) async fn stream_rows(
+        &self,
+        source: &mystique_connector_api::RowSource,
+        control: &Arc<mystique_connector_api::QueryControl>,
+        sink: &mut dyn mystique_connector_api::RowSink,
+    ) -> ConnectorResult<()> {
+        use std::sync::atomic::Ordering;
+        self.tab.busy.fetch_add(1, Ordering::SeqCst);
+        self.tab.touch();
+        let result = {
+            let mut pin = self.tab.pin.lock().await;
+            pin.stream_rows(source, control, sink).await
+        };
+        self.tab.touch();
+        self.tab.busy.fetch_sub(1, Ordering::SeqCst);
+        result
+    }
+}
+
+impl ConnectionManager {
+    /// The tab's pin when it belongs to `session_id` and has an open
+    /// transaction. Without one there is nothing uncommitted to see, and the
+    /// pool reads without holding up the tab.
+    pub(super) async fn pinned_for_read(
+        &self,
+        session_id: &str,
+        tab_id: Option<&str>,
+    ) -> Option<PinRead> {
+        let tab_id = tab_id?.trim();
+        if tab_id.is_empty() {
+            return None;
+        }
+        let tab = self.pins.lock().await.get(tab_id).cloned()?;
+        if tab.session_id != session_id {
+            return None;
+        }
+        let open = tab.pin.lock().await.in_transaction();
+        open.then_some(PinRead { tab })
+    }
+}
+
 impl ConnectionManager {
     /// Run a batch and store one history row per statement.
     ///
@@ -495,6 +556,10 @@ impl ConnectionManager {
         })
         .await?;
 
+        let changes_catalog = plan
+            .statements
+            .iter()
+            .any(|stmt| super::meta_cache::may_change_catalog(&stmt.sql));
         if let Some(tab) = tab_id.as_deref() {
             self.ensure_tab_pin(&req.session_id, tab).await?;
         }
@@ -517,6 +582,10 @@ impl ConnectionManager {
             self.drive_registered(&control, timeout_ms, session.execute_batch(&batch))
                 .await
         };
+        // Even a failed DDL statement may have changed something.
+        if changes_catalog {
+            self.meta.invalidate(&req.session_id);
+        }
         if let Ok(batch_result) = result.as_mut() {
             mystique_connector_api::place_error_positions(
                 &req.text,

@@ -255,6 +255,11 @@ pub struct StatementResult {
     pub error_position: Option<crate::SourcePosition>,
     #[serde(default)]
     pub notices: Vec<String>,
+    /// Driver provenance per result column (see [`crate::ColumnOrigin`]).
+    /// Backend only: used to attach large-value locators, never serialized.
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub column_origins: Vec<Option<crate::ColumnOrigin>>,
 }
 
 impl StatementResult {
@@ -275,6 +280,7 @@ impl StatementResult {
             error: None,
             error_position: None,
             notices,
+            column_origins: Vec::new(),
         }
     }
 
@@ -294,6 +300,7 @@ impl StatementResult {
             error: Some(err.user_message()),
             error_position,
             notices: Vec::new(),
+            column_origins: Vec::new(),
         }
     }
 }

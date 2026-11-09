@@ -124,6 +124,7 @@ impl ConnectionManager {
                 error: None,
                 error_position: None,
                 notices: Vec::new(),
+                column_origins: Vec::new(),
             }],
             stopped_at: None,
         })

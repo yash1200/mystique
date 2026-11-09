@@ -8,8 +8,9 @@ mod sql;
 pub use admin::*;
 pub use edits::*;
 pub use export::{
-    export_object_with_preview, ExportFormat, ExportObjectInput, ExportObjectRequest,
-    ExportObjectResult, EXPORT_CHUNK_SIZE,
+    export_object_with_preview, stream_table_by_preview, ExportFormat, ExportObjectInput,
+    ExportObjectRequest, ExportObjectResult, ExportSink, ExportWriter, RowProgress,
+    TransferProgress, EXPORT_CHUNK_SIZE,
 };
 pub use filters::{
     mongo_filter_json, parse_code_filter_rules, preview_sort_field, preview_sort_sql,

@@ -366,13 +366,23 @@ export type ExportFormat = "csv" | "json" | "jsonl" | "sql";
  */
 export type ExportObjectRequest = { sessionId: string, name: string, schema?: string | null, database?: string | null, kind?: string | null, format: ExportFormat, path: string, 
 /**
- * Same id as a table-tab preview, so closing the tab stops the export.
+ * Cancel token for this export. The transfer queue owns it.
  */
-executionId?: string | null, };
+executionId?: string | null, 
+/**
+ * A query tab whose open transaction the export reads through, so rows
+ * it changed but has not committed are exported as the tab sees them.
+ */
+tabId?: string | null, };
 
 export type ExportObjectResult = { path: string, rowCount: number, format: ExportFormat, };
 
-export type FetchLargeValueRequest = { sessionId: string, locator: LargeCellLocator, offset?: number, limit?: number | null, executionId?: string | null, };
+export type FetchLargeValueRequest = { sessionId: string, locator: LargeCellLocator, offset?: number, limit?: number | null, executionId?: string | null, 
+/**
+ * A query tab with an open transaction reads the value through it, so
+ * a row the tab changed but has not committed still loads as shown.
+ */
+tabId?: string | null, };
 
 export type FetchLargeValueResult = { text: string, offset: number, nextOffset?: number | null, totalChars: number, };
 
@@ -450,7 +460,11 @@ export type ImportEncoding = "utf8" | "utf16Le" | "utf16Be" | "windows1252" | "i
 
 export type ImportFormat = "csv" | "json" | "jsonl" | "sql";
 
-export type ImportObjectRequest = { sessionId: string, name: string, schema?: string | null, database?: string | null, kind?: string | null, path: string, format: ImportFormat, encoding?: ImportEncoding, mapping?: Array<ImportColumnMap>, onDuplicate?: ImportOnDuplicate, };
+export type ImportObjectRequest = { sessionId: string, name: string, schema?: string | null, database?: string | null, kind?: string | null, path: string, format: ImportFormat, encoding?: ImportEncoding, mapping?: Array<ImportColumnMap>, onDuplicate?: ImportOnDuplicate, 
+/**
+ * Cancel token for this import. The transfer queue owns it.
+ */
+executionId?: string | null, };
 
 export type ImportObjectResult = { inserted: number, updated: number, format: ImportFormat, message?: string | null, };
 
@@ -493,9 +507,12 @@ export type IpcPrompt = { "type": "writeGuard" } & WriteGuardPrompt | { "type": 
 export type JsonValue = unknown;
 
 /**
- * One primary-key value, already in the js-safe JSON form the grid uses.
+ * One key value, already in the js-safe JSON form the grid uses.
+ * `data_type` lets the engine bind it as that type (a MySQL integer key
+ * is bound as an integer, a decimal one cast on the parameter side), so
+ * the column is never cast and the key index is used.
  */
-export type LargeCellKey = { column: string, value: JsonValue, };
+export type LargeCellKey = { column: string, value: JsonValue, dataType?: string | null, };
 
 /**
  * Handed back by the grid to load the rest of one cell. No SQL text.
@@ -1076,6 +1093,11 @@ export type TestResult = { ok: boolean, engine: string,
  * Server / driver version if known.
  */
 serverVersion: string | null, latencyMs: number, message: string, sshHostKey?: SshHostKeyPrompt | null, };
+
+/**
+ * Rows exported or imported so far, sent over IPC while a transfer runs.
+ */
+export type TransferProgress = { rows: number, };
 
 /**
  * `update_agent_chat` request. `None` leaves a field as it is.

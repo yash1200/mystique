@@ -15,6 +15,7 @@ mod ident;
 mod literal;
 mod params;
 mod plan;
+mod projection;
 mod risk;
 mod split;
 
@@ -24,6 +25,7 @@ pub use ident::{qualify_table, quote_ident, quote_path};
 pub use literal::{sql_literal, sql_string_literal};
 pub use params::{mask_placeholders, ParamSlot, ScriptParams};
 pub use plan::{first_syntax_fault, plan_batch, PlannedStatement, SyntaxFault};
+pub use projection::{single_table_select, ProjectedItem, SingleTableSelect};
 pub use risk::{
     classify, destructive_object_name, explain_executes, explain_subject, is_read_safe_set,
     is_safe_dml, StatementRisk,

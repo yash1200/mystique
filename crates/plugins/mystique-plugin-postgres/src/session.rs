@@ -1,19 +1,20 @@
 //! Pooled PostgreSQL session — thin [`ConnectorSession`] facade over focused modules.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use mystique_connector_api::{
     ApplyDdlResult, ApplyTableEditsInput, ApplyTableEditsResult, CatalogColumnRow, CatalogDatabase,
-    CatalogRelationship, ColumnInfo, ConnectorError, ConnectorResult, ConnectorSession, DdlPlan,
-    EngineCapabilities, ExplainPlan, ExportObjectInput, ExportObjectResult, FetchLargeValueInput,
-    FetchLargeValueResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
+    CatalogRelationship, ColumnInfo, ColumnOrigin, ConnectorError, ConnectorResult,
+    ConnectorSession, DdlPlan, EngineCapabilities, ExplainPlan, ExportObjectInput,
+    ExportObjectResult, FetchServerMetricsInput, FetchTablePreviewInput, ImportChunkInput,
     ImportChunkResult, ImportObjectInput, ImportObjectResult, ObjectStructure, PinnedSession,
     PoolStatus, PreviewImportInput, PreviewImportResult, QueryBatchResult, QueryControl,
-    QueryResult, ServerMetricsSnapshot, TableAdminInput, TableAdminResult, TableDefinition,
-    TablePreviewResult, TablePreviewStats, TerminateSessionInput, TerminateSessionResult,
-    ValidatedBatch, ValidatedQuery,
+    QueryResult, RowSink, RowSource, ServerMetricsSnapshot, TableAdminInput, TableAdminResult,
+    TableDefinition, TablePreviewResult, TablePreviewStats, TerminateSessionInput,
+    TerminateSessionResult, ValidatedBatch, ValidatedQuery,
 };
 
 mod admin;
@@ -28,6 +29,7 @@ mod metrics;
 mod pin;
 mod preview;
 mod query;
+mod stream;
 mod structure;
 mod transfer;
 
@@ -272,11 +274,22 @@ impl ConnectorSession for PostgresSession {
         preview::fetch_table_preview_stats(self, input).await
     }
 
-    async fn fetch_large_value(
+    async fn stream_rows(
         &self,
-        input: &FetchLargeValueInput,
-    ) -> ConnectorResult<FetchLargeValueResult> {
-        large::fetch_large_value(self, input).await
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        self.ensure_open()?;
+        let client = self.run_client(control).await?;
+        stream::stream_rows(&client, stream::Wrap::Snapshot, source, control, sink).await
+    }
+
+    async fn name_column_origins(
+        &self,
+        origins: Vec<Option<ColumnOrigin>>,
+    ) -> ConnectorResult<Vec<Option<ColumnOrigin>>> {
+        large::name_column_origins(self, origins).await
     }
 
     async fn list_catalog(

@@ -4,17 +4,20 @@
 //! connection back to the next checkout.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use mystique_connector_api::{
-    ConnectorError, ConnectorResult, PinnedSession, QueryBatchResult, QueryMode, ValidatedBatch,
+    ConnectorError, ConnectorResult, PinnedSession, QueryBatchResult, QueryControl, QueryMode,
+    RowSink, RowSource, ValidatedBatch,
 };
 use rusqlite::Connection;
 
 use super::interrupt::map_err;
 use super::query::{run_on_connection, RunOptions};
 use super::query_failed;
+use super::stream;
 
 pub struct SqlitePin {
     conn: Option<Connection>,
@@ -84,6 +87,31 @@ impl PinnedSession for SqlitePin {
 
     fn in_transaction(&self) -> bool {
         self.conn().is_ok_and(|conn| !conn.is_autocommit())
+    }
+
+    async fn stream_rows(
+        &mut self,
+        source: &RowSource,
+        control: &Arc<QueryControl>,
+        sink: &mut dyn RowSink,
+    ) -> ConnectorResult<()> {
+        let conn = self
+            .conn
+            .take()
+            .ok_or_else(|| ConnectorError::Connect("pinned connection is closed".into()))?;
+        let (tx, rx) = stream::channel();
+        let source = source.clone();
+        let reader_control = Arc::clone(control);
+        let reader = tokio::task::spawn_blocking(move || {
+            let result = stream::read(&conn, &source, &reader_control, &tx);
+            (conn, result)
+        });
+        let pumped = stream::pump(rx, sink).await;
+        let (conn, read) = reader
+            .await
+            .map_err(|err| ConnectorError::Internal(err.to_string()))?;
+        self.conn = Some(conn);
+        pumped.and(read)
     }
 }
 

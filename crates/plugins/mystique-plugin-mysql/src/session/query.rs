@@ -7,8 +7,9 @@ use mysql_async::Value;
 use mystique_connector_api::{
     affected_message, emit_progress, finish_progress, idle_result, inactivity_limit,
     opens_transaction, poll_until_idle, split_sql_statements_for, sql_explain_executes, BatchPhase,
-    ConnectorError, ConnectorResult, InterruptGuard, PlannedStatement, QueryBatchResult,
-    QueryColumn, QueryMode, QueryResult, StatementResult, ValidatedBatch, ValidatedQuery,
+    ColumnOrigin, ConnectorError, ConnectorResult, InterruptGuard, PlannedStatement,
+    QueryBatchResult, QueryColumn, QueryMode, QueryResult, StatementResult, ValidatedBatch,
+    ValidatedQuery,
 };
 use mystique_sql::SqlDialect;
 use serde_json::Value as JsonValue;
@@ -446,6 +447,8 @@ where
                 data_type: Some(mysql_type_label(column.column_type()).to_string()),
             })
             .collect();
+        let origins: Vec<Option<ColumnOrigin>> =
+            qr.columns_ref().iter().map(column_origin).collect();
         let affected_at_start = qr.affected_rows();
         max_warnings = max_warnings.max(qr.warnings());
         let mut out_rows: Vec<Vec<JsonValue>> = Vec::new();
@@ -523,13 +526,9 @@ where
             duration_ms: started.elapsed().as_millis() as u64,
             message,
         };
-        sets.push(StatementResult::success(
-            stmt,
-            set_index,
-            result,
-            affected,
-            Vec::new(),
-        ));
+        let mut outcome = StatementResult::success(stmt, set_index, result, affected, Vec::new());
+        outcome.column_origins = origins;
+        sets.push(outcome);
         if truncated && !read_all {
             return Ok((sets, true, max_warnings));
         }
@@ -564,4 +563,20 @@ async fn show_warnings(conn: &mut mysql_async::Conn) -> Vec<String> {
         }
     }
     notes
+}
+
+/// `org_table` / `org_name` name a base column. An expression, a derived
+/// table or a literal has an empty `org_table`.
+fn column_origin(column: &mysql_async::Column) -> Option<ColumnOrigin> {
+    let table = column.org_table_str();
+    let name = column.org_name_str();
+    if table.trim().is_empty() || name.trim().is_empty() {
+        return None;
+    }
+    Some(ColumnOrigin::named(
+        Some(column.schema_str().into_owned()),
+        None,
+        table.into_owned(),
+        name.into_owned(),
+    ))
 }

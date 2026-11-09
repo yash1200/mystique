@@ -1,9 +1,9 @@
 //! Large cell values cross IPC as a short preview. The full text is fetched
-//! later by primary key, one chunk at a time.
+//! later by key, one chunk at a time.
 //!
 //! Agent and MCP keep their own character window. This clip runs only on the
-//! grid IPC path, after the plugin has returned the real cell. Table export
-//! reads the plugin preview directly and must not call [`clip_table_preview`].
+//! grid IPC path, after the plugin has returned the real cell. File export
+//! streams the plugin rows directly and never sees a preview.
 
 use std::sync::Arc;
 
@@ -12,6 +12,7 @@ use serde_json::{Map, Value as JsonValue};
 
 use crate::cancel::QueryControl;
 use crate::error::{ConnectorError, ConnectorResult};
+use crate::origin::ResolvedColumn;
 use crate::query::QueryResult;
 use crate::{QueryBatchResult, TablePreviewResult};
 use mystique_sql::{qualify_table, quote_ident, SqlDialect};
@@ -25,19 +26,16 @@ pub const LARGE_CELL_BYTES: usize = 32 * 1024;
 pub const LARGE_CELL_PREVIEW_CHARS: usize = 512;
 /// Characters returned by one [`crate::FetchLargeValueResult`].
 pub const LARGE_CELL_CHUNK_CHARS: u64 = 32_000;
+/// A single value bigger than this (UTF-8 bytes of its display text) is
+/// refused rather than held in memory for the cell modal, a copy or an export.
+pub const LARGE_VALUE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 const ELLIPSIS: char = '\u{2026}';
 
-/// How a SQL engine spells a text cast.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SqlTextCast {
-    /// `CAST(col AS text)` — Postgres and SQLite.
-    Text,
-    /// `CAST(col AS CHAR)` — MySQL.
-    Char,
-}
-
-/// One primary-key value, already in the js-safe JSON form the grid uses.
+/// One key value, already in the js-safe JSON form the grid uses.
+/// `data_type` lets the engine bind it as that type (a MySQL integer key
+/// is bound as an integer, a decimal one cast on the parameter side), so
+/// the column is never cast and the key index is used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
@@ -45,6 +43,8 @@ pub enum SqlTextCast {
 pub struct LargeCellKey {
     pub column: String,
     pub value: JsonValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_type: Option<String>,
 }
 
 /// Handed back by the grid to load the rest of one cell. No SQL text.
@@ -62,11 +62,11 @@ pub struct LargeCellLocator {
     pub keys: Vec<LargeCellKey>,
 }
 
-/// `SELECT` plus the text parameters. Values are never interpolated.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `SELECT` plus the key parameters. Values are never interpolated.
+#[derive(Debug, Clone, PartialEq)]
 pub struct LargeCellSelect {
     pub sql: String,
-    pub params: Vec<String>,
+    pub params: Vec<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +83,10 @@ pub struct FetchLargeValueRequest {
     pub limit: Option<u64>,
     #[serde(default)]
     pub execution_id: Option<String>,
+    /// A query tab with an open transaction reads the value through it, so
+    /// a row the tab changed but has not committed still loads as shown.
+    #[serde(default)]
+    pub tab_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,12 +98,18 @@ pub struct FetchLargeValueInput {
 }
 
 impl FetchLargeValueRequest {
+    pub fn chunk_limit(&self) -> u64 {
+        self.limit
+            .unwrap_or(LARGE_CELL_CHUNK_CHARS)
+            .clamp(1, LARGE_CELL_CHUNK_CHARS)
+    }
+
     pub fn into_input(self) -> FetchLargeValueInput {
-        let limit = self.limit.unwrap_or(LARGE_CELL_CHUNK_CHARS);
+        let limit = self.chunk_limit();
         FetchLargeValueInput {
             locator: self.locator,
             offset: self.offset,
-            limit: limit.clamp(1, LARGE_CELL_CHUNK_CHARS),
+            limit,
             control: QueryControl::new(),
         }
     }
@@ -116,17 +126,16 @@ pub struct FetchLargeValueResult {
     pub total_chars: u64,
 }
 
-struct ClipCol {
-    name: String,
-    pk: bool,
-}
-
 /// Build a single-cell read. An empty key list is refused: there is no
 /// "match every column" fallback.
+///
+/// Each key is compared as `col = <param>` so the key index is used. The
+/// parameter carries the type: Postgres infers it from the column (the value
+/// is sent as text and parsed by that type's input function), MySQL casts
+/// the parameter for integer and decimal keys, SQLite applies the column
+/// affinity to the bound value.
 pub fn large_cell_select(
-    style: SqlDialect,
-    placeholder: SqlPlaceholder,
-    cast: SqlTextCast,
+    dialect: SqlDialect,
     locator: &LargeCellLocator,
 ) -> ConnectorResult<LargeCellSelect> {
     if locator.table.trim().is_empty() || locator.column.trim().is_empty() {
@@ -148,27 +157,23 @@ pub fn large_cell_select(
                 "A primary key column name is required.".into(),
             ));
         }
-        let ident = quote_ident(style, &key.column);
-        match key_text(&key.value) {
-            None => parts.push(format!("{ident} IS NULL")),
-            Some(text) => {
-                params.push(text);
-                let slot = match placeholder {
-                    SqlPlaceholder::Dollar => format!("${}", params.len()),
-                    SqlPlaceholder::Question => "?".to_string(),
-                };
-                let cast_expr = match cast {
-                    SqlTextCast::Text => format!("CAST({ident} AS text)"),
-                    SqlTextCast::Char => format!("CAST({ident} AS CHAR)"),
-                };
-                parts.push(format!("{cast_expr} = {slot}"));
-            }
+        let ident = quote_ident(dialect, &key.column);
+        if key.value.is_null() {
+            parts.push(format!("{ident} IS NULL"));
+            continue;
         }
+        let (slot, value) = match dialect {
+            SqlDialect::Postgres => (format!("${}", params.len() + 1), key.value.clone()),
+            SqlDialect::Mysql => mysql_key_param(key.data_type.as_deref(), &key.value),
+            SqlDialect::Sqlite | SqlDialect::Generic => ("?".to_string(), key.value.clone()),
+        };
+        params.push(value);
+        parts.push(format!("{ident} = {slot}"));
     }
 
-    let col = quote_ident(style, &locator.column);
+    let col = quote_ident(dialect, &locator.column);
     let from = qualify_table(
-        style,
+        dialect,
         locator.database.as_deref(),
         locator.schema.as_deref(),
         &locator.table,
@@ -178,6 +183,38 @@ pub fn large_cell_select(
         sql: format!("SELECT {col} FROM {from} WHERE {where_sql} LIMIT 1"),
         params,
     })
+}
+
+/// MySQL compares a string parameter with an integer or decimal column as a
+/// double, which loses digits past 2^53. An integer key is bound as an
+/// integer (the grid carries big ones as decimal strings); a decimal key is
+/// cast on the parameter side. The column itself is never cast, so the key
+/// index is used.
+fn mysql_key_param(data_type: Option<&str>, value: &JsonValue) -> (String, JsonValue) {
+    let ty = data_type
+        .map(|t| t.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let base = ty
+        .split(|c: char| c == '(' || c.is_whitespace())
+        .next()
+        .unwrap_or("")
+        .to_string();
+    match base.as_str() {
+        "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "bigint" => {
+            let integer = value.as_str().and_then(|text| {
+                let text = text.trim();
+                text.parse::<i64>()
+                    .map(JsonValue::from)
+                    .or_else(|_| text.parse::<u64>().map(JsonValue::from))
+                    .ok()
+            });
+            ("?".to_string(), integer.unwrap_or_else(|| value.clone()))
+        }
+        "decimal" | "numeric" | "dec" | "fixed" => {
+            ("CAST(? AS DECIMAL(65,30))".to_string(), value.clone())
+        }
+        _ => ("?".to_string(), value.clone()),
+    }
 }
 
 /// Slice the display text of one freshly read cell.
@@ -209,28 +246,63 @@ pub fn clip_table_preview(
     schema: Option<&str>,
     table: &str,
 ) {
-    let cols: Vec<ClipCol> = result
+    let large = large_cells(&result.rows);
+    if large.is_empty() {
+        return;
+    }
+    let key: Vec<(usize, KeyRef)> = result
         .columns
         .iter()
-        .map(|c| ClipCol {
-            name: c.name.clone(),
-            pk: c.pk,
+        .enumerate()
+        .filter(|(_, c)| c.pk)
+        .map(|(index, c)| {
+            (
+                index,
+                KeyRef {
+                    column: c.name.clone(),
+                    data_type: Some(c.data_type.clone()),
+                },
+            )
         })
         .collect();
-    clip_rows(&cols, &mut result.rows, database, schema, table);
+    let target = Target {
+        database: nonempty(database),
+        schema: nonempty(schema),
+        table: table.trim().to_string(),
+    };
+    for (row_index, col_index) in large {
+        let row = &mut result.rows[row_index];
+        let column = result
+            .columns
+            .get(col_index)
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+        let locator = if key.is_empty() || column.is_empty() || target.table.is_empty() {
+            None
+        } else {
+            locator_for(&target, column, &key, row)
+        };
+        row[col_index] = marker(&row[col_index], locator);
+    }
 }
 
-/// Query results have no primary-key metadata, so they preview without a locator.
+/// Clip a query result with no source information: previews without a locator.
 pub fn clip_query_result(result: &mut QueryResult) {
-    let cols: Vec<ClipCol> = result
-        .columns
-        .iter()
-        .map(|c| ClipCol {
-            name: c.name.clone(),
-            pk: false,
-        })
-        .collect();
-    clip_rows(&cols, &mut result.rows, None, None, "");
+    clip_query_result_with(result, &[]);
+}
+
+/// Clip a query result. `resolved[i]` is where column `i` came from. A cell
+/// gets a locator when its table's key is fully present in the same row.
+pub fn clip_query_result_with(result: &mut QueryResult, resolved: &[Option<ResolvedColumn>]) {
+    let large = large_cells(&result.rows);
+    for (row_index, col_index) in large {
+        let row = &mut result.rows[row_index];
+        let locator = resolved
+            .get(col_index)
+            .and_then(|r| r.as_ref())
+            .and_then(|source| query_locator(source, resolved, row));
+        row[col_index] = marker(&row[col_index], locator);
+    }
 }
 
 pub fn clip_batch_result(result: &mut QueryBatchResult) {
@@ -241,59 +313,96 @@ pub fn clip_batch_result(result: &mut QueryBatchResult) {
     }
 }
 
-fn clip_rows(
-    cols: &[ClipCol],
-    rows: &mut [Vec<JsonValue>],
-    database: Option<&str>,
-    schema: Option<&str>,
-    table: &str,
-) {
-    for row in rows.iter_mut() {
-        let keys = pk_keys(cols, row);
-        for (index, cell) in row.iter_mut().enumerate() {
-            if is_large_marker(cell) || encoded_len(cell) <= LARGE_CELL_BYTES {
-                continue;
-            }
-            let column = cols.get(index).map(|c| c.name.clone()).unwrap_or_default();
-            let locator = keys.as_ref().and_then(|keys| {
-                if column.is_empty() || table.trim().is_empty() {
-                    return None;
-                }
-                Some(LargeCellLocator {
-                    database: nonempty(database),
-                    schema: nonempty(schema),
-                    table: table.to_string(),
-                    column,
-                    keys: keys.clone(),
-                })
-            });
-            *cell = marker(cell, locator);
-        }
-    }
+/// True when any cell would be replaced by a preview.
+pub fn query_result_has_large(result: &QueryResult) -> bool {
+    result.rows.iter().any(|row| row.iter().any(is_oversized))
 }
 
-fn pk_keys(cols: &[ClipCol], row: &[JsonValue]) -> Option<Vec<LargeCellKey>> {
-    let mut keys = Vec::new();
-    let mut saw_pk = false;
-    for (index, col) in cols.iter().enumerate() {
-        if !col.pk {
-            continue;
-        }
-        saw_pk = true;
-        let value = row.get(index).cloned().unwrap_or(JsonValue::Null);
-        if encoded_len(&value) > LARGE_CELL_BYTES {
+struct Target {
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+}
+
+struct KeyRef {
+    column: String,
+    data_type: Option<String>,
+}
+
+fn query_locator(
+    source: &ResolvedColumn,
+    resolved: &[Option<ResolvedColumn>],
+    row: &[JsonValue],
+) -> Option<LargeCellLocator> {
+    if source.table_key.is_empty() {
+        return None;
+    }
+    let mut key = Vec::with_capacity(source.table_key.len());
+    for part in &source.table_key {
+        let index = resolved.iter().position(|other| {
+            other
+                .as_ref()
+                .is_some_and(|other| other.same_table(source) && other.column == part.name)
+        })?;
+        key.push((
+            index,
+            KeyRef {
+                column: part.name.clone(),
+                data_type: part.data_type.clone(),
+            },
+        ));
+    }
+    let target = Target {
+        database: source.database.clone(),
+        schema: source.schema.clone(),
+        table: source.table.clone(),
+    };
+    locator_for(&target, source.column.clone(), &key, row)
+}
+
+fn locator_for(
+    target: &Target,
+    column: String,
+    key: &[(usize, KeyRef)],
+    row: &[JsonValue],
+) -> Option<LargeCellLocator> {
+    let mut keys = Vec::with_capacity(key.len());
+    for (index, part) in key {
+        let value = row.get(*index).cloned().unwrap_or(JsonValue::Null);
+        // A clipped or oversized key cannot be matched.
+        if is_large_marker(&value) || encoded_len(&value) > LARGE_CELL_BYTES {
             return None;
         }
         keys.push(LargeCellKey {
-            column: col.name.clone(),
+            column: part.column.clone(),
             value,
+            data_type: part.data_type.clone().filter(|t| !t.trim().is_empty()),
         });
     }
-    if saw_pk {
-        Some(keys)
-    } else {
-        None
+    Some(LargeCellLocator {
+        database: target.database.clone(),
+        schema: target.schema.clone(),
+        table: target.table.clone(),
+        column,
+        keys,
+    })
+}
+
+/// `(row, column)` of every cell that needs a preview.
+fn large_cells(rows: &[Vec<JsonValue>]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for (r, row) in rows.iter().enumerate() {
+        for (c, cell) in row.iter().enumerate() {
+            if is_oversized(cell) {
+                out.push((r, c));
+            }
+        }
     }
+    out
+}
+
+fn is_oversized(cell: &JsonValue) -> bool {
+    !is_large_marker(cell) && encoded_len(cell) > LARGE_CELL_BYTES
 }
 
 fn marker(value: &JsonValue, locator: Option<LargeCellLocator>) -> JsonValue {
@@ -315,10 +424,19 @@ fn marker(value: &JsonValue, locator: Option<LargeCellLocator>) -> JsonValue {
     JsonValue::Object(map)
 }
 
+/// Encoded JSON length. Short scalars skip the encode: a string can grow at
+/// most six times (`\u0000`), so one that cannot reach the budget is not
+/// encoded at all.
 fn encoded_len(value: &JsonValue) -> usize {
-    serde_json::to_vec(value)
-        .map(|bytes| bytes.len())
-        .unwrap_or(0)
+    match value {
+        JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) => 0,
+        JsonValue::String(text) if text.len().saturating_mul(6) + 2 <= LARGE_CELL_BYTES => {
+            text.len() + 2
+        }
+        other => serde_json::to_vec(other)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0),
+    }
 }
 
 /// Text the cell modal shows. Strings stay unquoted; objects are compact JSON.
@@ -333,19 +451,6 @@ pub fn cell_display_text(value: &JsonValue) -> String {
     }
 }
 
-/// `None` means SQL `IS NULL`. Everything else is bound as text and compared
-/// with a text cast, so an int8 past 2^53 keeps the decimal from P4.5.11.
-fn key_text(value: &JsonValue) -> Option<String> {
-    match value {
-        JsonValue::Null => None,
-        JsonValue::String(text) => Some(text.clone()),
-        JsonValue::Bool(true) => Some("true".to_string()),
-        JsonValue::Bool(false) => Some("false".to_string()),
-        JsonValue::Number(number) => Some(number.to_string()),
-        other => serde_json::to_string(other).ok(),
-    }
-}
-
 fn nonempty(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -356,7 +461,8 @@ fn nonempty(value: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ColumnInfo;
+    use crate::origin::KeyColumn;
+    use crate::{ColumnInfo, QueryColumn, QueryMode};
     use serde_json::json;
 
     fn column(name: &str, pk: bool) -> ColumnInfo {
@@ -378,18 +484,25 @@ mod tests {
         text
     }
 
-    #[test]
-    fn short_cells_stay_intact() {
-        let mut result = TablePreviewResult {
+    fn preview(columns: Vec<ColumnInfo>, rows: Vec<Vec<JsonValue>>) -> TablePreviewResult {
+        TablePreviewResult {
             engine: "sqlite".into(),
-            columns: vec![column("id", true), column("body", false)],
-            rows: vec![vec![json!(1), json!("hello")]],
-            row_count: 1,
+            columns,
+            row_count: rows.len() as u64,
+            rows,
             total_rows: 0,
             total_known: false,
             truncated: false,
             duration_ms: 0,
-        };
+        }
+    }
+
+    #[test]
+    fn short_cells_stay_intact() {
+        let mut result = preview(
+            vec![column("id", true), column("body", false)],
+            vec![vec![json!(1), json!("hello")]],
+        );
         clip_table_preview(&mut result, None, None, "docs");
         assert_eq!(result.rows[0][1], json!("hello"));
     }
@@ -397,16 +510,10 @@ mod tests {
     #[test]
     fn oversized_text_is_a_preview_without_the_payload() {
         let body = big_text();
-        let mut result = TablePreviewResult {
-            engine: "sqlite".into(),
-            columns: vec![column("id", true), column("body", false)],
-            rows: vec![vec![json!("9007199254740993"), JsonValue::String(body)]],
-            row_count: 1,
-            total_rows: 0,
-            total_known: false,
-            truncated: false,
-            duration_ms: 0,
-        };
+        let mut result = preview(
+            vec![column("id", true), column("body", false)],
+            vec![vec![json!("9007199254740993"), JsonValue::String(body)]],
+        );
         clip_table_preview(&mut result, None, None, "docs");
         let cell = &result.rows[0][1];
         let encoded = serde_json::to_string(cell).expect("marker json");
@@ -428,22 +535,112 @@ mod tests {
         assert_eq!(locator["column"], json!("body"));
         assert_eq!(locator["keys"][0]["column"], json!("id"));
         assert_eq!(locator["keys"][0]["value"], json!("9007199254740993"));
+        assert_eq!(locator["keys"][0]["dataType"], json!("text"));
     }
 
     #[test]
     fn a_table_without_a_primary_key_has_no_locator() {
-        let mut result = TablePreviewResult {
-            engine: "sqlite".into(),
-            columns: vec![column("body", false)],
-            rows: vec![vec![JsonValue::String("x".repeat(40_000))]],
-            row_count: 1,
-            total_rows: 0,
-            total_known: false,
-            truncated: false,
-            duration_ms: 0,
-        };
+        let mut result = preview(
+            vec![column("body", false)],
+            vec![vec![JsonValue::String("x".repeat(40_000))]],
+        );
         clip_table_preview(&mut result, None, None, "docs");
         assert!(result.rows[0][0].get("locator").is_none());
+    }
+
+    #[test]
+    fn escaped_strings_are_measured_after_encoding() {
+        // 6,000 control characters encode to 36,000 bytes.
+        let text = "\u{1}".repeat(6_000);
+        let mut result = preview(
+            vec![column("id", true), column("body", false)],
+            vec![vec![json!(1), JsonValue::String(text)]],
+        );
+        clip_table_preview(&mut result, None, None, "docs");
+        assert!(is_large_marker(&result.rows[0][1]));
+    }
+
+    fn resolved(table: &str, column: &str, key: &[&str]) -> Option<ResolvedColumn> {
+        Some(ResolvedColumn {
+            database: None,
+            schema: Some("public".into()),
+            table: table.into(),
+            column: column.into(),
+            data_type: None,
+            table_key: key
+                .iter()
+                .map(|name| KeyColumn {
+                    name: (*name).into(),
+                    data_type: Some("int8".into()),
+                })
+                .collect(),
+        })
+    }
+
+    fn query(columns: &[&str], rows: Vec<Vec<JsonValue>>) -> QueryResult {
+        QueryResult {
+            engine: "postgres".into(),
+            mode: QueryMode::Read,
+            columns: columns
+                .iter()
+                .map(|name| QueryColumn {
+                    name: (*name).into(),
+                    data_type: None,
+                })
+                .collect(),
+            row_count: rows.len() as u64,
+            rows,
+            truncated: false,
+            duration_ms: 0,
+            message: None,
+        }
+    }
+
+    #[test]
+    fn query_cells_get_a_locator_when_the_key_is_in_the_row() {
+        let mut result = query(
+            &["doc_id", "content"],
+            vec![vec![json!(7), JsonValue::String(big_text())]],
+        );
+        let sources = vec![
+            resolved("docs", "id", &["id"]),
+            resolved("docs", "body", &["id"]),
+        ];
+        clip_query_result_with(&mut result, &sources);
+        let locator = &result.rows[0][1]["locator"];
+        assert_eq!(locator["table"], json!("docs"));
+        assert_eq!(locator["schema"], json!("public"));
+        // The source column name, not the alias.
+        assert_eq!(locator["column"], json!("body"));
+        assert_eq!(locator["keys"][0]["column"], json!("id"));
+        assert_eq!(locator["keys"][0]["value"], json!(7));
+    }
+
+    #[test]
+    fn query_cells_without_every_key_column_stay_previews() {
+        let mut result = query(
+            &["tenant", "content"],
+            vec![vec![json!(1), JsonValue::String(big_text())]],
+        );
+        let sources = vec![
+            resolved("docs", "tenant", &["tenant", "id"]),
+            resolved("docs", "body", &["tenant", "id"]),
+        ];
+        clip_query_result_with(&mut result, &sources);
+        assert!(is_large_marker(&result.rows[0][1]));
+        assert!(result.rows[0][1].get("locator").is_none());
+
+        // A key column from another table does not count.
+        let mut joined = query(
+            &["id", "content"],
+            vec![vec![json!(1), JsonValue::String(big_text())]],
+        );
+        let sources = vec![
+            resolved("users", "id", &["id"]),
+            resolved("docs", "body", &["id"]),
+        ];
+        clip_query_result_with(&mut joined, &sources);
+        assert!(joined.rows[0][1].get("locator").is_none());
     }
 
     #[test]
@@ -456,25 +653,21 @@ mod tests {
             keys: vec![LargeCellKey {
                 column: "id".into(),
                 value: json!("9007199254740993'); DROP TABLE docs;--"),
+                data_type: None,
             }],
         };
-        let select = large_cell_select(
-            SqlDialect::Postgres,
-            SqlPlaceholder::Dollar,
-            SqlTextCast::Text,
-            &locator,
-        )
-        .expect("sql");
-        assert!(select.sql.contains("CAST(\"id\" AS text) = $1"));
+        let select = large_cell_select(SqlDialect::Postgres, &locator).expect("sql");
+        assert_eq!(
+            select.sql,
+            "SELECT \"body\" FROM \"docs\" WHERE \"id\" = $1 LIMIT 1"
+        );
         assert!(!select.sql.contains("DROP TABLE"));
         assert_eq!(
             select.params,
-            vec!["9007199254740993'); DROP TABLE docs;--".to_string()]
+            vec![json!("9007199254740993'); DROP TABLE docs;--")]
         );
         let err = large_cell_select(
             SqlDialect::Postgres,
-            SqlPlaceholder::Question,
-            SqlTextCast::Text,
             &LargeCellLocator {
                 keys: Vec::new(),
                 ..locator
@@ -482,6 +675,49 @@ mod tests {
         )
         .expect_err("no key");
         assert!(err.to_string().contains("primary key"));
+    }
+
+    #[test]
+    fn the_key_column_is_never_wrapped_in_a_cast() {
+        let key = |column: &str, value: JsonValue, data_type: &str| LargeCellKey {
+            column: column.into(),
+            value,
+            data_type: Some(data_type.into()),
+        };
+        let locator = LargeCellLocator {
+            database: Some("app".into()),
+            schema: None,
+            table: "docs".into(),
+            column: "body".into(),
+            keys: vec![
+                key("id", json!("9007199254740993"), "bigint unsigned"),
+                key("rev", json!(3), "int"),
+                key("price", json!("1.10"), "decimal(10,2)"),
+                key("slug", json!("00123"), "varchar(20)"),
+                key("gone", JsonValue::Null, "int"),
+            ],
+        };
+        let mysql = large_cell_select(SqlDialect::Mysql, &locator).expect("mysql");
+        assert_eq!(
+            mysql.sql,
+            "SELECT `body` FROM `app`.`docs` WHERE `id` = ? AND `rev` = ? AND \
+             `price` = CAST(? AS DECIMAL(65,30)) AND `slug` = ? AND `gone` IS NULL LIMIT 1"
+        );
+        // Integer keys travel as integers, even past 2^53; others as given.
+        assert_eq!(
+            mysql.params,
+            vec![
+                serde_json::Value::from(9_007_199_254_740_993_u64),
+                json!(3),
+                json!("1.10"),
+                json!("00123")
+            ]
+        );
+        let sqlite = large_cell_select(SqlDialect::Sqlite, &locator).expect("sqlite");
+        assert!(!sqlite.sql.to_ascii_lowercase().contains("cast("));
+        let pg = large_cell_select(SqlDialect::Postgres, &locator).expect("pg");
+        assert!(pg.sql.contains("\"slug\" = $4 AND \"gone\" IS NULL"));
+        assert!(!pg.sql.to_ascii_lowercase().contains("cast("));
     }
 
     #[test]

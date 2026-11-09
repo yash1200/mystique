@@ -561,6 +561,7 @@ fn import_req(session_id: &str, path: &str) -> mystique_connector_api::ImportObj
         encoding: mystique_connector_api::ImportEncoding::Utf8,
         mapping: Vec::new(),
         on_duplicate: mystique_connector_api::ImportOnDuplicate::UpdateOnDuplicate,
+        execution_id: None,
     }
 }
 
@@ -604,7 +605,7 @@ async fn import_into_production_needs_no_extra_prompt() {
     mgr.open_session(sqlite_open(&db_path, "prod", "production", false))
         .await
         .expect("open prod");
-    mgr.import_object(import_req("prod", &csv_path.to_string_lossy()))
+    mgr.import_object(import_req("prod", &csv_path.to_string_lossy()), None)
         .await
         .expect("import");
     assert_eq!(count_rows(&mgr, "prod").await, 1);
@@ -828,7 +829,7 @@ async fn import_into_read_only_session_ignores_client_flag() {
         .await
         .expect("open read-only");
     let err = mgr
-        .import_object(import_req("ro", &csv_path.to_string_lossy()))
+        .import_object(import_req("ro", &csv_path.to_string_lossy()), None)
         .await
         .expect_err("client flag must not override the session");
     assert!(

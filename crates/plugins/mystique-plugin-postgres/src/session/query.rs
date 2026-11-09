@@ -7,9 +7,9 @@ use futures_util::{Stream, StreamExt};
 use mystique_connector_api::{
     affected_message, emit_progress, finish_progress, inactivity_limit, opens_transaction,
     poll_until_idle, split_sql_statements_for, sql_explain_executes, sql_is_proven_read,
-    BatchPhase, ConnectorError, ConnectorResult, IdleStop, PlannedStatement, QueryBatchResult,
-    QueryColumn, QueryControl, QueryMode, QueryResult, StatementResult, ValidatedBatch,
-    ValidatedQuery, HARD_MAX_ROWS,
+    BatchPhase, ColumnOrigin, ConnectorError, ConnectorResult, IdleStop, PlannedStatement,
+    QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult, StatementResult,
+    ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
 };
 use mystique_sql::SqlDialect;
 use tokio_postgres::error::SqlState;
@@ -248,6 +248,7 @@ async fn run_planned(
             None
         };
         let row_count = fetched.rows.len() as u64;
+        let origins = fetched.origins;
         let result = QueryResult {
             engine: "postgres".into(),
             mode: batch.mode,
@@ -258,13 +259,9 @@ async fn run_planned(
             duration_ms: started.elapsed().as_millis() as u64,
             message,
         };
-        return Ok(StatementResult::success(
-            stmt,
-            0,
-            result,
-            affected,
-            Vec::new(),
-        ));
+        let mut outcome = StatementResult::success(stmt, 0, result, affected, Vec::new());
+        outcome.column_origins = origins;
+        return Ok(outcome);
     }
 
     if !stmt.params.is_empty() {
@@ -584,6 +581,8 @@ fn cursor_query(sql: &str) -> &str {
 
 struct Fetched {
     columns: Vec<QueryColumn>,
+    /// RowDescription table oid and attribute number, per column.
+    origins: Vec<Option<ColumnOrigin>>,
     rows: Vec<Vec<serde_json::Value>>,
     truncated: bool,
     /// Every row the statement returned, kept or not. For a fetch from a
@@ -862,6 +861,7 @@ where
 /// stream reached its end; the rows seen are the fallback.
 fn rows_from(capped: Capped<tokio_postgres::Row>, affected: Option<u64>) -> Fetched {
     let mut columns = Vec::new();
+    let mut origins = Vec::new();
     let mut rows = Vec::with_capacity(capped.kept.len());
     for row in &capped.kept {
         if columns.is_empty() {
@@ -873,6 +873,11 @@ fn rows_from(capped: Capped<tokio_postgres::Row>, affected: Option<u64>) -> Fetc
                     data_type: Some(c.type_().name().to_string()),
                 })
                 .collect();
+            origins = row
+                .columns()
+                .iter()
+                .map(|c| ColumnOrigin::pg(c.table_oid(), c.column_id()))
+                .collect();
         }
         let mut cells = Vec::with_capacity(row.len());
         for idx in 0..row.len() {
@@ -882,6 +887,7 @@ fn rows_from(capped: Capped<tokio_postgres::Row>, affected: Option<u64>) -> Fetc
     }
     Fetched {
         columns,
+        origins,
         rows,
         truncated: capped.truncated,
         total: affected.unwrap_or(capped.seen as u64),
