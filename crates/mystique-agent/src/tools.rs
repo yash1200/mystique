@@ -106,9 +106,11 @@ impl BoundTools {
 
     /// Run one tool through the shared [`AgentTools`] path, as the agent.
     /// Levels, production rules and the approval dock apply exactly as for
-    /// MCP; a write above the level is denied or waits in the dock.
+    /// MCP; a write above the level is denied or waits in the dock. An
+    /// unlisted `execute_query` (a leaked call) gets the same level denial
+    /// as on MCP, not a different message.
     pub(crate) async fn dispatch(&self, name: &str, args: JsonValue) -> Result<JsonValue, ToolErr> {
-        if !ALLOWED.contains(&name) || (name == WRITE_TOOL && !self.may_write()) {
+        if !ALLOWED.contains(&name) {
             return Err(ToolErr(format!("unknown or disabled tool `{name}`")));
         }
         let args = self.bind(args)?;
@@ -123,7 +125,7 @@ impl BoundTools {
 /// Register the agent's tools on a Rig builder: every read tool, plus
 /// `execute_query` when [`BoundTools::may_write`].
 pub fn attach_tools(builder: AgentBuilder, bound: BoundTools) -> AgentBuilder<WithBuilderTools> {
-    let may_write = bound.may_write();
+    let may_write = bound.listed().contains(&WRITE_TOOL);
     let builder = builder
         .tool(GetSchemaDbml(bound.clone()))
         .tool(ListObjects(bound.clone()))

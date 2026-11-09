@@ -138,10 +138,12 @@ async fn at_read_the_write_tool_is_not_listed_and_a_write_is_denied_like_mcp() {
     assert!(bound.listed().contains(&"sample_rows"));
     assert!(bound.listed().contains(&"explain_query"));
     assert!(bound.listed().contains(&"infer_fields"));
+    // Called anyway (a leaked call): the level denies it, as on MCP.
     let err = fx.write("INSERT INTO t VALUES (2)").await.unwrap_err();
-    assert!(err.0.contains("disabled tool"), "{err}");
+    assert!(err.0.contains("needs `write`"), "{err}");
+    assert!(err.0.contains("(the global default)"), "{err}");
 
-    // Listed again once a level allows writes; read-level reads still run.
+    // Listed once any level allows writes; this connection still reads.
     fx.level("read");
     assert!(!fx.bound().may_write());
     fx.app

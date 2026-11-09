@@ -382,11 +382,14 @@ async fn every_inspection_tool_is_denied_on_a_hidden_connection() {
     fx.close().await;
 }
 
+/// Collection, database and sample size of one `infer_fields` call.
+type Asked = (String, Option<String>, u32);
+
 /// A MongoDB session double: answers `infer_fields` from a fixed histogram
 /// and records what it was asked.
 #[derive(Clone, Default)]
 struct InferProbe {
-    asked: Arc<Mutex<Vec<(String, Option<String>, u32)>>>,
+    asked: Arc<Mutex<Vec<Asked>>>,
 }
 
 #[async_trait::async_trait]
