@@ -61,7 +61,7 @@ impl EngineCapabilities {
             supports_transactions: true,
             supports_explain_plan: true,
             supports_structure_edit: true,
-            structure_edit_limited: true,
+            structure_edit_limited: false,
             supports_distinct_values: true,
             supports_query: true,
             supports_pooling: true,
@@ -214,8 +214,8 @@ mod create_caps_tests {
     }
 
     #[test]
-    fn only_sqlite_limits_structure_edits() {
-        assert!(EngineCapabilities::sqlite_defaults().structure_edit_limited);
+    fn no_engine_limits_structure_edits() {
+        assert!(!EngineCapabilities::sqlite_defaults().structure_edit_limited);
         assert!(!EngineCapabilities::postgres_defaults().structure_edit_limited);
         assert!(!EngineCapabilities::mysql_defaults().structure_edit_limited);
         assert!(!EngineCapabilities::mongodb_defaults().structure_edit_limited);

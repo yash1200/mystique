@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { TableDefinition } from '../../src/lib/core/contracts/ddl'
+import type { SchemaChange, TableDefinition } from '../../src/lib/core/contracts/ddl'
 import {
 	addColumn,
+	addedColumns,
 	draftFingerprint,
 	dropColumn,
+	emptySelection,
+	keepColumnsApart,
+	pairColumns,
 	pairRename,
+	setChangeSelected,
+	setDropIncluded,
+	sourceTableOf,
+	unpairColumns,
 	unpairedNames,
 } from '../../src/lib/features/workspace/explorer/structure-edit'
 
@@ -67,5 +75,71 @@ describe('structure draft edits', () => {
 		expect(pairRename(paired, 'lines', 'other')).toEqual(paired)
 		const after = unpairedNames(['orders', 'lines'], ['orders', 'order_lines'], paired)
 		expect(after).toEqual({ sourceOnly: [], targetOnly: [] })
+	})
+
+	it('keeps column pairs apart from table pairs', () => {
+		const columns = pairColumns([], 'orders', 'title', 'headline')
+		expect(columns).toEqual([
+			{ from: 'title', to: 'headline', table: 'orders', keepApart: false },
+		])
+		// A column pair does not hide tables from table pairing.
+		expect(unpairedNames(['title'], ['headline'], columns)).toEqual({
+			sourceOnly: ['title'],
+			targetOnly: ['headline'],
+		})
+		expect(pairRename(columns, 'title', 'headline')).toHaveLength(2)
+		// Re-pairing a column replaces its old pair.
+		const repaired = pairColumns(columns, 'orders', 'title', 'name')
+		expect(repaired).toEqual([{ from: 'title', to: 'name', table: 'orders', keepApart: false }])
+		const apart = keepColumnsApart(repaired, 'orders', 'title', 'name')
+		expect(apart).toEqual([{ from: 'title', to: 'name', table: 'orders', keepApart: true }])
+		expect(unpairColumns(apart, 'orders', 'title', 'name')).toEqual([])
+	})
+})
+
+function change(action: string, draft: Partial<TableDefinition> = {}): SchemaChange {
+	return {
+		name: 'orders',
+		action,
+		plan: { statements: [], warnings: [], transactional: false, requiresRebuild: false },
+		draft: { name: 'orders', ...draft },
+		selected: action !== 'drop',
+		drops: [],
+		columnRenames: [],
+	}
+}
+
+describe('schema diff selection', () => {
+	it('starts with no drops and skips by change name', () => {
+		const empty = emptySelection()
+		expect(empty).toEqual({ skip: [], drops: [] })
+		const skipped = setChangeSelected(empty, change('alter'), false)
+		expect(skipped.skip).toEqual(['orders'])
+		expect(setChangeSelected(skipped, change('alter'), true).skip).toEqual([])
+	})
+
+	it('a table drop is opt-in through the drop list', () => {
+		const chosen = setChangeSelected(emptySelection(), change('drop'), true)
+		expect(chosen.drops).toEqual([{ table: 'orders', kind: 'table', name: 'orders' }])
+		expect(setChangeSelected(chosen, change('drop'), false).drops).toEqual([])
+		const column = { table: 'orders', kind: 'column', name: 'legacy' }
+		const withColumn = setDropIncluded(emptySelection(), column, true)
+		expect(setDropIncluded(withColumn, column, true).drops).toEqual([column])
+		expect(setDropIncluded(withColumn, column, false).drops).toEqual([])
+	})
+
+	it('names the source table and the columns a change adds', () => {
+		const renamed = change('alter', {
+			renameTo: 'orders_v2',
+			columns: [
+				{ name: 'id', dataType: 'int', nullable: false, original: { name: 'id', dataType: 'int', nullable: false } },
+				{ name: 'note', dataType: 'text', nullable: true },
+				{ name: 'gone', dataType: 'text', nullable: true, drop: true },
+			],
+		})
+		expect(sourceTableOf(renamed)).toBe('orders_v2')
+		expect(sourceTableOf(change('alter'))).toBe('orders')
+		expect(addedColumns(renamed)).toEqual(['note'])
+		expect(addedColumns(change('create', renamed.draft))).toEqual([])
 	})
 })

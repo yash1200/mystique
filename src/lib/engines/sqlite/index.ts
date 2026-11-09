@@ -46,7 +46,6 @@ export const sqlite: EngineAdapter = {
 		engine: 'sqlite',
 		supportsExplainPlan: true,
 		sqlDialect: 'sqlite',
-		structureEditLimited: true,
 		supportsTerminateSession: false,
 		bindsSessionToDatabase: false,
 		connectionKind: 'file',

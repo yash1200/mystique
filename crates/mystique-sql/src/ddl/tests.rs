@@ -10,6 +10,7 @@ fn text_column(name: &str, nullable: bool) -> ColumnDraft {
         pk_position: 0,
         original: None,
         drop: false,
+        ..ColumnDraft::default()
     }
 }
 
@@ -34,6 +35,7 @@ fn table(name: &str, columns: Vec<ColumnDraft>) -> TableDefinition {
         create: false,
         drop_table: false,
         rename_to: None,
+        ..TableDefinition::default()
     }
 }
 
@@ -230,7 +232,7 @@ fn mysql_plan_shows_the_full_modify() {
 }
 
 #[test]
-fn sqlite_refuses_every_change_that_needs_a_rebuild() {
+fn sqlite_rebuild_needs_the_create_table_text() {
     let mut typed = existing("note");
     typed.data_type = "integer".into();
     let mut not_null = existing("note");
@@ -250,6 +252,7 @@ fn sqlite_refuses_every_change_that_needs_a_rebuild() {
         ref_columns: vec!["id".into()],
         original: None,
         drop: false,
+        ..Default::default()
     });
     let drafts = [
         table("orders", vec![existing("id"), typed]),
@@ -264,7 +267,9 @@ fn sqlite_refuses_every_change_that_needs_a_rebuild() {
         assert!(!plan.applyable(), "{draft:?} -> {plan:?}");
         assert!(plan.statements.is_empty(), "{plan:?}");
         assert!(
-            plan.warnings.iter().any(|w| w.contains("On SQLite")),
+            plan.warnings
+                .iter()
+                .any(|w| w.contains("Reload table orders")),
             "{plan:?}"
         );
     }
@@ -281,6 +286,7 @@ fn concurrent_index_cannot_share_a_transaction() {
         concurrent: true,
         original: None,
         drop: false,
+        ..Default::default()
     });
     let plan = plan_table_alter(DdlTarget::POSTGRES, &draft);
     assert!(!plan.applyable());
@@ -293,6 +299,7 @@ fn concurrent_index_cannot_share_a_transaction() {
         concurrent: true,
         original: None,
         drop: false,
+        ..Default::default()
     });
     let plan = plan_table_alter(DdlTarget::POSTGRES, &only);
     assert!(plan.applyable(), "{:?}", plan.warnings);
@@ -328,6 +335,7 @@ fn mongo_columns_are_refused_and_indexes_are_commands() {
         concurrent: false,
         original: None,
         drop: false,
+        ..Default::default()
     });
     let plan = plan_table_alter(DdlTarget::Mongo, &indexes);
     assert!(plan.applyable(), "{:?}", plan.warnings);
@@ -347,6 +355,7 @@ fn diff_does_not_guess_renames_and_orders_creates() {
         ref_columns: vec!["id".into(), "note".into()],
         original: None,
         drop: false,
+        ..Default::default()
     });
     let target_orders = table("orders", vec![existing("id")]);
     let target_old = table("order_lines", vec![existing("id")]);
@@ -393,10 +402,7 @@ fn diff_does_not_guess_renames_and_orders_creates() {
         DdlTarget::POSTGRES,
         &[table("lines", vec![existing("id")])],
         &[table("order_lines", vec![existing("id")])],
-        &[RenamePair {
-            from: "lines".into(),
-            to: "order_lines".into(),
-        }],
+        &[RenamePair::tables("lines", "order_lines")],
     );
     assert!(paired.changes.iter().any(|change| {
         change.action == "alter"
@@ -446,8 +452,10 @@ fn postgres_drops_an_index_in_its_schema() {
             columns: vec!["note".into()],
             unique: false,
             primary: false,
+            definition: None,
         }),
         drop: true,
+        ..Default::default()
     });
     let plan = plan_table_alter(DdlTarget::POSTGRES, &draft);
     assert!(plan.applyable(), "{:?}", plan.warnings);
