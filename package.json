@@ -59,6 +59,7 @@
 		"#core/ipc": "./src/lib/core/ipc/index.js",
 		"#core/ui": "./src/lib/core/ui/index.js",
 		"#core/util": "./src/lib/core/util/index.js",
+		"#features/approvals": "./src/lib/features/approvals/index.js",
 		"#features/connections": "./src/lib/features/connections/index.js",
 		"#features/settings": "./src/lib/features/settings/index.js",
 		"#features/shortcuts": "./src/lib/features/shortcuts/index.js",

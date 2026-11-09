@@ -81,6 +81,8 @@ impl ConnectionManager {
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,
             targets,
+            where_dialect: (!engine.eq_ignore_ascii_case("mongodb"))
+                .then(|| SqlDialect::from_engine(&engine)),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, prepared.guard)
         })
         .await?;

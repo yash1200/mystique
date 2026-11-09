@@ -112,5 +112,6 @@ pub mod repo {
     pub use super::repositories::secrets;
     pub use super::repositories::settings;
     pub use super::repositories::ssh_hosts;
+    pub use super::repositories::tool_access;
     pub use super::repositories::workspace_tabs;
 }

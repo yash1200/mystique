@@ -1,12 +1,16 @@
 //! Shared workspace tools for MCP and the in-app agent.
 //!
-//! They never return passwords, hosts, or connection strings. Writes are gated
-//! by [`AgentWritePolicy`] (P3.2). MCP also applies a connection allowlist
-//! (empty = none).
+//! They never return passwords, hosts, or connection strings. Every call is
+//! checked against the caller's access level (`none < read < write < full`,
+//! global → connection → database; see [`levels`]). A call above the level
+//! is denied with a message the model can act on, or, when the connection
+//! asks for high-risk writes, waits in the in-app approval dock.
 
+mod approvals;
 mod args;
 mod catalog;
 mod download;
+pub mod levels;
 mod policy;
 mod query;
 mod results;
@@ -29,13 +33,15 @@ use self::args::{opt_str, req_str};
 
 pub(crate) use results::ToolResultCache;
 
-pub use policy::{
-    parse_allowlist, AgentWritePolicy, ToolCaller, SETTING_MCP_ALLOWLIST, SETTING_MCP_POLICY,
-};
+pub use approvals::{ToolApprovals, APPROVAL_TIMEOUT};
+pub(crate) use args::profile_database as profile_default_database;
+pub use levels::{AccessLevel, ToolCaller};
+pub(crate) use policy::{default_level, is_production, setting_key, ConnectionLevels};
+pub use policy::{SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL};
 pub use specs::{tool_specs, tool_specs_for};
 pub use types::{
     AgentColumnInfo, AgentConnectionInfo, AgentObjectInfo, AgentQueryDownload, AgentToolSpec,
-    AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
+    ToolAnnotations, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
 };
 
 /// A profile that does not save its password, with none typed this session.
@@ -49,6 +55,7 @@ pub struct AgentTools {
     connections: Arc<ConnectionManager>,
     secrets: Arc<SecretStore>,
     results: Arc<ToolResultCache>,
+    approvals: Arc<ToolApprovals>,
 }
 
 impl AgentTools {
@@ -62,7 +69,14 @@ impl AgentTools {
             connections,
             secrets,
             results: Arc::new(ToolResultCache::default()),
+            approvals: Arc::new(ToolApprovals::default()),
         }
+    }
+
+    /// Share one approval queue (`AppServices` owns it, the dock reads it).
+    pub(crate) fn with_approvals(mut self, approvals: Arc<ToolApprovals>) -> Self {
+        self.approvals = approvals;
+        self
     }
 
     /// Share one result cache across tool calls (`AppServices` owns it).
@@ -75,22 +89,13 @@ impl AgentTools {
         tool_specs()
     }
 
-    pub fn advertised_tools(&self, _caller: ToolCaller) -> Vec<AgentToolSpec> {
-        tool_specs_for(self.write_policy())
+    /// `execute_query` is listed only when the caller may write somewhere.
+    pub fn advertised_tools(&self, caller: ToolCaller) -> Vec<AgentToolSpec> {
+        tool_specs_for(self.may_write(caller))
     }
 
     pub fn mcp_instructions(&self) -> String {
-        match self.write_policy() {
-            AgentWritePolicy::ReadOnly => {
-                "Mystique is a desktop database studio. Tools are read-only: schema (DBML), list/describe tables or collections, run SELECT/find, save and list queries. Use list_connections first. Never ask the user to paste schema.".into()
-            }
-            AgentWritePolicy::SafeWrite => {
-                "Mystique is a desktop database studio. Reads plus INSERT/UPDATE on allowlisted connections. DELETE, DROP, and DDL are blocked. Use list_connections first. Never ask the user to paste schema.".into()
-            }
-            AgentWritePolicy::HighRiskWrite => {
-                "Mystique is a desktop database studio. Writes including DDL/DROP are allowed on allowlisted connections. Production still needs an in-app write unlock. Use list_connections first. Never ask the user to paste schema.".into()
-            }
-        }
+        "Mystique is a desktop database studio. Use list_connections first: it shows each connection's access level. The user sets levels per connection and database: read (SELECT/find), write (adds INSERT/UPDATE), full (adds DELETE, DDL, DROP). A call above the level is denied and nothing runs; the error says which level is needed. On connections that ask for high-risk writes, such a call waits up to 90 seconds for the user to approve that exact statement in Mystique. Never ask the user to paste schema.".into()
     }
 
     /// Dispatch by tool name. Used by MCP and the in-app agent.
@@ -101,7 +106,8 @@ impl AgentTools {
         caller: ToolCaller,
     ) -> AppResult<JsonValue> {
         if let Some(id) = opt_str(args, "connection_id") {
-            self.require_allowlisted(caller, &id)?;
+            let database = opt_str(args, "database");
+            self.require_read(caller, &id, database.as_deref())?;
         }
         match name {
             "list_connections" => {
@@ -201,7 +207,7 @@ impl AgentTools {
                 // connection can rewrite a production saved query by id.
                 if let Some(id) = input.id.as_deref().filter(|s| !s.is_empty()) {
                     let existing = self.db.with_conn(|c| repo::queries::get_query(c, id))?;
-                    self.require_allowlisted(caller, &existing.connection_id)?;
+                    self.require_read(caller, &existing.connection_id, None)?;
                 }
                 let saved = self.save_query(input)?;
                 Ok(serde_json::to_value(saved)?)
@@ -303,3 +309,6 @@ fn tool_session_id(
 
 #[cfg(test)]
 mod access_tests;
+
+#[cfg(test)]
+mod principal_tests;

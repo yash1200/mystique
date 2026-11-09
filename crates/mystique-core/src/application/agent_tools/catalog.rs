@@ -15,7 +15,13 @@ impl AgentTools {
         &self,
         caller: ToolCaller,
     ) -> AppResult<Vec<AgentConnectionInfo>> {
-        let profiles = self.db.with_conn(repo::connections::list_all)?;
+        let (profiles, rows, global) = self.db.with_conn(|c| {
+            Ok((
+                repo::connections::list_all(c)?,
+                repo::tool_access::list_all(c)?,
+                super::policy::default_level(c, caller)?,
+            ))
+        })?;
         let live: std::collections::HashSet<String> = self
             .connections
             .list_sessions()
@@ -23,11 +29,21 @@ impl AgentTools {
             .into_iter()
             .map(|s| s.session_id)
             .collect();
-        let allow = (caller == ToolCaller::Mcp).then(|| self.mcp_allowlist());
-        Ok(profiles
-            .into_iter()
-            .filter(|p| allow.as_ref().is_none_or(|set| set.contains(&p.id)))
-            .map(|p| AgentConnectionInfo {
+        let mut out = Vec::new();
+        for p in profiles {
+            let own: Vec<_> = rows
+                .iter()
+                .filter(|row| row.connection_id == p.id)
+                .cloned()
+                .collect();
+            let levels = super::policy::ConnectionLevels::from_rows(&own);
+            let production = super::policy::is_production(&p);
+            // `none` hides the connection, unless a database on it is open.
+            if !levels.visible(global, production) {
+                continue;
+            }
+            let access = levels.chain(global, production, None).resolve().level;
+            out.push(AgentConnectionInfo {
                 connected: live.contains(&p.id)
                     || live.contains(&format!("agent:{}", p.id))
                     || live.contains(&format!("mcp:{}", p.id)),
@@ -35,9 +51,19 @@ impl AgentTools {
                 id: p.id.clone(),
                 name: p.name,
                 engine: p.engine,
+                // A read-only profile reads, whatever the level says.
+                access: if p.read_only {
+                    access.min(super::levels::AccessLevel::Read)
+                } else {
+                    access
+                }
+                .as_str()
+                .into(),
                 read_only: p.read_only,
-            })
-            .collect())
+                asks_for_approval: levels.ask && !p.read_only,
+            });
+        }
+        Ok(out)
     }
 
     pub async fn get_schema_dbml(
@@ -46,6 +72,7 @@ impl AgentTools {
         database: Option<&str>,
         caller: ToolCaller,
     ) -> AppResult<String> {
+        self.require_read(caller, connection_id, database)?;
         let sid = self.ensure_session_for(connection_id, caller).await?;
         let profile = self
             .db
@@ -86,6 +113,7 @@ impl AgentTools {
         database: Option<&str>,
         caller: ToolCaller,
     ) -> AppResult<Vec<AgentObjectInfo>> {
+        let profile = self.require_read(caller, connection_id, database)?;
         let sid = self.ensure_session_for(connection_id, caller).await?;
         let catalog = self
             .connections
@@ -106,6 +134,13 @@ impl AgentTools {
                     continue;
                 }
             }
+            // A database set to `none` is left out of the listing.
+            if self
+                .require_read_on(caller, &profile, Some(&db.name))
+                .is_err()
+            {
+                continue;
+            }
             for obj in db.objects {
                 out.push(object_info(obj));
             }
@@ -121,6 +156,7 @@ impl AgentTools {
         database: Option<&str>,
         caller: ToolCaller,
     ) -> AppResult<Vec<AgentColumnInfo>> {
+        self.require_read(caller, connection_id, database)?;
         let sid = self.ensure_session_for(connection_id, caller).await?;
         let cols: Vec<ColumnInfo> = self
             .connections

@@ -10,11 +10,7 @@ use mystique_core::{AppError, AppResult, AppServices, Prompt, SecretKind};
 
 use crate::clients::{self, Host, McpEndpoint, McpHarness};
 use crate::server::{ensure_token, McpController, McpStatus, TokenGate};
-use crate::settings::{
-    allowlist_from_setting, canonical_allowlist, canonical_policy, McpAccess,
-    McpAllowlistConnection, DEFAULT_MCP_PORT, SETTING_MCP_ALLOWLIST, SETTING_MCP_ENABLED,
-    SETTING_MCP_POLICY, SETTING_MCP_PORT, SETTING_MCP_TOKEN,
-};
+use crate::settings::{DEFAULT_MCP_PORT, SETTING_MCP_ENABLED, SETTING_MCP_PORT, SETTING_MCP_TOKEN};
 
 /// Host-facing MCP service. Uses [`AppServices`] for tools + settings only.
 #[derive(Clone)]
@@ -160,53 +156,6 @@ impl McpService {
 
     fn configured_url(&self) -> String {
         format!("http://127.0.0.1:{}/mcp", self.port_setting())
-    }
-
-    pub fn access(&self) -> AppResult<McpAccess> {
-        let policy = self
-            .app
-            .settings()
-            .get(SETTING_MCP_POLICY)
-            .ok()
-            .flatten()
-            .map(|s| canonical_policy(&s.value))
-            .unwrap_or_default();
-        let allowlist = self
-            .app
-            .settings()
-            .get(SETTING_MCP_ALLOWLIST)
-            .ok()
-            .flatten()
-            .map(|s| allowlist_from_setting(&s.value))
-            .unwrap_or_default();
-        let connections = self
-            .app
-            .profiles()
-            .list()?
-            .into_iter()
-            .map(|p| McpAllowlistConnection {
-                id: p.id,
-                name: p.name,
-                engine: p.engine,
-            })
-            .collect();
-        Ok(McpAccess {
-            policy: policy.as_str().to_string(),
-            allowlist,
-            connections,
-        })
-    }
-
-    pub fn set_access(&self, policy: &str, allowlist: Vec<String>) -> AppResult<McpAccess> {
-        let policy = canonical_policy(policy);
-        let allowlist = canonical_allowlist(allowlist);
-        self.app
-            .settings()
-            .set(SETTING_MCP_POLICY, policy.as_str())?;
-        self.app
-            .settings()
-            .set(SETTING_MCP_ALLOWLIST, &serde_json::to_string(&allowlist)?)?;
-        self.access()
     }
 }
 

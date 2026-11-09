@@ -34,6 +34,12 @@ pub struct WriteGuardPrompt {
     /// the mark is per database rather than the connection's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
+    /// Production only: things to look at before confirming, such as an
+    /// `UPDATE` / `DELETE` with no `WHERE` or one that is always true.
+    /// A warning, never a block.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub warnings: Vec<String>,
 }
 
 impl WriteGuardPrompt {
@@ -68,6 +74,7 @@ impl WriteGuardPrompt {
             statements,
             object_name,
             database: None,
+            warnings: Vec::new(),
         })
     }
 

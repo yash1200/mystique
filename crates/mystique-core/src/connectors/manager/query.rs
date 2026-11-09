@@ -89,6 +89,7 @@ impl ConnectionManager {
             profile_read_only: read_only,
             pinned: tab_id.is_some(),
             targets,
+            request: Some(&req.text),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, risk)
         })
         .await?;

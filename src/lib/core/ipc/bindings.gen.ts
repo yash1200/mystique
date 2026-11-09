@@ -679,10 +679,6 @@ export type ListRelationshipsRequest = { sessionId: string, database?: string | 
 
 export type ListTableDefinitionsRequest = { sessionId: string, database?: string | null, schema?: string | null, };
 
-export type McpAccess = { policy: string, allowlist: Array<string>, connections: Array<McpAllowlistConnection>, };
-
-export type McpAllowlistConnection = { id: string, name: string, engine: string, };
-
 export type McpHarness = { id: string, label: string, mark: string, hint: string, configPath: string, installed: boolean, stale: boolean, };
 
 export type McpStatus = { enabled: boolean, running: boolean, port: number | null, url: string | null, token: string | null, };
@@ -1317,6 +1313,68 @@ export type TimedUnlockStatus = { sessionId: string,
  */
 remainingMs?: number | null, };
 
+export type ToolAccessConnection = { id: string, name: string, engine: string, 
+/**
+ * `local` | `staging` | `production`.
+ */
+environment: string, 
+/**
+ * The profile's default database, when it names one.
+ */
+defaultDatabase?: string | null, 
+/**
+ * Set on the connection. Absent = inherits the global default.
+ */
+level?: string | null, 
+/**
+ * What MCP gets on the connection (after inheritance).
+ */
+mcpLevel: string, 
+/**
+ * What the built-in agent gets on the connection (after inheritance).
+ */
+agentLevel: string, 
+/**
+ * Writes above the level go to the approval dock instead of failing.
+ */
+askHighRisk: boolean, 
+/**
+ * Levels set on single databases.
+ */
+databases: Array<ToolAccessDatabase>, };
+
+export type ToolAccessDatabase = { name: string, level: string, };
+
+/**
+ * The settings pane: both global defaults and every connection's levels.
+ */
+export type ToolAccessView = { 
+/**
+ * `none` | `read` | `write` | `full`.
+ */
+mcpDefault: string, agentDefault: string, connections: Array<ToolAccessConnection>, };
+
+/**
+ * One write waiting in the approval dock. Never persisted.
+ */
+export type ToolApprovalRequest = { id: string, 
+/**
+ * `mcp` | `agent`.
+ */
+caller: string, connectionId: string, connectionName: string, database?: string | null, environment: string, 
+/**
+ * Exactly the text that runs if approved.
+ */
+sql: string, 
+/**
+ * The level the statement needs, and the level the caller has.
+ */
+needed: string, granted: string, requestedAt: string, 
+/**
+ * After this the request is denied.
+ */
+expiresAt: string, };
+
 /**
  * Rows exported or imported so far, sent over IPC while a transfer runs.
  */
@@ -1394,7 +1452,13 @@ objectName?: string | null,
  * The database marked with `environment` that the write lands in, when
  * the mark is per database rather than the connection's.
  */
-database?: string | null, };
+database?: string | null, 
+/**
+ * Production only: things to look at before confirming, such as an
+ * `UPDATE` / `DELETE` with no `WHERE` or one that is always true.
+ * A warning, never a block.
+ */
+warnings?: Array<string>, };
 
 /**
  * The rows one write would touch, or why there is no preview.

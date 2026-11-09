@@ -9,7 +9,8 @@ use mystique_connector_api::StatementKind::{
     Destructive as X, Read as R, Session as S, Write as W,
 };
 use mystique_connector_api::{
-    gate_sql_batch, sql_is_safe_dml_for, QueryMode, SqlDialect, StatementKind,
+    gate_sql_batch, gate_sql_batch_in, sql_is_safe_dml_for, EngineQueryPolicy, IpcError,
+    IpcErrorKind, QueryMode, SqlDialect, SqlQueryPolicy, StatementKind,
 };
 
 const PG: SqlDialect = SqlDialect::Postgres;
@@ -176,6 +177,25 @@ const SQL: &[(&str, SqlDialect, StatementKind, bool, bool)] = &[
     ("SET PERSIST max_connections = 10", MY, W, DENY, UNSAFE),
     ("RESET search_path", PG, W, DENY, UNSAFE),
 
+    // F-06: ReadProof. Write-mode risk is unchanged, but Read mode only runs
+    // functions on the dialect's allowlist.
+    ("SELECT my_func(1)", PG, R, DENY, UNSAFE),
+    ("SELECT public.lower('x')", PG, R, DENY, UNSAFE),
+    ("SELECT * FROM my_srf() f", PG, R, DENY, UNSAFE),
+    ("SELECT txid_current()", PG, R, DENY, UNSAFE),
+    ("SELECT query_to_xml('DELETE FROM t', true, false, '')", PG, R, DENY, UNSAFE),
+    ("SELECT 1; SELECT my_func(1)", PG, R, DENY, UNSAFE),
+    ("EXPLAIN ANALYZE SELECT my_func(1)", PG, R, DENY, UNSAFE),
+    ("EXPLAIN SELECT my_func(1)", PG, R, ALLOW, UNSAFE),
+    ("SELECT my_func(1)", MY, R, DENY, UNSAFE),
+    ("SELECT IS_FREE_LOCK('x')", MY, W, DENY, UNSAFE),
+    ("EXPLAIN SELECT * FROM t WHERE a = (SELECT GET_LOCK('x', 1))", MY, R, DENY, UNSAFE),
+    ("SELECT my_func(1)", LITE, R, DENY, UNSAFE),
+    ("SELECT * FROM pragma_table_info('t')", LITE, R, ALLOW, UNSAFE),
+    ("-- note\nPRAGMA table_info(t)", LITE, R, ALLOW, UNSAFE),
+    ("-- note\nTABLE t", PG, R, ALLOW, UNSAFE),
+    ("SELECT pg_catalog.now(), pg_catalog.count(*) FROM t", PG, R, ALLOW, UNSAFE),
+
     // Ordinary reads stay reads.
     ("SELECT 1", PG, R, ALLOW, UNSAFE),
     ("SELECT * FROM t WHERE a = 1 ORDER BY b DESC NULLS LAST LIMIT 10 OFFSET 5", PG, R, ALLOW, UNSAFE),
@@ -238,4 +258,85 @@ fn sql_corpus() {
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+const PG_READS: &str = include_str!("../../mystique-sql/tests/fixtures/read_corpus/postgres.sql");
+const MY_READS: &str = include_str!("../../mystique-sql/tests/fixtures/read_corpus/mysql.sql");
+const LITE_READS: &str = include_str!("../../mystique-sql/tests/fixtures/read_corpus/sqlite.sql");
+
+/// Real-world reads (the `mystique-sql` ReadProof corpus) still run in Read
+/// mode, and the policy's `read_proof` (what MCP calls) agrees.
+#[test]
+fn real_world_reads_run_in_read_mode() {
+    let corpora = [
+        (PG, "postgres", PG_READS),
+        (MY, "mysql", MY_READS),
+        (LITE, "sqlite", LITE_READS),
+    ];
+    let mut failures = Vec::new();
+    let mut count = 0;
+    for (dialect, engine, corpus) in corpora {
+        let policy = SqlQueryPolicy::new(engine);
+        let masked = mystique_sql::mask_placeholders(corpus, dialect);
+        for span in mystique_sql::split_statement_spans(&masked, dialect) {
+            count += 1;
+            let sql = &corpus[span.start..span.end];
+            let script = mystique_sql::ScriptParams::scan(sql, dialect).expect("scan");
+            let wanted = (0..10)
+                .find(|n| script.check_count(*n).is_ok())
+                .unwrap_or(0);
+            let params = vec![serde_json::Value::from(1); wanted];
+            if let Err(err) = gate_sql_batch_in(sql, dialect, QueryMode::Read, false, &params) {
+                failures.push(format!("{dialect:?}: {err} <- {sql}"));
+            }
+            // MCP sends no parameters.
+            if wanted == 0 {
+                if let Err(err) = policy.read_proof(sql) {
+                    failures.push(format!("{dialect:?} read_proof: {err} <- {sql}"));
+                }
+            }
+        }
+    }
+    assert!(count >= 200, "corpus has {count} statements");
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// MCP and the agent call one function; the refusal is a positioned policy error.
+#[test]
+fn read_proof_is_one_call_for_mcp() {
+    let pg = SqlQueryPolicy::new("postgres");
+    assert!(pg.read_proof("SELECT lower(name) FROM users").is_ok());
+    let err = pg.read_proof("SELECT nextval('s')").expect_err("nextval");
+    assert_eq!(
+        err.to_string(),
+        "policy: `nextval` may write; switch to Write mode to run it. Nothing ran."
+    );
+    let ipc = IpcError::from(err);
+    assert_eq!(ipc.kind, IpcErrorKind::Policy);
+    assert_eq!(
+        ipc.message,
+        "`nextval` may write; switch to Write mode to run it. Nothing ran."
+    );
+    assert_eq!(ipc.position.expect("position").offset, 7);
+    assert_eq!(ipc.statement_index, Some(0));
+
+    let err = pg
+        .read_proof("SELECT 1;\nSELECT my_func(2)")
+        .expect_err("udf");
+    let ipc = IpcError::from(err);
+    assert_eq!(
+        ipc.message,
+        "Statement 2: `my_func` is not a known read-only function; switch to Write mode to run it. Nothing ran."
+    );
+    let position = ipc.position.expect("position");
+    assert_eq!((position.line, position.column), (2, 8));
+    assert_eq!(ipc.statement_index, Some(1));
+
+    assert!(pg.read_proof("DELETE FROM t").is_err());
+    assert!(pg.read_proof("BEGIN").is_err());
+    let mysql = SqlQueryPolicy::new("mysql");
+    assert!(mysql.read_proof("SELECT GET_LOCK('x', 1)").is_err());
+    assert!(mysql
+        .read_proof("SELECT JSON_EXTRACT(doc, '$.a') FROM t")
+        .is_ok());
 }

@@ -75,6 +75,10 @@ pub struct AgentConnectionInfo {
     pub database: Option<String>,
     pub read_only: bool,
     pub connected: bool,
+    /// The caller's level on the connection: `read`, `write` or `full`.
+    pub access: String,
+    /// Writes above `access` wait for the user's approval in Mystique.
+    pub asks_for_approval: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +126,33 @@ pub struct AgentToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub input_schema: JsonValue,
+    pub annotations: ToolAnnotations,
+}
+
+/// MCP tool annotations (hints for the client, never a security boundary).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ToolAnnotations {
+    pub title: &'static str,
+    /// Does not change the database or Mystique's saved data.
+    pub read_only: bool,
+    /// May delete or overwrite data. Meaningful only when not read-only.
+    pub destructive: bool,
+    /// Calling again with the same arguments has no further effect.
+    pub idempotent: bool,
+}
+
+impl ToolAnnotations {
+    /// The MCP `annotations` object.
+    pub fn to_json(self) -> JsonValue {
+        serde_json::json!({
+            "title": self.title,
+            "readOnlyHint": self.read_only,
+            "destructiveHint": self.destructive,
+            "idempotentHint": self.idempotent,
+            // Local databases the user saved, not the open web.
+            "openWorldHint": false,
+        })
+    }
 }
 
 #[cfg(test)]

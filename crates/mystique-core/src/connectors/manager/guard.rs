@@ -1,9 +1,11 @@
 use mystique_connector_api::{
-    confirmation_for, confirmation_unlocks, target_environment, ConnectorError, ConnectorResult,
-    Environment, WriteAction, WriteGuardPrompt, WriteRisk, WriteState, WriteTargets,
+    confirmation_for, confirmation_unlocks, sql_where_warnings, target_environment, ConnectorError,
+    ConnectorResult, Environment, SqlDialect, WriteAction, WriteGuardPrompt, WriteRisk, WriteState,
+    WriteTargets,
 };
 
-use super::ConnectionManager;
+use super::principal::{is_tool_session_id, TOOL_WRITE_MESSAGE};
+use super::{ConnectionManager, SessionOrigin};
 
 /// One write about to run, as the policy sees it.
 pub(super) struct WriteCheck<'a> {
@@ -26,6 +28,11 @@ pub(super) struct WriteCheck<'a> {
     /// Databases the write lands in, read off the statement. `None`: the
     /// request's database (see `database`).
     pub targets: Option<WriteTargets>,
+    /// The query text as sent, for an agent or MCP authorization (F-01).
+    pub request: Option<&'a str>,
+    /// SQL statements: on production, the dialog warns about an `UPDATE` /
+    /// `DELETE` whose `WHERE` is missing or always true.
+    pub where_dialect: Option<SqlDialect>,
 }
 
 impl<'a> WriteCheck<'a> {
@@ -43,6 +50,8 @@ impl<'a> WriteCheck<'a> {
             database: None,
             schema: None,
             targets: None,
+            request: None,
+            where_dialect: None,
         }
     }
 }
@@ -111,7 +120,15 @@ impl ConnectionManager {
         if check.risk == WriteRisk::Read {
             return Ok(None);
         }
-        let (connection_env, read_only, connection_name, marks, default_database) = {
+        let (
+            connection_env,
+            read_only,
+            profile_read_only,
+            connection_name,
+            marks,
+            default_database,
+            tool,
+        ) = {
             let guard = self.sessions.read().await;
             let live = guard.get(check.session_id).ok_or_else(|| {
                 ConnectorError::InvalidConfig(format!("session not found: {}", check.session_id))
@@ -119,11 +136,18 @@ impl ConnectionManager {
             (
                 Environment::parse(&live.environment),
                 self.effective_read_only(check.session_id, live, check.profile_read_only),
+                live.read_only || check.profile_read_only,
                 live.connection_name.clone(),
                 self.database_marks.get(live.profile_key(check.session_id)),
                 live.default_database.clone(),
+                live.origin != SessionOrigin::Ui || is_tool_session_id(check.session_id),
             )
         };
+        // Tool sessions never see a human unlock, pin or timed unlock: the
+        // profile bit alone, then their one-shot authorization.
+        if tool {
+            return self.tool_write_check(&check, profile_read_only);
+        }
         let targets = match check.targets {
             Some(targets) => targets,
             None if marks.is_empty() => WriteTargets::default(),
@@ -162,17 +186,25 @@ impl ConnectionManager {
             expected,
             check.statements,
         )?;
-        let prompt = WriteGuardPrompt::from_confirmation(
+        let mut prompt = WriteGuardPrompt::from_confirmation(
             ask,
             env.as_str().to_string(),
             connection_name,
             check.preview,
             expected,
-        )
-        .map(|mut prompt| {
+        );
+        if let Some(prompt) = prompt.as_mut() {
             prompt.database = judged.database;
-            prompt
-        });
+        }
+        if let (Some(prompt), Environment::Production, Some(dialect)) =
+            (prompt.as_mut(), env, check.where_dialect)
+        {
+            prompt.warnings = prompt
+                .statements
+                .iter()
+                .flat_map(|sql| sql_where_warnings(sql, dialect))
+                .collect();
+        }
         if prompt.is_none() && confirmation_unlocks(env, check.risk, state) {
             self.write_unlocks
                 .lock()
@@ -180,5 +212,24 @@ impl ConnectionManager {
                 .insert(check.session_id.to_string());
         }
         Ok(prompt)
+    }
+
+    /// Agent and MCP (F-01): no unlock, no pin, no dialog. Read-only still
+    /// wins; otherwise the write needs `AgentTools`' one-shot authorization
+    /// for exactly this text.
+    fn tool_write_check(
+        &self,
+        check: &WriteCheck<'_>,
+        read_only: bool,
+    ) -> ConnectorResult<Option<WriteGuardPrompt>> {
+        if read_only {
+            return Err(ConnectorError::Policy(
+                mystique_connector_api::READ_ONLY_MESSAGE.into(),
+            ));
+        }
+        match check.request {
+            Some(text) if self.take_tool_write(check.session_id, text) => Ok(None),
+            _ => Err(ConnectorError::Policy(TOOL_WRITE_MESSAGE.into())),
+        }
     }
 }

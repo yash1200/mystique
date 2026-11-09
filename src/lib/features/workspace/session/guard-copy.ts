@@ -9,6 +9,8 @@ export type GuardCopy = {
 	typed: boolean
 	/** SQL to show; falls back to the short preview. */
 	body: string
+	/** Production only: an UPDATE / DELETE that changes every row. Not a block. */
+	warnings: string[]
 }
 
 function envLabel(environment: string): string {
@@ -30,6 +32,7 @@ export function guardCopy(prompt: WriteGuardPrompt): GuardCopy {
 	const body = statements.length > 0 ? statements.join(';\n') : prompt.preview
 	const name = prompt.objectName?.trim() || ''
 	const unlockNote = 'Writes stay allowed until you disconnect.'
+	const warnings = prompt.warnings ?? []
 	if (prompt.kind === 'typeConfirm') {
 		return {
 			title: prompt.title ?? `Confirm ${env} write`,
@@ -37,6 +40,7 @@ export function guardCopy(prompt: WriteGuardPrompt): GuardCopy {
 			confirm: prompt.confirmLabel ?? 'Run',
 			typed: true,
 			body,
+			warnings,
 		}
 	}
 	if (prompt.kind === 'unlock') {
@@ -46,6 +50,7 @@ export function guardCopy(prompt: WriteGuardPrompt): GuardCopy {
 			confirm: prompt.confirmLabel ?? 'Allow writes this session',
 			typed: false,
 			body,
+			warnings,
 		}
 	}
 	if (prompt.kind === 'review') {
@@ -55,6 +60,7 @@ export function guardCopy(prompt: WriteGuardPrompt): GuardCopy {
 			confirm: prompt.confirmLabel ?? 'Save',
 			typed: false,
 			body,
+			warnings,
 		}
 	}
 	return {
@@ -63,6 +69,7 @@ export function guardCopy(prompt: WriteGuardPrompt): GuardCopy {
 		confirm: prompt.confirmLabel ?? 'Run',
 		typed: false,
 		body,
+		warnings,
 	}
 }
 

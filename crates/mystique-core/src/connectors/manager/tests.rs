@@ -671,6 +671,66 @@ async fn staging_writes_like_local_and_asks_once_for_a_drop() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// F-06: production warns, without blocking, about an UPDATE / DELETE that
+/// changes every row. Staging and local ask nothing and warn nothing.
+#[tokio::test]
+async fn production_prompt_warns_about_an_always_true_where() {
+    let path = temp_db("prod-tautology");
+    let mgr = seeded(
+        &path,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t VALUES (1), (2)",
+    )
+    .await;
+    mgr.open_session(sqlite_open(&path, "prod", "production", false))
+        .await
+        .expect("open");
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "DELETE FROM t WHERE 1=1"))
+            .await
+            .expect_err("production asks"),
+    );
+    assert_eq!(prompt.kind, "unlock");
+    assert_eq!(
+        prompt.warnings,
+        vec!["WHERE 1 = 1 is always true: this DELETE removes every row of t.".to_string()]
+    );
+    let wire = serde_json::to_value(&prompt).expect("serialize");
+    assert_eq!(wire["warnings"][0], json!(prompt.warnings[0]));
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "SELECT 1; UPDATE t SET id = id"))
+            .await
+            .expect_err("production asks"),
+    );
+    assert_eq!(
+        prompt.warnings,
+        vec!["UPDATE on t has no WHERE: it changes every row.".to_string()]
+    );
+
+    let prompt = guard_prompt(
+        mgr.execute_query(write_req("prod", "DELETE FROM t WHERE id = 1"))
+            .await
+            .expect_err("production asks"),
+    );
+    assert!(prompt.warnings.is_empty());
+    let wire = serde_json::to_value(&prompt).expect("serialize");
+    assert!(wire.get("warnings").is_none(), "{wire}");
+    assert_eq!(count_rows(&mgr, "prod").await, 2);
+    let _ = mgr.close_session("prod").await;
+
+    // Staging runs it without a dialog, so there is nothing to warn in.
+    mgr.open_session(sqlite_open(&path, "stage", "staging", false))
+        .await
+        .expect("open staging");
+    mgr.execute_query(write_req("stage", "DELETE FROM t WHERE 1=1"))
+        .await
+        .expect("staging write runs");
+    assert_eq!(count_rows(&mgr, "stage").await, 0);
+    let _ = mgr.close_session("stage").await;
+    let _ = std::fs::remove_file(&path);
+}
+
 #[tokio::test]
 async fn production_prompts_carry_sql_and_a_typed_drop_unlocks() {
     let path = temp_db("prod-policy");
@@ -1179,6 +1239,67 @@ async fn read_mode_batch_names_the_write_and_runs_nothing() {
     assert_eq!(count_rows(&mgr, "batch-read").await, 1);
 
     let _ = mgr.close_session("batch-read").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+/// F-06: a function ReadProof cannot show to be a read is refused before
+/// anything runs. Had the batch run, SQLite would answer `no such function`
+/// as a stopped batch with the first result kept, not a policy error.
+#[tokio::test]
+async fn read_mode_refuses_an_unproven_function_before_executing() {
+    let path = temp_db("batch-proof");
+    let _ = std::fs::remove_file(&path);
+    let mgr = ConnectionManager::bootstrap();
+    open_local(&mgr, &path, "batch-proof").await;
+
+    let text = "SELECT 1;\nSELECT my_func(1)";
+    let err = mgr
+        .execute_batch(
+            batch_req("batch-proof", text, mystique_connector_api::QueryMode::Read),
+            None,
+        )
+        .await
+        .expect_err("read proof stops before execute");
+    let ipc = mystique_connector_api::IpcError::from(err);
+    assert_eq!(ipc.kind, mystique_connector_api::IpcErrorKind::Policy);
+    assert_eq!(
+        ipc.message,
+        "Statement 2: `my_func` is not a known read-only function; switch to Write mode to run it. Nothing ran."
+    );
+    assert_eq!(ipc.statement_index, Some(1));
+    let position = ipc.position.expect("position");
+    assert_eq!(&text[position.offset as usize..][..7], "my_func");
+
+    // Write mode sends it to the engine, which has no such function.
+    let batch = mgr
+        .execute_batch(
+            batch_req(
+                "batch-proof",
+                text,
+                mystique_connector_api::QueryMode::Write,
+            ),
+            None,
+        )
+        .await
+        .expect("write mode runs");
+    assert_eq!(batch.stopped_at, Some(1));
+    assert!(batch.results[0].result.is_some());
+
+    // A read that only calls listed functions still runs in Read mode.
+    let batch = mgr
+        .execute_batch(
+            batch_req(
+                "batch-proof",
+                "SELECT upper('a'), json_extract('{\"a\":1}', '$.a'), date('now')",
+                mystique_connector_api::QueryMode::Read,
+            ),
+            None,
+        )
+        .await
+        .expect("allowlisted read runs");
+    assert_eq!(batch.stopped_at, None);
+
+    let _ = mgr.close_session("batch-proof").await;
     let _ = std::fs::remove_file(&path);
 }
 

@@ -1,8 +1,16 @@
-import type { McpAccess as McpAccessRow } from '#core/contracts'
+import type { ToolAccessView } from '#core/contracts'
 
-export type { McpAllowlistConnection, McpHarness, McpStatus } from '#core/contracts'
+export type {
+	McpHarness,
+	McpStatus,
+	ToolAccessConnection,
+	ToolAccessDatabase,
+} from '#core/contracts'
 
-export type McpWritePolicy = 'read-only' | 'safe_write' | 'high_risk_write'
+/** `none < read < write < full`, for MCP and the built-in agent. */
+export type AccessLevel = 'none' | 'read' | 'write' | 'full'
 
-/** `McpAccess` (generated) with `policy` narrowed to the values the backend writes. */
-export type McpAccess = Omit<McpAccessRow, 'policy'> & { policy: McpWritePolicy }
+export type ToolCaller = 'mcp' | 'agent'
+
+/** `ToolAccessView` (generated). Levels are the four strings above. */
+export type ToolAccess = ToolAccessView

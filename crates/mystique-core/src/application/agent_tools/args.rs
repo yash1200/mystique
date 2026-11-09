@@ -19,7 +19,7 @@ pub(super) fn object_info(obj: CatalogObject) -> AgentObjectInfo {
     }
 }
 
-pub(super) fn profile_database(profile: &ConnectionProfile) -> Option<String> {
+pub(crate) fn profile_database(profile: &ConnectionProfile) -> Option<String> {
     let cfg = &profile.plugin_config;
     if let Some(s) = cfg
         .get("database")
