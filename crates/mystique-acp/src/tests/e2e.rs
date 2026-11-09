@@ -1044,6 +1044,69 @@ async fn planted_secrets_never_reach_the_stream_logs_or_saved_rows() {
     fx.close().await;
 }
 
+#[tokio::test]
+async fn an_agent_that_exits_or_lacks_http_mcp_fails_the_turn_with_a_reason() {
+    let fx = fixture("local").await;
+    // Exits while Mystique waits for session/new.
+    let fake = FakeLauncher::new(|mut agent: FakeAgent| async move {
+        let (id, _) = agent.expect("initialize").await;
+        agent
+            .reply(
+                id,
+                json!({ "protocolVersion": 1, "agentCapabilities": { "mcpCapabilities": { "http": true } } }),
+            )
+            .await;
+        agent.expect("session/new").await;
+    });
+    let acp = fx.service(fake);
+    let (sink, events) = recording_sink();
+    let started = Instant::now();
+    acp.send(&fx.runtime, fx.access.clone(), fx.request("hi", None), sink)
+        .unwrap();
+    let end = wait_terminal(&events, Duration::from_secs(5)).await;
+    assert!(started.elapsed() < Duration::from_secs(2));
+    let AgentEvent::Error { kind, message } = end else {
+        panic!("{end:?}");
+    };
+    assert_eq!(kind, AgentErrorKind::Provider);
+    assert!(message.contains("exited during session/new"), "{message}");
+
+    // Cannot reach MCP over HTTP: refused before a session opens.
+    let fake = FakeLauncher::new(|mut agent: FakeAgent| async move {
+        let (id, _) = agent.expect("initialize").await;
+        agent
+            .reply(id, json!({ "protocolVersion": 1, "agentCapabilities": {} }))
+            .await;
+        while agent.recv().await.is_some() {}
+    });
+    let acp = fx.service(fake.clone());
+    let (sink, events) = recording_sink();
+    acp.send(&fx.runtime, fx.access.clone(), fx.request("hi", None), sink)
+        .unwrap();
+    let end = wait_terminal(&events, Duration::from_secs(5)).await;
+    assert!(
+        matches!(&end, AgentEvent::Error { message, .. } if message.contains("over HTTP")),
+        "{end:?}"
+    );
+    assert!(fake.received("session/new").is_empty());
+
+    // The MCP server is off: refused before anything starts.
+    let err = acp
+        .send(
+            &fx.runtime,
+            McpAccess {
+                url: String::new(),
+                token: String::new(),
+            },
+            fx.request("hi", None),
+            recording_sink().0,
+        )
+        .err()
+        .unwrap();
+    assert!(err.to_string().contains("Settings → MCP"), "{err}");
+    fx.close().await;
+}
+
 // ---------------------------------------------------------------- real processes
 
 #[cfg(unix)]

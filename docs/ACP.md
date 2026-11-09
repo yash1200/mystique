@@ -233,6 +233,8 @@ over in-memory pipes against the real MCP server; process tests use
 - `a_write_waits_in_the_dock_and_is_denied_on_timeout`
 - `planted_secrets_never_reach_the_stream_logs_or_saved_rows`,
   `the_agent_s_stderr_is_logged_masked`
+- `an_agent_that_exits_or_lacks_http_mcp_fails_the_turn_with_a_reason`
+  (also: the MCP server off refuses the turn)
 - unit tests for the protocol messages, JSON-RPC routing, permission policy,
   masking and settings.
 

@@ -27,7 +27,7 @@ pub(crate) struct RpcError {
 impl RpcError {
     pub(crate) const CLOSED: i64 = -32099;
 
-    fn closed() -> Self {
+    pub(crate) fn closed() -> Self {
         Self {
             code: Self::CLOSED,
             message: "The agent closed the connection.".into(),

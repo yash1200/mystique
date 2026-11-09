@@ -169,13 +169,20 @@ impl Connection {
                     while let Ok(msg) = self.incoming.try_recv() {
                         self.serve(msg, turn.as_deref_mut(), session_id);
                     }
-                    return Step::Reply(r.unwrap_or_else(|_| Err(RpcError { code: RpcError::CLOSED, message: "The agent closed the connection.".into() })));
+                    return Step::Reply(r.unwrap_or_else(|_| Err(RpcError::closed())));
                 }
                 _ = cancel.cancelled() => return Step::Cancelled,
                 _ = tokio::time::sleep_until(deadline) => return Step::TimedOut,
-                Some(msg) = self.incoming.recv() => {
-                    self.serve(msg, turn.as_deref_mut(), session_id);
-                }
+                next = self.incoming.recv() => match next {
+                    Some(msg) => self.serve(msg, turn.as_deref_mut(), session_id),
+                    // The agent's stdout closed. Replies it sent came first,
+                    // so a request still waiting will never be answered.
+                    None => {
+                        return Step::Reply(
+                            reply.try_recv().unwrap_or_else(|_| Err(RpcError::closed())),
+                        );
+                    }
+                },
                 _ = tick.tick() => {
                     if let Some(turn) = turn.as_deref_mut() {
                         turn.check_approvals();
