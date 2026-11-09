@@ -31,6 +31,8 @@ export type QuickOpenItem = {
 	savedId?: string
 	body?: string
 	command?: QuickOpenCommand
+	/** The connection the item belongs to, for its group heading. */
+	connectionName?: string
 }
 
 export type QuickOpenProfile = {
@@ -160,6 +162,7 @@ export function collectQuickOpenItems(
 				connectionId: catalog.connectionId,
 				colorId: catalog.colorId,
 				mark: catalog.mark,
+				connectionName: catalog.name,
 				tableId: table.id,
 				objectKind: table.kind,
 			})
@@ -219,6 +222,61 @@ export function rankQuickOpenItems(
 	return ranked.slice(0, limit).map((row) => row.item)
 }
 
+export type QuickOpenGroup = {
+	id: string
+	label: string
+	colorId: string | null
+	items: QuickOpenItem[]
+}
+
+/** Results per connection while searching, so one big catalog cannot fill the list. */
+export const QUICK_OPEN_PER_GROUP = 10
+
+/**
+ * Ranked items under headings: commands, connections, then one group per
+ * connection (its tables, saved queries and history). Groups keep the order
+ * of their best item, and items keep their rank inside a group.
+ */
+export function groupQuickOpenItems(
+	ranked: QuickOpenItem[],
+	perGroup = Number.POSITIVE_INFINITY,
+	total = Number.POSITIVE_INFINITY,
+): QuickOpenGroup[] {
+	const groups = new Map<string, QuickOpenGroup>()
+	let kept = 0
+	for (const item of ranked) {
+		if (kept >= total) break
+		const id = groupIdOf(item)
+		let group = groups.get(id)
+		if (!group) {
+			group = { id, label: groupLabelOf(item), colorId: groupColorOf(item), items: [] }
+			groups.set(id, group)
+		}
+		if (group.items.length >= perGroup) continue
+		group.items.push(item)
+		kept += 1
+	}
+	return [...groups.values()].filter((group) => group.items.length > 0)
+}
+
+function groupIdOf(item: QuickOpenItem): string {
+	if (item.kind === 'command') return 'commands'
+	if (item.kind === 'connection') return 'connections'
+	return item.connectionId ? `connection:${item.connectionId}` : 'history'
+}
+
+function groupLabelOf(item: QuickOpenItem): string {
+	if (item.kind === 'command') return 'Commands'
+	if (item.kind === 'connection') return 'Connections'
+	if (!item.connectionId) return 'History'
+	return item.connectionName?.trim() || 'Connection'
+}
+
+function groupColorOf(item: QuickOpenItem): string | null {
+	if (item.kind === 'command' || item.kind === 'connection') return null
+	return item.colorId
+}
+
 export function quickOpenKindLabel(item: QuickOpenItem): string {
 	if (item.kind === 'catalog') return kindWord(item.objectKind ?? 'table')
 	if (item.kind === 'connection') return 'Connection'
@@ -266,6 +324,7 @@ function savedItem(
 		connectionId: saved.connectionId,
 		colorId: profile?.colorId ?? null,
 		mark: profile?.mark ?? '',
+		connectionName: profile?.name,
 		savedId: saved.id,
 		body: saved.body,
 	}
@@ -290,6 +349,7 @@ function historyItem(
 		connectionId: entry.connectionId,
 		colorId: profile?.colorId ?? null,
 		mark: profile?.mark ?? '',
+		connectionName: profile?.name ?? (where || undefined),
 		body: entry.body,
 	}
 }

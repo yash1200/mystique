@@ -141,6 +141,59 @@ function applyCatalog(
 	}
 }
 
+/**
+ * Load the catalogs of open sessions that have none yet, so a search across
+ * sessions (Quick Open) sees their tables. Quiet: no toasts, no reconnect
+ * or password prompt; a session without a live engine session is skipped.
+ * At most `concurrency` loads run at once and none starts after `signal`
+ * aborts. Loads already running finish and fill the store.
+ */
+export async function warmSessionCatalogs(
+	connectionIds: readonly string[],
+	signal: AbortSignal,
+	concurrency = 2,
+): Promise<void> {
+	const queue = connectionIds.filter((id) => {
+		const session = workspaceSession.sessions.find((s) => s.profile.id === id)
+		return (
+			!!session?.engineSessionId &&
+			!catalogStore.catalogs[id] &&
+			!catalogStore.loadInFlight[id]
+		)
+	})
+	const worker = async () => {
+		for (;;) {
+			if (signal.aborted) return
+			const id = queue.shift()
+			if (!id) return
+			await warmOne(id)
+		}
+	}
+	await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker))
+}
+
+async function warmOne(connectionId: string): Promise<void> {
+	const session = workspaceSession.sessions.find((s) => s.profile.id === connectionId)
+	const sid = session?.engineSessionId
+	if (!session || !sid) return
+	if (catalogStore.catalogs[connectionId] || catalogStore.loadInFlight[connectionId]) return
+	const engine = String(session.profile.engine)
+	const preferred = sessionDatabase(connectionId, session.profile)
+	catalogStore.loadInFlight = { ...catalogStore.loadInFlight, [connectionId]: true }
+	try {
+		const live = await loadLiveCatalog(sid, engine, { preferredDatabase: preferred })
+		// The session may have closed or reloaded meanwhile.
+		const still = workspaceSession.sessions.find((s) => s.profile.id === connectionId)
+		if (still?.engineSessionId !== sid || catalogStore.catalogs[connectionId]) return
+		applyCatalog(connectionId, live, preferred, engine)
+		catalogStore.liveKey = { ...catalogStore.liveKey, [connectionId]: sid }
+	} catch {
+		// Opening that connection loads and reports it.
+	} finally {
+		catalogStore.loadInFlight = { ...catalogStore.loadInFlight, [connectionId]: false }
+	}
+}
+
 export async function ensureCatalogForActiveSession() {
 	const active = requireActiveConnection()
 	if (!active) return
