@@ -338,9 +338,7 @@ fn run_sqlite_statement(
             let Some(row) = next else {
                 break;
             };
-            if let Err(err) = stalled(control, saw_row && opts.watch_stalls, last_row) {
-                return Err(err);
-            }
+            stalled(control, saw_row && opts.watch_stalls, last_row)?;
             if out_rows.len() >= max_rows {
                 truncated = true;
                 break;

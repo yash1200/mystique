@@ -42,13 +42,10 @@ fn save_pg(app: &AppServices, name: &str) -> crate::domain::ConnectionProfile {
         .unwrap()
 }
 
-#[test]
-fn agent_max_rows_is_below_driver_ceiling() {
-    assert!(
-        AGENT_MAX_ROWS < HARD_MAX_ROWS,
-        "{AGENT_MAX_ROWS} must be < {HARD_MAX_ROWS}"
-    );
-}
+const _: () = assert!(
+    AGENT_MAX_ROWS < HARD_MAX_ROWS,
+    "AGENT_MAX_ROWS must be below HARD_MAX_ROWS"
+);
 
 #[test]
 fn query_tool_spec_documents_the_cell_window() {

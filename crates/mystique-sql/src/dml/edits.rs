@@ -120,7 +120,7 @@ mod tests {
             rows_hash(&[b.clone(), a.clone()])
         );
         assert_ne!(
-            rows_hash(&[a.clone()]),
+            rows_hash(std::slice::from_ref(&a)),
             rows_hash(&[vec![json!(1), json!("z")]])
         );
         assert_ne!(rows_hash(&[]), rows_hash(&[a]));

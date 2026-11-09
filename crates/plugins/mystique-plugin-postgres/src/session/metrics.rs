@@ -77,7 +77,7 @@ pub(super) async fn fetch_server_metrics(
             extras.push(MetricValue::text("version", "Version", v));
         }
     }
-    if let Ok(row) = client
+    if let Ok(Some(row)) = client
         .query_opt(
             r#"
             SELECT xact_commit, xact_rollback, temp_bytes, deadlocks
@@ -88,27 +88,25 @@ pub(super) async fn fetch_server_metrics(
         )
         .await
     {
-        if let Some(row) = row {
-            if let Some(n) = f64_cell(&row, 0) {
-                extras.push(MetricValue::count(
-                    "xactCommit",
-                    "Transactions committed",
-                    n,
-                ));
-            }
-            if let Some(n) = f64_cell(&row, 1) {
-                extras.push(MetricValue::count(
-                    "xactRollback",
-                    "Transactions rolled back",
-                    n,
-                ));
-            }
-            if let Some(n) = f64_cell(&row, 2) {
-                extras.push(MetricValue::bytes("tempBytes", "Temp bytes", n));
-            }
-            if let Some(n) = f64_cell(&row, 3) {
-                extras.push(MetricValue::count("deadlocks", "Deadlocks", n));
-            }
+        if let Some(n) = f64_cell(&row, 0) {
+            extras.push(MetricValue::count(
+                "xactCommit",
+                "Transactions committed",
+                n,
+            ));
+        }
+        if let Some(n) = f64_cell(&row, 1) {
+            extras.push(MetricValue::count(
+                "xactRollback",
+                "Transactions rolled back",
+                n,
+            ));
+        }
+        if let Some(n) = f64_cell(&row, 2) {
+            extras.push(MetricValue::bytes("tempBytes", "Temp bytes", n));
+        }
+        if let Some(n) = f64_cell(&row, 3) {
+            extras.push(MetricValue::count("deadlocks", "Deadlocks", n));
         }
     }
 
@@ -411,9 +409,9 @@ async fn list_statement_stats(
     Ok(rows
         .iter()
         .enumerate()
-        .filter_map(|(i, row)| {
+        .map(|(i, row)| {
             let id = opt_string(row, 0).unwrap_or_else(|| format!("hist:{i}"));
-            Some(SlowQuery {
+            SlowQuery {
                 id: format!("hist:{id}"),
                 query: opt_string(row, 1).unwrap_or_default(),
                 duration_ms: None,
@@ -423,7 +421,7 @@ async fn list_statement_stats(
                 user: None,
                 source: Some("historical".into()),
                 extras: vec![],
-            })
+            }
         })
         .collect())
 }

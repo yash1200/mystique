@@ -361,6 +361,8 @@ impl ConnectionManager {
     }
 
     /// Mongo shell text on the tab's pin. One statement, same guards as a normal find.
+    // Values the caller already resolved from the request; one call site.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn pinned_document_batch(
         &self,
         session_id: &str,

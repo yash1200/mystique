@@ -18,6 +18,23 @@ type RelationshipRow = (
     String,
 );
 
+/// One schema: from table, from column, to table, to column, constraint.
+type SchemaRelationshipRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+);
+
+/// Column, referenced schema, referenced table, referenced column.
+type ColumnReferenceRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 const DESCRIBE_COLUMNS_SQL: &str = "\
 SELECT column_name, column_type, is_nullable, column_key, column_default, extra \
 FROM information_schema.columns \
@@ -95,12 +112,7 @@ pub(super) async fn table_references(
         ConnectorError::InvalidConfig("MySQL table_references requires database/schema".into())
     })?;
     let mut conn = session.conn().await?;
-    let fks: Vec<(
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = crate::rows::collect_exec(
+    let fks: Vec<ColumnReferenceRow> = crate::rows::collect_exec(
         &mut conn,
         r#"
             SELECT
@@ -282,13 +294,8 @@ pub(super) async fn list_relationships(
     session.ensure_open()?;
     let mut conn = session.conn().await?;
     if let Some(db) = database.map(str::trim).filter(|s| !s.is_empty()) {
-        let rows: Vec<(
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            String,
-        )> = crate::rows::collect_exec(&mut conn, LIST_RELATIONSHIPS_ONE_SCHEMA_SQL, (db,)).await?;
+        let rows: Vec<SchemaRelationshipRow> =
+            crate::rows::collect_exec(&mut conn, LIST_RELATIONSHIPS_ONE_SCHEMA_SQL, (db,)).await?;
         let schema = db.to_string();
         return Ok(rows
             .into_iter()

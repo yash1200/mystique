@@ -72,7 +72,7 @@ pub(super) fn build_pool(
     let manager = SqliteConnectionManager::file(&path).with_flags(flags);
     let pool = Pool::builder()
         .max_size(config.pool.max_size.max(1))
-        .min_idle(Some(config.pool.min_idle.min(config.pool.max_size).max(0)))
+        .min_idle(Some(config.pool.min_idle.min(config.pool.max_size)))
         .connection_timeout(Duration::from_millis(config.pool.acquire_timeout_ms))
         .build(manager)
         .map_err(|e| ConnectorError::Pool(e.to_string()))?;

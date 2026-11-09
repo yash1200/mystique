@@ -18,6 +18,8 @@ fn trimmed(value: Option<&str>) -> Option<String> {
 }
 
 impl AgentTools {
+    // Mirrors the query tool's arguments one to one (MCP and the in-app agent).
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_readonly_query(
         &self,
         connection_id: &str,
@@ -58,6 +60,8 @@ impl AgentTools {
     }
 
     /// Policy-gated write (and read) query. P3.1 write guard still applies.
+    // Mirrors the query tool's arguments one to one (MCP and the in-app agent).
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_query(
         &self,
         connection_id: &str,

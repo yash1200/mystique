@@ -96,7 +96,7 @@ pub fn save_query(conn: &Connection, input: SaveQueryInput) -> AppResult<SavedQu
     let connection_id = parse_id(&input.connection_id)?;
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
         let id_n = parse_id(id)?;
-        let favorite: Option<i64> = input.favorite.map(|f| i64::from(f));
+        let favorite: Option<i64> = input.favorite.map(i64::from);
         let n = conn.execute(
             "
             UPDATE saved_queries SET

@@ -370,10 +370,10 @@ async fn list_ops(
         });
         let query = command_preview(op);
         let mut extras = Vec::new();
-        if let Some(client) = op.get_str("client").ok() {
+        if let Ok(client) = op.get_str("client") {
             extras.push(MetricValue::text("client", "Client", client));
         }
-        if let Some(app) = op.get_str("appName").ok() {
+        if let Ok(app) = op.get_str("appName") {
             extras.push(MetricValue::text("application", "Application", app));
         }
         if let Some(ns) = ns.clone() {

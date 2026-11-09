@@ -3,9 +3,7 @@
 //! The UI hides the chrome. This is the lock: a `browse` product cannot
 //! reach table admin, metrics, or ER by calling the command directly.
 
-use mystique_connector_api::{
-    ConnectorError, ConnectorResult, EngineCapabilities, SupportDepth, TableAdminOp,
-};
+use mystique_connector_api::{ConnectorError, ConnectorResult, EngineCapabilities, TableAdminOp};
 
 pub(super) fn reject_beyond_depth(
     caps: &EngineCapabilities,
@@ -58,16 +56,18 @@ fn admin_allowed(caps: &EngineCapabilities, op: TableAdminOp) -> bool {
     }
 }
 
-/// Postgres stays operate. A product pinned to browse is rejected.
-pub(super) fn caps_at(depth: SupportDepth) -> EngineCapabilities {
-    let mut caps = EngineCapabilities::postgres_defaults();
-    caps.apply_support_depth(depth);
-    caps
-}
-
 #[cfg(test)]
 mod tests {
+    use mystique_connector_api::SupportDepth;
+
     use super::*;
+
+    /// Postgres stays operate. A product pinned to browse is rejected.
+    fn caps_at(depth: SupportDepth) -> EngineCapabilities {
+        let mut caps = EngineCapabilities::postgres_defaults();
+        caps.apply_support_depth(depth);
+        caps
+    }
 
     #[test]
     fn browse_rejects_admin_metrics_and_er() {

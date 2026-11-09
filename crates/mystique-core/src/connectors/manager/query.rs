@@ -32,6 +32,8 @@ impl ConnectionManager {
         self.execute_batch_in(req, progress, None).await
     }
 
+    // Values the caller already resolved from the request; one call site.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn execute_document_batch(
         &self,
         session: Arc<dyn mystique_connector_api::ConnectorSession>,

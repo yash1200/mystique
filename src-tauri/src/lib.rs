@@ -207,7 +207,7 @@ pub fn run() {
                 };
                 let services = std::sync::Arc::clone(&state.services);
                 services.forget_session_passwords();
-                let _ = tauri::async_runtime::block_on(async move {
+                tauri::async_runtime::block_on(async move {
                     services.connections().rollback_all_pins().await;
                 });
             }
