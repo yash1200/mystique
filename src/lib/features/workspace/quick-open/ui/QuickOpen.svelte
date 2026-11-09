@@ -1,14 +1,16 @@
 <script lang="ts">
-	import { focusTrap, pushDialog } from '#core/ui'
+	import { pushDialog } from '#core/ui'
+	import { focusTrap } from '#core/ui/focus-trap.js'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
-	import { catalogStore, warmSessionCatalogs } from '#features/workspace/catalog'
+	import { catalogStore } from '#features/workspace/catalog'
 	import { historyStore, savedStore } from '#features/workspace/query'
 	import { workspaceSession } from '#features/workspace/session'
 	import { tick, untrack } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
 	import { quickOpen } from '../chrome.svelte'
 	import { SearchGeneration } from '../generation'
+	import { warmSessionCatalogs } from '../warm'
 	import {
 		collectQuickOpenItems,
 		groupQuickOpenItems,

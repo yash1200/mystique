@@ -24,10 +24,16 @@ const STAR = 42
 const BACKSLASH = 92
 const BACKTICK = 96
 
+// Strings, not module-level Sets: a `new Set(…)` at the top counts as a side
+// effect and would pull this file into the startup chunk through `#engines`.
 /** The line ends with one of these: the statement goes on. */
-const CONTINUES_AFTER = new Set([...'.,:=+-*/?&|!<>'].map((c) => c.charCodeAt(0)))
+const CONTINUES_AFTER = '.,:=+-*/?&|!<>'
 /** The next code starts with one of these: it belongs to this statement. */
-const CONTINUES_BEFORE = new Set([...'.)]},?:=+*&|<>'].map((c) => c.charCodeAt(0)))
+const CONTINUES_BEFORE = '.)]},?:=+*&|<>'
+
+function oneOf(chars: string, code: number): boolean {
+	return code >= 0 && chars.includes(String.fromCharCode(code))
+}
 
 const OPENER: Record<number, string> = { 41: '(', 93: '[', 125: '{' }
 
@@ -103,9 +109,9 @@ export function splitMongoStatements(src: string): StatementSpan[] {
 			continue
 		}
 		if (stack.length === 0 && c === NEWLINE) {
-			if (last >= 0 && !CONTINUES_AFTER.has(last)) {
+			if (last >= 0 && !oneOf(CONTINUES_AFTER, last)) {
 				const next = nextCode(src, i + 1)
-				if (!CONTINUES_BEFORE.has(next)) {
+				if (!oneOf(CONTINUES_BEFORE, next)) {
 					finish(i)
 					start = i + 1
 				}

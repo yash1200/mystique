@@ -5,6 +5,9 @@
  *
  * Use as a Svelte action: `<div role="dialog" use:focusTrap>`. Returning
  * focus on close stays with whoever opened the dialog.
+ *
+ * Import it as `#core/ui/focus-trap.js`, not through the `#core/ui` barrel:
+ * the barrel's chunk loads at startup, and only lazy dialogs need this.
  */
 
 const FOCUSABLE = [

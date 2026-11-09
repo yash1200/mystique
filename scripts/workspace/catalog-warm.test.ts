@@ -37,7 +37,7 @@ vi.mock('#features/workspace/session', async () => {
 	}
 })
 
-const { warmSessionCatalogs } = await import('../../src/lib/features/workspace/catalog/live')
+const { warmSessionCatalogs } = await import('../../src/lib/features/workspace/quick-open/warm')
 const { catalogStore } = await import('../../src/lib/features/workspace/catalog/store.svelte')
 
 const open = (id: string, sid: string | null): FakeSession => ({

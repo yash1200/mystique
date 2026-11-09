@@ -25,8 +25,10 @@ export function sqlSplitDialectFor(engine: string): SqlSplitDialect {
 	return 'generic'
 }
 
-const ROUTINES = new Set(['procedure', 'function', 'trigger', 'event', 'package'])
-const UNCOUNTED_ENDS = new Set(['if', 'loop', 'while', 'repeat', 'for'])
+// Plain arrays: a module-level `new Set(…)` counts as a side effect and would
+// pull this file into the startup chunk through the `#engines` barrel.
+const ROUTINES = ['procedure', 'function', 'trigger', 'event', 'package']
+const UNCOUNTED_ENDS = ['if', 'loop', 'while', 'repeat', 'for']
 
 const QUOTE = 39
 const DQUOTE = 34
@@ -123,7 +125,7 @@ export function splitSqlStatements(sql: string, dialect: SqlSplitDialect): State
 		if (custom) return end
 		if (stmt.block === 0) {
 			if (stmt.paren !== 0 || stmt.first !== 'ddl') return end
-			if (ROUTINES.has(w)) stmt.routine = true
+			if (ROUTINES.includes(w)) stmt.routine = true
 			else if (stmt.routine && w === 'begin') stmt.block = 1
 			return end
 		}
@@ -133,7 +135,7 @@ export function splitSqlStatements(sql: string, dialect: SqlSplitDialect): State
 		}
 		if (w === 'end') {
 			const [next, after] = nextWord(sql, end)
-			if (UNCOUNTED_ENDS.has(next)) return after
+			if (UNCOUNTED_ENDS.includes(next)) return after
 			stmt.block -= 1
 			if (next === 'case') return after
 		}
