@@ -1,10 +1,9 @@
 /**
  * Save / pick files from the desktop shell.
- * Native dialog under Tauri; File System Access or download fallback in the browser.
+ * Native dialogs and file writes through the Tauri plugins.
  * Domain-free: knows about bytes and paths, never about rows or engines.
  */
 import type { TableFileFormat } from '#core/contracts'
-import { isTauri } from '#core/ipc'
 export type SaveResult =
 	| { ok: true; path: string }
 	| { ok: false; cancelled: true }
@@ -49,93 +48,23 @@ export function shortStamp(): string {
 	return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
 }
 
-function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-	const copy = new Uint8Array(bytes.byteLength)
-	copy.set(bytes)
-	return copy.buffer
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-	const url = URL.createObjectURL(blob)
-	const a = document.createElement('a')
-	a.href = url
-	a.download = filename
-	a.rel = 'noopener'
-	document.body.appendChild(a)
-	a.click()
-	a.remove()
-	setTimeout(() => URL.revokeObjectURL(url), 2_000)
-}
-
 export async function saveBytesWithPrompt(
 	bytes: Uint8Array,
 	defaultName: string,
 	filters: { name: string; extensions: string[] }[],
-	mimeType: string,
 	title = 'Export results',
 ): Promise<SaveResult> {
-	if (isTauri()) {
-		try {
-			const { save } = await import('@tauri-apps/plugin-dialog')
-			const { writeFile } = await import('@tauri-apps/plugin-fs')
-			const path = await save({
-				title,
-				defaultPath: defaultName,
-				filters,
-			})
-			if (path == null) return { ok: false, cancelled: true }
-			await writeFile(path, bytes)
-			return { ok: true, path }
-		} catch (e) {
-			return {
-				ok: false,
-				cancelled: false,
-				error: e instanceof Error ? e.message : String(e),
-			}
-		}
-	}
-
-	const w = window as Window & {
-		showSaveFilePicker?: (opts: {
-			suggestedName?: string
-			types?: { description: string; accept: Record<string, string[]> }[]
-		}) => Promise<FileSystemFileHandle>
-	}
-
-	if (typeof w.showSaveFilePicker === 'function') {
-		try {
-			const accept: Record<string, string[]> = {}
-			for (const f of filters) {
-				const mime = f.extensions.includes('csv')
-					? 'text/csv'
-					: f.extensions.includes('pdf')
-						? 'application/pdf'
-						: f.extensions.includes('png')
-							? 'image/png'
-							: mimeType
-				accept[mime] = f.extensions.map((ext) => `.${ext}`)
-			}
-			const handle = await w.showSaveFilePicker({
-				suggestedName: defaultName,
-				types: [{ description: filters[0]?.name ?? 'File', accept }],
-			})
-			const writable = await handle.createWritable()
-			await writable.write(bytesToArrayBuffer(bytes))
-			await writable.close()
-			return { ok: true, path: handle.name }
-		} catch (e) {
-			const name = e instanceof Error ? e.name : ''
-			if (name === 'AbortError') return { ok: false, cancelled: true }
-			// fall through to download
-		}
-	}
-
 	try {
-		downloadBlob(
-			new Blob([bytesToArrayBuffer(bytes)], { type: mimeType }),
-			defaultName,
-		)
-		return { ok: true, path: defaultName }
+		const { save } = await import('@tauri-apps/plugin-dialog')
+		const { writeFile } = await import('@tauri-apps/plugin-fs')
+		const path = await save({
+			title,
+			defaultPath: defaultName,
+			filters,
+		})
+		if (path == null) return { ok: false, cancelled: true }
+		await writeFile(path, bytes)
+		return { ok: true, path }
 	} catch (e) {
 		return {
 			ok: false,
@@ -153,13 +82,11 @@ export async function exportPng(
 		bytes,
 		`${safeFileBase(fileBase)}.png`,
 		[{ name: 'PNG', extensions: ['png'] }],
-		'image/png',
 		'Export ER diagram',
 	)
 }
 
 export async function defaultDownloadsDir(): Promise<string | null> {
-	if (!isTauri()) return null
 	try {
 		const { downloadDir } = await import('@tauri-apps/api/path')
 		return await downloadDir()
@@ -184,7 +111,6 @@ export async function pickDataFile(
 	formats: string[],
 	defaultPath?: string | null,
 ): Promise<string | null> {
-	if (!isTauri()) return null
 	const { open } = await import('@tauri-apps/plugin-dialog')
 	const allowed = (formats ?? []).filter((id) => typeof id === 'string')
 	const filters = allowed
@@ -234,7 +160,6 @@ export function inferFormatFromPath(
 export async function pickDirectory(
 	defaultPath?: string | null,
 ): Promise<string | null> {
-	if (!isTauri()) return null
 	const { open } = await import('@tauri-apps/plugin-dialog')
 	const selected = await open({
 		directory: true,

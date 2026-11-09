@@ -2,7 +2,7 @@
  * Persisted open workspace tabs (query / table / model) per connection.
  */
 import type { SaveWorkspaceTabInput, WorkspaceTabRecord } from '#core/contracts'
-import { invoke, isTauri } from '#core/ipc'
+import { invoke } from '#core/ipc'
 import type { WorkspaceTab, WorkspaceTabKind } from './types'
 
 export type { SaveWorkspaceTabInput, WorkspaceTabRecord }
@@ -13,23 +13,15 @@ export type ReplaceWorkspaceTabsInput = {
 	activeTabId?: string | null
 }
 
-function requireTauri() {
-	if (!isTauri()) {
-		throw new Error('Workspace tabs require the Mystique desktop app.')
-	}
-}
-
 export async function listWorkspaceTabs(
 	connectionId: string,
 ): Promise<WorkspaceTabRecord[]> {
-	if (!isTauri()) return []
 	return invoke('list_workspace_tabs', { connectionId })
 }
 
 export async function replaceWorkspaceTabs(
 	input: ReplaceWorkspaceTabsInput,
 ): Promise<WorkspaceTabRecord[]> {
-	requireTauri()
 	return invoke('replace_workspace_tabs', { input })
 }
 
@@ -37,7 +29,6 @@ export async function replaceWorkspaceTabs(
 export async function upsertWorkspaceTab(
 	input: SaveWorkspaceTabInput,
 ): Promise<WorkspaceTabRecord> {
-	requireTauri()
 	return invoke('upsert_workspace_tab', { input })
 }
 

@@ -1,6 +1,6 @@
 /** Load a live ER diagram for a table. */
 import type { TableMeta } from '#core/contracts'
-import { errorMessage, isTauri } from '#core/ipc'
+import { errorMessage } from '#core/ipc'
 import { modelTabTitle, resolveCapabilities } from '#engines'
 import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 import {
@@ -55,14 +55,6 @@ export async function openModelDiagram(
 		modelStore.get(id, modelKey(database, table.id))?.diagram?.nodes?.length
 	) {
 		modelStore.setError(id, null)
-		return
-	}
-
-	if (!isTauri()) {
-		modelStore.setError(
-			id,
-			'Live ER diagram requires the Mystique desktop app. Connect and try again.',
-		)
 		return
 	}
 

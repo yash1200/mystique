@@ -6,7 +6,6 @@
 		ImportOnDuplicate,
 		PreviewImportResult,
 	} from '#core/contracts'
-	import { isTauri } from '#core/ipc'
 	import { Button, Field, Input, Modal, Select } from '#core/ui'
 	import { cn, inferFormatFromPath, pickDataFile } from '#core/util'
 	import type { SelectOption } from '#features/workspace/data-grid'
@@ -84,7 +83,6 @@
 	let onDuplicate = $state<ImportOnDuplicate>('stopOnError')
 	let seededKeys = $state('')
 
-	const desktop = isTauri()
 	const fileLabel = $derived(path.split(/[/\\]/).pop() || path)
 	const detectedLabel = $derived(
 		format ? (FORMAT_LABELS[format] ?? format) : null,
@@ -131,7 +129,7 @@
 	})
 
 	async function browseFile() {
-		if (!desktop || busy || picking) return
+		if (busy || picking) return
 		picking = true
 		try {
 			const picked = await pickDataFile(formats, path || null)
@@ -201,15 +199,13 @@
 						value={fileLabel}
 						inputSize="sm"
 						disabled
-						placeholder={desktop
-							? 'No file selected'
-							: 'Import requires the desktop app'}
+						placeholder="No file selected"
 					/>
 				</div>
 				<Button
 					variant="secondary"
 					size="sm"
-					disabled={busy || picking || !desktop}
+					disabled={busy || picking}
 					onclick={() => void browseFile()}
 				>
 					Browse

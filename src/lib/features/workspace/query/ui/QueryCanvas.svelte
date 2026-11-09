@@ -10,7 +10,7 @@
 		ExplainPlan,
 		QueryMode,
 	} from '#core/contracts'
-	import { isTauri, pinnedTabStatus } from '#core/ipc'
+	import { pinnedTabStatus } from '#core/ipc'
 	import { commands, type CommandContext } from '#core/commands'
 	import { Resizable } from '#core/ui'
 	import { connectionProfiles } from '#features/connections'
@@ -140,7 +140,7 @@
 	$effect(() => {
 		const tab = tabId
 		const enabled = showTransactions
-		if (!enabled || !isTauri()) return
+		if (!enabled) return
 		void pinnedTabStatus(tab)
 			.then((status) => applyPinStatus(tab, status))
 			.catch(() => {})
@@ -149,7 +149,7 @@
 	$effect(() => {
 		const sid = engineSessionId
 		const db = database
-		if (!isTauri() || !sid) return
+		if (!sid) return
 		void catalogColumnsCache.load(sid, db || null)
 	})
 	const placeholder = $derived(queryPlaceholder(engine))

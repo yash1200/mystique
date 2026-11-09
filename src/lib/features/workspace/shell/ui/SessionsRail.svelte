@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import type { ConnectedSession } from '#core/contracts'
-	import { errorMessage, formatEngineConnectionUrl, isTauri } from '#core/ipc'
+	import { errorMessage, formatEngineConnectionUrl } from '#core/ipc'
 	import {
 		ContextMenu,
 		Draggable,
@@ -155,13 +155,6 @@
 		const session = sessions.find((s) => s.profile.id === id)
 		if (!session) return
 		const profile = session.profile
-		if (!isTauri()) {
-			showToast(
-				'warning',
-				'Copy connection URL needs the Mystique desktop app.',
-			)
-			return
-		}
 		try {
 			const formatted = await formatEngineConnectionUrl({
 				engine: String(profile.engine),
@@ -473,5 +466,3 @@
 		if (!leaveBusy) leaveLoss = null
 	}}
 />
-
-

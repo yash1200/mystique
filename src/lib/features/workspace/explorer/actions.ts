@@ -1,6 +1,6 @@
 /** Explorer context-menu actions. */
 import type { TableAdminOp, TableMeta } from '#core/contracts'
-import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
+import { errorMessage, applyEngineTableAdmin } from '#core/ipc'
 import {
 	catalogStore,
 	databaseNameFor,
@@ -53,10 +53,6 @@ export async function onTableExplorerAction(
 	}
 	if (action === 'import') {
 		beginImport(table)
-		return
-	}
-	if (!isTauri()) {
-		catalogStore.setError(id, 'Live catalog actions require the desktop app.')
 		return
 	}
 

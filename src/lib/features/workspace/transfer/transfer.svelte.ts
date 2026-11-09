@@ -11,7 +11,6 @@ import {
 	exportEngineObject,
 	finishTabRun,
 	importEngineObject,
-	isTauri,
 	previewEngineImport,
 	startTabRun,
 } from '#core/ipc'
@@ -181,10 +180,6 @@ export async function loadImportPreview(
 
 export async function confirmImportFile(spec: ImportFileSpec) {
 	if (!transferStore.importTable) return
-	if (!isTauri()) {
-		transferStore.importError = 'Import requires the desktop app.'
-		return
-	}
 	// A new file replaces the old mapping.
 	transferStore.importPreview = null
 	await loadImportPreview(
@@ -250,10 +245,6 @@ export async function confirmExport(spec: ExportDataSpec) {
 	const table = transferStore.exportTable
 	const connectionId = transferStore.exportConnectionId
 	if (!table || !connectionId) return
-	if (!isTauri()) {
-		transferStore.exportError = 'Export requires the desktop app.'
-		return
-	}
 	transferStore.exportBusy = true
 	transferStore.exportError = null
 	const tabId = tableTabId(connectionId, table.id)

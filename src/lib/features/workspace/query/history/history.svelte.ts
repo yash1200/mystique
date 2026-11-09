@@ -1,5 +1,5 @@
 /** Query history lists. The connection manager writes the rows. */
-import { errorMessage, isTauri } from '#core/ipc'
+import { errorMessage } from '#core/ipc'
 import { workspaceSession } from '#features/workspace/session'
 import {
 	historyItemToEntry,
@@ -166,11 +166,6 @@ export async function refreshHistory(opts?: {
 		if (opts?.preferSelectLatest && list.entries[0]) {
 			historyStore.select(scope, list.entries[0].id)
 		}
-		return
-	}
-	if (!isTauri()) {
-		historyStore.patch(scope, { entries: [], hasMore: false, loaded: true })
-		lastLoaded = scopeKey(scope)
 		return
 	}
 	const gen = nextGen(scope)

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { errorMessage, isTauri } from '#core/ipc'
+	import { errorMessage } from '#core/ipc'
 	import { Button, ControlGroup, ControlRow } from '#core/ui'
 	import { onMount } from 'svelte'
 	import {
@@ -10,7 +10,6 @@
 		type VaultStatus,
 	} from '../api'
 
-	const desktop = isTauri()
 	let status = $state<VaultStatus | null>(null)
 	let cleanup = $state<KeychainCleanup | null>(null)
 	let busy = $state(false)
@@ -65,50 +64,43 @@
 	}
 
 	onMount(() => {
-		if (!desktop) return
 		void run(async () => {
 			status = await getVaultStatus()
 		})
 	})
 </script>
 
-{#if !desktop}
-	<p class="m-0 text-caption text-fg-muted">
-		Saved passwords are available in the desktop app.
-	</p>
-{:else}
-	<div class="flex max-w-panel-md flex-col">
-		<ControlGroup labelledby="settings-pane-title">
-			<ControlRow label="Keychain" description={describe(status)}>
-				<Button
-					size="sm"
-					disabled={busy || !keychain || status?.state === 'unlocked'}
-					onclick={retry}
-				>
-					Retry keychain
-				</Button>
-			</ControlRow>
-			<ControlRow
-				label="Old keychain items"
-				description="Earlier versions kept one keychain item per password. Delete the ones no connection uses. Never asks for your password."
+<div class="flex max-w-panel-md flex-col">
+	<ControlGroup labelledby="settings-pane-title">
+		<ControlRow label="Keychain" description={describe(status)}>
+			<Button
+				size="sm"
+				disabled={busy || !keychain || status?.state === 'unlocked'}
+				onclick={retry}
 			>
-				<Button size="sm" disabled={busy || !keychain} onclick={cleanUp}>
-					Clean up
-				</Button>
-			</ControlRow>
-		</ControlGroup>
-		{#if cleanup}
-			<p class="mt-2 mb-0 text-caption text-fg-muted" role="status">
-				{describeCleanup(cleanup)}
-			</p>
-		{/if}
-		{#if error}
-			<p class="mt-2 mb-0 text-caption text-danger" role="alert">{error}</p>
-		{/if}
-		<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
-			Saved passwords, SSH and TLS secrets, AI keys and the MCP token are
-			encrypted in the app database with one key, kept in the macOS keychain.
-			Development builds cache a copy in the app data folder.
+				Retry keychain
+			</Button>
+		</ControlRow>
+		<ControlRow
+			label="Old keychain items"
+			description="Earlier versions kept one keychain item per password. Delete the ones no connection uses. Never asks for your password."
+		>
+			<Button size="sm" disabled={busy || !keychain} onclick={cleanUp}>
+				Clean up
+			</Button>
+		</ControlRow>
+	</ControlGroup>
+	{#if cleanup}
+		<p class="mt-2 mb-0 text-caption text-fg-muted" role="status">
+			{describeCleanup(cleanup)}
 		</p>
-	</div>
-{/if}
+	{/if}
+	{#if error}
+		<p class="mt-2 mb-0 text-caption text-danger" role="alert">{error}</p>
+	{/if}
+	<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
+		Saved passwords, SSH and TLS secrets, AI keys and the MCP token are
+		encrypted in the app database with one key, kept in the macOS keychain.
+		Development builds cache a copy in the app data folder.
+	</p>
+</div>

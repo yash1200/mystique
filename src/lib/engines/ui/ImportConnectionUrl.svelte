@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import type { ParsedConnectionUrl } from '#core/contracts'
-	import { errorMessage, isTauri, parseEngineConnectionUrl } from '#core/ipc'
+	import { errorMessage, parseEngineConnectionUrl } from '#core/ipc'
 	import { OPEN_URL_IMPORT } from '../commands'
 	import { runtimeFor } from '../products'
 	import { Alert, Button, Icon, IconButton } from '#core/ui'
@@ -104,10 +104,6 @@
 		const trimmed = url.trim()
 		if (!trimmed) {
 			error = 'Paste a connection URL first.'
-			return
-		}
-		if (!isTauri()) {
-			error = 'URL import needs the Mystique desktop app.'
 			return
 		}
 		importing = true

@@ -1,5 +1,5 @@
 /** Save-query flow. Modal state lives here, not on WorkspaceShell. */
-import { errorMessage, isTauri } from '#core/ipc'
+import { errorMessage } from '#core/ipc'
 import { workspaceSession } from '#features/workspace/session'
 import { queryLanguageFor } from '../policy'
 import { saveQuery } from './saved-api'
@@ -43,9 +43,6 @@ class QuerySave {
 		)
 		if (!tab || tab.kind !== 'query' || !session) {
 			throw new Error('No query tab / connection to save.')
-		}
-		if (!isTauri()) {
-			throw new Error('Saving requires the desktop app (Tauri).')
 		}
 		const body = workspaceSession.queryDrafts[tab.id] ?? ''
 		if (!body.trim()) {
@@ -102,10 +99,6 @@ class QuerySave {
 			(s) => s.profile.id === tab?.connectionId,
 		)
 		if (!tab || tab.kind !== 'query' || !session) return false
-		if (!isTauri()) {
-			alert('Saving requires the desktop app (run with Tauri).')
-			return false
-		}
 		const body = workspaceSession.queryDrafts[tab.id] ?? ''
 		if (!body.trim()) {
 			workspaceSession.discardQueryDraft(tab.id)

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { isTauri } from '#core/ipc'
 	import {
 		Button,
 		EmptyState,
@@ -31,7 +30,6 @@
 	let addKey = $state('')
 	let addOllamaUrl = $state('')
 
-	const desktop = isTauri()
 	const error = $derived(aiSettings.error)
 	const addProvider = $derived(
 		unused.find((p) => p.id === addId) ?? unused[0] ?? null,
@@ -53,7 +51,6 @@
 	}
 
 	async function load() {
-		if (!desktop) return
 		try {
 			const next = await aiSettings.load()
 			if (next) ollamaUrl = next.ollamaBaseUrl
@@ -63,7 +60,6 @@
 	}
 
 	async function onEnable(on: boolean) {
-		if (!desktop) return
 		busy = true
 		try {
 			await aiSettings.setEnabled(on)
@@ -75,7 +71,6 @@
 	}
 
 	async function saveKey(provider: string) {
-		if (!desktop) return
 		busy = true
 		try {
 			await aiSettings.setApiKey(provider, drafts[provider] ?? '')
@@ -89,7 +84,6 @@
 	}
 
 	async function removeProvider(p: AgentProviderInfo) {
-		if (!desktop) return
 		busy = true
 		try {
 			if (p.id === 'ollama') {
@@ -106,7 +100,6 @@
 	}
 
 	async function saveOllama() {
-		if (!desktop) return
 		busy = true
 		try {
 			await aiSettings.setOllamaUrl(ollamaUrl)
@@ -132,7 +125,7 @@
 
 	async function confirmAdd() {
 		const p = addProvider
-		if (!desktop || !p) return
+		if (!p) return
 		if (p.needsKey && !addKey.trim()) return
 		busy = true
 		try {
@@ -158,11 +151,7 @@
 	})
 </script>
 
-{#if !desktop}
-	<p class="m-0 text-caption text-fg-muted">
-		AI settings are available in the desktop app.
-	</p>
-{:else if view}
+{#if view}
 	<Switch
 		checked={view.enabled}
 		disabled={busy}

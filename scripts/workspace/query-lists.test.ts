@@ -20,7 +20,6 @@ const savedCalls: { id: string; d: Deferred<unknown[]> }[] = []
 const historyCalls: { id: string; d: Deferred<unknown> }[] = []
 
 vi.mock('#core/ipc', () => ({
-	isTauri: () => true,
 	errorMessage: (e: unknown) => String(e),
 }))
 vi.mock('#engines', () => ({}))

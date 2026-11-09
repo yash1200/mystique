@@ -5,7 +5,6 @@ import { beforeEach, expect, test, vi } from 'vitest'
 const opened: { connectionId: string; text: string }[] = []
 const drafts: Record<string, string> = { 'conn-1::query::a': 'select * from my_work' }
 
-vi.mock('#core/ipc', () => ({ isTauri: () => false }))
 vi.mock('#features/workspace/session', () => ({
 	workspaceSession: {
 		activeConnectionId: 'conn-1',

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
-	import { errorMessage, isTauri } from '#core/ipc'
+	import { errorMessage } from '#core/ipc'
 	import {
 		Alert,
 		Icon,
@@ -50,8 +50,6 @@
 		engine,
 		database = null,
 	}: Props = $props()
-
-	const desktop = isTauri()
 
 	const settings = $derived(aiSettings.view)
 	let sending = $state(false)
@@ -150,7 +148,6 @@
 	const canSend = $derived(
 		!sending &&
 			Boolean(agentChat.draft.trim()) &&
-			desktop &&
 			providerReady &&
 			!agentChat.modelsLoading &&
 			(agentChat.provider !== 'ollama' || Boolean(agentChat.model.trim())),
@@ -180,16 +177,15 @@
 		agentChat.model = next.model
 	}
 
-	if (desktop) snapProvider()
+	snapProvider()
 
 	async function loadSettings() {
-		if (!desktop) return
 		await aiSettings.load()
 		snapProvider()
 	}
 
 	async function loadModels() {
-		if (!desktop || sending) return
+		if (sending) return
 		const ids = readyProviders.map((p) => p.id)
 		if (ids.length === 0) return
 		try {
@@ -223,7 +219,6 @@
 	}
 
 	async function loadChats(force = false) {
-		if (!desktop) return
 		const forConnection = connectionId
 		await agentChat.loadChats(forConnection, force)
 		if (connectionId !== forConnection) return
@@ -237,13 +232,8 @@
 		}
 	}
 
-	async function loadMessages() {
-		if (sending) return
-		await hydrateMessages(agentChat.chatId)
-	}
-
 	async function hydrateMessages(id: string | null, force = false) {
-		if (!desktop || !id) return
+		if (!id) return
 		await agentChat.loadMessages(id, force)
 		queueMicrotask(() => {
 			listEl?.scrollTo({ top: listEl.scrollHeight })
@@ -462,7 +452,7 @@
 	}
 
 	function useStarter(text: string) {
-		if (sending || !desktop) return
+		if (sending) return
 		agentChat.draft = text
 		queueMicrotask(() => {
 			document.getElementById('agent-composer')?.focus()
@@ -492,7 +482,6 @@
 		seenConnection = id
 		untrack(() => {
 			agentChat.resetForConnection(id)
-			if (!desktop) return
 			void openConnectionChats().catch((e: unknown) => {
 				error = errorMessage(e)
 			})
@@ -501,19 +490,19 @@
 
 	$effect(() => {
 		void readyProviders
-		if (desktop) untrack(() => void loadModels())
+		untrack(() => void loadModels())
 	})
 
 	$effect(() => {
 		void settings
 		void readyProviders
-		if (!desktop || !settings) return
+		if (!settings) return
 		untrack(() => snapProvider())
 	})
 
 	$effect(() => {
 		const queued = workspaceSession.pendingAgentPrompt
-		if (!queued || sending || !desktop || !settings || !providerReady) return
+		if (!queued || sending || !settings || !providerReady) return
 		untrack(() => {
 			const text = workspaceSession.takePendingAgentPrompt()
 			if (text) void send(text)
@@ -543,7 +532,6 @@
 		const hour = new Date().getHours()
 		if (hour >= 20 || hour < 6) loaf = true
 		void (async () => {
-			if (!desktop) return
 			try {
 				agentChat.resetForConnection(connectionId)
 				await loadSettings()
@@ -640,13 +628,7 @@
 				threadEmpty && 'flex flex-col',
 			)}
 		>
-			{#if !desktop}
-				<AgentChatNotice
-					icon="chat"
-					title="Desktop only"
-					description="The agent runs in the Mystique desktop app, next to the editor."
-				/>
-			{:else if settings && !settings.enabled}
+			{#if settings && !settings.enabled}
 				<AgentChatNotice
 					icon="settings"
 					title="Agent is off"
@@ -707,7 +689,7 @@
 				class="min-h-16 rounded-none px-3 pt-2.5 pb-1"
 				placeholder="Ask for a query…"
 				bind:value={agentChat.draft}
-				disabled={sending || !desktop}
+				disabled={sending}
 				enterkeyhint="send"
 				onkeydown={onComposerKey}
 			/>

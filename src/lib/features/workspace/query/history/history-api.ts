@@ -3,7 +3,7 @@
  * Used by every engine (Postgres / MySQL / Mongo / SQLite).
  */
 import type { QueryHistoryPage } from '#core/contracts'
-import { errorMessage, invoke, isTauri } from '#core/ipc'
+import { errorMessage, invoke } from '#core/ipc'
 import type {
 	AppendHistoryInput,
 	QueryHistoryEntry,
@@ -44,12 +44,6 @@ export function historyItemToEntry(
 		database: item.database?.trim() || undefined,
 		affectedRows: item.affectedRows ?? undefined,
 		source: historySource(item.source),
-	}
-}
-
-function requireTauri() {
-	if (!isTauri()) {
-		throw new Error('Query history requires the Mystique desktop app.')
 	}
 }
 
@@ -136,7 +130,6 @@ export function filterUserHistory(
 export async function appendQueryHistory(
 	input: AppendHistoryInput,
 ): Promise<QueryHistoryItem> {
-	requireTauri()
 	const body = (input.body ?? '').trim()
 	if (!body) {
 		throw new Error('Cannot log empty query to history.')
@@ -192,7 +185,6 @@ export async function listQueryHistory(
 	limit = 100,
 	opts?: HistoryListOptions,
 ): Promise<QueryHistoryPage> {
-	requireTauri()
 	const id = connectionId.trim()
 	if (!id) return listRecentQueryHistory(limit, opts)
 	const args = listArgs(limit, opts)
@@ -220,7 +212,6 @@ export async function listRecentQueryHistory(
 	limit = 100,
 	opts?: HistoryListOptions,
 ): Promise<QueryHistoryPage> {
-	requireTauri()
 	const raw = await invoke<unknown>('list_recent_query_history', listArgs(limit, opts))
 	return normalizePage(raw)
 }

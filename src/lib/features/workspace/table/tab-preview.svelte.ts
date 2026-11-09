@@ -5,7 +5,7 @@ import type {
 	TablePreviewFilter,
 	TablePreviewSort,
 } from '#core/contracts'
-import { errorMessage, finishTabRun, isTauri, startTabRun } from '#core/ipc'
+import { errorMessage, finishTabRun, startTabRun } from '#core/ipc'
 import {
 	applyPreviewStats,
 	catalogStore,
@@ -64,8 +64,6 @@ class TablePreview {
 		})
 		workspaceSession.openTable(id, table.id, table.name)
 		workspaceSession.setTablePreview(tabId, preview)
-
-		if (!isTauri()) return
 
 		const epoch = (this.epochByTab[tabId] ?? 0) + 1
 		this.epochByTab = { ...this.epochByTab, [tabId]: epoch }
@@ -169,13 +167,6 @@ class TablePreview {
 		const tab = workspaceSession.activeTab
 		const session = workspaceSession.activeSession
 		if (!tab || tab.kind !== 'table' || !tab.tableId || !session) return
-		if (!isTauri()) {
-			// No engine fetch. Mark settled so the pane does not spin on the leaf.
-			if (!this.hydratedTabs[tab.id]) {
-				this.hydratedTabs = { ...this.hydratedTabs, [tab.id]: true }
-			}
-			return
-		}
 		const table = findCatalogTable(
 			catalogsFor(catalogStore.catalogs, tab.connectionId),
 			tab.tableId,

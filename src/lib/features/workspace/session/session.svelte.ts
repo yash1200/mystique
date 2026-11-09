@@ -8,7 +8,7 @@ import type {
 	EngineCapabilities,
 	SessionLiveStatus,
 } from '#core/contracts'
-import { cancelTabRun, isTauri, unpinQueryTab } from '#core/ipc'
+import { cancelTabRun, unpinQueryTab } from '#core/ipc'
 import { normalizeCapabilities } from '#engines'
 import type { QueryRunCache } from '#features/workspace/query'
 import {
@@ -164,7 +164,6 @@ class WorkspaceSessionStore {
 	 * Skips if tabs for this connection already exist in memory.
 	 */
 	async restoreTabsForConnection(connectionId: string) {
-		if (!isTauri()) return
 		if (this.restoring.has(connectionId)) return
 		const hasMemory = this.openTabs.some((t) => t.connectionId === connectionId)
 		if (hasMemory) return
@@ -209,7 +208,7 @@ class WorkspaceSessionStore {
 
 	/** Persist open tabs for one connection (debounced). */
 	schedulePersist(connectionId: string) {
-		if (!isTauri() || this.restoring.has(connectionId)) return
+		if (this.restoring.has(connectionId)) return
 		this.cancelDrafts(connectionId)
 		this.persistScheduler.schedule(connectionId)
 	}
@@ -224,7 +223,7 @@ class WorkspaceSessionStore {
 
 	private scheduleDraft(tabId: string) {
 		const tab = this.openTabs.find((item) => item.id === tabId)
-		if (!tab || !isTauri() || this.restoring.has(tab.connectionId)) return
+		if (!tab || this.restoring.has(tab.connectionId)) return
 		if (this.persistScheduler.pending(tab.connectionId)) return
 		this.draftScheduler.schedule(tabId)
 	}
@@ -242,7 +241,7 @@ class WorkspaceSessionStore {
 	/** Keystroke path: one row, one body. */
 	private async persistDraft(tabId: string) {
 		const tab = this.openTabs.find((item) => item.id === tabId)
-		if (!tab || !isTauri() || this.restoring.has(tab.connectionId)) return
+		if (!tab || this.restoring.has(tab.connectionId)) return
 		const tabs = this.openTabs.filter(
 			(item) => item.connectionId === tab.connectionId,
 		)
@@ -261,7 +260,7 @@ class WorkspaceSessionStore {
 	}
 
 	async persistNow(connectionId: string) {
-		if (!isTauri() || this.restoring.has(connectionId)) return
+		if (this.restoring.has(connectionId)) return
 		const tabs = this.openTabs.filter((t) => t.connectionId === connectionId)
 		const remembered = this.activeTabByConnection[connectionId]
 		const activeTabId = tabs.some((t) => t.id === remembered)
@@ -575,7 +574,7 @@ class WorkspaceSessionStore {
 	closeTab(tabId: string, opts: { remember?: boolean } = {}) {
 		void cancelTabRun(tabId)
 		const tab = this.openTabs.find((t) => t.id === tabId)
-		if (isTauri() && tab?.kind === 'query') {
+		if (tab?.kind === 'query') {
 			void unpinQueryTab(tabId).catch(() => {})
 		}
 		if (!tab) return

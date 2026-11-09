@@ -24,7 +24,6 @@ class Fault extends Error {
 }
 
 vi.mock('#core/ipc', () => ({
-	isTauri: () => true,
 	errorMessage: (e: unknown) => String(e),
 	startTabRun: (tabId: string) => `exec-${tabId}`,
 	finishTabRun: (tabId: string) => finished.push(tabId),

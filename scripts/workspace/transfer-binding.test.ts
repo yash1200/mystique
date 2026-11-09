@@ -11,7 +11,6 @@ const liveCalls: string[] = []
 const requests: { database: string | null; kind: string }[] = []
 
 vi.mock('#core/ipc', () => ({
-	isTauri: () => true,
 	errorMessage: (e: unknown) => String(e),
 	startTabRun: () => 'exec-1',
 	finishTabRun: () => {},

@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import type { ConnectionProfile } from '#core/contracts'
-	import { errorMessage, isTauri } from '#core/ipc'
+	import { errorMessage } from '#core/ipc'
 	import {
 		connectionProfiles,
 		ensureSessionWithPassword,
@@ -18,7 +18,7 @@
 
 	/**
 	 * Ensure the connection from ?c= is in the session store.
-	 * If the user landed without connecting, load profile and open a mock session.
+	 * If the user landed without connecting, load the profile and open a session.
 	 */
 	async function ensureSessionFromQuery() {
 		const connectionId = page.url.searchParams.get('c')
@@ -36,7 +36,7 @@
 		if (existing) {
 			workspaceSession.setActiveConnection(connectionId)
 			// Ensure live engine session if missing (e.g. soft reload).
-			if (isTauri() && !existing.engineSessionId) {
+			if (!existing.engineSessionId) {
 				try {
 					const pluginConfig = pluginConfigForSession(existing.profile)
 					const session = await ensureSessionWithPassword(
@@ -73,35 +73,29 @@
 				bootError = 'Connection not found.'
 				return
 			}
-			let engineSessionId: string | null = null
-			let capabilities = null
-			if (isTauri()) {
-				try {
-					const pluginConfig = pluginConfigForSession(profile)
-					const session = await ensureSessionWithPassword(
-						{
-							engine: String(profile.engine),
-							pluginConfig,
-							pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
-							sessionId: profile.id,
-							profileId: profile.id,
-						},
-						profile.name,
-					)
-					engineSessionId = session.sessionId
-					capabilities = session.capabilities
-				} catch (e) {
-					// Prompt closed: no error page, the boot falls back to home.
-					if (isConnectCancelled(e)) return
-					bootError = `Could not open engine session: ${errorMessage(e)}`
-					return
-				}
+			try {
+				const pluginConfig = pluginConfigForSession(profile)
+				const session = await ensureSessionWithPassword(
+					{
+						engine: String(profile.engine),
+						pluginConfig,
+						pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
+						sessionId: profile.id,
+						profileId: profile.id,
+					},
+					profile.name,
+				)
+				workspaceSession.connect(
+					{ ...profile, status: 'connected' },
+					session.sessionId,
+					session.capabilities,
+				)
+			} catch (e) {
+				// Prompt closed: no error page, the boot falls back to home.
+				if (isConnectCancelled(e)) return
+				bootError = `Could not open engine session: ${errorMessage(e)}`
+				return
 			}
-			workspaceSession.connect(
-				{ ...profile, status: 'connected' },
-				engineSessionId,
-				capabilities,
-			)
 		} catch (e) {
 			bootError = errorMessage(e)
 		}

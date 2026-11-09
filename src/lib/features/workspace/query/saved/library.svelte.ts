@@ -1,5 +1,5 @@
 /** Saved-query library list + rename / delete / favorite. */
-import { errorMessage, isTauri } from '#core/ipc'
+import { errorMessage } from '#core/ipc'
 import { workspaceSession } from '#features/workspace/session'
 import { queryLanguageFor } from '../policy'
 import {
@@ -64,7 +64,7 @@ export async function refreshSavedQueries(
 	connectionId: string | null,
 	force = false,
 ) {
-	if (!connectionId || !isTauri()) {
+	if (!connectionId) {
 		lastLoaded = null
 		return
 	}

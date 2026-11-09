@@ -10,7 +10,6 @@
 		errorMessage,
 		closeEngineSession,
 		commitPinnedTab,
-		isTauri,
 		rollbackPinnedTab,
 		setNativeMenu,
 		sshHostKeyPrompt,
@@ -292,12 +291,6 @@
 		pickerBusy = true
 		pickerError = null
 		try {
-			if (!isTauri()) {
-				workspaceSession.connect({ ...profile, status: 'connected' }, null)
-				workspaceStudio.sideMode = 'explorer'
-				pickerOpen = false
-				return
-			}
 			const pluginConfig = pluginConfigForSession(profile)
 			const result = await testSessionWithPassword(
 				{
@@ -355,7 +348,6 @@
 		if (!session) return
 		const engine = String(session.profile.engine)
 		const preferred = sessionDatabase(id, session.profile)
-		if (!isTauri()) return
 		catalogStore.invalidate(id)
 		const sid = await reopenEngineSession(session.profile, preferred)
 		await ensureLiveCatalog(id, engine, sid, preferred, true, true)
@@ -377,7 +369,7 @@
 		if (sid) catalogColumnsCache.invalidate(sid)
 		savedStore.forget(id)
 		historyStore.forget(id)
-		if (sid && isTauri()) {
+		if (sid) {
 			void closeEngineSession(sid).catch(() => {})
 		}
 		if (workspaceSession.sessions.length === 0) goto(resolve('/'))

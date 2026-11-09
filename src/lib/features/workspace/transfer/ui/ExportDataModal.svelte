@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { isTauri } from '#core/ipc'
 	import { Button, Field, Input, Modal, Select } from '#core/ui'
 	import type { TableFileFormat } from '#core/util'
 	import {
@@ -60,7 +59,6 @@
 	})
 
 	const previewName = $derived(applyFormatExtension(fileName, format))
-	const desktop = isTauri()
 
 	let openKey = $state(false)
 
@@ -83,7 +81,7 @@
 	}
 
 	async function browseFolder() {
-		if (!desktop || busy || folderBusy) return
+		if (busy || folderBusy) return
 		folderBusy = true
 		try {
 			const picked = await pickDirectory(folder || null)
@@ -96,7 +94,7 @@
 	function submit() {
 		const name = fileName.trim()
 		if (!name || busy) return
-		if (desktop && !folder.trim()) return
+		if (!folder.trim()) return
 		onconfirm({
 			fileName: applyFormatExtension(name, format),
 			folder: folder.trim(),
@@ -138,26 +136,19 @@
 						id="export-data-folder"
 						bind:value={folder}
 						inputSize="sm"
-						disabled={busy || !desktop}
-						placeholder={desktop
-							? 'Choose a folder…'
-							: 'Downloads (browser download)'}
+						disabled={busy}
+						placeholder="Choose a folder…"
 					/>
 				</div>
 				<Button
 					variant="secondary"
 					size="sm"
-					disabled={busy || folderBusy || !desktop}
+					disabled={busy || folderBusy}
 					onclick={() => void browseFolder()}
 				>
 					Browse
 				</Button>
 			</div>
-			{#if !desktop}
-				<p class="mt-1 mb-0 text-caption text-fg-muted">
-					Folder picker requires the desktop app.
-				</p>
-			{/if}
 		</Field>
 
 		<Field label="Format" htmlFor="export-data-format">
@@ -183,7 +174,7 @@
 		<Button
 			variant="primary"
 			size="sm"
-			disabled={busy || !fileName.trim() || (desktop && !folder.trim())}
+			disabled={busy || !fileName.trim() || (!folder.trim())}
 			onclick={submit}
 		>
 			{busy ? 'Exporting…' : `Export .${extensionForFormat(format)}`}

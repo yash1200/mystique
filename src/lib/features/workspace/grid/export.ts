@@ -185,7 +185,6 @@ export async function exportRowsAsCsv(
 		bytes,
 		`${safeFileBase(fileBase)}.csv`,
 		[{ name: 'CSV', extensions: ['csv'] }],
-		'text/csv;charset=utf-8',
 	)
 }
 
@@ -200,7 +199,6 @@ export async function exportRowsAsJson(
 		bytes,
 		`${safeFileBase(fileBase)}.json`,
 		[{ name: 'JSON', extensions: ['json'] }],
-		'application/json;charset=utf-8',
 	)
 }
 
@@ -277,6 +275,5 @@ export async function exportRowsAsExcel(
 		bytes,
 		`${safeFileBase(fileBase)}.xls`,
 		[{ name: 'Excel', extensions: ['xls'] }],
-		'application/vnd.ms-excel',
 	)
 }

@@ -1,6 +1,6 @@
 /** Load object structure for the structure tab. */
 import type { TableMeta } from '#core/contracts'
-import { errorMessage, describeEngineObjectStructure, isTauri } from '#core/ipc'
+import { errorMessage, describeEngineObjectStructure } from '#core/ipc'
 import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 import {
 	findCatalogTable,
@@ -19,13 +19,6 @@ export async function openObjectStructure(table: TableMeta, force = false) {
 	workspaceSession.openStructure(id, table.id, table.name)
 	if (!force && structureStore.get(id, table.id)?.data?.sections?.length) {
 		structureStore.setError(id, null)
-		return
-	}
-	if (!isTauri()) {
-		structureStore.setError(
-			id,
-			'Object structure requires the Mystique desktop app. Connect and try again.',
-		)
 		return
 	}
 	structureStore.setLoading(id, true)

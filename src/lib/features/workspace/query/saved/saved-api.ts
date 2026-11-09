@@ -1,18 +1,12 @@
 /**
  * Saved queries API (per connection, no groups).
  */
-import { errorMessage, invoke, isTauri } from '#core/ipc'
+import { errorMessage, invoke } from '#core/ipc'
 import type {
 	SaveQueryInput,
 	SavedQuery,
 	SavedQueryListItem,
 } from './saved-types'
-
-function requireTauri() {
-	if (!isTauri()) {
-		throw new Error('Saved queries require the Mystique desktop app.')
-	}
-}
 
 /** Normalize camelCase / snake_case from IPC. */
 function normalizeSavedQuery(raw: Record<string, unknown>): SavedQuery {
@@ -34,7 +28,6 @@ function normalizeSavedQuery(raw: Record<string, unknown>): SavedQuery {
 export async function listSavedQueries(
 	connectionId: string,
 ): Promise<SavedQuery[]> {
-	requireTauri()
 	const id = connectionId.trim()
 	if (!id) return []
 	try {
@@ -60,7 +53,6 @@ export async function listSavedQueries(
 }
 
 export async function saveQuery(input: SaveQueryInput): Promise<SavedQuery> {
-	requireTauri()
 	const payload = {
 		id: input.id?.trim() || null,
 		connectionId: input.connectionId.trim(),
@@ -104,7 +96,6 @@ export async function saveQuery(input: SaveQueryInput): Promise<SavedQuery> {
 }
 
 export async function deleteSavedQuery(id: string): Promise<void> {
-	requireTauri()
 	await invoke('delete_saved_query', { id })
 }
 

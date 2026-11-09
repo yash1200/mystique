@@ -3,7 +3,7 @@
  * Not UI — WorkspaceShell only mounts chrome around these.
  */
 import type { ConnectionProfile, SessionLiveStatus } from '#core/contracts'
-import { getEngineSession, isTauri } from '#core/ipc'
+import { getEngineSession } from '#core/ipc'
 import { resolveCapabilities } from '#engines'
 import {
 	ensureSessionWithPassword,
@@ -138,7 +138,6 @@ async function reopenTracked(
 
 /** Cheap in-memory check: does the backend still have this pool? No DB ping. */
 export async function probeSessionHealth(connectionId: string): Promise<void> {
-	if (!isTauri()) return
 	const session = workspaceSession.sessions.find(
 		(s) => s.profile.id === connectionId,
 	)
@@ -212,5 +211,3 @@ export function requireActiveConnection(): {
 	if (!id || !session) return null
 	return { id, session }
 }
-
-export { isTauri }

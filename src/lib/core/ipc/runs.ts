@@ -4,14 +4,12 @@
  * id before any other work and honours a cancel sent before the run starts.
  */
 import { cancelEngineQuery } from './engines'
-import { isTauri } from './tauri'
 
 export type RunKind = 'query' | 'preview' | 'export'
 
 const runs = new Map<string, Map<RunKind, string>>()
 
 async function cancelExecution(executionId: string): Promise<void> {
-	if (!isTauri()) return
 	try {
 		await cancelEngineQuery(executionId)
 	} catch {

@@ -1,4 +1,4 @@
-import { invoke, isTauri } from '#core/ipc'
+import { invoke } from '#core/ipc'
 import type {
 	AgentChat,
 	AgentMessage,
@@ -28,24 +28,15 @@ function normalizeMessage(raw: AgentMessage): AgentMessage {
 	}
 }
 
-function requireDesktop() {
-	if (!isTauri()) {
-		throw new Error('Agent requires the Mystique desktop app.')
-	}
-}
-
 export async function getAiSettings(): Promise<AiSettingsView> {
-	requireDesktop()
 	return invoke('get_ai_settings')
 }
 
 export async function setAiEnabled(enabled: boolean): Promise<AiSettingsView> {
-	requireDesktop()
 	return invoke('set_ai_enabled', { enabled })
 }
 
 export async function setAiOllamaUrl(url: string): Promise<AiSettingsView> {
-	requireDesktop()
 	return invoke('set_ai_ollama_url', { url })
 }
 
@@ -53,21 +44,18 @@ export async function setAiApiKey(
 	provider: string,
 	key: string,
 ): Promise<AiSettingsView> {
-	requireDesktop()
 	return invoke('set_ai_api_key', { provider, key })
 }
 
 export async function listAgentModels(
 	provider: string,
 ): Promise<AgentModelInfo[]> {
-	requireDesktop()
 	return invoke('list_agent_models', { provider })
 }
 
 export async function listAgentChats(
 	connectionId: string,
 ): Promise<AgentChat[]> {
-	requireDesktop()
 	const rows = await invoke<AgentChat[]>('list_agent_chats', {
 		connectionId: asId(connectionId),
 	})
@@ -80,7 +68,6 @@ export async function updateAgentChat(input: {
 	provider?: string | null
 	model?: string | null
 }): Promise<AgentChat> {
-	requireDesktop()
 	return normalizeChat(
 		await invoke('update_agent_chat', {
 			input: { ...input, id: asId(input.id) },
@@ -89,14 +76,12 @@ export async function updateAgentChat(input: {
 }
 
 export async function deleteAgentChat(id: string): Promise<boolean> {
-	requireDesktop()
 	return invoke('delete_agent_chat', { id: asId(id) })
 }
 
 export async function listAgentMessages(
 	chatId: string,
 ): Promise<AgentMessage[]> {
-	requireDesktop()
 	const rows = await invoke<AgentMessage[]>('list_agent_messages', {
 		chatId: asId(chatId),
 	})
@@ -114,7 +99,6 @@ export async function sendAgentMessage(request: {
 	text: string
 	editorQuery?: string | null
 }): Promise<SendAgentResult> {
-	requireDesktop()
 	const result = await invoke<SendAgentResult>('send_agent_message', {
 		request: {
 			...request,

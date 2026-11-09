@@ -1,6 +1,6 @@
 /** Live catalog load / refresh / create. Owned by the catalog feature. */
-import type { DatabaseMeta, TableMeta } from '#core/contracts'
-import { errorMessage, applyEngineTableAdmin, isTauri } from '#core/ipc'
+import type { DatabaseMeta } from '#core/contracts'
+import { errorMessage, applyEngineTableAdmin } from '#core/ipc'
 import { resolveCapabilities } from '#engines'
 import { isConnectCancelled } from '#features/connections'
 import {
@@ -143,7 +143,7 @@ function applyCatalog(
 
 export async function ensureCatalogForActiveSession() {
 	const active = requireActiveConnection()
-	if (!active || !isTauri()) return
+	if (!active) return
 	const { id, session } = active
 	const engine = String(session.profile.engine)
 	const preferred = sessionDatabase(id, session.profile)
@@ -169,7 +169,7 @@ export async function selectDatabase(name: string) {
 	selectedDatabases.set(id, next)
 
 	const engine = String(session.profile.engine)
-	if (!isTauri() || !engineBindsSessionToDatabase(engine, session.capabilities))
+	if (!engineBindsSessionToDatabase(engine, session.capabilities))
 		return
 
 	catalogStore.patchStatus(id, { refreshing: true })
@@ -186,7 +186,7 @@ export async function selectDatabase(name: string) {
 
 export async function refreshDatabases() {
 	const active = requireActiveConnection()
-	if (!active || !isTauri()) return
+	if (!active) return
 	const { id, session } = active
 	const engine = String(session.profile.engine)
 	const preferred = sessionDatabase(id, session.profile)
@@ -203,7 +203,7 @@ export async function refreshDatabases() {
 
 export async function refreshCurrentTables() {
 	const active = requireActiveConnection()
-	if (!active || !isTauri()) return
+	if (!active) return
 	const { id, session } = active
 	const engine = String(session.profile.engine)
 	const db =
@@ -238,11 +238,7 @@ export function createDatabase(name: string) {
 export async function createCatalogGroup(name: string) {
 	const active = requireActiveConnection()
 	if (!active) return
-	const { id, session } = active
-	if (!isTauri()) {
-		catalogStore.setError(id, null)
-		return
-	}
+	const { id } = active
 	catalogStore.patchStatus(id, { createBusy: true })
 	catalogStore.setError(id, null)
 	try {
@@ -279,28 +275,6 @@ export async function createCatalogObject(name: string, group?: string) {
 	const kind =
 		caps.explorer.objectLabelSingular === 'collection' ? 'collection' : 'table'
 	const dbName = databaseNameFor(id)
-	if (!isTauri()) {
-		const schema = group || (kind === 'collection' ? '' : 'public')
-		const tableId = schema ? `${dbName}.${schema}.${name}` : `${dbName}.${name}`
-		const table: TableMeta = {
-			id: tableId,
-			name,
-			schema,
-			database: dbName,
-			kind: kind as TableMeta['kind'],
-			rowCount: 0,
-			columns: [],
-			rows: [],
-		}
-		const list = catalogStore.databases(id).map((d) => {
-			if (d.name !== dbName) return d
-			if (d.tables.some((t) => t.id === tableId)) return d
-			return { ...d, tables: [...d.tables, table] }
-		})
-		catalogStore.setDatabases(id, list)
-		catalogStore.setError(id, null)
-		return
-	}
 	catalogStore.patchStatus(id, { createBusy: true })
 	catalogStore.setError(id, null)
 	try {

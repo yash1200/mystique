@@ -3,7 +3,6 @@ import type { ExplainPlan } from '#core/contracts'
 import {
 	explainEngineQuery,
 	finishTabRun,
-	isTauri,
 	startTabRun,
 } from '#core/ipc'
 import {
@@ -40,16 +39,6 @@ export async function runExplain(
 		{ page: 0, submittedText: sqlText, activeIndex: 0, diagnostic: null },
 	)
 
-	if (!isTauri()) {
-		persistRun(tabId, {
-			status: 'error',
-			message:
-				'Explain requires the Mystique desktop app. Connect and try again.',
-			mode,
-			elapsedMs: elapsed(),
-		})
-		return null
-	}
 	const sid = await liveSessionFor(target)
 	if (!sid) {
 		persistRun(tabId, {

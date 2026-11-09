@@ -9,7 +9,6 @@
 	import {
 		errorMessage,
 		formatEngineConnectionUrl,
-		isTauri,
 		setNativeMenu,
 		sshHostKeyPrompt,
 		testEngineConnection,
@@ -181,14 +180,6 @@
 	async function handleTestConnection(draft: ConnectionFormDraft) {
 		testResult = null
 
-		if (!isTauri()) {
-			reportTestResult(
-				false,
-				'Backend not available. Open the Mystique desktop app to test a real database connection.',
-			)
-			return
-		}
-
 		testing = true
 		try {
 			const pluginConfig = pluginConfigFromDraft(draft)
@@ -329,13 +320,6 @@
 	async function copyConnectionUrl(id: string) {
 		const profile = connections.find((c) => c.id === id)
 		if (!profile) return
-		if (!isTauri()) {
-			showToast(
-				'warning',
-				'Copy connection URL needs the Mystique desktop app.',
-			)
-			return
-		}
 		try {
 			const formatted = await formatEngineConnectionUrl({
 				engine: String(profile.engine),
@@ -447,18 +431,6 @@
 	}
 
 	async function connectProfile(profile: ConnectionProfile) {
-		// FE preview: open workspace with dummy tables (no live engine).
-		if (!isTauri()) {
-			const { [profile.id]: _drop, ...rest } = statusOverride
-			statusOverride = rest
-			showToast(
-				'info',
-				'Opening workspace with sample data. Use the desktop app for a live database.',
-			)
-			await openWorkspace(profile)
-			return
-		}
-
 		connectingId = profile.id
 		testing = true
 		testResult = null
@@ -559,9 +531,6 @@
 			try {
 				await refreshList()
 				enterCreateMode()
-				if (!isTauri()) {
-					loadError = null
-				}
 			} catch (err) {
 				loadError = errorMessage(err)
 			} finally {

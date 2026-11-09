@@ -1,4 +1,3 @@
-import { isTauri } from '#core/ipc'
 /** Product name shown in the OS / browser window title bar. */
 export const APP_TITLE = 'Mystique'
 
@@ -24,7 +23,6 @@ export async function setAppTitle(
 	if (typeof document !== 'undefined') {
 		document.title = title
 	}
-	if (!isTauri()) return title
 	try {
 		// Prefer webview window API (Tauri 2); fall back to window API.
 		try {

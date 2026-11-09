@@ -183,7 +183,6 @@ While a run is live, `active_run_id` + `workspace_tab_id` lock the thread to tha
 | Collapsed | 28px rail with “Ask” icon; persist `mystique-agent-chat-collapsed` |
 | Resize | Drag left border (copy `WorkspaceSidePane` drag) |
 | Disabled agent | Pane **still visible**. Empty state + **Enable in Settings** CTA. No hide-the-feature. |
-| Browser (`!isTauri()`) | Same pane, copy: “Agent requires the desktop app (`npm run tauri dev`).” |
 
 #### 1.3 Layout inside the pane
 

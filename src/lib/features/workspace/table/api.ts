@@ -7,7 +7,6 @@ import {
 	applyEngineTableEdits,
 	distinctEngineColumnValues,
 	invoke,
-	isTauri,
 	rollbackEngineTableEdits,
 } from '#core/ipc'
 import { runWithWriteGuard } from '#features/workspace/session'
@@ -175,7 +174,6 @@ export async function loadColumnLayout(
 	connectionId: string,
 	tableId: string,
 ): Promise<GridColumnLayout | null> {
-	if (!isTauri()) return null
 	const row = await invoke<StoredColumnLayout | null>('get_grid_column_layout', {
 		connectionId,
 		tableId,
@@ -188,7 +186,6 @@ export async function saveColumnLayout(
 	tableId: string,
 	layout: GridColumnLayout,
 ): Promise<void> {
-	if (!isTauri()) return
 	await invoke('save_grid_column_layout', {
 		layout: layoutToStored(connectionId, tableId, layout),
 	})
@@ -199,7 +196,6 @@ export async function loadLatestSaveId(
 	connectionId: string,
 	table: TableMeta,
 ): Promise<string | null> {
-	if (!isTauri()) return null
 	const row = await invoke<{ saveId?: string } | null>('latest_grid_save', {
 		connectionId,
 		database: table.database || null,

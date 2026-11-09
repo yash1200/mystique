@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '#core/contracts'
-	import { errorMessage, formatEngineConnectionUrl, isTauri } from '#core/ipc'
+	import { errorMessage, formatEngineConnectionUrl } from '#core/ipc'
 	import { Icon, IconButton, Modal, Pill } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import {
@@ -37,13 +37,6 @@
 
 	async function copyConnectionUrl() {
 		if (!profile || copyBusy) return
-		if (!isTauri()) {
-			showToast(
-				'warning',
-				'Copy connection URL needs the Mystique desktop app.',
-			)
-			return
-		}
 		copyBusy = true
 		try {
 			const formatted = await formatEngineConnectionUrl({

@@ -1,8 +1,7 @@
 /**
  * Native file picker for file-kind connections (SQLite, later DuckDB).
- * Tauri desktop only — browser previews cannot expose full filesystem paths.
  */
-import { errorMessage, isTauri } from '#core/ipc'
+import { errorMessage } from '#core/ipc'
 
 export type PickDatabaseFileResult =
 	| { ok: true; path: string }
@@ -21,15 +20,6 @@ export async function pickDatabaseFilePath(opts?: {
 	title?: string
 	filters?: FilePickerFilter[]
 }): Promise<PickDatabaseFileResult> {
-	if (!isTauri()) {
-		return {
-			ok: false,
-			cancelled: false,
-			error:
-				'File picker is available in the desktop app. Paste a full path while using browser preview.',
-		}
-	}
-
 	try {
 		const { open } = await import('@tauri-apps/plugin-dialog')
 		const selected = await open({

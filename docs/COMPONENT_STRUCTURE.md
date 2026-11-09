@@ -17,7 +17,7 @@ src/
 └── lib/
     ├── core/                     # domain-free; imported by everyone, imports nobody
     │   ├── ui/                   # Button, Field, Modal, Toast… (the design system)
-    │   ├── ipc/                  # isTauri + the typed Tauri command surface
+    │   ├── ipc/                  # the typed Tauri command surface
     │   ├── commands/             # command registry: keys, focus scopes, native-menu dispatch
     │   ├── contracts/            # DTOs mirroring mystique-connector-api + app-DB rows
     │   └── util/                 # cn, motion, ui-scale, files, clipboard, time, highlight

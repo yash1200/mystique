@@ -13,7 +13,6 @@ import {
 	executeEngineBatch,
 	executePinnedBatch,
 	finishTabRun,
-	isTauri,
 	pinnedTabStatus,
 	pinQueryTab,
 	rollbackPinnedTab,
@@ -213,17 +212,6 @@ export async function runQuery(
 		{ page: 0, submittedText: sqlText, activeIndex: 0, diagnostic: null, submittedStart: origin },
 	)
 
-	if (!isTauri()) {
-		persistRun(tabId, {
-			status: 'error',
-			message:
-				'Live query execute requires the Mystique desktop app. Connect and try again.',
-			mode,
-			elapsedMs: elapsedSince(start),
-		})
-		return { kind: 'done' }
-	}
-
 	const sid = await liveSessionFor(target)
 	if (!sid) {
 		persistRun(tabId, {
@@ -360,7 +348,7 @@ export function applyPinStatus(tabId: string, status: PinStatus) {
 
 /** Ask the backend for the tab's pin status. Failures keep the last one. */
 export async function refreshPin(tabId: string, enabled: boolean) {
-	if (!enabled || !isTauri()) return
+	if (!enabled) return
 	try {
 		applyPinStatus(tabId, await pinnedTabStatus(tabId))
 	} catch {
