@@ -1,6 +1,6 @@
 /** Live catalog load / refresh / create. Owned by the catalog feature. */
 import type { DatabaseMeta } from '#core/contracts'
-import { errorMessage, applyEngineTableAdmin } from '#core/ipc'
+import { errorMessage, applyEngineTableAdmin, invalidateEngineMetadata } from '#core/ipc'
 import { resolveCapabilities } from '#engines'
 import { isConnectCancelled } from '#features/connections'
 import {
@@ -39,6 +39,15 @@ function reportCatalogError(connectionId: string, err: unknown) {
 	catalogStore.patchStatus(connectionId, { error: message })
 }
 
+/** Best effort: a refresh still runs if the backend cannot be told. */
+async function dropBackendMetadata(sessionId: string, database?: string | null) {
+	try {
+		await invalidateEngineMetadata(sessionId, database || null)
+	} catch {
+		/* the session may be gone; the next open starts empty anyway */
+	}
+}
+
 export async function ensureLiveCatalog(
 	connectionId: string,
 	engine: string,
@@ -57,7 +66,11 @@ export async function ensureLiveCatalog(
 		return
 	}
 	if (catalogStore.loadInFlight[connectionId]) return
-	if (force) catalogColumnsCache.invalidate(engineSessionId)
+	if (force) {
+		catalogColumnsCache.invalidate(engineSessionId)
+		// A refresh re-reads the server, not the backend's metadata cache.
+		await dropBackendMetadata(engineSessionId)
+	}
 	catalogStore.loadInFlight = {
 		...catalogStore.loadInFlight,
 		[connectionId]: true,
@@ -213,6 +226,7 @@ export async function refreshCurrentTables() {
 	catalogStore.setError(id, null)
 	try {
 		const sid = await withLiveSession(id, async (sessionId) => sessionId)
+		await dropBackendMetadata(sid, db)
 		const live = await loadLiveCatalog(sid, engine, {
 			preferredDatabase: db,
 			includeObjects: true,
