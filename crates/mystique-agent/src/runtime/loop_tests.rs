@@ -513,8 +513,8 @@ async fn the_turn_budget_ends_in_exhausted_then_done() {
     assert!(h.host.replies.lock().unwrap()[0].contains("Continue"));
 }
 
-/// Log lines written while the test runs (current-thread runtime, so the
-/// run's tasks log on this thread too).
+/// Every log line this test binary writes. A process-wide subscriber, so
+/// no thread can cache "nobody listens" for a callsite before it is set.
 #[derive(Clone, Default)]
 struct LogBuf(Arc<Mutex<Vec<u8>>>);
 
@@ -529,21 +529,31 @@ impl std::io::Write for LogBuf {
     }
 }
 
+fn captured_log() -> &'static LogBuf {
+    static LOG: std::sync::OnceLock<LogBuf> = std::sync::OnceLock::new();
+    LOG.get_or_init(|| {
+        let log = LogBuf::default();
+        let writer = log.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        tracing::callsite::rebuild_interest_cache();
+        log
+    })
+}
+
 #[tokio::test]
 async fn the_streamed_trace_log_and_tool_cards_redact_planted_passwords() {
-    let log = LogBuf::default();
-    let writer = log.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let log = captured_log();
     let h = Harness::new(vec![
         call(
             "c1",
             "describe_object",
             json!({
+                "name": "redaction_probe",
                 "query": "select * from dblink('postgres://admin:hunter2@db.internal/app', 'x')",
                 "password": "hunter2",
             }),
@@ -555,7 +565,7 @@ async fn the_streamed_trace_log_and_tool_cards_redact_planted_passwords() {
     assert!(trace.contains("toolCallStart"));
     assert!(!trace.contains("hunter2"), "{trace}");
     let logged = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
-    assert!(logged.contains("agent tool call"), "{logged}");
+    assert!(logged.contains("redaction_probe"), "{logged}");
     assert!(!logged.contains("hunter2"), "{logged}");
     for (_, card) in h.host.tools.lock().unwrap().iter() {
         assert!(!card.contains("hunter2"), "{card}");

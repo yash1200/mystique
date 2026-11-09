@@ -18,8 +18,10 @@ mod workspace_tabs;
 pub use agent_chat::AgentChatService;
 pub use agent_tools::{
     levels, tool_specs, tool_specs_for, AccessLevel, AgentColumnInfo, AgentConnectionInfo,
-    AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, ToolAnnotations, ToolApprovals,
-    ToolCaller, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS, APPROVAL_TIMEOUT,
+    AgentExplain, AgentObjectInfo, AgentQueryDownload, AgentSample, AgentSampleColumn,
+    AgentToolSpec, AgentTools, ToolAnnotations, ToolApprovals, ToolCaller,
+    AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS, AGENT_PLAN_MAX_NODES,
+    AGENT_RAW_DEFAULT_CHARS, AGENT_SAMPLE_DEFAULT_ROWS, AGENT_SAMPLE_MAX_ROWS, APPROVAL_TIMEOUT,
     SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL,
 };
 pub use ai_secrets::AiSecretsService;

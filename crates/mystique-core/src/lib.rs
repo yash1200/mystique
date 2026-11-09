@@ -23,10 +23,11 @@ pub mod storage;
 
 pub use application::{
     levels, tool_specs, tool_specs_for, AccessLevel, AgentColumnInfo, AgentConnectionInfo,
-    AgentObjectInfo, AgentQueryDownload, AgentToolSpec, AgentTools, AppServices, PurgeReport,
-    ToolAccessService, ToolAnnotations, ToolApprovals, ToolCaller, VaultService,
-    AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS, APPROVAL_TIMEOUT,
-    SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL,
+    AgentExplain, AgentObjectInfo, AgentQueryDownload, AgentSample, AgentSampleColumn,
+    AgentToolSpec, AgentTools, AppServices, PurgeReport, ToolAccessService, ToolAnnotations,
+    ToolApprovals, ToolCaller, VaultService, AGENT_DEFAULT_CELL_CHARS, AGENT_MAX_CELL_CHARS,
+    AGENT_MAX_ROWS, AGENT_PLAN_MAX_NODES, AGENT_RAW_DEFAULT_CHARS, AGENT_SAMPLE_DEFAULT_ROWS,
+    AGENT_SAMPLE_MAX_ROWS, APPROVAL_TIMEOUT, SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL,
 };
 pub use connectors::{
     ConnectionManager, ConnectorRegistry, OpenSessionRequest, PreviewWriteRowsRequest,

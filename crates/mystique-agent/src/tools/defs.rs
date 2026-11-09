@@ -60,8 +60,13 @@ macro_rules! json_tool {
 json_tool!(GetSchemaDbml, "get_schema_dbml");
 json_tool!(ListObjects, "list_objects");
 json_tool!(DescribeObject, "describe_object");
+json_tool!(SampleRows, "sample_rows");
+json_tool!(ExplainQuery, "explain_query");
+json_tool!(InferFields, "infer_fields");
 json_tool!(ExecuteReadonly, "execute_readonly_query");
 json_tool!(ListSavedQueries, "list_saved_queries");
+// Listed only when the agent may write (see `tool_definitions`).
+json_tool!(ExecuteQuery, "execute_query");
 
 #[cfg(test)]
 mod tests {

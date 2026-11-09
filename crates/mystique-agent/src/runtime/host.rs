@@ -6,12 +6,9 @@ use std::sync::Arc;
 
 use mystique_core::{AppServices, AppendAgentMessageInput, ToolApprovalRequest, ToolCaller};
 use rig::completion::ToolDefinition;
-use rig::tool::tool_definition;
 use serde_json::Value as JsonValue;
 
-use crate::tools::{
-    BoundTools, DescribeObject, ExecuteReadonly, GetSchemaDbml, ListObjects, ListSavedQueries,
-};
+use crate::tools::{tool_definitions, BoundTools};
 
 use super::draft::extract_draft;
 use super::model::BoxFuture;
@@ -33,20 +30,9 @@ pub(crate) trait ToolRunner: Send + Sync {
     ) -> BoxFuture<'a, Result<JsonValue, ToolFailure>>;
 }
 
-/// The in-app tool surface. Register a new tool here and in `tools.rs`.
-pub(crate) fn bound_definitions(bound: &BoundTools) -> Vec<ToolDefinition> {
-    vec![
-        tool_definition(&GetSchemaDbml(bound.clone())),
-        tool_definition(&ListObjects(bound.clone())),
-        tool_definition(&DescribeObject(bound.clone())),
-        tool_definition(&ExecuteReadonly(bound.clone())),
-        tool_definition(&ListSavedQueries(bound.clone())),
-    ]
-}
-
 impl ToolRunner for BoundTools {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        bound_definitions(self)
+        tool_definitions(self)
     }
 
     fn call<'a>(

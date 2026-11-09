@@ -200,3 +200,41 @@ async fn options_and_partial_bulk_results() {
 
     let _ = client.database(db).drop().await;
 }
+
+#[tokio::test]
+#[ignore = "needs local MongoDB"]
+async fn infer_fields_samples_a_collection_without_writing() {
+    use mongodb::bson::Document;
+    use mystique_connector_api::InferFieldsInput;
+
+    let uri = "mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin";
+    let client = Client::with_uri_str(uri).await.expect("client");
+    let coll = client
+        .database("mystique")
+        .collection::<Document>("mq_gb_infer");
+    let _ = coll.drop().await;
+    coll.insert_many(vec![
+        doc! { "name": "a", "address": { "city": "x" }, "tags": ["t", 1_i32] },
+        doc! { "name": "b", "age": 3_i32 },
+    ])
+    .await
+    .expect("seed");
+    let session = MongoSession::new(client.clone(), 2, Some("mystique".into()));
+    let out = session
+        .infer_fields(&InferFieldsInput {
+            collection: "mq_gb_infer".into(),
+            database: Some("mystique".into()),
+            sample: 50,
+            timeout_ms: 5_000,
+            control: QueryControl::new(),
+        })
+        .await
+        .expect("infer");
+    let paths: Vec<&str> = out.fields.iter().map(|f| f.path.as_str()).collect();
+    for want in ["_id", "name", "address.city", "tags[]", "age"] {
+        assert!(paths.contains(&want), "{want} missing from {paths:?}");
+    }
+    assert_eq!(out.sampled, 2);
+    assert_eq!(coll.count_documents(doc! {}).await.expect("count"), 2);
+    let _ = coll.drop().await;
+}
