@@ -23,7 +23,7 @@ pub use import::{
     IMPORT_PREVIEW_ROWS,
 };
 pub use sql::{
-    compile_delete, compile_insert, compile_update, compile_upsert, distinct_values_sql,
-    plan_table_edits, qualify_table, quote_ident, sql_literal, EditPlan, PlannedCount, PlannedEdit,
-    PlannedRead, SqlIdentStyle,
+    compile_delete, compile_insert, compile_update, compile_upsert, distinct_input_sql,
+    distinct_values_sql, plan_table_edits, qualify_table, quote_ident, sql_literal, EditPlan,
+    PlannedCount, PlannedEdit, PlannedRead, SqlIdentStyle,
 };

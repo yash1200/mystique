@@ -206,7 +206,11 @@ database?: string | null, };
 /**
  * Distinct values for one catalog column. `limit` is clamped to 1000.
  */
-export type DistinctColumnValuesRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, column: string, limit?: number, };
+export type DistinctColumnValuesRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, column: string, limit?: number, 
+/**
+ * Only values whose text starts with this (filter-value completion).
+ */
+prefix?: string | null, };
 
 /**
  * Capability flags returned to the UI / API consumers.
@@ -410,7 +414,18 @@ executionId?: string | null, };
 /**
  * Deferred COUNT + FK targets. Does not block first paint of a table.
  */
-export type FetchTablePreviewStatsRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, filters?: Array<TableFilter>, codeFilter?: string | null, };
+export type FetchTablePreviewStatsRequest = { sessionId: string, table: string, schema?: string | null, database?: string | null, filters?: Array<TableFilter>, codeFilter?: string | null, 
+/**
+ * Lets the grid cancel the count with `cancel_engine_query`.
+ */
+executionId?: string | null, 
+/**
+ * Stop the exact COUNT after this long and report the engine's estimate
+ * instead. Absent: count to the end (the user asked for an exact count).
+ * Under a budget, an unfiltered table estimated at
+ * [`SKIP_EXACT_COUNT_ROWS`] or more is not counted at all.
+ */
+countBudgetMs?: number | null, };
 
 export type ForeignKeyDraft = { name: string, columns: Array<string>, refSchema?: string | null, refTable: string, refColumns: Array<string>, original?: ForeignKeyOriginal | null, drop?: boolean, };
 
@@ -1001,6 +1016,11 @@ export type TableAdminResult = { op: TableAdminOp,
  */
 statement?: string | null, executed: boolean, message?: string | null, };
 
+/**
+ * How the exact COUNT of a [`TablePreviewCount`] ended.
+ */
+export type TableCountOutcome = "exact" | "over_budget" | "skipped" | "cancelled" | "failed";
+
 export type TableDefinition = { database?: string | null, schema?: string | null, name: string, kind?: string, columns?: Array<ColumnDraft>, indexes?: Array<IndexDraft>, foreignKeys?: Array<ForeignKeyDraft>, 
 /**
  * SQLite `sqlite_master.sql` captured when the definition was read.
@@ -1027,6 +1047,16 @@ export type TableFilter = { column: string,
 op: string, value?: string, };
 
 export type TablePreviewColumnRef = { column: string, references: ColumnReference, };
+
+/**
+ * The grid's background count: [`TablePreviewStats`] plus what happened to
+ * the exact COUNT, and the engine's estimate when the count did not finish.
+ */
+export type TablePreviewCount = { totalRows: number, totalKnown: boolean, references: Array<TablePreviewColumnRef>, outcome: TableCountOutcome, 
+/**
+ * Planner estimate (Postgres / MySQL `EXPLAIN`) when not exact.
+ */
+estimatedRows?: number, };
 
 /**
  * Stable preview payload: columns + rows in plugin-defined order.

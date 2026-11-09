@@ -83,6 +83,8 @@ export type {
 	TablePreviewColumnRef,
 	TablePreviewResult,
 	TablePreviewStats,
+	TablePreviewCount,
+	TableCountOutcome,
 	TableRowDelete,
 	TableRowInsert,
 	TableRowUpdate,

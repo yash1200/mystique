@@ -42,8 +42,8 @@ import type {
 	SshHostKeyPrompt,
 	TableAdminRequest,
 	TableAdminResult,
+	TablePreviewCount,
 	TablePreviewResult,
-	TablePreviewStats,
 	TerminateSessionRequest,
 	TerminateSessionResult,
 	TestResult,
@@ -223,7 +223,7 @@ export async function fetchEngineTablePreview(
 
 export async function fetchEngineTablePreviewStats(
 	request: FetchTablePreviewStatsRequest,
-): Promise<TablePreviewStats> {
+): Promise<TablePreviewCount> {
 	return invoke('fetch_engine_table_preview_stats', { request })
 }
 

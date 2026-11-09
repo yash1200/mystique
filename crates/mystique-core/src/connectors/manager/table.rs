@@ -5,10 +5,9 @@ use mystique_connector_api::{
     ApplyTableEditsInput, ApplyTableEditsRequest, ApplyTableEditsResult, ConnectorError,
     ConnectorResult, DdlTarget, DescribeTableDefinitionRequest, DistinctColumnValuesRequest,
     FetchLargeValueRequest, FetchLargeValueResult, FetchTablePreviewRequest,
-    FetchTablePreviewStatsRequest, ListTableDefinitionsRequest, PlanDdlRequest,
-    PlanSchemaDiffRequest, SchemaMigration, TableAdminOp, TableAdminRequest, TableAdminResult,
-    TableDefinition, TablePreviewResult, TablePreviewStats, WriteAction, WriteRisk,
-    DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
+    ListTableDefinitionsRequest, PlanDdlRequest, PlanSchemaDiffRequest, SchemaMigration,
+    TableAdminOp, TableAdminRequest, TableAdminResult, TableDefinition, TablePreviewResult,
+    WriteAction, WriteRisk, DEFAULT_MAX_ROWS, FETCH_TIMEOUT_MS, HARD_MAX_ROWS,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -113,14 +112,6 @@ impl ConnectionManager {
             session.fetch_table_preview(&input),
         )
         .await
-    }
-
-    pub async fn fetch_table_preview_stats(
-        &self,
-        req: FetchTablePreviewStatsRequest,
-    ) -> ConnectorResult<TablePreviewStats> {
-        let session = self.session(&req.session_id).await?;
-        session.fetch_table_preview_stats(&req.into_input()).await
     }
 
     pub async fn fetch_large_value(

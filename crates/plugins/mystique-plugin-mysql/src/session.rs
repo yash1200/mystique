@@ -203,6 +203,13 @@ impl ConnectorSession for MysqlSession {
         preview::fetch_table_preview_stats(self, input).await
     }
 
+    async fn estimate_table_rows(
+        &self,
+        input: &FetchTablePreviewInput,
+    ) -> ConnectorResult<Option<u64>> {
+        preview::estimate_table_rows(self, input).await
+    }
+
     async fn fetch_large_value(
         &self,
         input: &FetchLargeValueInput,

@@ -15,7 +15,6 @@ use std::sync::Arc;
 use super::catalog;
 use super::encode::value_ref_json;
 use super::interrupt::{self, map_err};
-use super::query_failed;
 use super::SqliteSession;
 
 pub(super) async fn fetch_table_preview(
@@ -130,21 +129,35 @@ pub(super) async fn fetch_table_preview_stats(
         input.code_filter.as_deref(),
     )?;
     let count_sql = format!("SELECT COUNT(*) FROM {target}{where_sql}");
+    // The budget or the grid interrupts a long COUNT; it then stays unknown.
+    if input.control.is_cancelled() {
+        return Ok(TablePreviewStats::default());
+    }
     let pool = session.pool();
-    let total_rows = session
+    let control = Arc::clone(&input.control);
+    let counted = session
         .blocking(move || -> ConnectorResult<u64> {
             let conn = pool
                 .get()
                 .map_err(|e| ConnectorError::Pool(e.to_string()))?;
+            interrupt::arm(&conn, &control);
+            let _settle = interrupt::Settle {
+                conn: &conn,
+                control: &control,
+            };
             let total: i64 = conn
                 .query_row(&count_sql, [], |r| r.get(0))
-                .map_err(query_failed)?;
+                .map_err(|err| map_err(&control, err))?;
             Ok(total.max(0) as u64)
         })
-        .await?;
-    Ok(TablePreviewStats {
-        total_rows,
-        total_known: true,
-        references: Vec::new(),
-    })
+        .await;
+    match counted {
+        Ok(total_rows) => Ok(TablePreviewStats {
+            total_rows,
+            total_known: true,
+            references: Vec::new(),
+        }),
+        Err(_) if input.control.is_cancelled() => Ok(TablePreviewStats::default()),
+        Err(err) => Err(err),
+    }
 }

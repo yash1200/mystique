@@ -163,6 +163,10 @@ pub struct DistinctColumnValuesRequest {
     #[serde(default = "default_distinct_limit")]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub limit: u32,
+    /// Only values whose text starts with this (filter-value completion).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub prefix: Option<String>,
 }
 
 /// Plugin-facing distinct request.
@@ -173,6 +177,8 @@ pub struct DistinctColumnValuesInput {
     pub database: Option<String>,
     pub column: String,
     pub limit: u32,
+    /// Non-empty, at most 200 characters.
+    pub prefix: Option<String>,
 }
 
 impl From<DistinctColumnValuesRequest> for DistinctColumnValuesInput {
@@ -183,6 +189,10 @@ impl From<DistinctColumnValuesRequest> for DistinctColumnValuesInput {
             database: req.database,
             column: req.column,
             limit: req.limit.clamp(1, 1_000),
+            prefix: req
+                .prefix
+                .filter(|p| !p.is_empty())
+                .map(|p| p.chars().take(200).collect()),
         }
     }
 }

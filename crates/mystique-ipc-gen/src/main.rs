@@ -104,6 +104,8 @@ fn roots(c: &mut Collect) {
         core::FetchLargeValueResult,
         core::FetchTablePreviewStatsRequest,
         core::TablePreviewStats,
+        core::TablePreviewCount,
+        core::TableCountOutcome,
         core::ListCatalogRequest,
         core::CatalogDatabase,
         core::ListRelationshipsRequest,
