@@ -5,12 +5,14 @@
 //! - [`plan`]: one save as bound statements plus the literal preview.
 //! - [`inverse`]: the statements that put a saved row back.
 //! - [`preview`]: read-only helper statements for the grid.
+//! - [`row_preview`]: the rows a typed UPDATE / DELETE / INSERT would touch.
 
 mod compile;
 mod edits;
 mod inverse;
 mod plan;
 mod preview;
+mod row_preview;
 
 use serde_json::Value as JsonValue;
 
@@ -21,6 +23,7 @@ pub use edits::{
 };
 pub use plan::{plan_table_edits, EditPlan, PlannedCount, PlannedEdit, PlannedRead};
 pub use preview::distinct_values_sql;
+pub use row_preview::{insert_row_count, row_preview_plan, RowPreviewAction, RowPreviewPlan};
 
 /// A grid cell that only holds a large-value preview (`{"$large": true, "preview": …}`).
 /// It cannot be written back or used to find a row.
