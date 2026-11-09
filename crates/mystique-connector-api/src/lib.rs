@@ -35,6 +35,7 @@ mod products;
 mod query;
 mod stream;
 mod table;
+mod target_env;
 mod tls;
 mod types;
 mod write_guard;
@@ -65,6 +66,8 @@ pub use large_cell::{
 pub use metrics::*;
 /// Output columns of a plain single-table SELECT (SQLite has no driver provenance).
 pub use mystique_sql::{single_table_select, ProjectedItem, SingleTableSelect};
+/// Databases each write in a batch lands in (per-database production).
+pub use mystique_sql::{write_targets as sql_write_targets, WriteTarget, WriteTargets};
 pub use object_structure::*;
 pub use origin::{ColumnOrigin, KeyColumn, ResolvedColumn};
 pub use pin::{opens_transaction, PinStatus, PinnedSession};
@@ -79,6 +82,7 @@ pub use stream::{
     stream_cancelled, stream_column, CollectSink, RowBatcher, RowSink, RowSource, STREAM_BATCH_ROWS,
 };
 pub use table::*;
+pub use target_env::{any_production, target_environment, DatabaseEnvironment, TargetEnvironment};
 pub use tls::{SslMode, TlsSettings};
 pub use types::*;
 pub use write_guard::{WriteGuardPrompt, WriteRisk, WRITE_GUARD_CODE};

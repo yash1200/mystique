@@ -30,6 +30,10 @@ pub struct WriteGuardPrompt {
     /// Name to send back as `confirmObjectName` for `confirm` and `typeConfirm`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub object_name: Option<String>,
+    /// The database marked with `environment` that the write lands in, when
+    /// the mark is per database rather than the connection's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
 }
 
 impl WriteGuardPrompt {
@@ -63,6 +67,7 @@ impl WriteGuardPrompt {
             preview,
             statements,
             object_name,
+            database: None,
         })
     }
 

@@ -8,6 +8,7 @@
 //! - [`policy`] classifies the parsed statement for the write guard.
 //! - [`preview`] names the statement for the guard prompt.
 //! - [`split`] cuts a buffer into statements for Run all.
+//! - [`targets`] names the databases a write lands in (per-database production).
 
 mod lex;
 mod options;
@@ -15,6 +16,7 @@ pub(crate) mod parse;
 pub(crate) mod policy;
 mod preview;
 pub(crate) mod split;
+mod targets;
 pub(crate) mod value;
 
 pub use policy::MongoQueryPolicy;

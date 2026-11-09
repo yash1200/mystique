@@ -49,6 +49,14 @@ impl EngineQueryPolicy for MongoQueryPolicy {
     fn split(&self, text: &str) -> Vec<std::ops::Range<usize>> {
         super::split::split(text)
     }
+
+    fn write_targets(
+        &self,
+        text: &str,
+        current: Option<&str>,
+    ) -> mystique_connector_api::WriteTargets {
+        super::targets::write_targets(text, current)
+    }
 }
 
 /// Text that does not parse is a write. Text with more than one statement

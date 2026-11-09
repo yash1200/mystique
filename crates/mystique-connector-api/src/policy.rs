@@ -64,6 +64,18 @@ pub trait EngineQueryPolicy: Send + Sync {
             compact
         }
     }
+
+    /// Databases the writes in `text` land in, for per-database production.
+    /// `current` is the database the statement runs in. Default: a read
+    /// names nothing, anything else is unresolved (fail closed).
+    fn write_targets(&self, text: &str, current: Option<&str>) -> crate::WriteTargets {
+        let _ = current;
+        if self.classify(text) == WriteRisk::Read {
+            crate::WriteTargets::default()
+        } else {
+            crate::WriteTargets::unresolved()
+        }
+    }
 }
 
 pub struct SqlQueryPolicy {
@@ -95,5 +107,9 @@ impl EngineQueryPolicy for SqlQueryPolicy {
 
     fn is_safe_dml(&self, text: &str) -> bool {
         sql_is_safe_dml_for(text, self.dialect())
+    }
+
+    fn write_targets(&self, text: &str, current: Option<&str>) -> crate::WriteTargets {
+        mystique_sql::write_targets(text, self.dialect(), current)
     }
 }
