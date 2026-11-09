@@ -30,6 +30,7 @@
 	import { registerTabSaver } from '#features/workspace/session'
 	import { appPrefs, cmd } from '#lib/app'
 	import { onMount, tick } from 'svelte'
+	import { cellFilterMenu, cellFilterPick, cellFilterValue, type CellFilterOp } from '../cell-filter'
 	import { TableColumns } from '../columns.svelte'
 	import { countLabel } from '../count'
 	import type { TableCopySource } from '../copy'
@@ -231,7 +232,36 @@
 	)
 	const rowCount = $derived(tabId ? countLabel(tablePreview.countByTab[tabId]) : null)
 	const rowMenuItems = $derived(rowMenu ? actions.rowMenu(rowMenu.row) : [])
-	const cellMenuItems = $derived(cellMenu ? actions.cellMenu(cellMenu.row) : [])
+	const cellMenuItems = $derived.by(() => {
+		if (!cellMenu) return []
+		const rest = actions.cellMenu(cellMenu.row)
+		const filterItems = cellFilterMenu(cellMenu.col, cellFilterFor(cellMenu.row, cellMenu.col))
+		return [
+			...filterItems,
+			...rest.map((item, i) => (i === 0 ? { ...item, separatorBefore: true } : item)),
+		]
+	})
+
+	function cellFilterFor(row: number, col: string) {
+		const type = table.columns.find((c) => c.name === col)?.type
+		return cellFilterValue(edits.rows[row]?.[col], type, engine)
+	}
+
+	/** "Filter = value" and friends: add the rule to the bar and reload. */
+	function filterByCell(row: number, col: string, op: CellFilterOp) {
+		const value = cellFilterFor(row, col)
+		if (op === 'eq' || op === 'neq') {
+			if (value.kind !== 'value') return
+		} else if (value.kind !== 'null') {
+			return
+		}
+		const problem = filters.addCellRule(col, op, value.kind === 'value' ? value.text : '')
+		if (problem) {
+			flashStatus(problem)
+			return
+		}
+		loader.applyFilters()
+	}
 
 	$effect(() => {
 		ondirtychange?.(edits.dirtyCount > 0)
@@ -580,7 +610,10 @@
 			onpick={(id) => {
 				const ctx = cellMenu
 				cellMenu = null
-				if (ctx) actions.pickCellMenu(ctx.row, ctx.col, id)
+				if (!ctx) return
+				const filterOp = cellFilterPick(id)
+				if (filterOp) filterByCell(ctx.row, ctx.col, filterOp)
+				else actions.pickCellMenu(ctx.row, ctx.col, id)
 			}}
 			onclose={() => (cellMenu = null)}
 		/>

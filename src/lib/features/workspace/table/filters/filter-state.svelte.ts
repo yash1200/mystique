@@ -171,6 +171,30 @@ export class TableFilters {
 		this.rules = this.rules.map((r) => (r.id === id ? { ...r, ...patch } : r))
 	}
 
+	/**
+	 * Add one rule from a cell ("Filter = value"). An empty first rule is
+	 * reused. In code mode the predicate is appended to `col = 'v'` text; a
+	 * JSON or unparsed code filter is left alone. Returns why it could not.
+	 */
+	addCellRule(column: string, op: FilterOp, value: string): string | null {
+		const rule: FilterRule = { ...newRule(column), op, value }
+		if (this.mode === 'code') {
+			const code = this.code.trim()
+			const parsed = code ? parseCodeFilters(code) : []
+			if (!parsed || looksLikeJsonFilter(code)) {
+				return 'Clear the code filter to add a filter from a cell.'
+			}
+			this.code = rulesToCode([...parsed, rule])
+			return null
+		}
+		const kept = this.active
+			? this.rules.filter((r) => r.column && (!opNeedsValue(r.op) || r.value.trim() !== ''))
+			: []
+		const same = kept.some((r) => r.column === column && r.op === op && r.value === value)
+		this.rules = same ? kept : [...kept, rule]
+		return null
+	}
+
 	updateFirst(patch: Partial<FilterRule>) {
 		const first = this.rules[0]
 		if (!first) this.rules = [{ ...this.makeRule(), ...patch }]
