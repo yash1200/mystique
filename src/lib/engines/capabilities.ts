@@ -14,7 +14,7 @@ import type {
 } from '#core/contracts'
 
 /** Table admin surface shared by every SQL engine. */
-export const SQL_ADMIN: TableAdminFeatures = {
+const SQL_ADMIN: TableAdminFeatures = {
 	createStatement: true,
 	rename: true,
 	drop: true,
@@ -23,16 +23,16 @@ export const SQL_ADMIN: TableAdminFeatures = {
 	viewStructure: true,
 }
 
-export const SQL_OBJECT_LABELS: ObjectLabels = {
+const SQL_OBJECT_LABELS: ObjectLabels = {
 	namespace: 'Schema',
 	container: 'Table',
 	field: 'Column',
 }
 
-export const SQL_CODE_FILTER_PLACEHOLDER =
+const SQL_CODE_FILTER_PLACEHOLDER =
 	'{ "status": "active" } or status = \'active\''
 
-export const SQL_EXPORT_FORMATS = ['csv', 'json', 'jsonl', 'sql']
+const SQL_EXPORT_FORMATS = ['csv', 'json', 'jsonl', 'sql']
 
 /**
  * Baseline relational capabilities. Postgres / MySQL / SQLite override only the
@@ -90,7 +90,7 @@ export function relationalCapabilities(
 	}
 }
 
-export function parseSupportDepth(
+function parseSupportDepth(
 	v: unknown,
 	fallback: SupportDepth,
 ): SupportDepth {

@@ -16,7 +16,7 @@ export function setNativeMenu(state: NativeMenuState): void {
 }
 
 /** The one event menu.rs emits for a chosen item; the payload is the item id. */
-export const MENU_COMMAND_EVENT = 'menu-command'
+const MENU_COMMAND_EVENT = 'menu-command'
 
 /** Call `onItem` with the id of each native menu item the user picks. */
 export async function listenMenuCommands(

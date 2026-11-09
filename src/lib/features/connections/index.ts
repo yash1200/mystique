@@ -7,26 +7,18 @@
 export * from './api'
 export { connectionFacts, connectionUrlPreview, copyConnectionUrl, environmentLabel } from './facts'
 export {
-	asColorId,
-	asEnvironment,
 	colorHex,
-	configBool,
-	configNum,
 	configStr,
-	CONNECTION_COLORS,
 	connectionEndpoint,
 	connectionInitial,
 	draftFromProfile,
 	namePlaceholder,
 	pluginConfigForSession,
-	pluginConfigFromDraft,
-	saveInputFromDraft,
 } from './model'
-export { ConnectCancelled, isConnectCancelled } from './password-prompt'
+export { isConnectCancelled } from './password-prompt'
 export {
 	ensureSessionWithPassword,
 	openSessionWithPassword,
-	passwordPrompt,
 	testSessionWithPassword,
 } from './password-prompt.svelte'
 export * from './profiles.svelte'
@@ -36,4 +28,3 @@ export { default as EngineBadge } from './ui/EngineBadge.svelte'
 export { default as PasswordPromptModal } from './ui/PasswordPromptModal.svelte'
 export { sshHostKeys } from './ssh-host-key.svelte'
 export { default as SshHostKeyModal } from './ui/SshHostKeyModal.svelte'
-export { validateDraftForSave, validateDraftForTest } from './validate'

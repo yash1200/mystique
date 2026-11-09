@@ -71,11 +71,6 @@ export function defineCommand<A = void>(spec: Omit<CommandSpec<A>, '__args'>): C
 	return spec as CommandSpec<A>
 }
 
-/** A spec with its handler, typed by the spec's `args`. */
-export function withHandler<A>(spec: CommandSpec<A>, handler: CommandHandler<A>): Command<A> {
-	return { ...spec, ...handler }
-}
-
 function menuIds(spec: CommandSpec): readonly string[] {
 	if (!spec.menu) return []
 	return typeof spec.menu === 'string' ? [spec.menu] : spec.menu

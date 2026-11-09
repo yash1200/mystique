@@ -48,7 +48,7 @@ export function historyItemToEntry(
 }
 
 /** Normalize IPC payloads (camelCase preferred; tolerate snake_case). */
-export function normalizeHistoryItem(
+function normalizeHistoryItem(
 	raw: Record<string, unknown>,
 ): QueryHistoryItem {
 	const g = (camel: string, snake: string) =>
@@ -98,7 +98,7 @@ function normalizeList(rows: unknown): QueryHistoryItem[] {
  * True for history rows created by the app (explorer table preview, etc.),
  * not by the user typing/running in the Query editor.
  */
-export function isInternalAppHistoryBody(body: string): boolean {
+function isInternalAppHistoryBody(body: string): boolean {
 	const t = (body ?? '').trim()
 	if (!t) return true
 	// Explicit Mongo table-preview marker (legacy)
@@ -120,7 +120,7 @@ export function isInternalAppHistoryBody(body: string): boolean {
 }
 
 /** Keep only user-run statements for History UI. */
-export function filterUserHistory(
+function filterUserHistory(
 	items: QueryHistoryItem[],
 ): QueryHistoryItem[] {
 	return items.filter((it) => !isInternalAppHistoryBody(it.body))

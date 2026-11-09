@@ -40,7 +40,7 @@ function exportColumns(src: ResultSource): { name: string }[] {
 	return src.columns.map((c) => ({ name: c.name }))
 }
 
-export function copyResultCell(
+function copyResultCell(
 	src: ResultSource,
 	absRow: number,
 	col: number,

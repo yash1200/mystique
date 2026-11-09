@@ -51,7 +51,7 @@ const SQL_IDENT = '(?:"[^"]+"|`[^`]+`|\\[[^\\]]+\\]|[a-zA-Z_][\\w$]*)'
 const SQL_QUALIFIED = `${SQL_IDENT}(?:\\s*\\.\\s*${SQL_IDENT})?`
 
 /** Best-effort primary relation name from a SQL statement. */
-export function extractSqlRelationName(queryText: string): string | null {
+function extractSqlRelationName(queryText: string): string | null {
 	const stmt = lastSqlStatement(queryText)
 	if (!stmt) return null
 
@@ -81,7 +81,7 @@ export function extractSqlRelationName(queryText: string): string | null {
 }
 
 /** Best-effort collection name from MQL / mongo shell-ish text. */
-export function extractMqlCollectionName(
+function extractMqlCollectionName(
 	queryText: string,
 	collectionHint?: string | null,
 ): string | null {
@@ -191,7 +191,7 @@ export async function exportRowsAsJson(
  * Excel-compatible SpreadsheetML (.xls). Opens in Excel / LibreOffice without
  * an xlsx dependency.
  */
-export function buildExcelXml(
+function buildExcelXml(
 	columns: TableExportColumn[],
 	rows: unknown[][],
 	sheetName = 'Results',

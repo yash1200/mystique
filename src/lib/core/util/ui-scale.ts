@@ -5,10 +5,10 @@
  * Users can zoom with Ctrl/Cmd + / - / 0.
  */
 
-export const UI_SCALE_STORAGE_KEY = 'mystique-ui-scale'
+const UI_SCALE_STORAGE_KEY = 'mystique-ui-scale'
 
 /** Design-language base (no artificial upscale). */
-export const DEFAULT_UI_SCALE = 1
+const DEFAULT_UI_SCALE = 1
 
 /** Stored preference: auto or a fixed multiplier. */
 export type UiScalePreference = 'auto' | number
@@ -16,7 +16,7 @@ export type UiScalePreference = 'auto' | number
 const MIN = 1
 const MAX = 2.5
 
-export function clampScale(n: number): number {
+function clampScale(n: number): number {
 	if (!Number.isFinite(n)) return DEFAULT_UI_SCALE
 	return Math.min(MAX, Math.max(MIN, Math.round(n * 100) / 100))
 }
@@ -25,7 +25,7 @@ export function clampScale(n: number): number {
  * Auto scale — stay at 1× by default (dense DB chrome).
  * Optional slight bump only on very large displays.
  */
-export function computeAutoScale(): number {
+function computeAutoScale(): number {
 	if (typeof window === 'undefined') return DEFAULT_UI_SCALE
 
 	const dpr = window.devicePixelRatio || 1
@@ -41,7 +41,7 @@ export function computeAutoScale(): number {
 	return DEFAULT_UI_SCALE
 }
 
-export function readScalePreference(): UiScalePreference {
+function readScalePreference(): UiScalePreference {
 	try {
 		const raw = localStorage.getItem(UI_SCALE_STORAGE_KEY)
 		if (raw == null || raw === 'auto') return 'auto'
@@ -64,7 +64,7 @@ export function writeScalePreference(pref: UiScalePreference) {
 	}
 }
 
-export function resolveScale(
+function resolveScale(
 	pref: UiScalePreference = readScalePreference(),
 ): number {
 	if (pref === 'auto') return clampScale(computeAutoScale())

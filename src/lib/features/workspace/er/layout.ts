@@ -16,7 +16,7 @@ import {
 	ER_TABLE_W_BASE,
 	snapToGrid,
 } from './constants'
-import type { ErDiagramState, ErEdge, ErNode } from './types'
+import type { ErEdge, ErNode } from './types'
 
 export const ER_TABLE_W = ER_TABLE_W_BASE
 export const ER_HEADER_H = ER_HEADER_H_BASE
@@ -50,11 +50,6 @@ function geomForScale(scale: number): Geom {
 		pad: Math.round(ER_PAD * s),
 		maxColH: Math.round(MAX_LAYER_H * Math.max(1, s)),
 	}
-}
-
-export function erNodeHeight(columnCount: number, scale = 1): number {
-	const g = geomForScale(scale)
-	return g.headerH + Math.max(1, columnCount) * g.rowH
 }
 
 function heightOf(node: ErNode, g: Geom): number {
@@ -240,16 +235,6 @@ export function layoutErNodes(
 		const p = pos.get(n.id)
 		return p ? { ...n, x: p.x, y: p.y } : n
 	})
-}
-
-export function layoutErDiagram(
-	diagram: ErDiagramState,
-	opts?: { scale?: number },
-): ErDiagramState {
-	return {
-		...diagram,
-		nodes: layoutErNodes(diagram.nodes, diagram.edges, opts),
-	}
 }
 
 /** Shift a packed layout so its bounding box sits in the view center. */

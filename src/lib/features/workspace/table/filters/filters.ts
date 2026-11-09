@@ -1,5 +1,5 @@
 import type { FilterOp, FilterRule } from './types'
-export const FILTER_OPS: {
+const FILTER_OPS: {
 	value: FilterOp
 	label: string
 	needsValue: boolean

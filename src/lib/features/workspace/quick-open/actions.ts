@@ -47,7 +47,7 @@ export async function runQuickOpenItem(item: QuickOpenItem) {
 	}
 }
 
-export function runCommand(command: QuickOpenCommand) {
+function runCommand(command: QuickOpenCommand) {
 	const id = workspaceSession.activeConnectionId
 	if (command === 'toggle-rail') {
 		appChrome.toggle(window.location.pathname)

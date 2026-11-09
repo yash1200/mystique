@@ -15,15 +15,6 @@ export const MATCH_TIER = {
 
 export type MatchTier = (typeof MATCH_TIER)[keyof typeof MATCH_TIER]
 
-const TIER_ORDER: MatchTier[] = [
-	MATCH_TIER.exact,
-	MATCH_TIER.initials,
-	MATCH_TIER.prefix,
-	MATCH_TIER.wordPrefix,
-	MATCH_TIER.substring,
-	MATCH_TIER.subsequence,
-]
-
 export function matchTier(query: string, text: string): MatchTier | null {
 	const token = query.trim().toLowerCase()
 	const raw = text.trim()
@@ -65,10 +56,6 @@ export function matchTerms(query: string, fields: string[]): MatchTier | null {
 		if (best > worst) worst = best
 	}
 	return worst
-}
-
-export function tierRank(tier: MatchTier): number {
-	return TIER_ORDER.indexOf(tier)
 }
 
 function wordsOf(text: string): string[] {

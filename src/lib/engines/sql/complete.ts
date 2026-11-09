@@ -236,7 +236,7 @@ function dialectSnippets(kind: SqlSnippetKind): Completion[] {
 }
 
 /** Where the cursor is, for catalog vs snippet completions. */
-export function tableCompletionKind(
+function tableCompletionKind(
 	before: string,
 ): 'table' | 'column' | 'other' {
 	// Keep a trailing space so `FROM ` still counts as a table slot.
@@ -249,7 +249,7 @@ export function tableCompletionKind(
 }
 
 /** Snippets stay out of strings and comments. The syntax tree is the check. */
-export function inSqlLiteralOrComment(state: EditorState, pos: number): boolean {
+function inSqlLiteralOrComment(state: EditorState, pos: number): boolean {
 	let node = syntaxTree(state).resolveInner(pos, -1)
 	for (;;) {
 		if (/comment|string|quotedidentifier/i.test(node.name)) return true

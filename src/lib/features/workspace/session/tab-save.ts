@@ -23,7 +23,7 @@ export function registerTabSaver(tabId: string, saver: TabSaver): () => void {
 }
 
 /** The tab's saver, waiting up to `timeoutMs` for its grid to mount. */
-export function tabSaver(tabId: string, timeoutMs = 10_000): Promise<TabSaver | null> {
+function tabSaver(tabId: string, timeoutMs = 10_000): Promise<TabSaver | null> {
 	const ready = savers.get(tabId)
 	if (ready) return Promise.resolve(ready)
 	return new Promise((resolve) => {

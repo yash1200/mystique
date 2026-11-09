@@ -11,7 +11,7 @@ export type SelectOption = {
 const NULL_VALUE = ''
 
 /** MySQL: `enum('a','b')` / `set('x','y')` */
-export function parseMysqlEnumValues(typeStr: string): string[] | null {
+function parseMysqlEnumValues(typeStr: string): string[] | null {
 	const m = typeStr.match(/^(enum|set)\s*\((.*)\)\s*$/i)
 	if (!m) return null
 	const inner = m[2]
@@ -25,7 +25,7 @@ export function parseMysqlEnumValues(typeStr: string): string[] | null {
 	return values.length > 0 ? values : null
 }
 
-export function isBooleanType(typeStr: string): boolean {
+function isBooleanType(typeStr: string): boolean {
 	const t = (typeStr || '').toLowerCase().trim()
 	if (!t) return false
 	if (
@@ -43,7 +43,7 @@ export function isBooleanType(typeStr: string): boolean {
 	return false
 }
 
-export function isEnumType(typeStr: string): boolean {
+function isEnumType(typeStr: string): boolean {
 	const t = (typeStr || '').toLowerCase()
 	if (t.startsWith('enum') || t.startsWith('set')) return true
 	if (t.includes('mysql_type_enum') || t.includes('mysql_type_set')) return true
@@ -62,7 +62,7 @@ export function usesSelectEditor(col: ColumnDef, sample?: unknown): boolean {
 	return false
 }
 
-export function isBooleanColumn(col: ColumnDef, sample?: unknown): boolean {
+function isBooleanColumn(col: ColumnDef, sample?: unknown): boolean {
 	if (isBooleanType(col.type)) return true
 	if (typeof sample === 'boolean') return true
 	// tinyint(1) often arrives as 0/1 without enumValues
@@ -141,4 +141,3 @@ export function selectDraftToValue(
 	return draft
 }
 
-export { NULL_VALUE as SELECT_NULL_VALUE }

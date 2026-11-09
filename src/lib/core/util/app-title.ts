@@ -1,5 +1,5 @@
 /** Product name shown in the OS / browser window title bar. */
-export const APP_TITLE = 'Mystique'
+const APP_TITLE = 'Mystique'
 
 /** Monotonic token so overlapping async setTitle calls don't clobber a newer title. */
 let titleGen = 0
@@ -9,7 +9,7 @@ let titleGen = 0
  * Home: "Mystique"
  * Connected: "Mystique · {connectionName}"
  */
-export function formatAppTitle(connectionName?: string | null): string {
+function formatAppTitle(connectionName?: string | null): string {
 	const name = connectionName?.trim()
 	return name ? `${APP_TITLE} · ${name}` : APP_TITLE
 }

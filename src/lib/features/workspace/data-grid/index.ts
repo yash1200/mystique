@@ -14,17 +14,7 @@ export * from './export-file'
 export * from './keyboard'
 export * from './large-cell'
 export * from './selection.svelte'
-export {
-	cellKey,
-	emptySelection,
-	orderRange,
-	orderStep,
-	type CellRef as GridCellRef,
-	type Col,
-	type GridSelectionState,
-	type RowBounds,
-	type SelectionKind,
-} from './selection-model'
+export { cellKey, emptySelection } from './selection-model'
 export * from './selection-stats'
 export * from './text-formats'
 export * from './virtual'

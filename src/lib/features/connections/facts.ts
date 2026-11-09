@@ -27,7 +27,7 @@ export function environmentLabel(env: ConnectionProfile['environment']): string 
 	return 'Local'
 }
 
-export function formatConnectedAt(iso: string | null | undefined): string {
+function formatConnectedAt(iso: string | null | undefined): string {
 	if (!iso) return 'Never'
 	try {
 		return new Intl.DateTimeFormat(undefined, {

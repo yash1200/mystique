@@ -29,7 +29,7 @@ export function reviewPrompt(input: {
 	}
 }
 
-export function savedRows(result: ApplyTableEditsResult): number {
+function savedRows(result: ApplyTableEditsResult): number {
 	return (result.updated ?? 0) + (result.inserted ?? 0) + (result.deleted ?? 0)
 }
 

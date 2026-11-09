@@ -16,7 +16,7 @@ export interface EngineProduct {
 	supportDepth: 'operate' | 'browse' | 'connect'
 }
 
-export const ENGINE_PRODUCTS: readonly EngineProduct[] = [
+const ENGINE_PRODUCTS: readonly EngineProduct[] = [
 	{
 		id: 'postgres',
 		runtime: 'postgres',

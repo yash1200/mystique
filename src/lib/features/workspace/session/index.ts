@@ -7,7 +7,7 @@ export * from './api'
 export * from './close-guard'
 export * from './connection-cache.svelte'
 export * from './edit-buffer'
-export { guardCopy, typedNameOk, type GuardCopy } from './guard-copy'
+export { guardCopy, typedNameOk } from './guard-copy'
 export * from './live-session'
 export * from './lookup'
 export * from './reset'
@@ -24,7 +24,6 @@ export {
 	resolveWriteGuard,
 	runWithWriteGuard,
 	subscribeWriteGuard,
-	type GuardOptions,
 } from './write-guard'
 export type * from './types'
-export { emptyTablePreview, resolveTablePreview } from './types'
+export { resolveTablePreview } from './types'

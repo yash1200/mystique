@@ -106,7 +106,7 @@ function readQuerySort(): SavedQueryListSort {
 	return 'created'
 }
 
-export function clampExplorerPanelWidth(px: number): number {
+function clampExplorerPanelWidth(px: number): number {
 	if (!Number.isFinite(px)) return EXPLORER_PANEL_WIDTH_DEFAULT
 	return Math.min(
 		EXPLORER_PANEL_WIDTH_MAX,
@@ -114,7 +114,7 @@ export function clampExplorerPanelWidth(px: number): number {
 	)
 }
 
-export function clampHomeSidebarWidth(px: number): number {
+function clampHomeSidebarWidth(px: number): number {
 	if (!Number.isFinite(px)) return HOME_SIDEBAR_WIDTH_DEFAULT
 	return Math.min(
 		HOME_SIDEBAR_WIDTH_MAX,
@@ -122,7 +122,7 @@ export function clampHomeSidebarWidth(px: number): number {
 	)
 }
 
-export function clampAgentChatPanelWidth(px: number): number {
+function clampAgentChatPanelWidth(px: number): number {
 	if (!Number.isFinite(px)) return AGENT_CHAT_PANEL_WIDTH_DEFAULT
 	return Math.min(
 		AGENT_CHAT_PANEL_WIDTH_MAX,

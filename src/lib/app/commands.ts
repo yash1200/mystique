@@ -21,8 +21,6 @@ export const COMMAND_GROUPS = [
 	{ id: 'model', title: 'Model' },
 ] as const
 
-export type CommandGroupId = (typeof COMMAND_GROUPS)[number]['id']
-
 const FOCUS_TAB_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `Mod+${n}`)
 
 /** Outside text fields and code editors. */

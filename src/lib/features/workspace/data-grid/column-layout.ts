@@ -88,13 +88,6 @@ export function layoutColumns<T extends { name: string }>(
 	return { frozen, scroll }
 }
 
-export function withColumnOrder(
-	layout: GridColumnLayout,
-	names: readonly string[],
-): GridColumnLayout {
-	return { ...layout, order: [...names] }
-}
-
 export function moveColumn(
 	layout: GridColumnLayout,
 	names: readonly string[],

@@ -1,7 +1,7 @@
 /** Display helpers for the engine-agnostic metrics contract. */
 import type { MetricValue } from '#core/contracts'
 
-export function formatBytes(n: number): string {
+function formatBytes(n: number): string {
 	const abs = Math.abs(n)
 	if (abs < 1024) return `${Math.round(n)} B`
 	if (abs < 1024 ** 2) return `${trimNum(n / 1024)} KB`
@@ -26,7 +26,7 @@ export function formatDurationMs(ms: number): string {
 	return remHr ? `${days}d ${remHr}h` : `${days}d`
 }
 
-export function formatCount(n: number): string {
+function formatCount(n: number): string {
 	if (!Number.isFinite(n)) return '—'
 	if (Math.abs(n) >= 1_000_000) return `${trimNum(n / 1_000_000)}M`
 	if (Math.abs(n) >= 10_000) return `${trimNum(n / 1_000)}k`
@@ -34,7 +34,7 @@ export function formatCount(n: number): string {
 	return trimNum(n)
 }
 
-export function formatPercent(n: number): string {
+function formatPercent(n: number): string {
 	if (!Number.isFinite(n)) return '—'
 	const digits = Math.abs(n) >= 10 ? 1 : 2
 	return `${n.toFixed(digits)}%`

@@ -91,11 +91,6 @@ export function errorMessage(err: unknown): string {
 	return toIpcError(err).message
 }
 
-/** The error's kind, or `internal` for anything that is not an envelope. */
-export function errorKind(err: unknown): IpcErrorKind {
-	return toIpcError(err).kind
-}
-
 /** The write-guard dialog this error asks for, if any. */
 export function writeGuardPrompt(err: unknown): WriteGuardPrompt | null {
 	const prompt = toIpcError(err).prompt
@@ -116,9 +111,4 @@ export function sshHostKeyPrompt(err: unknown): SshHostKeyPrompt | null {
 export function isPasswordRequired(err: unknown): boolean {
 	const e = toIpcError(err)
 	return e.kind === 'password_required' || e.prompt?.type === 'passwordRequired'
-}
-
-/** A policy refused the request (read-only, Read mode, …). */
-export function isPolicyError(err: unknown): boolean {
-	return toIpcError(err).kind === 'policy'
 }

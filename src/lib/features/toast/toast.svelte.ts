@@ -62,7 +62,3 @@ export function showToast(
 ) {
 	appToast.show(kind, message, options)
 }
-
-export function dismissToast() {
-	appToast.dismiss()
-}

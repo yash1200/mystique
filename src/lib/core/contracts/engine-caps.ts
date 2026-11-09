@@ -15,5 +15,3 @@ export type {
 
 /** High-level data family for live ER / model views. */
 export type DataFamily = 'sql' | 'nosql' | 'redis'
-
-export type ExplorerLayout = 'schema-tree' | 'flat'

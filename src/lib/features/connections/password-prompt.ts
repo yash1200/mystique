@@ -16,7 +16,7 @@ export interface PasswordTarget {
 export type AskPassword = (target: PasswordTarget) => Promise<string | null>
 
 /** The user closed the prompt. Callers stay silent: no toast, no error UI. */
-export class ConnectCancelled extends Error {
+class ConnectCancelled extends Error {
 	constructor() {
 		super('Connect cancelled.')
 		this.name = 'ConnectCancelled'

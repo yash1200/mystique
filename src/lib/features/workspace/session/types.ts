@@ -13,7 +13,7 @@ export type TableTabPreview = {
 	offset: number
 }
 
-export function emptyTablePreview(): TableTabPreview {
+function emptyTablePreview(): TableTabPreview {
 	return { filters: [], codeFilter: null, sort: null, offset: 0 }
 }
 

@@ -83,7 +83,7 @@ function skipWs(sql: string, index: number): number {
 }
 
 /** Blank strings and comments so keyword scans keep the caller's indexes. */
-export function maskSql(sql: string, mysql: boolean): string {
+function maskSql(sql: string, mysql: boolean): string {
 	const chars = [...sql]
 	let i = 0
 	const blank = (from: number, to: number) => {

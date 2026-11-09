@@ -75,7 +75,7 @@ export type RunOutcome =
 	/** The text has placeholders: ask for values, then run with `bound`. */
 	| { kind: 'params'; text: string; origin: number; slots: ParamSlot[] }
 
-export function runCache(tabId: string): QueryRunCache | undefined {
+function runCache(tabId: string): QueryRunCache | undefined {
 	return workspaceSession.getQueryRunCache(tabId)
 }
 
@@ -347,7 +347,7 @@ export function applyPinStatus(tabId: string, status: PinStatus) {
 }
 
 /** Ask the backend for the tab's pin status. Failures keep the last one. */
-export async function refreshPin(tabId: string, enabled: boolean) {
+async function refreshPin(tabId: string, enabled: boolean) {
 	if (!enabled) return
 	try {
 		applyPinStatus(tabId, await pinnedTabStatus(tabId))

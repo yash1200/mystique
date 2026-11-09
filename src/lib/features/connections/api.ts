@@ -3,7 +3,7 @@ import { invoke } from '#core/ipc'
 import { asColorId, asEnvironment } from './model'
 
 /** Normalize a backend payload into a typed UI profile. */
-export function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
+function normalizeProfile(raw: ConnectionProfile): ConnectionProfile {
 	return {
 		...raw,
 		colorId: asColorId(String(raw.colorId ?? 'slate')),

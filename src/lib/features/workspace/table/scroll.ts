@@ -4,7 +4,7 @@ import type { VisibleColumns } from '#features/workspace/data-grid'
 type ColumnBox = { left: number; width: number; pinned: number; frozen: boolean }
 
 /** The grid's scrolling element inside its shell. */
-export function gridScroller(shell: HTMLElement | null): HTMLElement | null {
+function gridScroller(shell: HTMLElement | null): HTMLElement | null {
 	return shell?.querySelector<HTMLElement>('[data-grid-scroll]') ?? null
 }
 

@@ -1,6 +1,6 @@
 /** Undo stack for pending grid edits. A committed save is not an entry. */
 
-export const UNDO_CAP = 100
+const UNDO_CAP = 100
 
 export type GridEditSnapshot = {
 	rows: Record<string, unknown>[]

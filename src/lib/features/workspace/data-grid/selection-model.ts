@@ -133,7 +133,7 @@ export function exclusiveCell<C extends Col>(
 	}
 }
 
-export function toggleCell<C extends Col>(
+function toggleCell<C extends Col>(
 	s: GridSelectionState<C>,
 	row: number,
 	col: C,

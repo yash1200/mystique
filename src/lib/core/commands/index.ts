@@ -12,7 +12,7 @@ import { createCommandRegistry } from './registry'
 
 export * from './keys'
 export * from './registry'
-export type { Focus, Scope } from './scope'
+export type { Focus } from './scope'
 
 export const commands = createCommandRegistry({
 	mac: isMacPlatform,

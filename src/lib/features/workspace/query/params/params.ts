@@ -83,7 +83,7 @@ export function encodeParam(
 	return raw
 }
 
-export function readParamHistory(): Record<string, ParamMemory[]> {
+function readParamHistory(): Record<string, ParamMemory[]> {
 	if (typeof localStorage === 'undefined') return {}
 	try {
 		const raw = localStorage.getItem(HISTORY_KEY)

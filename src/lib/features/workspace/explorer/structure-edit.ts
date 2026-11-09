@@ -26,7 +26,7 @@ export function columnListText(columns: string[] | undefined): string {
 	return (columns ?? []).join(', ')
 }
 
-export function columnList(text: string): string[] {
+function columnList(text: string): string[] {
 	return text
 		.split(',')
 		.map((part) => part.trim())

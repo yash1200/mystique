@@ -24,7 +24,7 @@ export const OVERSCAN_MIN = 16
 /** Buffer ahead of the scroll direction, as a multiple of the visible rows. */
 export const OVERSCAN_LEAD = 2.5
 /** Buffer behind the scroll direction, as a multiple of the visible rows. */
-export const OVERSCAN_TRAIL = 1.25
+const OVERSCAN_TRAIL = 1.25
 /**
  * Keep the current window until the leading edge is this close (in
  * viewports). Normal wheel/trackpad motion then scrolls already-painted
@@ -33,9 +33,9 @@ export const OVERSCAN_TRAIL = 1.25
  */
 export const HYSTERESIS_VIEWPORTS = 1
 
-export const COL_MIN_PX = 72
+const COL_MIN_PX = 72
 /** Matches the previous `max-w-xs` cap. */
-export const COL_MAX_PX = 288
+const COL_MAX_PX = 288
 const COL_PAD_PX = 20
 const CHAR_PX = 7.25
 
@@ -228,9 +228,9 @@ export function measureColLayout(
 }
 
 /** Table-grid row gutter. Matches `w-10` (2.5rem). */
-export const GRID_INDEX_REM = 2.5
+const GRID_INDEX_REM = 2.5
 /** Table-grid data column. Matches `min-w-32` (8rem). */
-export const GRID_COL_REM = 8
+const GRID_COL_REM = 8
 
 export function gridTrackPx(rootFontPx: number): { indexW: number; colW: number } {
 	const root = rootFontPx > 0 ? rootFontPx : 16

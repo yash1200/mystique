@@ -20,7 +20,7 @@ export function cellToString(v: unknown): string {
 }
 
 /** RFC-style CSV cell escape. */
-export function csvEscape(value: string): string {
+function csvEscape(value: string): string {
 	if (/[",\r\n]/.test(value)) {
 		return `"${value.replace(/"/g, '""')}"`
 	}
@@ -101,7 +101,7 @@ function stringifyJson(data: unknown, pretty: boolean, trailingNl: boolean): str
 }
 
 /** One row object (column name → value), same cell rules as export copy. */
-export function buildJsonObject(
+function buildJsonObject(
 	columns: TableExportColumn[],
 	row: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -109,7 +109,7 @@ export function buildJsonObject(
 }
 
 /** Array of row objects (column name → value). */
-export function buildJsonObjects(
+function buildJsonObjects(
 	columns: TableExportColumn[],
 	rows: unknown[][],
 ): Record<string, unknown>[] {

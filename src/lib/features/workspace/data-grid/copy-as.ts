@@ -29,7 +29,7 @@ export function quoteIdent(style: IdentStyle, id: string): string {
 	return `"${id.replace(/"/g, '""')}"`
 }
 
-export function qualifyTable(
+function qualifyTable(
 	style: IdentStyle,
 	database: string | null | undefined,
 	schema: string | null | undefined,
@@ -44,7 +44,7 @@ export function qualifyTable(
 	return schemaName ? `${quoteIdent(style, schemaName)}.${name}` : name
 }
 
-export function sqlStringLiteral(style: IdentStyle, value: string): string {
+function sqlStringLiteral(style: IdentStyle, value: string): string {
 	if (style === 'mysql') {
 		let out = "'"
 		for (const char of value) {

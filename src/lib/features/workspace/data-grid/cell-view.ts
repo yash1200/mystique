@@ -35,7 +35,7 @@ export function looksLikeJson(raw: string): boolean {
 	}
 }
 
-export function looksLikeHtml(raw: string): boolean {
+function looksLikeHtml(raw: string): boolean {
 	const t = raw.trim()
 	if (!t.startsWith('<')) return false
 	return /<\/?[a-z][\s\S]*>/i.test(t)

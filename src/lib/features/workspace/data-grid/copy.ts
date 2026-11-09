@@ -26,7 +26,7 @@ export type SqlCopyFormat = 'insert' | 'update' | 'in' | 'where'
 export type TextCopyFormat = 'copy' | 'csv' | 'markdown' | 'json'
 export type CopyFormat = TextCopyFormat | SqlCopyFormat
 
-export const SQL_COPY_FORMATS: readonly SqlCopyFormat[] = ['insert', 'update', 'in', 'where']
+const SQL_COPY_FORMATS: readonly SqlCopyFormat[] = ['insert', 'update', 'in', 'where']
 
 export function isSqlCopyFormat(format: CopyFormat): format is SqlCopyFormat {
 	return (SQL_COPY_FORMATS as readonly string[]).includes(format)

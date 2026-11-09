@@ -11,7 +11,7 @@ export const CLONE_LARGE_REFUSED =
 export type FetchChunk = (locator: LargeCellLocator, offset: number) => Promise<LargeCellPage>
 
 /** Reads every chunk of one large value. */
-export async function fullLargeText(
+async function fullLargeText(
 	locator: LargeCellLocator,
 	fetchChunk: FetchChunk,
 ): Promise<string> {

@@ -59,7 +59,7 @@ export function headerWidth(column: WidthColumn): number {
 }
 
 /** Header and sampled values, clamped to `[COL_W_MIN, max]`. The header always fits up to its cap. */
-export function contentWidth(
+function contentWidth(
 	column: WidthColumn,
 	values: Iterable<unknown>,
 	max = COL_W_AUTO_MAX,

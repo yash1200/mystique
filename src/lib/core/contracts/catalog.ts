@@ -21,12 +21,6 @@ export type ColumnDef = {
 	ref?: ColumnReference
 }
 
-/**
- * Object tree layout *within* the selected database.
- * Database selection is always a top-level control (except single-file SQLite).
- */
-export type CatalogLayout = 'schema-tree' | 'flat'
-
 /** Object kind for iconography / labels. */
 export type CatalogObjectKind = 'table' | 'collection' | 'view'
 
@@ -61,20 +55,4 @@ export type DatabaseMeta = {
 	/** Optional size / owner label for the picker. */
 	meta?: string
 	tables: TableMeta[]
-}
-
-/** Explorer layout + copy for an engine (within one database). */
-export type CatalogPresentation = {
-	layout: CatalogLayout
-	/** Whether the engine exposes multiple server databases. */
-	multiDatabase: boolean
-	/** Label for the database control */
-	databaseLabel: string
-	/** Group node label (schema-tree only) */
-	groupLabel: string
-	/** Leaf object plural */
-	objectLabel: string
-	filterPlaceholder: string
-	/** Create-database is meaningful */
-	canCreateDatabase: boolean
 }
