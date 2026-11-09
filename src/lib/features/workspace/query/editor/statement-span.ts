@@ -1,127 +1,46 @@
 /**
- * Editor-side copy of `mystique-sql` `split.rs`.
- * Offsets are JavaScript string indexes, which match the Rust byte offsets
- * for the ASCII batches the splitter tests lock.
+ * Which text run-at-cursor sends, and where the statements are.
+ *
+ * SQL tabs split like `mystique-sql` (`splitSqlStatements`, locked by the
+ * shared fixture corpus). Mongo tabs use the shell statement model instead:
+ * newlines and brackets matter there, not `BEGIN … END`.
  */
+import {
+	splitMongoStatements,
+	splitSqlStatements,
+	sqlSplitDialectFor,
+	type SqlSplitDialect,
+	type StatementSpan,
+} from '#engines'
 
-export type SplitDialect = 'postgres' | 'mysql' | 'sqlite' | 'generic'
+export type { StatementSpan }
 
-export type StatementSpan = {
-	start: number
-	end: number
-	text: string
-}
+/** SQL dialect for the splitter and the parameter scan. */
+export type SplitDialect = SqlSplitDialect
+
+/** How a tab's text breaks into statements. */
+export type StatementModel = SqlSplitDialect | 'mongo'
 
 export function splitDialectFor(engine: string): SplitDialect {
-	const id = engine.trim().toLowerCase()
-	if (
-		id === 'postgres' ||
-		id === 'postgresql' ||
-		id === 'cockroachdb' ||
-		id === 'pg'
-	) {
-		return 'postgres'
-	}
-	if (id === 'mysql' || id === 'mariadb' || id === 'tidb') return 'mysql'
-	if (id === 'sqlite' || id === 'turso') return 'sqlite'
-	return 'generic'
+	return sqlSplitDialectFor(engine)
 }
 
-export function splitStatementSpans(
-	sql: string,
-	dialect: SplitDialect,
-): StatementSpan[] {
-	const out: StatementSpan[] = []
-	let start = 0
-	let i = 0
-	let inSingle = false
-	let inDouble = false
-	let inBacktick = false
-	let dollar: string | null = null
+/** `mql` tabs use the Mongo shell model; everything else splits as SQL. */
+export function statementModelFor(engine: string, language: string): StatementModel {
+	return language === 'mql' ? 'mongo' : sqlSplitDialectFor(engine)
+}
 
-	while (i < sql.length) {
-		const b = sql.charCodeAt(i)
-		if (dollar) {
-			if (sql.startsWith(dollar, i)) {
-				i += dollar.length
-				dollar = null
-				continue
-			}
-			i += 1
-			continue
-		}
-		if (inSingle) {
-			if (b === 39) {
-				if (sql.charCodeAt(i + 1) === 39) {
-					i += 2
-					continue
-				}
-				inSingle = false
-			}
-			i += 1
-			continue
-		}
-		if (inDouble) {
-			if (b === 34) {
-				if (sql.charCodeAt(i + 1) === 34) {
-					i += 2
-					continue
-				}
-				inDouble = false
-			}
-			i += 1
-			continue
-		}
-		if (inBacktick) {
-			if (b === 96) {
-				if (sql.charCodeAt(i + 1) === 96) {
-					i += 2
-					continue
-				}
-				inBacktick = false
-			}
-			i += 1
-			continue
-		}
-		if (b === 45 && sql.charCodeAt(i + 1) === 45) {
-			i += 2
-			while (i < sql.length && sql.charCodeAt(i) !== 10) i += 1
-			continue
-		}
-		if (b === 35 && dialect === 'mysql') {
-			while (i < sql.length && sql.charCodeAt(i) !== 10) i += 1
-			continue
-		}
-		if (b === 47 && sql.charCodeAt(i + 1) === 42) {
-			i += 2
-			while (
-				i + 1 < sql.length &&
-				!(sql.charCodeAt(i) === 42 && sql.charCodeAt(i + 1) === 47)
-			) {
-				i += 1
-			}
-			i = Math.min(i + 2, sql.length)
-			continue
-		}
-		if (b === 36) {
-			const tagEnd = dollarTagEnd(sql, i)
-			if (tagEnd != null) {
-				dollar = sql.slice(i, tagEnd)
-				i = tagEnd
-				continue
-			}
-		}
-		if (b === 39) inSingle = true
-		else if (b === 34) inDouble = true
-		else if (b === 96) inBacktick = true
-		else if (b === 59) {
-			pushSpan(out, sql, start, i)
-			start = i + 1
-		}
-		i += 1
-	}
-	pushSpan(out, sql, start, sql.length)
-	return out
+let memo: { sql: string; model: StatementModel; spans: StatementSpan[] } | null = null
+
+/**
+ * Statements in `sql`. The last result is kept: the gutter, run-at-cursor
+ * and statement navigation all ask about the same document.
+ */
+export function splitStatementSpans(sql: string, model: StatementModel): StatementSpan[] {
+	if (memo && memo.sql === sql && memo.model === model) return memo.spans
+	const spans = model === 'mongo' ? splitMongoStatements(sql) : splitSqlStatements(sql, model)
+	memo = { sql, model, spans }
+	return spans
 }
 
 export function statementAt(
@@ -139,10 +58,34 @@ export function statementAt(
 	return spans[spans.length - 1] ?? null
 }
 
+/** Index of the statement whose region holds `cursor`, or -1. */
+export function statementIndexAt(spans: StatementSpan[], cursor: number): number {
+	const hit = statementAt(spans, cursor)
+	return hit ? spans.indexOf(hit) : -1
+}
+
+/**
+ * Where statement navigation lands from `cursor`: the start of the next
+ * statement, or of the previous one. From inside a statement, "previous"
+ * first goes to that statement's own start. Null when there is nowhere to go.
+ */
+export function neighbourStatement(
+	spans: StatementSpan[],
+	cursor: number,
+	direction: 1 | -1,
+): StatementSpan | null {
+	if (direction === 1) return spans.find((span) => span.start > cursor) ?? null
+	for (let i = spans.length - 1; i >= 0; i -= 1) {
+		const span = spans[i]
+		if (span && span.start < cursor) return span
+	}
+	return null
+}
+
 /** Text ⌘Enter / ⌘⇧Enter should send. Empty selection or buffer returns null. */
 export function textToRun(
 	sql: string,
-	dialect: SplitDialect,
+	model: StatementModel,
 	head: number,
 	anchor: number,
 	all: boolean,
@@ -157,13 +100,13 @@ export function textToRun(
 		const selected = sql.slice(from, to).trim()
 		return selected || null
 	}
-	return statementAt(splitStatementSpans(sql, dialect), head)?.text ?? null
+	return statementAt(splitStatementSpans(sql, model), head)?.text ?? null
 }
 
 /** Editor index of the text [`textToRun`] returns. */
 export function submissionStart(
 	sql: string,
-	dialect: SplitDialect,
+	model: StatementModel,
 	head: number,
 	anchor: number,
 	all: boolean,
@@ -174,48 +117,5 @@ export function submissionStart(
 		const raw = sql.slice(from, Math.max(anchor, head))
 		return from + (raw.length - raw.trimStart().length)
 	}
-	return statementAt(splitStatementSpans(sql, dialect), head)?.start ?? 0
-}
-
-function pushSpan(
-	out: StatementSpan[],
-	sql: string,
-	start: number,
-	end: number,
-): void {
-	const raw = sql.slice(start, end)
-	const trimmedStart = raw.trimStart()
-	const lead = raw.length - trimmedStart.length
-	const trimmed = trimmedStart.trimEnd()
-	if (!trimmed || isCommentOnly(trimmed)) return
-	const spanStart = start + lead
-	const spanEnd = end - (trimmedStart.length - trimmed.length)
-	out.push({ start: spanStart, end: spanEnd, text: trimmed })
-}
-
-function isCommentOnly(sql: string): boolean {
-	const t = sql.trim()
-	if (!t) return true
-	if (t.startsWith('--') && !t.includes('\n')) return true
-	return (
-		t.startsWith('/*') &&
-		t.endsWith('*/') &&
-		!t.slice(2, -2).includes('*/')
-	)
-}
-
-function dollarTagEnd(sql: string, i: number): number | null {
-	let j = i + 1
-	while (j < sql.length) {
-		const c = sql.charCodeAt(j)
-		const ok =
-			(c >= 48 && c <= 57) ||
-			(c >= 65 && c <= 90) ||
-			(c >= 97 && c <= 122) ||
-			c === 95
-		if (!ok) break
-		j += 1
-	}
-	if (sql.charCodeAt(j) === 36) return j + 1
-	return null
+	return statementAt(splitStatementSpans(sql, model), head)?.start ?? 0
 }

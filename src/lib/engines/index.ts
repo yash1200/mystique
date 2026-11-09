@@ -39,6 +39,15 @@ export type { SqlCompleteConfig, SqlSnippetKind } from './sql/complete'
 // Completions live in each engine's `editor()`, so CodeMirror stays out of this index.
 export { catalogSignature } from './sql/signature'
 
+// Statement models for run-at-cursor: SQL (same rules as `mystique-sql`) and the Mongo shell.
+export {
+	splitSqlStatements,
+	sqlSplitDialectFor,
+	type SqlSplitDialect,
+	type StatementSpan,
+} from './sql/split'
+export { splitMongoStatements } from './mongodb/statements'
+
 export { sslModeFromConfig } from './ssl'
 
 export { default as EngineFields } from './ui/EngineFields.svelte'
