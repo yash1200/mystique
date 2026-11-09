@@ -202,9 +202,9 @@ fn set_touches_autocommit(set: &Set) -> bool {
     };
     match set {
         Set::SingleAssignment { variable, .. } => is_autocommit(variable),
-        Set::MultipleAssignments { assignments } => {
-            assignments.iter().any(|assignment| is_autocommit(&assignment.name))
-        }
+        Set::MultipleAssignments { assignments } => assignments
+            .iter()
+            .any(|assignment| is_autocommit(&assignment.name)),
         _ => false,
     }
 }
