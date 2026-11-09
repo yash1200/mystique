@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 mystique-core = { path = "../crates/mystique-core" }
 mystique-mcp = { path = "../crates/mystique-mcp" }
 mystique-agent = { path = "../crates/mystique-agent" }
+mystique-acp = { path = "../crates/mystique-acp" }
 tauri = { version = "2.12.5", features = ["image-png"] }
 tauri-plugin-opener = "2.7.2"
 serde = { version = "1", features = ["derive"] }

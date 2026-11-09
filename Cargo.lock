@@ -6368,6 +6368,7 @@ version = "0.1.0"
 dependencies = [
  "futures-executor",
  "futures-util",
+ "mystique-acp",
  "mystique-agent",
  "mystique-core",
  "mystique-mcp",
@@ -6468,6 +6469,7 @@ dependencies = [
 name = "mystique-ipc-gen"
 version = "0.1.0"
 dependencies = [
+ "mystique-acp",
  "mystique-agent",
  "mystique-core",
  "mystique-mcp",

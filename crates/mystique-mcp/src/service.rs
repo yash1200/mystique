@@ -142,6 +142,24 @@ impl McpService {
         clients::install(&Host::current(), id, &endpoint)
     }
 
+    /// The live server's URL and token, for an in-app client (the external
+    /// ACP agent). `None` while the server is stopped. May load the token
+    /// from the vault (with keychain UI: the user just pressed Send).
+    pub async fn running_endpoint(&self) -> AppResult<Option<McpEndpoint>> {
+        let live = self.controller.status(self.enabled_setting()).await;
+        if !live.running {
+            return Ok(None);
+        }
+        let Some(url) = live.url else {
+            return Ok(None);
+        };
+        let token = match live.token {
+            Some(token) => token,
+            None => self.token(Prompt::Allowed).await?,
+        };
+        Ok(Some(McpEndpoint { url, token }))
+    }
+
     async fn endpoint(&self) -> AppResult<McpEndpoint> {
         let live = self.controller.status(self.enabled_setting()).await;
         let token = match live.token {

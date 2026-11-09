@@ -16,6 +16,7 @@ mod menu;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use mystique_acp::AcpService;
 use mystique_agent::AgentService;
 use mystique_core::{AppDatabase, AppServices};
 use mystique_mcp::McpService;
@@ -42,6 +43,8 @@ pub struct AppState {
     pub services: Arc<AppServices>,
     pub mcp: McpService,
     pub agent: AgentService,
+    /// The external (ACP) agent: settings, Test, turns, its processes.
+    pub acp: AcpService,
     /// App log directory, for the diagnostics bundle. `None` if the OS gave none.
     pub log_dir: Option<std::path::PathBuf>,
     /// Set once the user chose to quit with transfers still running.
@@ -156,6 +159,8 @@ pub fn run() {
                 Arc::clone(&services),
                 data_dir.join("ai_secrets.json"),
             );
+            // External ACP agent: runs in an empty folder under app data.
+            let acp = AcpService::new(Arc::clone(&services), &data_dir);
             let boot = mcp.clone();
             tauri::async_runtime::spawn(async move {
                 boot.restore_if_enabled().await;
@@ -165,6 +170,7 @@ pub fn run() {
                 services,
                 mcp,
                 agent,
+                acp,
                 log_dir,
                 quit_confirmed: AtomicBool::new(false),
                 quit_held_at: std::sync::Mutex::new(None),
@@ -274,6 +280,10 @@ pub fn run() {
             ipc::agent::update_agent_chat,
             ipc::agent::send_agent_message,
             ipc::agent::cancel_agent_message,
+            // external (ACP) agent in the same pane
+            ipc::agent::get_acp_settings,
+            ipc::agent::save_acp_settings,
+            ipc::agent::test_acp_agent,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
@@ -289,6 +299,13 @@ pub fn run() {
                 let Some(state) = app.try_state::<AppState>() else {
                     return;
                 };
+                // No external agent outlives the app: stop the runs, then
+                // kill their process groups (async cleanup may not run now).
+                state.agent.runtime().cancel_all();
+                let killed = state.acp.kill_all();
+                if killed > 0 {
+                    tracing::info!(killed, "stopped external agents");
+                }
                 let services = std::sync::Arc::clone(&state.services);
                 services.forget_session_passwords();
                 tauri::async_runtime::block_on(async move {

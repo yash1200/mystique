@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use mystique_acp::{AcpProbe, AcpSettingsView, McpAccess, SaveAcpSettings, ACP_PROVIDER};
 use mystique_agent::{
-    parse_provider, provider_catalog, AgentEvent, AgentEventSink, AgentModelInfo, AiSettingsView,
-    SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED,
-    SETTING_OLLAMA_URL,
+    parse_provider, provider_catalog, AgentEvent, AgentEventSink, AgentModelInfo, AgentRuntime,
+    AiSettingsView, SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL,
+    SETTING_AI_ENABLED, SETTING_OLLAMA_URL,
 };
-use mystique_core::{AgentChat, AgentMessage, AppServices, UpdateAgentChatInput};
+use mystique_core::{AgentChat, AgentMessage, AppError, AppServices, UpdateAgentChatInput};
 use tauri::ipc::Channel;
 use tauri::State;
 
@@ -175,6 +176,8 @@ pub async fn update_agent_chat(
 
 /// Start a turn. Returns the chat and the saved user message at once; the
 /// reply streams on `on_event` (batched deltas, tool calls, `done`/`error`).
+/// `provider: "acp"` runs the external agent from Settings → AI instead of
+/// the built-in one; the events and Stop are the same.
 #[tauri::command]
 pub async fn send_agent_message(
     state: State<'_, AppState>,
@@ -187,6 +190,9 @@ pub async fn send_agent_message(
     let sink: AgentEventSink = Arc::new(move |event| {
         let _ = on_event.send(event);
     });
+    if request.provider.trim() == ACP_PROVIDER {
+        return send_external(&state, runtime, request, sink).await;
+    }
     // SQLite writes happen before the run starts; keep them off the worker.
     super::guard_blocking(move || {
         runtime
@@ -194,6 +200,70 @@ pub async fn send_agent_message(
             .map_err(IpcError::from)
     })
     .await
+}
+
+/// An external-agent turn. The agent reaches the databases through the
+/// running MCP server, with its token.
+async fn send_external(
+    state: &State<'_, AppState>,
+    runtime: AgentRuntime,
+    request: SendAgentMessage,
+    sink: AgentEventSink,
+) -> Result<SendAgentResult, IpcError> {
+    let acp = state.acp.clone();
+    let mcp = state.mcp.clone();
+    super::guard(async move {
+        let active = {
+            let acp = acp.clone();
+            super::guard_blocking(move || Ok(acp.active())).await?
+        };
+        if !active {
+            return Err(IpcError::from(AppError::Invalid(
+                "The external agent is off. Pick it under Agent in Settings → AI.".into(),
+            )));
+        }
+        let access = match mcp.running_endpoint().await.map_err(IpcError::from)? {
+            Some(endpoint) => McpAccess {
+                url: endpoint.url,
+                token: endpoint.token,
+            },
+            None => McpAccess {
+                url: String::new(),
+                token: String::new(),
+            },
+        };
+        super::guard_blocking(move || {
+            acp.send(&runtime, access, request, sink)
+                .map_err(IpcError::from)
+        })
+        .await
+    })
+    .await
+}
+
+/// Settings → AI → Agent: built-in or external (ACP).
+#[tauri::command]
+pub async fn get_acp_settings(state: State<'_, AppState>) -> Result<AcpSettingsView, IpcError> {
+    let acp = state.acp.clone();
+    super::guard_blocking(move || Ok(acp.settings())).await
+}
+
+/// Save the agent choice, command, arguments and environment. Secret-looking
+/// values go to the vault.
+#[tauri::command]
+pub async fn save_acp_settings(
+    state: State<'_, AppState>,
+    input: SaveAcpSettings,
+) -> Result<AcpSettingsView, IpcError> {
+    let acp = state.acp.clone();
+    super::guard_blocking(move || acp.save_settings(input).map_err(IpcError::from)).await
+}
+
+/// Test button: start the saved agent, run `initialize`, stop it.
+#[tauri::command]
+pub async fn test_acp_agent(state: State<'_, AppState>) -> Result<AcpProbe, IpcError> {
+    let acp = state.acp.clone();
+    super::guard(async move { acp.probe().await.map_err(IpcError::from) }).await
 }
 
 /// Stop the chat's live turn (Stop button). The provider request and any

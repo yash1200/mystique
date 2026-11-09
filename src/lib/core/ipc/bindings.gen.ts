@@ -3,6 +3,55 @@
 /* eslint-disable */
 
 /**
+ * One environment variable to save. An empty value of a secret that is
+ * already saved keeps the saved one.
+ */
+export type AcpEnvInput = { name: string, value?: string | null, };
+
+/**
+ * One environment variable, as the window sees it.
+ */
+export type AcpEnvVar = { name: string, 
+/**
+ * Plain values only. A secret's value never leaves the vault.
+ */
+value?: string | null, secret: boolean, 
+/**
+ * A secret is saved in the vault.
+ */
+saved: boolean, };
+
+/**
+ * What the Test button shows.
+ */
+export type AcpProbe = { name: string, title?: string | null, version: string, protocolVersion: number, 
+/**
+ * Can reach Mystique's MCP server (HTTP transport).
+ */
+mcpHttp: boolean, loadSession: boolean, 
+/**
+ * Sign-in methods the agent offers (Mystique does not run them).
+ */
+authMethods: Array<string>, 
+/**
+ * Why a turn would fail, if it would.
+ */
+problem?: string | null, };
+
+/**
+ * Settings → AI → Agent.
+ */
+export type AcpSettingsView = { 
+/**
+ * `builtin` or `acp`.
+ */
+kind: string, command: string, args: Array<string>, env: Array<AcpEnvVar>, 
+/**
+ * What the pane header calls the external agent.
+ */
+agentLabel: string, };
+
+/**
  * One live backend session / connection / operation.
  */
 export type ActiveBackendSession = { 
@@ -970,6 +1019,8 @@ activeTabId?: string | null, };
  * sends only the id it got back from the save.
  */
 export type RollbackTableEditsRequest = { sessionId: string, saveId: string, confirmObjectName?: string | null, };
+
+export type SaveAcpSettings = { kind: string, command: string, args: Array<string>, env: Array<AcpEnvInput>, };
 
 export type SaveConnectionInput = { id?: string | null, name: string, engine: string, colorId: string, environment: string, readOnly: boolean, notes?: string | null, pluginConfig: Record<string, unknown>, 
 /**

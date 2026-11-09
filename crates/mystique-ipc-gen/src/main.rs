@@ -69,6 +69,7 @@ macro_rules! roots {
 /// Arguments and results of every command in `src-tauri/src/lib.rs`, plus
 /// the error envelope and the batch progress event.
 fn roots(c: &mut Collect) {
+    use mystique_acp as acp;
     use mystique_agent as agent;
     use mystique_core as core;
     use mystique_mcp as mcp;
@@ -166,6 +167,10 @@ fn roots(c: &mut Collect) {
         agent::SendAgentMessage,
         agent::SendAgentResult,
         agent::AgentEvent,
+        // External (ACP) agent.
+        acp::AcpSettingsView,
+        acp::SaveAcpSettings,
+        acp::AcpProbe,
         // MCP.
         mcp::McpStatus,
         mcp::McpHarness,

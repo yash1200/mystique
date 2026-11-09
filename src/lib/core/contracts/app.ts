@@ -1,8 +1,13 @@
 /**
  * App-database rows, settings, agent and MCP DTOs, generated from
- * `mystique-core`, `mystique-agent` and `mystique-mcp` (`pnpm gen:ipc`).
+ * `mystique-core`, `mystique-agent`, `mystique-acp` and `mystique-mcp`
+ * (`pnpm gen:ipc`).
  */
 export type {
+	AcpEnvInput,
+	AcpEnvVar,
+	AcpProbe,
+	AcpSettingsView,
 	AgentChat,
 	AgentErrorKind,
 	AgentEvent,
@@ -26,6 +31,7 @@ export type {
 	QueryHistoryPage,
 	QueryHistorySource,
 	ReplaceWorkspaceTabsInput,
+	SaveAcpSettings,
 	SaveQueryInput,
 	SaveWorkspaceTabInput,
 	SavedQuery,

@@ -17,6 +17,7 @@ required-features = ["ts"]
 mystique-core = { path = "../mystique-core" }
 mystique-mcp = { path = "../mystique-mcp" }
 mystique-agent = { path = "../mystique-agent" }
+mystique-acp = { path = "../mystique-acp" }
 ts-rs = { version = "12", optional = true, default-features = false, features = ["serde-compat", "serde-json-impl"] }
 
 [features]
@@ -25,4 +26,5 @@ ts = [
     "mystique-core/ts",
     "mystique-mcp/ts",
     "mystique-agent/ts",
+    "mystique-acp/ts",
 ]
