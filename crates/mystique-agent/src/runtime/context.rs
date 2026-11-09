@@ -205,6 +205,29 @@ pub(crate) fn history_from(prior: &[AgentMessage]) -> Vec<Message> {
     out
 }
 
+/// Earlier turns as one block of text, for an agent that starts each turn
+/// without memory (an external ACP agent). Oldest lines go first when the
+/// block is over `budget` characters.
+pub(crate) fn transcript_from(prior: &[AgentMessage], budget: usize) -> String {
+    let start = prior.len().saturating_sub(PRIOR_MESSAGES);
+    let mut lines: Vec<String> = Vec::new();
+    for msg in prior.get(start..).unwrap_or(&[]) {
+        match msg.role.as_str() {
+            "user" => lines.push(format!("User: {}", msg.content.trim())),
+            "assistant" => lines.push(format!("Assistant: {}", msg.content.trim())),
+            "tool" => lines.push(format!("Assistant used a tool {}", prior_tool_line(msg))),
+            _ => {}
+        }
+    }
+    let mut total: usize = lines.iter().map(|l| l.chars().count() + 1).sum();
+    let mut first = 0;
+    while total > budget && first < lines.len() {
+        total -= lines.get(first).map_or(0, |l| l.chars().count() + 1);
+        first += 1;
+    }
+    lines.get(first..).unwrap_or(&[]).join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

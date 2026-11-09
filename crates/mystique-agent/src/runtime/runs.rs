@@ -89,6 +89,55 @@ impl RunRegistry {
             .map(|live| live.contains_key(chat_id))
             .unwrap_or(false)
     }
+
+    /// Stop every live run (app quit). Returns how many were live.
+    pub(crate) fn cancel_all(&self) -> usize {
+        let tokens: Vec<CancellationToken> = self
+            .live
+            .lock()
+            .map(|live| live.values().map(|r| r.token.clone()).collect())
+            .unwrap_or_default();
+        for token in &tokens {
+            token.cancel();
+        }
+        tokens.len()
+    }
+}
+
+/// A claimed chat: its run is live until this is dropped. Stop and the app
+/// quit cancel [`RunClaim::token`]; the run must end when it fires.
+pub struct RunClaim {
+    registry: Arc<RunRegistry>,
+    chat_id: String,
+    run: u64,
+    token: CancellationToken,
+}
+
+impl RunClaim {
+    /// Claim the chat. `None` while another run of it is live.
+    pub(crate) fn begin(registry: &Arc<RunRegistry>, chat_id: &str) -> Option<Self> {
+        let (run, token) = registry.begin(chat_id)?;
+        Some(Self {
+            registry: Arc::clone(registry),
+            chat_id: chat_id.to_string(),
+            run,
+            token,
+        })
+    }
+
+    pub fn token(&self) -> &CancellationToken {
+        &self.token
+    }
+
+    pub fn chat_id(&self) -> &str {
+        &self.chat_id
+    }
+}
+
+impl Drop for RunClaim {
+    fn drop(&mut self) {
+        self.registry.finish(&self.chat_id, self.run);
+    }
 }
 
 pub(crate) enum Supervised<T> {

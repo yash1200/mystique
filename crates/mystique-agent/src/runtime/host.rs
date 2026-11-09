@@ -61,13 +61,37 @@ pub(crate) trait RunHost: Send + Sync {
     fn pending_approvals(&self) -> Vec<ToolApprovalRequest>;
 }
 
-pub(crate) struct AppHost {
+/// Where one chat's run saves its rows, and which dock requests are its own.
+///
+/// The built-in agent calls tools as [`ToolCaller::Agent`]. An external
+/// (ACP) agent reaches them through the MCP server, so its dock requests
+/// carry [`ToolCaller::Mcp`].
+#[derive(Clone)]
+pub struct ChatHost {
     pub app: Arc<AppServices>,
     pub chat_id: String,
     pub connection_id: String,
+    pub caller: ToolCaller,
 }
 
-impl RunHost for AppHost {
+impl ChatHost {
+    /// Save a tool card. Returns its message id.
+    pub fn save_tool(&self, name: &str, content: &str) -> Option<String> {
+        RunHost::save_tool(self, name, content)
+    }
+
+    /// Save the assistant reply (with its draft). Returns its message id.
+    pub fn save_reply(&self, content: &str) -> Result<String, String> {
+        RunHost::save_reply(self, content)
+    }
+
+    /// Approval requests this caller has waiting on the run's connection.
+    pub fn pending_approvals(&self) -> Vec<ToolApprovalRequest> {
+        RunHost::pending_approvals(self)
+    }
+}
+
+impl RunHost for ChatHost {
     fn save_tool(&self, name: &str, content: &str) -> Option<String> {
         match self
             .app
@@ -106,9 +130,7 @@ impl RunHost for AppHost {
             .tool_approvals()
             .pending()
             .into_iter()
-            .filter(|r| {
-                r.caller == ToolCaller::Agent.as_str() && r.connection_id == self.connection_id
-            })
+            .filter(|r| r.caller == self.caller.as_str() && r.connection_id == self.connection_id)
             .collect()
     }
 }

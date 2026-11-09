@@ -14,17 +14,17 @@ use tokio::task::JoinHandle;
 use super::events::AgentEvent;
 
 /// How often buffered deltas cross IPC (the window asks for 50–100 ms).
-pub(crate) const DELTA_FLUSH: Duration = Duration::from_millis(75);
+pub const DELTA_FLUSH: Duration = Duration::from_millis(75);
 
 /// Where finished events go: a Tauri channel in the app, a Vec in tests.
 pub type AgentEventSink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
 
 /// The run's side of the queue. Cheap to clone; sends never block.
 #[derive(Clone)]
-pub(crate) struct EventTx(mpsc::UnboundedSender<AgentEvent>);
+pub struct EventTx(mpsc::UnboundedSender<AgentEvent>);
 
 impl EventTx {
-    pub(crate) fn send(&self, event: AgentEvent) {
+    pub fn send(&self, event: AgentEvent) {
         // The forwarder only stops after every sender is gone.
         let _ = self.0.send(event);
     }

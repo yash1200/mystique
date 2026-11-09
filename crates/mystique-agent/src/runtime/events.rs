@@ -143,7 +143,7 @@ impl AgentEvent {
 }
 
 /// Tool arguments as they may appear in a trace, a log line, or a tool card.
-pub(crate) fn redact_args(args: &JsonValue) -> JsonValue {
+pub fn redact_args(args: &JsonValue) -> JsonValue {
     match redact_json(args) {
         JsonValue::Object(mut map) => {
             for value in map.values_mut() {
@@ -157,7 +157,7 @@ pub(crate) fn redact_args(args: &JsonValue) -> JsonValue {
     }
 }
 
-pub(crate) fn redact_text(text: &str) -> String {
+pub fn redact_text(text: &str) -> String {
     redact_sql_passwords(&redact_secrets(text))
 }
 

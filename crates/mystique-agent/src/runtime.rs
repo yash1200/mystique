@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use mystique_core::{
     AgentChat, AgentMessage, AppError, AppResult, AppServices, AppendAgentMessageInput,
-    CreateAgentChatInput,
+    CreateAgentChatInput, ToolCaller,
 };
 use rig::completion::Message;
 use serde::{Deserialize, Serialize};
@@ -28,10 +28,11 @@ pub use self::events::{AgentErrorKind, AgentEvent, AgentTokens};
 pub use self::stream::AgentEventSink;
 
 use self::context::history_from;
-use self::host::AppHost;
+pub use self::host::ChatHost;
 use self::model::turn_model;
 use self::ollama::list_ollama_models;
 use self::prompt::{repair_prompt, workspace_context, ErrorAt, Repair, TASK_CONTRACT};
+pub use self::runs::RunClaim;
 use self::runs::{execute_run, RunRegistry, RunSpec, RUN_TIME_LIMIT};
 use self::turns::LoopConfig;
 
@@ -163,19 +164,7 @@ impl AgentRuntime {
         req: SendAgentMessage,
         sink: AgentEventSink,
     ) -> AppResult<SendAgentResult> {
-        if !Self::enabled(&app) {
-            return Err(AppError::Invalid(
-                "AI agent is off. Enable it in Settings.".into(),
-            ));
-        }
-        let typed = req.text.trim().to_string();
-        let text = match &req.fix {
-            Some(fix) => fix_prompt(&typed, fix),
-            None => typed.clone(),
-        };
-        if text.is_empty() {
-            return Err(AppError::Invalid("message is required".into()));
-        }
+        Self::turn_text(&app, &req)?;
         let provider = parse_provider(&req.provider)?;
         require_configured(&app, secrets, provider)?;
         let model = req.model.trim();
@@ -203,55 +192,13 @@ impl AgentRuntime {
         let streaming = turn_model(provider, &model, secrets, &Self::ollama_url(&app))
             .map_err(AppError::Invalid)?;
 
-        let busy = || AppError::Invalid("This chat is still answering. Stop it or wait.".into());
-        let chat = match req
-            .chat_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            Some(id) => {
-                let existing = app.agent_chats().get(id)?;
-                if existing.connection_id != req.connection_id {
-                    return Err(AppError::Invalid(
-                        "chat does not belong to this connection".into(),
-                    ));
-                }
-                if self.runs.is_live(id) {
-                    return Err(busy());
-                }
-                app.agent_chats()
-                    .update_meta(id, None, Some(provider.as_str()), Some(&model))?
-            }
-            None => app.agent_chats().create(CreateAgentChatInput {
-                connection_id: req.connection_id.clone(),
-                title: Some(title_from(if typed.is_empty() { &text } else { &typed })),
-                provider: provider.as_str().into(),
-                model: model.clone(),
-            })?,
-        };
-        let Some((run, token)) = self.runs.begin(&chat.id) else {
-            return Err(busy());
-        };
-
-        let started = (|| -> AppResult<(Vec<AgentMessage>, AgentMessage)> {
-            let prior = app.agent_chats().list_messages(&chat.id)?;
-            let user = app.agent_chats().append_message(AppendAgentMessageInput {
-                chat_id: chat.id.clone(),
-                role: "user".into(),
-                content: text.clone(),
-                tool_name: None,
-                draft_body: None,
-            })?;
-            Ok((prior, user))
-        })();
-        let (prior, user) = match started {
-            Ok(rows) => rows,
-            Err(err) => {
-                self.runs.finish(&chat.id, run);
-                return Err(err);
-            }
-        };
+        let TurnStart {
+            chat,
+            user,
+            prior,
+            text,
+            claim,
+        } = self.open_turn(&app, &req, provider.as_str(), &model)?;
 
         // Never preload the whole schema here: that is several DB round
         // trips per send. `@table` references are looked up inside the run.
@@ -274,21 +221,118 @@ impl AgentRuntime {
             req.connection_id.clone(),
             database,
         ));
-        let host = Arc::new(AppHost {
+        let host = Arc::new(ChatHost {
             app: Arc::clone(&app),
             chat_id: chat.id.clone(),
             connection_id: req.connection_id.clone(),
+            caller: ToolCaller::Agent,
         });
-        let runs = Arc::clone(&self.runs);
-        let chat_id = chat.id.clone();
+        let token = claim.token().clone();
         tokio::spawn(async move {
             execute_run(streaming, tools, host, spec, token, sink).await;
-            runs.finish(&chat_id, run);
+            drop(claim);
         });
 
-        let chat = app.agent_chats().get(&chat.id).unwrap_or(chat);
         Ok(SendAgentResult { chat, user })
     }
+
+    /// Stop every live run, built-in or external (app quit). Returns how
+    /// many were live.
+    pub fn cancel_all(&self) -> usize {
+        self.runs.cancel_all()
+    }
+
+    /// The text this turn sends: the user's words, or the repair prompt for
+    /// "Fix with AI". Fails while the agent is off or the message is empty.
+    fn turn_text(app: &AppServices, req: &SendAgentMessage) -> AppResult<(String, String)> {
+        if !Self::enabled(app) {
+            return Err(AppError::Invalid(
+                "AI agent is off. Enable it in Settings.".into(),
+            ));
+        }
+        let typed = req.text.trim().to_string();
+        let text = match &req.fix {
+            Some(fix) => fix_prompt(&typed, fix),
+            None => typed.clone(),
+        };
+        if text.is_empty() {
+            return Err(AppError::Invalid("message is required".into()));
+        }
+        Ok((typed, text))
+    }
+
+    /// Open a turn on the chat (new or existing): claim it, read the earlier
+    /// messages, save the user message. `provider` and `model` tag the chat
+    /// (`acp` and the agent's name for an external agent). The run is live
+    /// until the returned claim is dropped.
+    pub fn open_turn(
+        &self,
+        app: &AppServices,
+        req: &SendAgentMessage,
+        provider: &str,
+        model: &str,
+    ) -> AppResult<TurnStart> {
+        let (typed, text) = Self::turn_text(app, req)?;
+        let busy = || AppError::Invalid("This chat is still answering. Stop it or wait.".into());
+        let chat = match req
+            .chat_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(id) => {
+                let existing = app.agent_chats().get(id)?;
+                if existing.connection_id != req.connection_id {
+                    return Err(AppError::Invalid(
+                        "chat does not belong to this connection".into(),
+                    ));
+                }
+                if self.runs.is_live(id) {
+                    return Err(busy());
+                }
+                app.agent_chats()
+                    .update_meta(id, None, Some(provider), Some(model))?
+            }
+            None => app.agent_chats().create(CreateAgentChatInput {
+                connection_id: req.connection_id.clone(),
+                title: Some(title_from(if typed.is_empty() { &text } else { &typed })),
+                provider: provider.into(),
+                model: model.into(),
+            })?,
+        };
+        let Some(claim) = RunClaim::begin(&self.runs, &chat.id) else {
+            return Err(busy());
+        };
+        // On an error below the claim drops and the chat is free again.
+        let prior = app.agent_chats().list_messages(&chat.id)?;
+        let user = app.agent_chats().append_message(AppendAgentMessageInput {
+            chat_id: chat.id.clone(),
+            role: "user".into(),
+            content: text.clone(),
+            tool_name: None,
+            draft_body: None,
+        })?;
+        let chat = app.agent_chats().get(&chat.id).unwrap_or(chat);
+        Ok(TurnStart {
+            chat,
+            user,
+            prior,
+            text,
+            claim,
+        })
+    }
+}
+
+/// A turn opened by [`AgentRuntime::open_turn`].
+pub struct TurnStart {
+    pub chat: AgentChat,
+    pub user: AgentMessage,
+    /// The chat's messages before this turn.
+    pub prior: Vec<AgentMessage>,
+    /// What was saved as the user message (with the repair prompt for a fix).
+    pub text: String,
+    /// The chat's run is live until this drops.
+    pub claim: RunClaim,
 }
 
 /// The user's words, then the repair prompt for the failed editor query.
