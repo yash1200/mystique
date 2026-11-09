@@ -56,7 +56,8 @@ src/
       workspace/
         session/            Kernel: sessions, tabs, drafts, write guard (no UI)
         shell/              Composition: panes, sessions rail, tabs, modals
-        catalog/ explorer/ grid/ query/ er/ metrics/ agent/
+        data-grid/ table/ query/ structure/ transfer/
+        catalog/ explorer/ er/ metrics/ agent/ quick-open/
     app/                    Theme / density prefs
     styles/                 tokens.css
 docs/                       Design language, backend, schema

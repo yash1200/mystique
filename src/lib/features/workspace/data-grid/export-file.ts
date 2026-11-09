@@ -1,34 +1,19 @@
 /**
- * Serialize result rows as CSV / TSV / JSON / Markdown / Excel.
+ * Save result rows to a file as CSV / JSON / Excel, named after the query.
  * File dialogs and byte writing live in `#core/util/files.js`.
  */
-import type { TableFileFormat } from '#core/contracts'
-import {
-	buildCsv,
-	buildJson,
-	cellToString,
-	type TableExportColumn,
-} from '#features/workspace/data-grid'
 import {
 	safeFileBase,
 	saveBytesWithPrompt,
 	shortStamp,
 	type SaveResult,
 } from '#core/util/files.js'
-export type { SaveResult, TableFileFormat }
-
-export type { TableExportColumn }
-export {
+import {
 	buildCsv,
 	buildJson,
-	buildJsonObject,
-	buildJsonObjects,
-	buildMarkdown,
-	buildRowJson,
-	buildTsv,
-	csvEscape,
-	objectsToRows,
-} from '#features/workspace/data-grid'
+	cellToString,
+	type TableExportColumn,
+} from './text-formats'
 
 function stripSqlNoise(sql: string): string {
 	return sql

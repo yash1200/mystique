@@ -7,7 +7,7 @@ import {
 	refreshCurrentTables,
 } from '#features/workspace/catalog'
 import { openModelDiagram } from '#features/workspace/er'
-import { tablePreview } from '#features/workspace/grid'
+import { tablePreview } from '#features/workspace/table'
 import { openSqlInEditor } from '#features/workspace/query'
 import {
 	askWriteGuard,

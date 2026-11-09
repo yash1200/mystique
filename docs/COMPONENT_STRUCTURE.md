@@ -39,9 +39,8 @@ src/
     │       ├── catalog/          # live catalog per connection, labels, icons
     │       ├── explorer/         # object tree, structure panel
     │       ├── structure/        # structure tab loading, per-connection cache
-    │       ├── data-grid/        # shared grid core: selection, keys, copy, windowing, GridTable
+    │       ├── data-grid/        # shared grid core: selection, keys, copy, file export, windowing, GridTable
     │       ├── table/            # table tab: editable grid, filters, paging, saves, row inspector
-    │       ├── grid/             # row serialization for export (aliases until callers move)
     │       ├── transfer/         # table import / export dialogs and runs
     │       ├── query/            # editor/, run/, results/, explain/, params/, saved/, history/
     │       ├── er/               # canvas, layout, DBML, PNG export

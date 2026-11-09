@@ -10,7 +10,7 @@ import {
 	exportRowsAsCsv,
 	exportRowsAsExcel,
 	exportRowsAsJson,
-} from '#features/workspace/grid'
+} from '#features/workspace/data-grid'
 import type { ResultExportAction } from './QueryResultsPanel.svelte'
 
 const DONE: Record<ResultExportAction, string> = {

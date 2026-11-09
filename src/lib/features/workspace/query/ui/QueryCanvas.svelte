@@ -15,7 +15,7 @@
 	import { Resizable } from '#core/ui'
 	import { connectionProfiles } from '#features/connections'
 	import { catalogColumnsCache } from '#features/workspace/catalog'
-	import { identStyleFor } from '#features/workspace/grid'
+	import { identStyleFor } from '#features/workspace/data-grid'
 	import { tabTxnView, workspaceSession } from '#features/workspace/session'
 	import { appPrefs, cmd, resolveQueryTimeoutMs } from '#lib/app'
 	import { onMount, untrack } from 'svelte'

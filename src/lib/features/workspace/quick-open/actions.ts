@@ -1,6 +1,6 @@
 import { commands } from '#core/commands'
 import { catalogStore } from '#features/workspace/catalog'
-import { tablePreview } from '#features/workspace/grid'
+import { tablePreview } from '#features/workspace/table'
 import {
 	findCatalogTable,
 	workspaceSession,

@@ -71,7 +71,6 @@
 		"#features/workspace/data-grid": "./src/lib/features/workspace/data-grid/index.js",
 		"#features/workspace/er": "./src/lib/features/workspace/er/index.js",
 		"#features/workspace/explorer": "./src/lib/features/workspace/explorer/index.js",
-		"#features/workspace/grid": "./src/lib/features/workspace/grid/index.js",
 		"#features/workspace/metrics": "./src/lib/features/workspace/metrics/index.js",
 		"#features/workspace/query": "./src/lib/features/workspace/query/index.js",
 		"#features/workspace/quick-open": "./src/lib/features/workspace/quick-open/index.js",
