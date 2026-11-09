@@ -403,6 +403,15 @@ class WorkspaceSessionStore {
 		)
 	}
 
+	/** A saved profile changed (e.g. a database mark); the open session follows. */
+	updateProfile(row: ConnectionProfile) {
+		const i = this.sessions.findIndex((s) => s.profile.id === row.id)
+		if (i < 0) return
+		this.sessions = this.sessions.map((s, idx) =>
+			idx === i ? { ...s, profile: { ...row, status: s.profile.status } } : s,
+		)
+	}
+
 	setActiveConnection(id: string) {
 		if (!this.sessions.some((s) => s.profile.id === id)) return
 		if (this.selectedRow && this.selectedRow.connectionId !== id) {

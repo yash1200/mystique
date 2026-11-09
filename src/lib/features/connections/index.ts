@@ -5,6 +5,15 @@
  * directly and the kernel can import this index without a cycle.
  */
 export * from './api'
+export {
+	databaseEnvironment,
+	databaseMark,
+	hasProduction,
+	isProductionDatabase,
+	markAction,
+	productionLabel,
+	worstEnvironment,
+} from './environments'
 export { connectionFacts, connectionUrlPreview, copyConnectionUrl, environmentLabel } from './facts'
 export {
 	colorHex,
@@ -26,5 +35,6 @@ export { default as BrandMark } from './ui/BrandMark.svelte'
 export { default as ConnectionFactGrid } from './ui/ConnectionFactGrid.svelte'
 export { default as EngineBadge } from './ui/EngineBadge.svelte'
 export { default as PasswordPromptModal } from './ui/PasswordPromptModal.svelte'
+export { default as ProductionMark } from './ui/ProductionMark.svelte'
 export { sshHostKeys } from './ssh-host-key.svelte'
 export { default as SshHostKeyModal } from './ui/SshHostKeyModal.svelte'

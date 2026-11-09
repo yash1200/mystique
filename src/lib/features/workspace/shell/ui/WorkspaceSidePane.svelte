@@ -40,6 +40,8 @@
 	import { resolveCapabilities } from '#engines'
 	import {
 		liveStatusMark,
+		markDatabase,
+		timedUnlocks,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
@@ -172,8 +174,14 @@
 					onopen={(table) => void tablePreview.open(table)}
 					ontableaction={(action, table, extra) =>
 						void onTableExplorerAction(action, table, extra)}
-					readOnly={!!activeSession.profile.readOnly}
+					readOnly={timedUnlocks.readOnly(
+						activeSession.profile.readOnly,
+						activeSession.engineSessionId,
+					)}
 					capabilities={activeSession.capabilities}
+					profile={activeSession.profile}
+					onmarkdatabase={(database, environment) =>
+						void markDatabase(activeSession.profile.id, database, environment)}
 				/>
 			{:else if activeSession}
 				<aside

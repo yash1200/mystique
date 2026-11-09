@@ -23,6 +23,8 @@ import grid from './grid.svg?raw'
 import help from './help.svg?raw'
 import history from './history.svg?raw'
 import info from './info.svg?raw'
+import lockOpen from './lock-open.svg?raw'
+import lock from './lock.svg?raw'
 import metrics from './metrics.svg?raw'
 import model from './model.svg?raw'
 import plus from './plus.svg?raw'
@@ -33,6 +35,7 @@ import schema from './schema.svg?raw'
 import search from './search.svg?raw'
 import send from './send.svg?raw'
 import settings from './settings.svg?raw'
+import shield from './shield.svg?raw'
 import sortAsc from './sort-asc.svg?raw'
 import sortDesc from './sort-desc.svg?raw'
 import sortNone from './sort-none.svg?raw'
@@ -93,6 +96,9 @@ const files = {
 	structure,
 	schema,
 	database,
+	shield,
+	lock,
+	'lock-open': lockOpen,
 } as const
 
 export type IconName = keyof typeof files

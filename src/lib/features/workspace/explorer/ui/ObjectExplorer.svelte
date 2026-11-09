@@ -1,9 +1,16 @@
 <script lang="ts">
 	import type {
+		ConnectionProfile,
 		DatabaseMeta,
 		EngineCapabilities,
 		TableMeta,
 	} from '#core/contracts'
+	import {
+		isProductionDatabase,
+		markAction,
+		productionLabel,
+		ProductionMark,
+	} from '#features/connections'
 	import {
 		ContextMenu,
 		Icon,
@@ -61,6 +68,13 @@
 			table: TableMeta,
 			extra?: string,
 		) => void
+		/** The connection, for per-database production marks. */
+		profile?: Pick<
+			ConnectionProfile,
+			'name' | 'environment' | 'databaseEnvironments'
+		> | null
+		/** Mark a database (`environment`) or clear its mark (`null`). */
+		onmarkdatabase?: (database: string, environment: string | null) => void
 	}
 
 	let {
@@ -82,6 +96,8 @@
 		oncreateobject,
 		onopen,
 		ontableaction,
+		profile = null,
+		onmarkdatabase,
 	}: Props = $props()
 
 	let query = $state('')
@@ -106,11 +122,29 @@
 
 	const tables = $derived(currentDb?.tables ?? [])
 
+	const productionDb = (name: string) =>
+		!!profile && isProductionDatabase(profile, name)
+
 	const dbOptions = $derived(
 		databases.map((d) => ({
 			value: d.name,
 			label: d.name,
+			mark: productionDb(d.name)
+				? {
+						icon: 'shield' as const,
+						label: 'Production',
+						class: 'text-warning',
+					}
+				: undefined,
 		})),
+	)
+
+	const selectedProduction = $derived(productionDb(selectedDatabase))
+	/** Mark / unmark the selected database (multi-database engines only). */
+	const markToggle = $derived(
+		profile && onmarkdatabase && presentation.multiDatabase && selectedDatabase.trim()
+			? markAction(profile, selectedDatabase)
+			: null,
 	)
 
 	const filtered = $derived.by(() => {
@@ -530,7 +564,11 @@
 					onchange={onDbChange}
 				>
 					{#snippet leading()}
-						<CatalogIcon name="database" class="size-3.5" />
+						{#if selectedProduction && profile}
+							<ProductionMark label={productionLabel(profile, selectedDatabase)} />
+						{:else}
+							<CatalogIcon name="database" class="size-3.5" />
+						{/if}
 					{/snippet}
 				</Select>
 			</div>
@@ -550,6 +588,19 @@
 				>
 					<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 				</IconButton>
+				{#if markToggle}
+					<IconButton
+						label="{markToggle.label} (“{selectedDatabase}”)"
+						size="sm"
+						variant="quiet"
+						aria-pressed={selectedProduction}
+						class={selectedProduction ? 'text-warning' : ''}
+						onclick={() =>
+							onmarkdatabase?.(selectedDatabase, markToggle.environment)}
+					>
+						<Icon name="shield" />
+					</IconButton>
+				{/if}
 				{#if presentation.canCreateDatabase}
 					<IconButton
 						label="Create {presentation.databaseLabel.toLowerCase()}"

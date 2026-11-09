@@ -11,6 +11,9 @@
 		connectionUrlPreview,
 		copyConnectionUrl,
 		environmentLabel,
+		hasProduction,
+		productionLabel,
+		ProductionMark,
 	} from '#features/connections'
 	import { liveStatusMark, workspaceSession } from '#features/workspace/session'
 	import { connectionInfo } from '../connection-info.svelte'
@@ -81,8 +84,8 @@
 					>
 						{profile.name}
 					</h2>
-					{#if profile.environment === 'production'}
-						<Pill tone="warning" uppercase>PROD</Pill>
+					{#if hasProduction(profile)}
+						<ProductionMark label={productionLabel(profile)} />
 					{/if}
 					{#if profile.readOnly}
 						<Pill uppercase>RO</Pill>

@@ -15,6 +15,9 @@
 		colorHex,
 		connectionInitial,
 		copyConnectionUrl as copyProfileUrl,
+		hasProduction,
+		productionLabel,
+		ProductionMark,
 	} from '#features/connections'
 	import { SettingsModal } from '#features/settings'
 	import { appShortcutsUi } from '#features/shortcuts'
@@ -220,12 +223,12 @@
 					{#each sessions as s (s.profile.id)}
 						{@const active = mode === 'explorer' && activeId === s.profile.id}
 						{@const hex = colorHex(s.profile.colorId)}
-						{@const prod = s.profile.environment === 'production'}
+						{@const prod = hasProduction(s.profile)}
 						{@const initial = connectionInitial(
 							s.profile.name,
 							String(s.profile.engine),
 						)}
-						{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}${prod ? ' · PROD' : ''}`}
+						{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}${prod ? ' · Production' : ''}`}
 						{@const dragging = drag.draggingId === s.profile.id}
 						{@const edge = drag.dropEdge(s.profile.id)}
 						<div
@@ -292,11 +295,10 @@
 									{initial}
 								</span>
 								{#if prod}
-									<span
-										class="absolute top-1 right-1 size-1.5 rounded-full bg-warning ring-1 ring-elevated"
-										title="Production"
-										aria-hidden="true"
-									></span>
+									<ProductionMark
+										class="absolute top-0.5 right-0.5 [&_svg]:size-3"
+										label={productionLabel(s.profile)}
+									/>
 								{/if}
 							</button>
 						</div>
@@ -323,7 +325,7 @@
 				{@const s = sessionById(id)}
 				{#if s}
 					{@const hex = colorHex(s.profile.colorId)}
-					{@const prod = s.profile.environment === 'production'}
+					{@const prod = hasProduction(s.profile)}
 					{@const initial = connectionInitial(
 						s.profile.name,
 						String(s.profile.engine),
