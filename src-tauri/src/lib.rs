@@ -56,6 +56,8 @@ fn set_native_menu(app: tauri::AppHandle, state: NativeMenuState) -> ipc::IpcRes
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // No JS import: its injected click handler opens `target="_blank"`
+        // http(s)/mailto links (agent chat markdown) in the default browser.
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
