@@ -43,7 +43,7 @@
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
-	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
+	import { connectionInfo } from '../connection-info.svelte'
 
 	const sideMode = $derived(workspaceStudio.sideMode)
 	const activeSession = $derived(workspaceSession.activeSession)
@@ -70,7 +70,6 @@
 	const selectedHistoryId = $derived(history.selectedId)
 
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
-	let infoOpen = $state(false)
 	const connectionName = $derived(activeSession?.profile.name?.trim() || '')
 	const liveMark = $derived(liveStatusMark(activeSession?.liveStatus))
 	const explorerOk = $derived(
@@ -81,11 +80,15 @@
 			).supportsExplorer,
 	)
 
+	function showInfo() {
+		connectionInfo.id = workspaceSession.activeSession?.profile.id ?? null
+	}
+
 	onMount(() =>
 		commands.register({
 			...cmd.connectionDetails,
 			when: () => workspaceSession.activeSession != null,
-			run: () => (infoOpen = true),
+			run: () => showInfo(),
 		}),
 	)
 
@@ -218,16 +221,11 @@
 					size="sm"
 					variant="quiet"
 					class="hover:bg-(--connection-color)/12 hover:text-(--connection-color)"
-					onclick={() => (infoOpen = true)}
+					onclick={showInfo}
 				>
 					<Icon name="info" />
 				</IconButton>
 			</footer>
 		{/if}
 	</div>
-	<ConnectionInfoModal
-		open={infoOpen && !!activeSession}
-		profile={activeSession?.profile ?? null}
-		onclose={() => (infoOpen = false)}
-	/>
 </Resizable>

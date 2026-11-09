@@ -7,12 +7,11 @@
 	import { commands } from '#core/commands'
 	import {
 		errorMessage,
-		formatEngineConnectionUrl,
 		setNativeMenu,
 		testEngineConnection,
 	} from '#core/ipc'
 	import { Button, EmptyState, Icon, Modal } from '#core/ui'
-	import { copyTextToClipboard, setAppTitle } from '#core/util'
+	import { setAppTitle } from '#core/util'
 	import { showToast } from '#features/toast'
 	import { workspaceSession } from '#features/workspace/session'
 	import { OPEN_URL_IMPORT } from '#engines'
@@ -29,6 +28,7 @@
 		testSessionWithPassword,
 	} from '../password-prompt.svelte'
 	import { isConnectCancelled } from '../password-prompt'
+	import { copyConnectionUrl as copyProfileUrl } from '../facts'
 	import { connectionProfiles } from '../profiles.svelte'
 	import { sshHostKeys } from '../ssh-host-key.svelte'
 	import ConnectionDetail from './ConnectionDetail.svelte'
@@ -303,28 +303,9 @@
 		}
 	}
 
-	async function copyConnectionUrl(id: string) {
+	function copyConnectionUrl(id: string) {
 		const profile = connections.find((c) => c.id === id)
-		if (!profile) return
-		try {
-			const formatted = await formatEngineConnectionUrl({
-				engine: String(profile.engine),
-				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
-			})
-			const url = formatted.url?.trim()
-			if (!url) {
-				showToast('warning', 'No connection URL available for this profile.')
-				return
-			}
-			const result = await copyTextToClipboard(url)
-			if (result.ok) {
-				showToast('success', 'Connection URL copied.')
-			} else if (!result.cancelled) {
-				showToast('danger', result.error || 'Could not copy connection URL.')
-			}
-		} catch (err) {
-			showToast('danger', errorMessage(err))
-		}
+		if (profile) void copyProfileUrl(profile)
 	}
 
 	function handleConnectionAction(action: ConnectionMenuAction, id: string) {

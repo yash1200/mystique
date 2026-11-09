@@ -2,18 +2,10 @@
 	import type { ConnectionProfile } from '#core/contracts'
 	import { Button, ContentPanel, Pill, StatusDot } from '#core/ui'
 	import { cn } from '#core/util'
-	import {
-		connectionKindFromCaps,
-		defaultCapabilitiesForEngine,
-		engineLabel,
-	} from '#engines'
-	import {
-		colorHex,
-		configBool,
-		configNum,
-		configStr,
-		connectionEndpoint,
-	} from '../model'
+	import { engineLabel } from '#engines'
+	import { connectionFacts } from '../facts'
+	import { colorHex, connectionEndpoint } from '../model'
+	import ConnectionFactGrid from './ConnectionFactGrid.svelte'
 	import EngineBadge from './EngineBadge.svelte'
 
 	interface Props {
@@ -38,7 +30,6 @@
 
 	const hex = $derived(colorHex(connection.colorId))
 	const status = $derived(connection.status ?? 'disconnected')
-	const cfg = $derived(connection.pluginConfig ?? {})
 	const endpoint = $derived(connectionEndpoint(connection))
 
 	const statusText = $derived(
@@ -49,79 +40,7 @@
 				: 'Disconnected',
 	)
 
-	const envLabel = $derived(
-		connection.environment === 'production'
-			? 'Production'
-			: connection.environment === 'staging'
-				? 'Staging'
-				: 'Local',
-	)
-
-	function formatDate(iso: string | null | undefined): string {
-		if (!iso) return 'Never'
-		try {
-			return new Intl.DateTimeFormat(undefined, {
-				dateStyle: 'medium',
-				timeStyle: 'short',
-			}).format(new Date(iso))
-		} catch {
-			return iso
-		}
-	}
-
-	const facts = $derived.by(() => {
-		const items: { label: string; value: string; wide?: boolean }[] = []
-		const kind = connectionKindFromCaps(
-			defaultCapabilitiesForEngine(connection.engine),
-		)
-		if (kind === 'uri') {
-			items.push({
-				label: 'URI',
-				value: configStr(cfg, 'uri', '—'),
-				wide: true,
-			})
-		} else if (kind === 'file') {
-			items.push({
-				label: 'File',
-				value: configStr(cfg, 'path', '—'),
-				wide: true,
-			})
-		} else {
-			items.push(
-				{ label: 'Host', value: configStr(cfg, 'host', '—') },
-				{
-					label: 'Port',
-					value: configNum(cfg, 'port') ? String(configNum(cfg, 'port')) : '—',
-				},
-				{ label: 'Database', value: configStr(cfg, 'database', '—') },
-				{ label: 'User', value: configStr(cfg, 'username', '—') },
-				{
-					label: 'Password',
-					value: connection.passwordSet ? '••••••••' : 'Not set',
-				},
-				{
-					label: 'SSL',
-					value:
-						configBool(cfg, 'ssl') || configStr(cfg, 'sslMode') === 'require'
-							? 'Required'
-							: 'Off',
-				},
-			)
-		}
-		items.push(
-			{ label: 'Environment', value: envLabel },
-			{
-				label: 'Access',
-				value: connection.readOnly ? 'Read-only' : 'Read / write',
-			},
-			{
-				label: 'Last connected',
-				value: formatDate(connection.lastConnectedAt),
-				wide: true,
-			},
-		)
-		return items
-	})
+	const facts = $derived(connectionFacts(connection, 'full'))
 
 	const notes = $derived(connection.notes?.trim() || '')
 </script>
@@ -200,30 +119,7 @@
 					{endpoint}
 				</p>
 
-				<div
-					class="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2"
-				>
-					{#each facts as item (item.label)}
-						<div
-							class={cn(
-								'bg-elevated px-3 py-2.5',
-								item.wide && 'sm:col-span-2',
-							)}
-						>
-							<div
-								class="text-micro font-semibold tracking-wider text-fg-muted uppercase"
-							>
-								{item.label}
-							</div>
-							<div
-								class="mt-1 min-w-0 truncate font-mono text-label text-fg"
-								title={item.value}
-							>
-								{item.value}
-							</div>
-						</div>
-					{/each}
-				</div>
+				<ConnectionFactGrid {facts} stack />
 
 				{#if notes}
 					<p class="mt-4 mb-0 text-body leading-relaxed text-fg-secondary">

@@ -57,6 +57,7 @@
 	} from '#features/workspace/session'
 	import { structureStore } from '#features/workspace/structure'
 	import { TransferHost } from '#features/workspace/transfer'
+	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import OpenTransactionModal from './OpenTransactionModal.svelte'
 	import type { SideNavMode } from './SessionsRail.svelte'
@@ -501,6 +502,8 @@
 	{/if}
 
 	<WriteGuardModal />
+
+	<ConnectionInfoModal />
 
 	<OpenTransactionModal
 		open={pendingCloseStep === 'transaction'}

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import type { ConnectedSession } from '#core/contracts'
-	import { errorMessage, formatEngineConnectionUrl } from '#core/ipc'
 	import {
 		ContextMenu,
 		Draggable,
@@ -9,12 +8,16 @@
 		IconButton,
 		type ContextMenuItem,
 	} from '#core/ui'
-	import { cn, copyTextToClipboard } from '#core/util'
+	import { cn } from '#core/util'
 	import { engineLabel, normalizeCapabilities } from '#engines'
-	import { BrandMark, colorHex, connectionInitial } from '#features/connections'
+	import {
+		BrandMark,
+		colorHex,
+		connectionInitial,
+		copyConnectionUrl as copyProfileUrl,
+	} from '#features/connections'
 	import { SettingsModal } from '#features/settings'
 	import { appShortcutsUi } from '#features/shortcuts'
-	import { showToast } from '#features/toast'
 	import { cmd } from '#lib/app'
 	import { onMount } from 'svelte'
 	import { flip } from 'svelte/animate'
@@ -27,7 +30,7 @@
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
-	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
+	import { connectionInfo } from '../connection-info.svelte'
 	import LeaveWorkspaceModal from './LeaveWorkspaceModal.svelte'
 
 	export type SideNavMode = 'explorer' | 'saved-queries' | 'history'
@@ -73,7 +76,6 @@
 	}
 
 	let menu = $state<{ id: string; x: number; y: number } | null>(null)
-	let infoId = $state<string | null>(null)
 	let leaveLoss = $state<PendingLoss | null>(null)
 	let leaveBusy = $state(false)
 
@@ -145,42 +147,16 @@
 		},
 	])
 
-	const infoProfile = $derived(
-		infoId
-			? (sessions.find((s) => s.profile.id === infoId)?.profile ?? null)
-			: null,
-	)
-
-	async function copyConnectionUrl(id: string) {
+	function copyConnectionUrl(id: string) {
 		const session = sessions.find((s) => s.profile.id === id)
-		if (!session) return
-		const profile = session.profile
-		try {
-			const formatted = await formatEngineConnectionUrl({
-				engine: String(profile.engine),
-				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
-			})
-			const url = formatted.url?.trim()
-			if (!url) {
-				showToast('warning', 'No connection URL available for this profile.')
-				return
-			}
-			const result = await copyTextToClipboard(url)
-			if (result.ok) {
-				showToast('success', 'Connection URL copied.')
-			} else if (!result.cancelled) {
-				showToast('danger', result.error || 'Could not copy connection URL.')
-			}
-		} catch (err) {
-			showToast('danger', errorMessage(err))
-		}
+		if (session) void copyProfileUrl(session.profile)
 	}
 
 	function onMenuPick(action: string) {
 		const id = menu?.id
 		menu = null
 		if (!id) return
-		if (action === 'info') infoId = id
+		if (action === 'info') connectionInfo.id = id
 		if (action === 'refresh') onrefresh(id)
 		if (action === 'new-query') onnewquery(id)
 		if (action === 'metrics') onmetrics?.(id)
@@ -451,12 +427,6 @@
 		onclose={() => (menu = null)}
 	/>
 {/if}
-
-<ConnectionInfoModal
-	open={infoProfile != null}
-	profile={infoProfile}
-	onclose={() => (infoId = null)}
-/>
 
 <LeaveWorkspaceModal
 	loss={leaveLoss}

@@ -1,61 +1,38 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '#core/contracts'
-	import { errorMessage, formatEngineConnectionUrl } from '#core/ipc'
 	import { Icon, IconButton, Modal, Pill } from '#core/ui'
-	import { cn, copyTextToClipboard } from '#core/util'
+	import { cn } from '#core/util'
+	import { engineLabel } from '#engines'
 	import {
-		connectionKindFromCaps,
-		databaseFromUri,
-		defaultCapabilitiesForEngine,
-		engineLabel,
-	} from '#engines'
-	import {
+		ConnectionFactGrid,
 		EngineBadge,
 		colorHex,
-		configBool,
-		configNum,
-		configStr,
-		connectionEndpoint,
+		connectionFacts,
 		connectionInitial,
+		connectionUrlPreview,
+		copyConnectionUrl,
+		environmentLabel,
 	} from '#features/connections'
-	import { showToast } from '#features/toast'
 	import { liveStatusMark, workspaceSession } from '#features/workspace/session'
+	import { connectionInfo } from '../connection-info.svelte'
 
-	interface Props {
-		open: boolean
-		profile: ConnectionProfile | null
-		onclose: () => void
-	}
-
-	let { open, profile, onclose }: Props = $props()
+	const session = $derived(
+		connectionInfo.id
+			? workspaceSession.sessions.find((s) => s.profile.id === connectionInfo.id)
+			: undefined,
+	)
+	const profile = $derived(session?.profile ?? null)
 
 	let copyBusy = $state(false)
 
 	function handleClose() {
-		onclose()
+		connectionInfo.id = null
 	}
 
-	async function copyConnectionUrl() {
+	async function copyUrl() {
 		if (!profile || copyBusy) return
 		copyBusy = true
 		try {
-			const formatted = await formatEngineConnectionUrl({
-				engine: String(profile.engine),
-				pluginConfig: (profile.pluginConfig ?? {}) as Record<string, unknown>,
-			})
-			const url = formatted.url?.trim()
-			if (!url) {
-				showToast('warning', 'No connection URL available for this profile.')
-				return
-			}
-			const result = await copyTextToClipboard(url)
-			if (result.ok) {
-				showToast('success', 'Connection URL copied.')
-			} else if (!result.cancelled) {
-				showToast('danger', result.error || 'Could not copy connection URL.')
-			}
-		} catch (err) {
-			showToast('danger', errorMessage(err))
+			await copyConnectionUrl(profile)
 		} finally {
 			copyBusy = false
 		}
@@ -65,114 +42,16 @@
 	const initial = $derived(
 		profile ? connectionInitial(profile.name, String(profile.engine)) : '',
 	)
-	const endpoint = $derived(profile ? connectionEndpoint(profile) : '')
-	const liveStatus = $derived(
-		profile
-			? (workspaceSession.sessions.find((s) => s.profile.id === profile.id)
-					?.liveStatus ??
-					profile.status ??
-					'disconnected')
-			: undefined,
+	const liveMark = $derived(
+		liveStatusMark(session?.liveStatus ?? profile?.status ?? 'disconnected'),
 	)
-	const liveMark = $derived(liveStatusMark(liveStatus))
-	const kind = $derived(
-		profile
-			? connectionKindFromCaps(defaultCapabilitiesForEngine(profile.engine))
-			: 'host',
-	)
-
-	const envLabel = $derived(
-		profile?.environment === 'production'
-			? 'Production'
-			: profile?.environment === 'staging'
-				? 'Staging'
-				: 'Local',
-	)
-
-	const database = $derived.by(() => {
-		if (!profile) return ''
-		const cfg = profile.pluginConfig ?? {}
-		return (
-			configStr(cfg, 'database') ||
-			databaseFromUri(profile.engine, configStr(cfg, 'uri')) ||
-			''
-		)
-	})
-
-	const username = $derived.by(() => {
-		if (!profile) return ''
-		return configStr(profile.pluginConfig ?? {}, 'username')
-	})
-
-	const sslLabel = $derived.by(() => {
-		if (!profile || kind !== 'host') return ''
-		const cfg = profile.pluginConfig ?? {}
-		if (configBool(cfg, 'ssl') || configStr(cfg, 'sslMode') === 'require') {
-			return 'Required'
-		}
-		return 'Off'
-	})
-
-	const urlPreview = $derived.by(() => {
-		if (!profile) return ''
-		const cfg = profile.pluginConfig ?? {}
-		if (kind === 'file') return configStr(cfg, 'path') || endpoint
-		if (kind === 'uri') return redactUrl(configStr(cfg, 'uri') || endpoint)
-		const host = configStr(cfg, 'host')
-		const port = configNum(cfg, 'port', 0)
-		const user = configStr(cfg, 'username')
-		const db = configStr(cfg, 'database')
-		const hostPort = host ? (port ? `${host}:${port}` : host) : ''
-		if (!hostPort) return endpoint
-		return `${user ? `${user}@` : ''}${hostPort}${db ? `/${db}` : ''}`
-	})
-
-	const facts = $derived.by(() => {
-		if (!profile) return []
-		const items: { label: string; value: string; wide?: boolean }[] = []
-		if (database) items.push({ label: 'Database', value: database })
-		if (username) items.push({ label: 'User', value: username })
-		if (sslLabel) items.push({ label: 'SSL', value: sslLabel })
-		items.push({
-			label: 'Access',
-			value: profile.readOnly ? 'Read-only' : 'Read / write',
-		})
-		items.push({
-			label: 'Last connected',
-			value: formatDate(profile.lastConnectedAt),
-			wide: items.length % 2 === 0,
-		})
-		return items
-	})
-
+	const urlPreview = $derived(profile ? connectionUrlPreview(profile) : '')
+	const facts = $derived(profile ? connectionFacts(profile, 'summary') : [])
 	const notes = $derived(profile?.notes?.trim() || '')
-
-	function redactUrl(uri: string): string {
-		try {
-			const parsed = new URL(uri)
-			if (parsed.password) parsed.password = '••••'
-			return parsed.toString()
-		} catch {
-			return uri.replace(/:([^:@/]+)@/, ':••••@')
-		}
-	}
-
-	function formatDate(iso: string | null | undefined): string {
-		if (!iso) return 'Never'
-		try {
-			return new Intl.DateTimeFormat(undefined, {
-				dateStyle: 'medium',
-				timeStyle: 'short',
-			}).format(new Date(iso))
-		} catch {
-			return iso
-		}
-	}
-
 </script>
 
 <Modal
-	open={open && !!profile}
+	open={!!profile}
 	onclose={handleClose}
 	layout="bare"
 	size="md"
@@ -215,7 +94,7 @@
 					<EngineBadge engine={profile.engine} />
 					<span>{engineLabel(profile.engine)}</span>
 					{#if profile.environment === 'staging'}
-						<span class="text-fg-muted">{envLabel}</span>
+						<span class="text-fg-muted">{environmentLabel(profile.environment)}</span>
 					{/if}
 					<span
 						class="inline-flex items-center gap-1 {liveMark.class}"
@@ -244,7 +123,7 @@
 					)}
 					disabled={copyBusy || !profile}
 					aria-label="Copy connection URL"
-					onclick={() => void copyConnectionUrl()}
+					onclick={() => void copyUrl()}
 				>
 					<div class="min-w-0 flex-1">
 						<p class="m-0 text-label font-medium text-fg">
@@ -262,27 +141,7 @@
 			</div>
 
 			{#if facts.length > 0}
-				<div
-					class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line"
-				>
-					{#each facts as item (item.label)}
-						<div
-							class={cn('bg-elevated px-3 py-2.5', item.wide && 'col-span-2')}
-						>
-							<div
-								class="text-micro font-semibold tracking-wider text-fg-muted uppercase"
-							>
-								{item.label}
-							</div>
-							<div
-								class="mt-1 min-w-0 truncate font-mono text-label text-fg"
-								title={item.value}
-							>
-								{item.value}
-							</div>
-						</div>
-					{/each}
-				</div>
+				<ConnectionFactGrid {facts} />
 			{/if}
 
 			{#if notes}
