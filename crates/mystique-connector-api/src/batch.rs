@@ -371,16 +371,16 @@ pub fn gate_sql_batch_in(
         return Err(ConnectorError::Policy("Query is empty.".into()));
     }
 
+    let batch_len = planned.len();
     let mut names = Vec::new();
-    let mut read_safe = Vec::with_capacity(planned.len());
+    // First statement Read mode refuses, in batch order.
+    let mut refusal: Option<ReadRefusal> = None;
     let mut statements = Vec::with_capacity(planned.len());
     for stmt in planned {
         names.extend(stmt.destructive_names.iter().cloned());
-        read_safe.push(
-            stmt.risk == mystique_sql::StatementRisk::Read
-                || (stmt.risk == mystique_sql::StatementRisk::Session
-                    && mystique_sql::is_read_safe_set(&stmt.sql, dialect)),
-        );
+        if mode == QueryMode::Read && refusal.is_none() {
+            refusal = read_refusal(&stmt, dialect);
+        }
         let start = usize::try_from(stmt.start).unwrap_or(0);
         let end = usize::try_from(stmt.end).unwrap_or(0);
         let (sql, indexes) = script
@@ -430,13 +430,12 @@ pub fn gate_sql_batch_in(
         }
     }
     // Read mode runs reads and harmless session `SET` (search_path, time zone).
-    if mode == QueryMode::Read {
-        if let Some(stmt) = statements
-            .iter()
-            .zip(&read_safe)
-            .find(|(_, safe)| !**safe)
-            .map(|(stmt, _)| stmt)
-        {
+    match refusal {
+        Some(ReadRefusal::NotRead(index)) => {
+            let stmt = statements
+                .iter()
+                .find(|stmt| stmt.index == index)
+                .ok_or_else(|| ConnectorError::Internal("refused statement is missing".into()))?;
             return Err(ConnectorError::query_at(
                 format!(
                     "policy: Statement {} is not a read ({}). Nothing ran.",
@@ -447,6 +446,23 @@ pub fn gate_sql_batch_in(
                 Some(stmt.index),
             ));
         }
+        Some(ReadRefusal::Unproven {
+            index,
+            offset,
+            message,
+        }) => {
+            let lead = if batch_len > 1 {
+                format!("Statement {}: ", display_index(index))
+            } else {
+                String::new()
+            };
+            return Err(ConnectorError::query_at(
+                format!("policy: {lead}{message} Nothing ran."),
+                position_at(text, offset),
+                Some(index),
+            ));
+        }
+        None => {}
     }
 
     let worst = statements
@@ -466,6 +482,48 @@ pub fn gate_sql_batch_in(
         destructive_name,
         worst,
     })
+}
+
+/// Why Read mode refuses a statement.
+enum ReadRefusal {
+    /// The statement itself writes (or cannot be parsed): the generic message.
+    NotRead(u32),
+    /// F-06 ReadProof named the function or construct, and where it is.
+    Unproven {
+        index: u32,
+        offset: u32,
+        message: String,
+    },
+}
+
+/// Read mode runs reads and harmless session `SET`, and, on top of the
+/// engine's read-only transaction, only what ReadProof shows calls nothing
+/// with a side effect (F-06 function allowlist).
+fn read_refusal(stmt: &mystique_sql::PlannedStatement, dialect: SqlDialect) -> Option<ReadRefusal> {
+    let read_like = stmt.risk == mystique_sql::StatementRisk::Read
+        || (stmt.risk == mystique_sql::StatementRisk::Session
+            && mystique_sql::is_read_safe_set(&stmt.sql, dialect));
+    match mystique_sql::read_proof_statement(dialect, &stmt.sql) {
+        Err(err)
+            if !matches!(
+                err.reason,
+                mystique_sql::ReadProofReason::NotARead(_)
+                    | mystique_sql::ReadProofReason::Unparsed
+            ) =>
+        {
+            let offset = usize::try_from(stmt.start)
+                .unwrap_or(0)
+                .saturating_add(err.offset);
+            Some(ReadRefusal::Unproven {
+                index: stmt.index,
+                offset: u32::try_from(offset).unwrap_or(u32::MAX),
+                message: err.to_string(),
+            })
+        }
+        Err(_) => Some(ReadRefusal::NotRead(stmt.index)),
+        Ok(()) if !read_like => Some(ReadRefusal::NotRead(stmt.index)),
+        Ok(()) => None,
+    }
 }
 
 /// Driver errors point into the statement the driver got, where `:name`

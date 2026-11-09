@@ -110,8 +110,21 @@ pub fn validate_sql_statement_for(
         if !allowed {
             return Err(deny_write(risk));
         }
+        mystique_sql::read_proof_statement(dialect, stmt)
+            .map_err(|err| ConnectorError::Policy(err.to_string()))?;
     }
     Ok(())
+}
+
+/// F-06 fail-closed ReadProof: Ok only when Read mode would run `text`.
+///
+/// One rule for the query tab's Read mode and MCP / agent read tools: the
+/// batch parses, opens or ends no transaction, every statement is a read or
+/// a harmless session `SET`, and every function it calls is on the dialect's
+/// allowlist (`mystique_sql::read_proof`). The refusal is a `policy:` error
+/// that names the statement, the function or construct, and its position.
+pub fn sql_read_proof(text: &str, dialect: SqlDialect) -> ConnectorResult<()> {
+    crate::gate_sql_batch(text, dialect, QueryMode::Read).map(|_| ())
 }
 
 #[cfg(test)]
