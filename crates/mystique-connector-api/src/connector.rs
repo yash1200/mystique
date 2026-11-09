@@ -364,8 +364,11 @@ pub trait ConnectorSession: Send + Sync {
         )))
     }
 
-    /// Stream the full table/collection to `input.path` in plugin-owned format.
-    /// Implementations must page in [`crate::EXPORT_CHUNK_SIZE`] rows with no row cap.
+    /// Write the full table/collection to `input.path`.
+    ///
+    /// Core exports through [`crate::ExportWriter`] fed by
+    /// [`ConnectorSession::stream_rows`] (or a pin's), so plugins implement
+    /// `stream_rows` rather than this. Kept for callers of the SPI.
     async fn export_object(
         &self,
         _input: &ExportObjectInput,
