@@ -252,6 +252,52 @@ describe('results and pin state', () => {
 		expect(cache.runState.message).toBe('two')
 	})
 
+	test('Run all on Mongo opens on the statement that stopped the batch and marks it', async () => {
+		const doc = '\ndb.a.find({})\ndb.boom.find({})\ndb.c.find({})\n'
+		const text = doc.trim()
+		const second = text.indexOf('db.boom')
+		let sent: any
+		batchImpl = async (body) => {
+			sent = body
+			return {
+				results: [
+					{
+						index: 0,
+						sqlRange: { start: 0, end: 13 },
+						kind: 'read',
+						result: { columns: [], rows: [], message: 'ok' },
+					},
+					{
+						index: 1,
+						sqlRange: { start: second, end: second + 16 },
+						kind: 'read',
+						result: null,
+						error: 'collection boom is on fire',
+						errorPosition: { offset: second, line: 2, column: 1 },
+					},
+				],
+				stoppedAt: 1,
+			}
+		}
+		await run.runQuery(
+			target({ engine: 'mongodb', language: 'mql', collection: 'a', doc: () => doc }),
+			text,
+			1,
+		)
+		expect(sent.text).toBe(text)
+		expect(sent.collection).toBe('a')
+		const cache = caches.get('t1')
+		expect(cache.runState.status).toBe('ok')
+		expect(cache.runState.batch.results).toHaveLength(2)
+		expect(cache.activeIndex).toBe(1)
+		expect(cache.diagnostic).toMatchObject({
+			message: 'collection boom is on fire',
+			from: 1 + second,
+			line: 3,
+			column: 1,
+		})
+	})
+
 	test('a backend rollback is told once per tab', () => {
 		const rolled = { pinned: true, inTransaction: false, rolledBack: true }
 		run.applyPinStatus('t1', rolled)
