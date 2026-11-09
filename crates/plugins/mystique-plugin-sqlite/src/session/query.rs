@@ -692,4 +692,44 @@ mod tests {
         let _ = session.close().await;
         let _ = fs::remove_file(&path);
     }
+
+    /// rusqlite 0.35+ makes `prepare` / `execute` fail with
+    /// `MultipleStatement` when a second statement follows in the same string
+    /// (0.32 silently ignored it). The batch is split first, so trigger bodies
+    /// and trailing comments must still reach SQLite one statement at a time.
+    #[tokio::test]
+    async fn trigger_bodies_and_trailing_comments_run_as_single_statements() {
+        let path = temp_path();
+        let _ = fs::remove_file(&path);
+        let session = SqliteConnector
+            .connect(&ConnectionConfig {
+                engine: "sqlite".into(),
+                plugin_config: json!({ "path": path.to_string_lossy() }),
+                password: None,
+                pool: PoolConfig::default(),
+            })
+            .await
+            .expect("connect");
+        session
+            .execute_query(&query(
+                "CREATE TABLE t (id INTEGER); CREATE TABLE log (id INTEGER);\n\
+                 CREATE TRIGGER t_log AFTER INSERT ON t BEGIN \
+                   INSERT INTO log VALUES (NEW.id); INSERT INTO log VALUES (NEW.id + 1); \
+                 END;\n\
+                 INSERT INTO t VALUES (5); -- seeded",
+                QueryMode::Write,
+            ))
+            .await
+            .expect("trigger batch");
+        let sum = session
+            .execute_query(&query(
+                "SELECT SUM(id) FROM log; -- trailing note",
+                QueryMode::Read,
+            ))
+            .await
+            .expect("sum");
+        assert_eq!(sum.rows[0][0], json!(11));
+        let _ = session.close().await;
+        let _ = fs::remove_file(&path);
+    }
 }
