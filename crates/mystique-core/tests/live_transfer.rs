@@ -9,6 +9,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Two tests measure process RSS while streaming, so the tests in this file
+/// run one at a time; a parallel test's allocations would skew the peak.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 use mystique_connector_api::{
     DescribeTableRequest, ImportEncoding, ImportFormat, ImportOnDuplicate, LargeCellLocator,
 };
@@ -159,6 +163,7 @@ fn export_req(
 #[tokio::test]
 #[ignore = "needs local Postgres"]
 async fn pg_query_cells_carry_locators_and_load_by_a_typed_key() {
+    let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_ee_pg_locators";
     mgr.open_session(open("postgres", sid)).await.expect("open");
@@ -250,6 +255,7 @@ async fn pg_query_cells_carry_locators_and_load_by_a_typed_key() {
 #[tokio::test]
 #[ignore = "needs local Postgres"]
 async fn pg_export_and_large_values_read_through_the_tab_transaction() {
+    let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_ee_pg_txn";
     let tab = "mq_ee_tab_pg";
@@ -396,6 +402,7 @@ async fn pg_export_and_large_values_read_through_the_tab_transaction() {
 #[tokio::test]
 #[ignore = "needs local Postgres"]
 async fn pg_streaming_export_of_200k_rows_stays_bounded() {
+    let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_ee_pg_big";
     mgr.open_session(open("postgres", sid)).await.expect("open");
@@ -494,6 +501,7 @@ async fn pg_streaming_export_of_200k_rows_stays_bounded() {
 #[tokio::test]
 #[ignore = "needs local Postgres"]
 async fn pg_import_writes_in_batches_with_progress_and_stops_on_cancel() {
+    let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_ee_pg_import";
     mgr.open_session(open("postgres", sid)).await.expect("open");
@@ -567,6 +575,7 @@ async fn pg_import_writes_in_batches_with_progress_and_stops_on_cancel() {
 #[tokio::test]
 #[ignore = "needs local Postgres"]
 async fn pg_relationships_pair_composite_keys_and_the_cache_follows_ddl() {
+    let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_ee_pg_rel";
     mgr.open_session(open("postgres", sid)).await.expect("open");
@@ -636,6 +645,7 @@ async fn pg_relationships_pair_composite_keys_and_the_cache_follows_ddl() {
 #[tokio::test]
 #[ignore = "needs local MySQL"]
 async fn mysql_locators_typed_keys_transaction_export_and_streaming() {
+    let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_ee_my";
     let tab = "mq_ee_tab_my";
