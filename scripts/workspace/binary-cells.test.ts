@@ -6,12 +6,14 @@ import {
 	binaryPreview,
 	binarySize,
 	formatBytes,
+	isBinaryValue,
+} from '../../src/lib/features/workspace/data-grid/binary'
+import {
 	hexDump,
 	imageMime,
-	isBinaryValue,
 	toBase64,
 	toHex,
-} from '../../src/lib/features/workspace/data-grid/binary'
+} from '../../src/lib/features/workspace/data-grid/binary-dump'
 
 const PNG = '\\x89504e470d0a1a0a0000000d49484452'
 

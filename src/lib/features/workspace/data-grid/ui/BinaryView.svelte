@@ -9,7 +9,7 @@
 		imageMime,
 		toBase64,
 		toHex,
-	} from '../binary'
+	} from '../binary-dump'
 	import { PARTIAL_COPY_MESSAGE } from '../large-cell'
 
 	interface Props {

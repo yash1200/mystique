@@ -1,6 +1,13 @@
+<script module lang="ts">
+	import { lazy } from '#core/ui'
+
+	/** The hex view loads with the first binary cell opened. */
+	const BinaryView = lazy(() => import('./BinaryView.svelte'))
+</script>
+
 <script lang="ts">
 	import { errorMessage } from '#core/ipc'
-	import { Button, Kbd, Modal, Textarea } from '#core/ui'
+	import { Button, Kbd, Lazy, Modal, Textarea } from '#core/ui'
 	import { cn, copyTextToClipboard } from '#core/util'
 	import { onMount, untrack } from 'svelte'
 	import {
@@ -17,7 +24,6 @@
 	} from '../large-cell'
 	import type { CellViewMode } from '../cell-view'
 	import { isBinaryValue } from '../binary'
-	import BinaryView from './BinaryView.svelte'
 	import JsonHighlightEditor from './JsonHighlightEditor.svelte'
 
 	interface Props {
@@ -252,7 +258,8 @@
 			<p class="m-0 text-caption text-fg-muted">{copyNote}</p>
 		{/if}
 		{#if hexView}
-			<BinaryView
+			<Lazy
+				component={BinaryView}
 				{text}
 				partial={hexPartial}
 				totalBytes={hexPartial && totalChars > 2 && initialText.startsWith('\\x')
