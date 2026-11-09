@@ -11,8 +11,7 @@ use rig::{Agent, AgentBuilder};
 use crate::providers::AgentProvider;
 use crate::secrets::SecretStore;
 use crate::tools::{
-    extract_leaked_tool_calls, strip_leaked_tool_calls, BoundTools, DescribeObject,
-    ExecuteReadonly, GetSchemaDbml, LeakedToolCall, ListObjects, ListSavedQueries,
+    attach_tools, extract_leaked_tool_calls, strip_leaked_tool_calls, BoundTools, LeakedToolCall,
 };
 
 use super::prompt::SYSTEM_PROMPT;
@@ -128,14 +127,7 @@ async fn chat_once(
     context: &str,
 ) -> Result<String, String> {
     let dispatcher = bound.clone();
-    let agent: Agent = builder
-        .preamble(SYSTEM_PROMPT)
-        .context(context)
-        .tool(GetSchemaDbml(bound.clone()))
-        .tool(ListObjects(bound.clone()))
-        .tool(DescribeObject(bound.clone()))
-        .tool(ExecuteReadonly(bound.clone()))
-        .tool(ListSavedQueries(bound))
+    let agent: Agent = attach_tools(builder.preamble(SYSTEM_PROMPT).context(context), bound)
         .default_max_turns(DEFAULT_MAX_TURNS)
         .max_tokens(4096)
         .build();
