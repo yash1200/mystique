@@ -3,6 +3,29 @@
 /* eslint-disable */
 
 /**
+ * The saved agent's id and the settings after the save.
+ */
+export type AcpAgentSaved = { id: string, settings: AcpSettingsView, };
+
+/**
+ * Where an agent stands on this machine.
+ */
+export type AcpAgentStatus = "installed" | "adapter" | "unconfirmed" | "missing";
+
+/**
+ * One added agent.
+ */
+export type AcpAgentView = { id: string, 
+/**
+ * The catalog entry it was added from; `None` for a custom agent.
+ */
+catalogId?: string | null, 
+/**
+ * What the agent menu and the pane header call it.
+ */
+label: string, command: string, args: Array<string>, env: Array<AcpEnvVar>, };
+
+/**
  * One environment variable to save. An empty value of a secret that is
  * already saved keeps the saved one.
  */
@@ -24,15 +47,29 @@ saved: boolean, };
 /**
  * What the Test button shows.
  */
-export type AcpProbe = { name: string, title?: string | null, version: string, protocolVersion: number, 
+export type AcpProbe = { 
 /**
- * Can reach Mystique's MCP server (HTTP transport).
+ * The added agent that was tested.
  */
-mcpHttp: boolean, loadSession: boolean, 
+agentId: string, name: string, title?: string | null, version: string, protocolVersion: number, 
+/**
+ * Takes HTTP MCP servers.
+ */
+mcpHttp: boolean, mcpSse: boolean, 
+/**
+ * How a turn reaches Mystique's tools: `http`, `stdio` (the bridge),
+ * or `None` when it cannot.
+ */
+mcpTransport?: string | null, loadSession: boolean, 
 /**
  * Sign-in methods the agent offers (Mystique does not run them).
  */
 authMethods: Array<string>, 
+/**
+ * `false`: the agent asked for sign-in when a session was opened.
+ * `None`: not known (some agents only check at the first prompt).
+ */
+signedIn?: boolean | null, 
 /**
  * Why a turn would fail, if it would.
  */
@@ -43,13 +80,9 @@ problem?: string | null, };
  */
 export type AcpSettingsView = { 
 /**
- * `builtin` or `acp`.
+ * `builtin` or an agent id.
  */
-kind: string, command: string, args: Array<string>, env: Array<AcpEnvVar>, 
-/**
- * What the pane header calls the external agent.
- */
-agentLabel: string, };
+defaultAgent: string, agents: Array<AcpAgentView>, };
 
 /**
  * One live backend session / connection / operation.
@@ -350,6 +383,39 @@ schema?: string | null,
  * Database / catalog name (MySQL schema, Mongo DB, optional elsewhere).
  */
 database?: string | null, };
+
+/**
+ * One catalog agent, as found on this machine.
+ */
+export type DetectedAcpAgent = { catalogId: string, name: string, 
+/**
+ * Two letters for the icon tile.
+ */
+mark: string, status: AcpAgentStatus, 
+/**
+ * The binary found (the CLI or its adapter), full path.
+ */
+path?: string | null, version?: string | null, 
+/**
+ * What Add saves: the full path of the program and its arguments.
+ */
+command?: string | null, args: Array<string>, 
+/**
+ * MCP transports the agent is documented to accept.
+ */
+mcp: string, confirmed: boolean, 
+/**
+ * How to sign in.
+ */
+signIn: string, 
+/**
+ * How to install it (a command to copy, or a sentence).
+ */
+install: string, homepage: string, source: string, note?: string | null, 
+/**
+ * The id of the added agent made from this entry, if any.
+ */
+addedId?: string | null, };
 
 /**
  * Which parts of a schema diff to apply. Drops are opt-in: a dropped
@@ -1020,7 +1086,18 @@ activeTabId?: string | null, };
  */
 export type RollbackTableEditsRequest = { sessionId: string, saveId: string, confirmObjectName?: string | null, };
 
-export type SaveAcpSettings = { kind: string, command: string, args: Array<string>, env: Array<AcpEnvInput>, };
+/**
+ * Add or change one agent.
+ */
+export type SaveAcpAgent = { 
+/**
+ * The agent to change; `None` adds one.
+ */
+id?: string | null, catalogId?: string | null, label?: string | null, command: string, args: Array<string>, env: Array<AcpEnvInput>, 
+/**
+ * Also make it the default for new chats.
+ */
+makeDefault: boolean, };
 
 export type SaveConnectionInput = { id?: string | null, name: string, engine: string, colorId: string, environment: string, readOnly: boolean, notes?: string | null, pluginConfig: Record<string, unknown>, 
 /**

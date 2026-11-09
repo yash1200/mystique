@@ -169,7 +169,9 @@ fn roots(c: &mut Collect) {
         agent::AgentEvent,
         // External (ACP) agent.
         acp::AcpSettingsView,
-        acp::SaveAcpSettings,
+        acp::SaveAcpAgent,
+        acp::AcpAgentSaved,
+        acp::DetectedAcpAgent,
         acp::AcpProbe,
         // MCP.
         mcp::McpStatus,

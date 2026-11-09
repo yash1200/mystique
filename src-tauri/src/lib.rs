@@ -159,8 +159,12 @@ pub fn run() {
                 Arc::clone(&services),
                 data_dir.join("ai_secrets.json"),
             );
-            // External ACP agent: runs in an empty folder under app data.
-            let acp = AcpService::new(Arc::clone(&services), &data_dir);
+            // External ACP agents: run in an empty folder under app data.
+            // Agents without HTTP MCP start this binary as the stdio bridge.
+            let mut acp = AcpService::new(Arc::clone(&services), &data_dir);
+            if let Ok(exe) = std::env::current_exe() {
+                acp = acp.with_bridge(exe);
+            }
             let boot = mcp.clone();
             tauri::async_runtime::spawn(async move {
                 boot.restore_if_enabled().await;
@@ -282,7 +286,11 @@ pub fn run() {
             ipc::agent::cancel_agent_message,
             // external (ACP) agent in the same pane
             ipc::agent::get_acp_settings,
-            ipc::agent::save_acp_settings,
+            ipc::agent::save_acp_agent,
+            ipc::agent::remove_acp_agent,
+            ipc::agent::set_default_agent,
+            ipc::agent::detect_acp_agents,
+            ipc::agent::add_detected_acp_agent,
             ipc::agent::test_acp_agent,
         ])
         .build(tauri::generate_context!())

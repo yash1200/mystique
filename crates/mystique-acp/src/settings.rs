@@ -1,30 +1,44 @@
-//! Settings → AI → Agent: built-in (default) or an external ACP agent.
+//! Settings → AI → Agent: the built-in agent (default) and the external ACP
+//! agents the user added, one of them maybe the default.
 //!
-//! The command, its arguments and plain environment values live in the
-//! settings table. An environment value whose name looks secret (`…KEY`,
-//! `…TOKEN`, `…SECRET`, `…PASSWORD`, …) is sealed in the vault as
-//! `ai:acp-env:<NAME>` and never sent back to the window.
+//! The list lives in the settings table as JSON (`ai.acp.agents`): per agent
+//! its id, catalog key (or none for a custom agent), command, arguments and
+//! plain environment values. An environment value whose name looks secret
+//! (`…KEY`, `…TOKEN`, `…SECRET`, `…PASSWORD`, …) is sealed in the vault as
+//! `ai:acp-env:<agent id>:<NAME>` and never sent back to the window.
+//! Removing an agent removes its secrets.
+//!
+//! Before the list there was one agent (`ai.acp.command`, …). It is moved
+//! into the list once, as the agent `custom`, whose secrets keep their old
+//! vault names (`ai:acp-env:<NAME>`), so the move never opens the vault.
 
 use std::path::{Path, PathBuf};
 
 use mystique_core::{AppError, AppResult, AppServices, SecretKind};
 use serde::{Deserialize, Serialize};
 
-pub const SETTING_AGENT_KIND: &str = "ai.agent.kind";
-pub const SETTING_ACP_COMMAND: &str = "ai.acp.command";
-pub const SETTING_ACP_ARGS: &str = "ai.acp.args";
-pub const SETTING_ACP_ENV: &str = "ai.acp.env";
-/// The agent's name from its last `initialize`, for the pane header.
-pub const SETTING_ACP_AGENT_NAME: &str = "ai.acp.agent_name";
+use crate::catalog;
+use crate::detect;
 
-pub const KIND_BUILTIN: &str = "builtin";
-pub const KIND_ACP: &str = "acp";
+/// The added agents (JSON list of [`StoredAgent`]).
+pub const SETTING_AGENTS: &str = "ai.acp.agents";
+/// `builtin` or the id of an added agent: what a new chat uses.
+pub const SETTING_DEFAULT_AGENT: &str = "ai.agent.default";
+/// The built-in agent's id in the agent menu.
+pub const BUILTIN: &str = "builtin";
 
-/// The provider tag an external agent's chats carry.
+// The single agent of earlier versions, moved into the list once.
+const LEGACY_KIND: &str = "ai.agent.kind";
+const LEGACY_COMMAND: &str = "ai.acp.command";
+const LEGACY_ARGS: &str = "ai.acp.args";
+const LEGACY_ENV: &str = "ai.acp.env";
+const LEGACY_NAME: &str = "ai.acp.agent_name";
+/// The migrated agent's id. Its secrets keep their old vault names.
+const LEGACY_ID: &str = "custom";
+
+/// The provider tag an external agent's chats carry. The chat's `model` is
+/// the agent's id, so each chat remembers which agent it talks to.
 pub const ACP_PROVIDER: &str = "acp";
-
-/// Where an app started from Finder may not look: added to the agent's PATH.
-const EXTRA_PATH: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
 
 /// One environment variable, as the window sees it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -41,18 +55,31 @@ pub struct AcpEnvVar {
     pub saved: bool,
 }
 
+/// One added agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
+#[serde(rename_all = "camelCase")]
+pub struct AcpAgentView {
+    pub id: String,
+    /// The catalog entry it was added from; `None` for a custom agent.
+    #[serde(default)]
+    pub catalog_id: Option<String>,
+    /// What the agent menu and the pane header call it.
+    pub label: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: Vec<AcpEnvVar>,
+}
+
 /// Settings → AI → Agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AcpSettingsView {
-    /// `builtin` or `acp`.
-    pub kind: String,
-    pub command: String,
-    pub args: Vec<String>,
-    pub env: Vec<AcpEnvVar>,
-    /// What the pane header calls the external agent.
-    pub agent_label: String,
+    /// `builtin` or an agent id.
+    pub default_agent: String,
+    pub agents: Vec<AcpAgentView>,
 }
 
 /// One environment variable to save. An empty value of a secret that is
@@ -67,14 +94,34 @@ pub struct AcpEnvInput {
     pub value: Option<String>,
 }
 
+/// Add or change one agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
 #[serde(rename_all = "camelCase")]
-pub struct SaveAcpSettings {
-    pub kind: String,
+pub struct SaveAcpAgent {
+    /// The agent to change; `None` adds one.
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub catalog_id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
     pub command: String,
     pub args: Vec<String>,
     pub env: Vec<AcpEnvInput>,
+    /// Also make it the default for new chats.
+    #[serde(default)]
+    pub make_default: bool,
+}
+
+/// The saved agent's id and the settings after the save.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AcpAgentSaved {
+    pub id: String,
+    pub settings: AcpSettingsView,
 }
 
 /// How a variable is kept in the settings table.
@@ -85,6 +132,35 @@ struct StoredEnv {
     value: Option<String>,
     #[serde(default)]
     secret: bool,
+}
+
+/// How an agent is kept in the settings table.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct StoredAgent {
+    id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    catalog_id: Option<String>,
+    label: String,
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    env: Vec<StoredEnv>,
+    /// The agent's own name from its last `initialize`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_name: Option<String>,
+}
+
+impl StoredAgent {
+    fn display(&self) -> String {
+        self.agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.label)
+            .to_string()
+    }
 }
 
 /// True for names that usually hold a credential.
@@ -111,30 +187,83 @@ fn valid_env_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn vault_name(name: &str) -> String {
-    format!("acp-env:{name}")
+fn vault_name(agent_id: &str, name: &str) -> String {
+    if agent_id == LEGACY_ID {
+        format!("acp-env:{name}")
+    } else {
+        format!("acp-env:{agent_id}:{name}")
+    }
 }
 
 fn get(app: &AppServices, key: &str) -> Option<String> {
     app.settings().get(key).ok().flatten().map(|s| s.value)
 }
 
-fn stored_env(app: &AppServices) -> Vec<StoredEnv> {
-    get(app, SETTING_ACP_ENV)
+/// Move the single agent of earlier versions into the list, once. Never
+/// opens the vault: the moved agent keeps its secrets' vault names.
+fn migrate(app: &AppServices) -> AppResult<()> {
+    if get(app, SETTING_AGENTS).is_some() {
+        return Ok(());
+    }
+    let command = get(app, LEGACY_COMMAND).unwrap_or_default();
+    let mut agents = Vec::new();
+    let mut default = BUILTIN.to_string();
+    if !command.trim().is_empty() {
+        let args: Vec<String> = get(app, LEGACY_ARGS)
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        let env: Vec<StoredEnv> = get(app, LEGACY_ENV)
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        agents.push(StoredAgent {
+            id: LEGACY_ID.into(),
+            catalog_id: None,
+            label: command_label(&command, &args),
+            command: command.trim().to_string(),
+            args,
+            env,
+            agent_name: get(app, LEGACY_NAME).filter(|s| !s.trim().is_empty()),
+        });
+        if get(app, LEGACY_KIND).as_deref().map(str::trim) == Some("acp") {
+            default = LEGACY_ID.into();
+        }
+    }
+    let settings = app.settings();
+    settings.set(SETTING_AGENTS, &serde_json::to_string(&agents)?)?;
+    settings.set(SETTING_DEFAULT_AGENT, &default)?;
+    for key in [
+        LEGACY_KIND,
+        LEGACY_COMMAND,
+        LEGACY_ARGS,
+        LEGACY_ENV,
+        LEGACY_NAME,
+    ] {
+        let _ = settings.delete(key);
+    }
+    Ok(())
+}
+
+fn stored(app: &AppServices) -> Vec<StoredAgent> {
+    if let Err(e) = migrate(app) {
+        tracing::warn!(error = %e, "acp: could not move the old agent setting");
+    }
+    get(app, SETTING_AGENTS)
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
 }
 
-fn stored_args(app: &AppServices) -> Vec<String> {
-    get(app, SETTING_ACP_ARGS)
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+fn store(app: &AppServices, agents: &[StoredAgent]) -> AppResult<()> {
+    app.settings()
+        .set(SETTING_AGENTS, &serde_json::to_string(agents)?)?;
+    Ok(())
 }
 
-pub fn kind(app: &AppServices) -> String {
-    match get(app, SETTING_AGENT_KIND).as_deref().map(str::trim) {
-        Some(KIND_ACP) => KIND_ACP.into(),
-        _ => KIND_BUILTIN.into(),
+/// `builtin` or an agent id that exists.
+pub fn default_agent(app: &AppServices) -> String {
+    let agents = stored(app);
+    match get(app, SETTING_DEFAULT_AGENT) {
+        Some(id) if agents.iter().any(|a| a.id == id) => id,
+        _ => BUILTIN.into(),
     }
 }
 
@@ -150,64 +279,69 @@ fn command_label(command: &str, args: &[String]) -> String {
             return pkg.rsplit('/').next().unwrap_or(pkg).to_string();
         }
     }
-    base
-}
-
-pub fn agent_label(app: &AppServices) -> String {
-    if let Some(name) = get(app, SETTING_ACP_AGENT_NAME).filter(|s| !s.trim().is_empty()) {
-        return name;
-    }
-    let command = get(app, SETTING_ACP_COMMAND).unwrap_or_default();
-    let label = command_label(&command, &stored_args(app));
-    if label.is_empty() {
+    if base.is_empty() {
         "External agent".into()
     } else {
-        label
+        base
     }
 }
 
 /// Never loads the vault key.
 pub fn view(app: &AppServices) -> AcpSettingsView {
-    let env = stored_env(app)
+    let agents = stored(app)
         .into_iter()
-        .map(|e| {
-            let saved = e.secret
-                && app
-                    .vault()
-                    .has(SecretKind::Ai(&vault_name(&e.name)))
-                    .unwrap_or(false);
-            AcpEnvVar {
-                value: if e.secret { None } else { e.value },
-                name: e.name,
-                secret: e.secret,
-                saved,
+        .map(|agent| {
+            let env = agent
+                .env
+                .iter()
+                .map(|e| {
+                    let saved = e.secret
+                        && app
+                            .vault()
+                            .has(SecretKind::Ai(&vault_name(&agent.id, &e.name)))
+                            .unwrap_or(false);
+                    AcpEnvVar {
+                        value: if e.secret { None } else { e.value.clone() },
+                        name: e.name.clone(),
+                        secret: e.secret,
+                        saved,
+                    }
+                })
+                .collect();
+            AcpAgentView {
+                label: agent.display(),
+                id: agent.id,
+                catalog_id: agent.catalog_id,
+                command: agent.command,
+                args: agent.args,
+                env,
             }
         })
         .collect();
     AcpSettingsView {
-        kind: kind(app),
-        command: get(app, SETTING_ACP_COMMAND).unwrap_or_default(),
-        args: stored_args(app),
-        env,
-        agent_label: agent_label(app),
+        default_agent: default_agent(app),
+        agents,
     }
 }
 
-pub fn save(app: &AppServices, input: SaveAcpSettings) -> AppResult<AcpSettingsView> {
-    let kind = match input.kind.trim() {
-        KIND_ACP => KIND_ACP,
-        KIND_BUILTIN | "" => KIND_BUILTIN,
-        other => return Err(AppError::Invalid(format!("unknown agent kind `{other}`"))),
-    };
-    let command = input.command.trim().to_string();
-    if kind == KIND_ACP && command.is_empty() {
-        return Err(AppError::Invalid(
-            "Enter the command that starts the agent.".into(),
-        ));
-    }
-    let before = stored_env(app);
+/// `custom-1`, `custom-2`, … — the first one not taken.
+fn next_custom_id(agents: &[StoredAgent]) -> String {
+    (1..)
+        .map(|n| format!("custom-{n}"))
+        .find(|id| !agents.iter().any(|a| &a.id == id))
+        .unwrap_or_else(|| "custom-x".into())
+}
+
+/// Validate `input` and seal its secrets for agent `id`. Returns what to
+/// store; deletes the vault entries of secrets the input drops.
+fn store_env(
+    app: &AppServices,
+    id: &str,
+    before: &[StoredEnv],
+    input: Vec<AcpEnvInput>,
+) -> AppResult<Vec<StoredEnv>> {
     let mut stored = Vec::new();
-    for var in input.env {
+    for var in input {
         let name = var.name.trim().to_string();
         if name.is_empty() {
             continue;
@@ -226,7 +360,7 @@ pub fn save(app: &AppServices, input: SaveAcpSettings) -> AppResult<AcpSettingsV
         if secret {
             if !value.trim().is_empty() {
                 app.vault()
-                    .set(SecretKind::Ai(&vault_name(&name)), value.trim())?;
+                    .set(SecretKind::Ai(&vault_name(id, &name)), value.trim())?;
             }
             stored.push(StoredEnv {
                 name,
@@ -235,7 +369,7 @@ pub fn save(app: &AppServices, input: SaveAcpSettings) -> AppResult<AcpSettingsV
             });
         } else {
             if was_secret {
-                app.vault().delete(SecretKind::Ai(&vault_name(&name)))?;
+                app.vault().delete(SecretKind::Ai(&vault_name(id, &name)))?;
             }
             stored.push(StoredEnv {
                 name,
@@ -246,32 +380,176 @@ pub fn save(app: &AppServices, input: SaveAcpSettings) -> AppResult<AcpSettingsV
     }
     for old in before.iter().filter(|b| b.secret) {
         if !stored.iter().any(|s| s.name == old.name) {
-            app.vault().delete(SecretKind::Ai(&vault_name(&old.name)))?;
+            app.vault()
+                .delete(SecretKind::Ai(&vault_name(id, &old.name)))?;
         }
     }
+    Ok(stored)
+}
+
+/// Add an agent, or change one. Secret-looking values go to the vault (may
+/// load the vault key).
+pub fn save_agent(app: &AppServices, input: SaveAcpAgent) -> AppResult<AcpAgentSaved> {
+    let command = input.command.trim().to_string();
+    if command.is_empty() {
+        return Err(AppError::Invalid(
+            "Enter the command that starts the agent.".into(),
+        ));
+    }
+    let catalog_id = input
+        .catalog_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let entry = match catalog_id.as_deref() {
+        Some(key) => Some(
+            catalog::find(key)
+                .ok_or_else(|| AppError::Invalid(format!("Unknown agent `{key}`.")))?,
+        ),
+        None => None,
+    };
+    let mut agents = stored(app);
+    let requested = input
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != BUILTIN);
+    let position = match requested {
+        Some(id) => Some(
+            agents
+                .iter()
+                .position(|a| a.id == id)
+                .ok_or_else(|| AppError::Invalid("That agent was removed.".into()))?,
+        ),
+        // A catalog agent is added once: adding it again updates it.
+        None => entry.and_then(|e| agents.iter().position(|a| a.id == e.id)),
+    };
+    let id = match position.and_then(|i| agents.get(i)) {
+        Some(existing) => existing.id.clone(),
+        None => match entry {
+            Some(e) => e.id.to_string(),
+            None => next_custom_id(&agents),
+        },
+    };
+    let before = position
+        .and_then(|i| agents.get(i))
+        .map(|a| a.env.clone())
+        .unwrap_or_default();
+    let env = store_env(app, &id, &before, input.env)?;
     let args: Vec<String> = input.args.into_iter().filter(|a| !a.is_empty()).collect();
-    let previous_command = get(app, SETTING_ACP_COMMAND).unwrap_or_default();
-    let settings = app.settings();
-    settings.set(SETTING_AGENT_KIND, kind)?;
-    settings.set(SETTING_ACP_COMMAND, &command)?;
-    settings.set(SETTING_ACP_ARGS, &serde_json::to_string(&args)?)?;
-    settings.set(SETTING_ACP_ENV, &serde_json::to_string(&stored)?)?;
-    if previous_command != command || stored_args(app) != args {
-        let _ = settings.delete(SETTING_ACP_AGENT_NAME);
+    let label = input
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| entry.map(|e| e.name.to_string()))
+        .unwrap_or_else(|| command_label(&command, &args));
+    let previous = position.and_then(|i| agents.get(i)).cloned();
+    let agent_name = previous
+        .as_ref()
+        .filter(|p| p.command == command && p.args == args)
+        .and_then(|p| p.agent_name.clone());
+    let agent = StoredAgent {
+        id: id.clone(),
+        catalog_id: catalog_id.or_else(|| previous.and_then(|p| p.catalog_id)),
+        label,
+        command,
+        args,
+        env,
+        agent_name,
+    };
+    match position.and_then(|i| agents.get_mut(i)) {
+        Some(slot) => *slot = agent,
+        None => agents.push(agent),
+    }
+    store(app, &agents)?;
+    if input.make_default {
+        app.settings().set(SETTING_DEFAULT_AGENT, &id)?;
+    }
+    Ok(AcpAgentSaved {
+        id,
+        settings: view(app),
+    })
+}
+
+/// Remove an agent and its vault secrets. If it was the default, the
+/// built-in agent is the default again.
+pub fn remove_agent(app: &AppServices, id: &str) -> AppResult<AcpSettingsView> {
+    let mut agents = stored(app);
+    let position = agents
+        .iter()
+        .position(|a| a.id == id)
+        .ok_or_else(|| AppError::Invalid("That agent was already removed.".into()))?;
+    let agent = agents.remove(position);
+    for var in agent.env.iter().filter(|e| e.secret) {
+        app.vault()
+            .delete(SecretKind::Ai(&vault_name(&agent.id, &var.name)))?;
+    }
+    store(app, &agents)?;
+    if get(app, SETTING_DEFAULT_AGENT).as_deref() == Some(id) {
+        app.settings().set(SETTING_DEFAULT_AGENT, BUILTIN)?;
     }
     Ok(view(app))
 }
 
-/// Remember the agent's own name for the header.
-pub fn remember_agent_name(app: &AppServices, name: &str) {
+/// What new chats use: `builtin` or an agent id.
+pub fn set_default(app: &AppServices, id: &str) -> AppResult<AcpSettingsView> {
+    let id = id.trim();
+    if id != BUILTIN && !stored(app).iter().any(|a| a.id == id) {
+        return Err(AppError::Invalid("That agent was removed.".into()));
+    }
+    app.settings().set(SETTING_DEFAULT_AGENT, id)?;
+    Ok(view(app))
+}
+
+/// Remember the agent's own name for the menu and header.
+pub fn remember_agent_name(app: &AppServices, id: &str, name: &str) {
     let name = name.trim();
-    if !name.is_empty() {
-        let _ = app.settings().set(SETTING_ACP_AGENT_NAME, name);
+    if name.is_empty() {
+        return;
+    }
+    let mut agents = stored(app);
+    if let Some(agent) = agents.iter_mut().find(|a| a.id == id) {
+        if agent.agent_name.as_deref() != Some(name) {
+            agent.agent_name = Some(name.to_string());
+            let _ = store(app, &agents);
+        }
     }
 }
 
-/// Everything needed to start the agent. Loads secret values from the vault.
+/// The agent a turn or a test uses: `requested`, or the default when empty.
+fn pick(app: &AppServices, requested: &str) -> AppResult<StoredAgent> {
+    let agents = stored(app);
+    let requested = requested.trim();
+    let id = if requested.is_empty() {
+        default_agent(app)
+    } else {
+        requested.to_string()
+    };
+    if id == BUILTIN {
+        return Err(AppError::Invalid(
+            "No external agent is picked. Add one in Settings → AI → Agent.".into(),
+        ));
+    }
+    agents.into_iter().find(|a| a.id == id).ok_or_else(|| {
+        AppError::Invalid("That agent was removed. Pick another one in the agent menu.".into())
+    })
+}
+
+/// What the pane header calls agent `id`.
+#[cfg(test)]
+fn agent_label(app: &AppServices, id: &str) -> String {
+    pick(app, id)
+        .map(|a| a.display())
+        .unwrap_or_else(|_| "External agent".into())
+}
+
+/// Everything needed to start an agent. Loads secret values from the vault.
 pub(crate) struct AgentConfig {
+    pub id: String,
+    pub catalog_id: Option<String>,
     pub program: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
@@ -279,61 +557,47 @@ pub(crate) struct AgentConfig {
     pub secrets: Vec<String>,
 }
 
-pub(crate) fn load(app: &AppServices) -> AppResult<AgentConfig> {
-    let program = get(app, SETTING_ACP_COMMAND).unwrap_or_default();
-    if program.trim().is_empty() {
-        return Err(AppError::Invalid(
-            "No external agent is set up. Add its command in Settings → AI.".into(),
-        ));
-    }
+pub(crate) fn load(app: &AppServices, requested: &str) -> AppResult<AgentConfig> {
+    let agent = pick(app, requested)?;
     let mut env = Vec::new();
     let mut secrets = Vec::new();
-    for var in stored_env(app) {
+    for var in &agent.env {
         if var.secret {
-            if let Some(value) = app.vault().get(SecretKind::Ai(&vault_name(&var.name)))? {
+            if let Some(value) = app
+                .vault()
+                .get(SecretKind::Ai(&vault_name(&agent.id, &var.name)))?
+            {
                 secrets.push(value.clone());
-                env.push((var.name, value));
+                env.push((var.name.clone(), value));
             }
         } else {
-            env.push((var.name, var.value.unwrap_or_default()));
+            env.push((var.name.clone(), var.value.clone().unwrap_or_default()));
         }
     }
-    let path = env
+    let base = env
         .iter()
         .find(|(k, _)| k == "PATH")
         .map(|(_, v)| v.clone())
         .or_else(|| std::env::var("PATH").ok())
         .unwrap_or_default();
-    let path = with_extra_path(&path);
+    let program = agent.command.trim();
+    let given = Path::new(program);
+    let path = detect::launch_path(&base, given.parent().filter(|_| given.is_absolute()));
     env.retain(|(k, _)| k != "PATH");
     env.push(("PATH".into(), path.clone()));
-    let program = resolve_program(program.trim(), &path).ok_or_else(|| {
+    let resolved = resolve_program(program, &path).ok_or_else(|| {
         AppError::Invalid(format!(
-            "Could not find `{}`. Use its full path (apps started from Finder do not see your shell's PATH), or add PATH under Environment.",
-            program.trim()
+            "Could not find `{program}`. Rescan in Settings → AI → Agent, use its full path, or add PATH under Environment."
         ))
     })?;
     Ok(AgentConfig {
-        program: program.to_string_lossy().to_string(),
-        args: stored_args(app),
+        id: agent.id,
+        catalog_id: agent.catalog_id,
+        program: resolved.to_string_lossy().to_string(),
+        args: agent.args,
         env,
         secrets,
     })
-}
-
-fn with_extra_path(path: &str) -> String {
-    let mut parts: Vec<String> = std::env::split_paths(path)
-        .map(|p| p.to_string_lossy().to_string())
-        .filter(|p| !p.is_empty())
-        .collect();
-    for extra in EXTRA_PATH {
-        if !parts.iter().any(|p| p == extra) {
-            parts.push((*extra).to_string());
-        }
-    }
-    std::env::join_paths(parts)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| path.to_string())
 }
 
 /// A bare command is looked up on `path`; a path must exist.
@@ -342,9 +606,7 @@ fn resolve_program(program: &str, path: &str) -> Option<PathBuf> {
     if given.components().count() > 1 || given.is_absolute() {
         return given.is_file().then(|| given.to_path_buf());
     }
-    std::env::split_paths(path)
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
+    detect::find_program(program, path)
 }
 
 #[cfg(test)]
@@ -360,9 +622,11 @@ mod tests {
         ))
     }
 
-    fn save_input(env: Vec<(&str, &str)>) -> SaveAcpSettings {
-        SaveAcpSettings {
-            kind: KIND_ACP.into(),
+    fn input(id: Option<&str>, env: Vec<(&str, &str)>) -> SaveAcpAgent {
+        SaveAcpAgent {
+            id: id.map(str::to_string),
+            catalog_id: None,
+            label: None,
             command: "npx".into(),
             args: vec!["-y".into(), "@agentclientprotocol/claude-agent-acp".into()],
             env: env
@@ -372,73 +636,212 @@ mod tests {
                     value: Some(v.into()),
                 })
                 .collect(),
+            make_default: false,
         }
+    }
+
+    fn has_secret(app: &AppServices, name: &str) -> bool {
+        app.vault().has(SecretKind::Ai(name)).unwrap()
     }
 
     #[test]
     fn secret_looking_values_go_to_the_vault_and_never_back_to_the_window() {
         let app = app();
-        let view = save(
+        let saved = save_agent(
             &app,
-            save_input(vec![("ANTHROPIC_API_KEY", "sk-ant-123456"), ("DEBUG", "1")]),
+            input(
+                None,
+                vec![("ANTHROPIC_API_KEY", "sk-ant-123456"), ("DEBUG", "1")],
+            ),
         )
         .unwrap();
-        assert_eq!(view.kind, KIND_ACP);
-        assert_eq!(view.agent_label, "claude-agent-acp");
-        let key = view
+        assert_eq!(saved.id, "custom-1");
+        let agent = &saved.settings.agents[0];
+        assert_eq!(agent.label, "claude-agent-acp");
+        let key = agent
             .env
             .iter()
             .find(|e| e.name == "ANTHROPIC_API_KEY")
             .unwrap();
         assert!(key.secret && key.saved && key.value.is_none());
-        let debug = view.env.iter().find(|e| e.name == "DEBUG").unwrap();
+        let debug = agent.env.iter().find(|e| e.name == "DEBUG").unwrap();
         assert_eq!(debug.value.as_deref(), Some("1"));
-        let raw = get(&app, SETTING_ACP_ENV).unwrap();
+        let raw = get(&app, SETTING_AGENTS).unwrap();
         assert!(!raw.contains("sk-ant-123456"), "{raw}");
         assert_eq!(
             app.vault()
-                .get(SecretKind::Ai("acp-env:ANTHROPIC_API_KEY"))
+                .get(SecretKind::Ai("acp-env:custom-1:ANTHROPIC_API_KEY"))
                 .unwrap()
                 .as_deref(),
             Some("sk-ant-123456")
         );
 
         // Saving again with an empty value keeps the saved secret.
-        save(
+        save_agent(
             &app,
-            save_input(vec![("ANTHROPIC_API_KEY", ""), ("DEBUG", "1")]),
+            input(
+                Some("custom-1"),
+                vec![("ANTHROPIC_API_KEY", ""), ("DEBUG", "1")],
+            ),
         )
         .unwrap();
-        assert!(app
-            .vault()
-            .has(SecretKind::Ai("acp-env:ANTHROPIC_API_KEY"))
-            .unwrap());
+        assert!(has_secret(&app, "acp-env:custom-1:ANTHROPIC_API_KEY"));
         // Removing the variable removes the secret.
-        save(&app, save_input(vec![("DEBUG", "1")])).unwrap();
-        assert!(!app
-            .vault()
-            .has(SecretKind::Ai("acp-env:ANTHROPIC_API_KEY"))
-            .unwrap());
+        save_agent(&app, input(Some("custom-1"), vec![("DEBUG", "1")])).unwrap();
+        assert!(!has_secret(&app, "acp-env:custom-1:ANTHROPIC_API_KEY"));
     }
 
     #[test]
-    fn bad_input_is_refused_and_builtin_is_the_default() {
+    fn agents_are_added_listed_changed_and_removed_with_their_secrets() {
         let app = app();
-        assert_eq!(view(&app).kind, KIND_BUILTIN);
-        assert!(save(&app, save_input(vec![("1BAD", "x")])).is_err());
-        assert!(save(&app, save_input(vec![("A", "x"), ("A", "y")])).is_err());
-        let mut no_command = save_input(vec![]);
+        assert_eq!(
+            view(&app),
+            AcpSettingsView {
+                default_agent: BUILTIN.into(),
+                agents: vec![],
+            }
+        );
+        let mut claude = input(None, vec![("ANTHROPIC_API_KEY", "sk-ant-aaaaaa")]);
+        claude.catalog_id = Some("claude".into());
+        claude.make_default = true;
+        let added = save_agent(&app, claude.clone()).unwrap();
+        assert_eq!(added.id, "claude");
+        assert_eq!(added.settings.default_agent, "claude");
+        assert_eq!(added.settings.agents[0].label, "Claude Code");
+        assert_eq!(
+            added.settings.agents[0].catalog_id.as_deref(),
+            Some("claude")
+        );
+
+        // Adding the same catalog agent again updates it, keeping its secret.
+        claude.env = vec![AcpEnvInput {
+            name: "ANTHROPIC_API_KEY".into(),
+            value: Some(String::new()),
+        }];
+        claude.make_default = false;
+        let again = save_agent(&app, claude).unwrap();
+        assert_eq!(again.settings.agents.len(), 1);
+        assert!(has_secret(&app, "acp-env:claude:ANTHROPIC_API_KEY"));
+
+        let custom = save_agent(&app, input(None, vec![("MY_TOKEN", "tok-123456")])).unwrap();
+        assert_eq!(custom.id, "custom-1");
+        assert_eq!(custom.settings.agents.len(), 2);
+
+        // Removing the default: its secrets go, and built-in is the default.
+        let after = remove_agent(&app, "claude").unwrap();
+        assert_eq!(after.default_agent, BUILTIN);
+        assert_eq!(after.agents.len(), 1);
+        assert!(!has_secret(&app, "acp-env:claude:ANTHROPIC_API_KEY"));
+        assert!(has_secret(&app, "acp-env:custom-1:MY_TOKEN"));
+        assert!(remove_agent(&app, "claude").is_err());
+        remove_agent(&app, "custom-1").unwrap();
+        assert!(!has_secret(&app, "acp-env:custom-1:MY_TOKEN"));
+        // Ids are reused only once free.
+        assert_eq!(
+            save_agent(&app, input(None, vec![])).unwrap().id,
+            "custom-1"
+        );
+    }
+
+    #[test]
+    fn the_default_and_a_per_chat_pick_choose_the_agent() {
+        let app = app();
+        let exe = std::env::current_exe().unwrap();
+        let mut a = input(None, vec![]);
+        a.command = exe.to_string_lossy().to_string();
+        let first = save_agent(&app, a.clone()).unwrap().id;
+        let second = save_agent(&app, a).unwrap().id;
+        // Built-in by default: a turn without a pick has no external agent.
+        assert!(load(&app, "")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Settings → AI"));
+        set_default(&app, &second).unwrap();
+        assert_eq!(load(&app, "").unwrap().id, second);
+        // A chat's own pick wins over the default.
+        assert_eq!(load(&app, &first).unwrap().id, first);
+        assert!(load(&app, "gone")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("removed"));
+        assert!(set_default(&app, "gone").is_err());
+        set_default(&app, BUILTIN).unwrap();
+        assert_eq!(default_agent(&app), BUILTIN);
+        // A default pointing at a removed agent reads as built-in.
+        set_default(&app, &first).unwrap();
+        remove_agent(&app, &first).unwrap();
+        assert_eq!(default_agent(&app), BUILTIN);
+
+        remember_agent_name(&app, &second, "Fake Agent");
+        assert_eq!(agent_label(&app, &second), "Fake Agent");
+    }
+
+    #[test]
+    fn the_single_agent_of_earlier_versions_moves_into_the_list() {
+        let app = app();
+        let s = app.settings();
+        s.set(LEGACY_KIND, "acp").unwrap();
+        s.set(LEGACY_COMMAND, "npx").unwrap();
+        s.set(
+            LEGACY_ARGS,
+            r#"["-y","@agentclientprotocol/claude-agent-acp"]"#,
+        )
+        .unwrap();
+        s.set(
+            LEGACY_ENV,
+            r#"[{"name":"ANTHROPIC_API_KEY","secret":true},{"name":"DEBUG","value":"1"}]"#,
+        )
+        .unwrap();
+        s.set(LEGACY_NAME, "Claude Code").unwrap();
+        app.vault()
+            .set(SecretKind::Ai("acp-env:ANTHROPIC_API_KEY"), "sk-old-123456")
+            .unwrap();
+
+        let v = view(&app);
+        assert_eq!(v.default_agent, LEGACY_ID);
+        assert_eq!(v.agents.len(), 1);
+        let agent = &v.agents[0];
+        assert_eq!(agent.id, LEGACY_ID);
+        assert_eq!(agent.label, "Claude Code");
+        assert_eq!(agent.args[1], "@agentclientprotocol/claude-agent-acp");
+        let key = agent
+            .env
+            .iter()
+            .find(|e| e.name == "ANTHROPIC_API_KEY")
+            .unwrap();
+        assert!(key.secret && key.saved);
+        assert!(get(&app, LEGACY_COMMAND).is_none() && get(&app, LEGACY_KIND).is_none());
+        // Its secret kept the old vault name, and leaves with the agent.
+        remove_agent(&app, LEGACY_ID).unwrap();
+        assert!(!has_secret(&app, "acp-env:ANTHROPIC_API_KEY"));
+        // Migrated once: the old keys are gone, nothing comes back.
+        assert!(view(&app).agents.is_empty());
+    }
+
+    #[test]
+    fn bad_input_is_refused() {
+        let app = app();
+        assert!(save_agent(&app, input(None, vec![("1BAD", "x")])).is_err());
+        assert!(save_agent(&app, input(None, vec![("A", "x"), ("A", "y")])).is_err());
+        let mut no_command = input(None, vec![]);
         no_command.command = " ".into();
-        assert!(save(&app, no_command).is_err());
+        assert!(save_agent(&app, no_command).is_err());
+        let mut unknown = input(None, vec![]);
+        unknown.catalog_id = Some("nope".into());
+        assert!(save_agent(&app, unknown).is_err());
+        assert!(save_agent(&app, input(Some("missing"), vec![])).is_err());
+        assert!(view(&app).agents.is_empty());
     }
 
     #[test]
     fn a_missing_command_says_how_to_fix_it() {
         let app = app();
-        let mut input = save_input(vec![]);
-        input.command = "definitely-not-a-real-agent-binary".into();
-        save(&app, input).unwrap();
-        let err = load(&app).err().unwrap().to_string();
+        let mut i = input(None, vec![]);
+        i.command = "definitely-not-a-real-agent-binary".into();
+        let id = save_agent(&app, i).unwrap().id;
+        let err = load(&app, &id).err().unwrap().to_string();
         assert!(err.contains("full path"), "{err}");
     }
 

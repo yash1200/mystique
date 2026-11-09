@@ -27,7 +27,7 @@ use crate::process::Launch;
 use crate::scrub::{Scrubber, MASK};
 use crate::service::AcpService;
 use crate::session::{Launcher, McpAccess, Transport};
-use crate::settings::{AcpEnvInput, SaveAcpSettings, KIND_ACP};
+use crate::settings::{AcpEnvInput, SaveAcpAgent};
 
 // ---------------------------------------------------------------- logs
 
@@ -169,11 +169,19 @@ impl Fx {
             .unwrap()
     }
 
+    /// One custom agent, the default; configuring again replaces it.
     fn configure(&self, program: &str, args: &[&str], env: Vec<(&str, &str)>) {
-        crate::settings::save(
+        let existing = crate::settings::view(&self.app)
+            .agents
+            .first()
+            .map(|a| a.id.clone());
+        crate::settings::save_agent(
             &self.app,
-            SaveAcpSettings {
-                kind: KIND_ACP.into(),
+            SaveAcpAgent {
+                id: existing,
+                catalog_id: None,
+                label: None,
+                make_default: true,
                 command: program.into(),
                 args: args.iter().map(|a| a.to_string()).collect(),
                 env: env
@@ -557,17 +565,23 @@ async fn the_test_button_initializes_and_declines_files_and_terminal() {
                 }),
             )
             .await;
+        // The sign-in check: a session with no MCP server.
+        let (id, _) = agent.expect("session/new").await;
+        agent.reply(id, json!({ "sessionId": "probe" })).await;
         while agent.recv().await.is_some() {}
     });
     let acp = fx.service(fake.clone());
-    let probe = acp.probe().await.unwrap();
+    let probe = acp.probe("").await.unwrap();
     assert_eq!(probe.name, "fake-agent");
     assert_eq!(probe.version, "0.0.1");
     assert_eq!(probe.protocol_version, 1);
     assert!(probe.mcp_http && probe.load_session);
     assert_eq!(probe.auth_methods, vec!["Log in with Claude".to_string()]);
     assert_eq!(probe.problem, None);
-    assert_eq!(acp.settings().agent_label, "Fake Agent");
+    assert_eq!(probe.signed_in, Some(true));
+    assert_eq!(probe.mcp_transport.as_deref(), Some("http"));
+    assert_eq!(probe.agent_id, "custom-1");
+    assert_eq!(acp.settings().agents[0].label, "Fake Agent");
 
     let init = &fake.received("initialize")[0]["params"];
     assert_eq!(init["protocolVersion"], json!(1));
@@ -576,8 +590,10 @@ async fn the_test_button_initializes_and_declines_files_and_terminal() {
         json!({ "readTextFile": false, "writeTextFile": false })
     );
     assert_eq!(init["clientCapabilities"]["terminal"], json!(false));
-    // A probe never opens a session.
-    assert!(fake.received("session/new").is_empty());
+    // The probe's session carries no MCP server (and so no token).
+    let session = &fake.received("session/new")[0]["params"];
+    assert_eq!(session["mcpServers"], json!([]));
+    assert!(fake.received("session/prompt").is_empty());
     fx.close().await;
 }
 
@@ -724,8 +740,11 @@ async fn a_turn_streams_text_and_a_tool_call_through_mystique_mcp() {
     assert_eq!(rows[2].id, message_id);
     assert_eq!(rows[2].draft_body.as_deref(), Some("select * from orders"));
     let chat = fx.app.agent_chats().get(&started.chat.id).unwrap();
+    // The chat remembers its agent by id; the agent's name is remembered
+    // on the agent for the menu.
     assert_eq!(chat.provider, "acp");
-    assert_eq!(chat.model, "Fake Agent");
+    assert_eq!(chat.model, "custom-1");
+    assert_eq!(crate::settings::view(&fx.app).agents[0].label, "Fake Agent");
     fx.close().await;
 }
 
@@ -1104,6 +1123,151 @@ async fn an_agent_that_exits_or_lacks_http_mcp_fails_the_turn_with_a_reason() {
         .err()
         .unwrap();
     assert!(err.to_string().contains("Settings → MCP"), "{err}");
+    fx.close().await;
+}
+
+#[tokio::test]
+async fn an_agent_without_http_mcp_reaches_mystique_through_the_stdio_bridge() {
+    let fx = fixture("local").await;
+    fx.level("full");
+    fx.sql("CREATE TABLE orders (id INTEGER PRIMARY KEY)").await;
+    let conn_id = fx.conn_id.clone();
+    type Bridged = Option<(JsonValue, String, String)>;
+    let bridged: Arc<Mutex<Bridged>> = Arc::default();
+    let seen = Arc::clone(&bridged);
+    let fake = FakeLauncher::new(move |mut agent: FakeAgent| {
+        let conn_id = conn_id.clone();
+        let seen = Arc::clone(&seen);
+        async move {
+            let (id, _) = agent.expect("initialize").await;
+            // stdio only: no mcpCapabilities at all.
+            agent
+                .reply(
+                    id,
+                    json!({ "protocolVersion": 1, "agentCapabilities": {}, "agentInfo": { "name": "stdio-agent", "version": "1" } }),
+                )
+                .await;
+            let (id, params) = agent.expect("session/new").await;
+            let server = params["mcpServers"][0].clone();
+            let env = |name: &str| {
+                server["env"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|e| e["name"] == name)
+                    .map(|e| e["value"].as_str().unwrap().to_string())
+                    .unwrap()
+            };
+            let url = env(crate::bridge::ENV_URL);
+            let token = env(crate::bridge::ENV_TOKEN);
+            agent.reply(id, json!({ "sessionId": "s1" })).await;
+            let (prompt_id, _) = agent.expect("session/prompt").await;
+            // What the agent does: start the bridge and speak MCP to it.
+            let input = [
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "fake", "version": "1" } } }),
+                json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+                json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "list_objects", "arguments": { "connection_id": conn_id } } }),
+            ]
+            .iter()
+            .map(|m| m.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+            let out = LogBuf::default();
+            let log = LogBuf::default();
+            let (o, l) = (out.clone(), log.clone());
+            tokio::task::spawn_blocking(move || {
+                crate::bridge::run(&url, &token, input.as_bytes(), o, l).unwrap();
+            })
+            .await
+            .unwrap();
+            *seen.lock().unwrap() = Some((server, out.text(), log.text()));
+            agent.say("s1", "Done.").await;
+            agent
+                .reply(prompt_id, json!({ "stopReason": "end_turn" }))
+                .await;
+            while agent.recv().await.is_some() {}
+        }
+    });
+    let exe = PathBuf::from("/Applications/Mystique.app/Contents/MacOS/mystique");
+    let acp = fx.service(fake.clone()).with_bridge(exe.clone());
+    let (sink, events) = recording_sink();
+    let started = acp
+        .send(
+            &fx.runtime,
+            fx.access.clone(),
+            fx.request("tables?", None),
+            sink,
+        )
+        .unwrap();
+    let end = wait_terminal(&events, Duration::from_secs(10)).await;
+    assert!(matches!(end, AgentEvent::Done { .. }), "{end:?}");
+    // The chat remembers the (default) agent it ran with.
+    let chat = fx.app.agent_chats().get(&started.chat.id).unwrap();
+    assert_eq!(chat.model, "custom-1");
+
+    let (server, out, log) = bridged.lock().unwrap().clone().unwrap();
+    assert_eq!(server["command"], exe.to_string_lossy().as_ref());
+    assert_eq!(server["args"], json!([crate::bridge::BRIDGE_FLAG]));
+    assert!(!server["args"].to_string().contains(&fx.access.token));
+    let replies: Vec<JsonValue> = out
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(replies.len(), 2, "{out}");
+    let call = replies.iter().find(|r| r["id"] == 2).unwrap();
+    assert_eq!(call["result"]["isError"], json!(false), "{call}");
+    assert!(call.to_string().contains("orders"), "{call}");
+    assert!(replies
+        .iter()
+        .any(|r| r["id"] == 1 && r["result"].is_object()));
+    assert!(!log.contains(&fx.access.token), "{log}");
+    fx.close().await;
+}
+
+#[tokio::test]
+async fn the_test_button_reports_sign_in_and_how_mcp_is_reached() {
+    let fx = fixture("local").await;
+    let fake = FakeLauncher::new(|mut agent: FakeAgent| async move {
+        let (id, _) = agent.expect("initialize").await;
+        agent
+            .reply(
+                id,
+                json!({ "protocolVersion": 1, "agentCapabilities": { "mcpCapabilities": { "http": true } } }),
+            )
+            .await;
+        let (id, _) = agent.expect("session/new").await;
+        agent
+            .send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "Authentication required" } }))
+            .await;
+        while agent.recv().await.is_some() {}
+    });
+    let probe = fx.service(fake).probe("").await.unwrap();
+    assert_eq!(probe.signed_in, Some(false));
+    let problem = probe.problem.unwrap();
+    assert!(problem.starts_with("Not signed in."), "{problem}");
+
+    // A stdio-only agent: refused without the bridge, fine with it.
+    let fake = FakeLauncher::new(|mut agent: FakeAgent| async move {
+        let (id, _) = agent.expect("initialize").await;
+        agent
+            .reply(id, json!({ "protocolVersion": 1, "agentCapabilities": {} }))
+            .await;
+        let (id, _) = agent.expect("session/new").await;
+        agent.reply(id, json!({ "sessionId": "p" })).await;
+        while agent.recv().await.is_some() {}
+    });
+    let probe = fx.service(fake.clone()).probe("").await.unwrap();
+    assert_eq!(probe.mcp_transport, None);
+    assert!(probe.problem.unwrap().contains("bridge"));
+    let probe = fx
+        .service(fake)
+        .with_bridge(PathBuf::from("/app/mystique"))
+        .probe("")
+        .await
+        .unwrap();
+    assert_eq!(probe.mcp_transport.as_deref(), Some("stdio"));
+    assert_eq!(probe.signed_in, Some(true));
+    assert_eq!(probe.problem, None);
     fx.close().await;
 }
 

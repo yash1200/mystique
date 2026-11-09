@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
-use mystique_acp::{AcpProbe, AcpSettingsView, McpAccess, SaveAcpSettings, ACP_PROVIDER};
+use mystique_acp::{
+    AcpAgentSaved, AcpProbe, AcpSettingsView, DetectedAcpAgent, McpAccess, SaveAcpAgent,
+    ACP_PROVIDER,
+};
 use mystique_agent::{
     parse_provider, provider_catalog, AgentEvent, AgentEventSink, AgentModelInfo, AgentRuntime,
     AiSettingsView, SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL,
     SETTING_AI_ENABLED, SETTING_OLLAMA_URL,
 };
-use mystique_core::{AgentChat, AgentMessage, AppError, AppServices, UpdateAgentChatInput};
+use mystique_core::{AgentChat, AgentMessage, AppServices, UpdateAgentChatInput};
 use tauri::ipc::Channel;
 use tauri::State;
 
@@ -213,15 +216,6 @@ async fn send_external(
     let acp = state.acp.clone();
     let mcp = state.mcp.clone();
     super::guard(async move {
-        let active = {
-            let acp = acp.clone();
-            super::guard_blocking(move || Ok(acp.active())).await?
-        };
-        if !active {
-            return Err(IpcError::from(AppError::Invalid(
-                "The external agent is off. Pick it under Agent in Settings → AI.".into(),
-            )));
-        }
         let access = match mcp.running_endpoint().await.map_err(IpcError::from)? {
             Some(endpoint) => McpAccess {
                 url: endpoint.url,
@@ -241,29 +235,69 @@ async fn send_external(
     .await
 }
 
-/// Settings → AI → Agent: built-in or external (ACP).
+/// Settings → AI → Agent: the added external (ACP) agents and the default.
 #[tauri::command]
 pub async fn get_acp_settings(state: State<'_, AppState>) -> Result<AcpSettingsView, IpcError> {
     let acp = state.acp.clone();
     super::guard_blocking(move || Ok(acp.settings())).await
 }
 
-/// Save the agent choice, command, arguments and environment. Secret-looking
-/// values go to the vault.
+/// Add or change an agent (the Custom agent form). Secret-looking values go
+/// to the vault.
 #[tauri::command]
-pub async fn save_acp_settings(
+pub async fn save_acp_agent(
     state: State<'_, AppState>,
-    input: SaveAcpSettings,
-) -> Result<AcpSettingsView, IpcError> {
+    input: SaveAcpAgent,
+) -> Result<AcpAgentSaved, IpcError> {
     let acp = state.acp.clone();
-    super::guard_blocking(move || acp.save_settings(input).map_err(IpcError::from)).await
+    super::guard_blocking(move || acp.save_agent(input).map_err(IpcError::from)).await
 }
 
-/// Test button: start the saved agent, run `initialize`, stop it.
+/// Remove an agent and its vault secrets.
 #[tauri::command]
-pub async fn test_acp_agent(state: State<'_, AppState>) -> Result<AcpProbe, IpcError> {
+pub async fn remove_acp_agent(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<AcpSettingsView, IpcError> {
     let acp = state.acp.clone();
-    super::guard(async move { acp.probe().await.map_err(IpcError::from) }).await
+    super::guard_blocking(move || acp.remove_agent(&id).map_err(IpcError::from)).await
+}
+
+/// What new chats use: `builtin` or an agent id.
+#[tauri::command]
+pub async fn set_default_agent(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<AcpSettingsView, IpcError> {
+    let acp = state.acp.clone();
+    super::guard_blocking(move || acp.set_default(&id).map_err(IpcError::from)).await
+}
+
+/// Which known ACP agents are on this machine (Rescan). Never installs
+/// anything; asks each CLI found for its version (1.5 s limit each).
+#[tauri::command]
+pub async fn detect_acp_agents(
+    state: State<'_, AppState>,
+) -> Result<Vec<DetectedAcpAgent>, IpcError> {
+    let acp = state.acp.clone();
+    super::guard_blocking(move || Ok(acp.detect())).await
+}
+
+/// Add a detected agent with one click (its launch command as found here).
+#[tauri::command]
+pub async fn add_detected_acp_agent(
+    state: State<'_, AppState>,
+    catalog_id: String,
+) -> Result<AcpAgentSaved, IpcError> {
+    let acp = state.acp.clone();
+    super::guard_blocking(move || acp.add_detected(&catalog_id).map_err(IpcError::from)).await
+}
+
+/// Test button: start agent `id`, run `initialize` and a sign-in check, stop it.
+#[tauri::command]
+pub async fn test_acp_agent(state: State<'_, AppState>, id: String) -> Result<AcpProbe, IpcError> {
+    let acp = state.acp.clone();
+    super::guard(async move { acp.probe(&id).await.map_err(IpcError::from) }).await
 }
 
 /// Stop the chat's live turn (Stop button). The provider request and any
