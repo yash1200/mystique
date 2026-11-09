@@ -1,0 +1,86 @@
+{
+	"versioned-comments.mysql.sql": [
+		"/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */",
+		"/*!40014 SET FOREIGN_KEY_CHECKS=0; SET UNIQUE_CHECKS=0 */",
+		"/*M!100100 SET @x = 1 */",
+		"SELECT 1 /*!50000 , 2 */"
+	],
+	"delimiter.mysql.sql": [
+		"DROP PROCEDURE IF EXISTS p",
+		"CREATE PROCEDURE p(IN n INT)\nBEGIN\n  DECLARE i INT DEFAULT 0;\n  WHILE i < n DO\n    SET i = i + 1;\n  END WHILE;\n  SELECT i;\nEND",
+		"CREATE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW\nBEGIN\n  SET NEW.created = NOW();\nEND",
+		"CALL p(3)",
+		"SELECT 1; SELECT 2",
+		"/*!50003 CREATE TRIGGER t2 BEFORE UPDATE ON t FOR EACH ROW SET NEW.a = 1 */",
+		"SELECT 'done'"
+	],
+	"begin-end.mysql.sql": [
+		"CREATE PROCEDURE p()\nBEGIN\n  DECLARE done INT DEFAULT FALSE;\n  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;\n  IF done THEN\n    SELECT CASE WHEN done THEN 1 ELSE 0 END;\n  END IF;\n  CASE done\n    WHEN TRUE THEN SELECT 1;\n    ELSE BEGIN SELECT 2; END;\n  END CASE;\n  lbl: LOOP\n    LEAVE lbl;\n  END LOOP lbl;\nEND",
+		"SELECT 2",
+		"BEGIN NOT ATOMIC\n  SELECT 3;\nEND",
+		"BEGIN",
+		"UPDATE t SET a = 1",
+		"COMMIT",
+		"ALTER TABLE t ADD COLUMN begin INT",
+		"SELECT 4"
+	],
+	"trigger.sqlite.sql": [
+		"CREATE TRIGGER audit AFTER UPDATE ON t\nWHEN old.v <> new.v\nBEGIN\n  INSERT INTO log VALUES (old.id, CASE WHEN new.v IS NULL THEN 'null' ELSE 'set' END);\n  UPDATE t SET touched = 1 WHERE id = new.id;\nEND",
+		"SELECT [weird;name] FROM t",
+		"BEGIN IMMEDIATE",
+		"DELETE FROM t WHERE \"end\" = 1",
+		"END TRANSACTION"
+	],
+	"dollar-quotes.postgres.sql": [
+		"CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$\nBEGIN\n  RAISE NOTICE 'a;b';\n  RETURN 1;\nEND;\n$$",
+		"DO $body$\nDECLARE x text := $inner$ ; $inner$;\nBEGIN\n  PERFORM 1;\nEND\n$body$",
+		"SELECT $1, $2 FROM t WHERE a = $1",
+		"SELECT a$b$ FROM t",
+		"SELECT 2"
+	],
+	"begin-atomic.postgres.sql": [
+		"CREATE FUNCTION add(a int, b int) RETURNS int\nLANGUAGE sql\nBEGIN ATOMIC\n  SELECT CASE WHEN a IS NULL THEN 0 ELSE a END + b;\nEND",
+		"CREATE PROCEDURE ins(x int)\nLANGUAGE sql\nBEGIN ATOMIC\n  INSERT INTO t VALUES (x);\n  INSERT INTO t VALUES (x + 1);\nEND",
+		"BEGIN",
+		"CREATE TABLE t (begin int, \"end\" int)",
+		"END",
+		"CREATE RULE r AS ON INSERT TO t DO ALSO (INSERT INTO a VALUES (1); INSERT INTO b VALUES (2))",
+		"SELECT 3"
+	],
+	"escape-strings.postgres.sql": [
+		"SELECT E'it\\'s; fine', e'\\\\'",
+		"SELECT 'plain\\'",
+		"SELECT 2",
+		"SELECT 'a''b;c'",
+		"SELECT \"semi;colon\" FROM \"t;\""
+	],
+	"backslash.mysql.sql": [
+		"SELECT 'it\\'s; here', \"say \\\"hi;\\\"\"",
+		"SELECT 'a''b;c'",
+		"SELECT `col;name` FROM `t``x;`",
+		"SELECT 1--1",
+		"SELECT 2 -- real comment;",
+		"SELECT 3",
+		"# comment ;\nSELECT 4"
+	],
+	"backslash-contrast.postgres.sql": ["SELECT 'a\\'", "SELECT 2"],
+	"backslash-contrast.mysql.sql": ["SELECT 'a\\'; SELECT 2; -- x\\';"],
+	"nested-comments.postgres.sql": [
+		"/* outer /* inner ; */ still comment ; */ SELECT 1",
+		"-- line ; comment\nSELECT 2 /* trailing ; */"
+	],
+	"nested-comments.mysql.sql": [
+		"/* outer /* inner ; */ still comment",
+		"*/ SELECT 1",
+		"-- line ; comment\nSELECT 2 /* trailing ; */"
+	],
+	"empty.generic.sql": ["SELECT 1", "SELECT 2"],
+	"generic.generic.sql": ["SELECT $$a;b$$", "SELECT 'x\\'", "SELECT 1"],
+	"unicode.postgres.sql": [
+		"SELECT 'héllo; wörld' AS \"naïve;col\"",
+		"SELECT ünïcode FROM tàble",
+		"SELECT '日本;語' -- 注釈;",
+		"SELECT 3"
+	],
+	"unterminated.postgres.sql": ["SELECT 1", "SELECT 'oops;\nSELECT 2;"]
+}
