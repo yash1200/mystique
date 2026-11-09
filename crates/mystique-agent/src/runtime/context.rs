@@ -354,4 +354,26 @@ mod tests {
         assert_eq!(history[0].rag_text().as_deref(), Some("hello"));
         assert!(matches!(history[1], Message::Assistant { .. }));
     }
+
+    #[test]
+    fn a_transcript_keeps_the_newest_lines_within_its_budget() {
+        let prior = vec![
+            row("user", "how many orders?", None),
+            row(
+                "tool",
+                r#"{"args":{"name":"orders"},"result":{"rows":[[3]]}}"#,
+                Some("execute_readonly_query"),
+            ),
+            row("assistant", "There are 3 orders.", None),
+            row("user", "and customers?", None),
+        ];
+        let all = transcript_from(&prior, 10_000);
+        assert_eq!(all.lines().count(), 4);
+        assert!(all.starts_with("User: how many orders?"));
+        assert!(all.contains("Assistant used a tool - execute_readonly_query("));
+        assert!(all.ends_with("User: and customers?"));
+        let short = transcript_from(&prior, 60);
+        assert_eq!(short, "Assistant: There are 3 orders.\nUser: and customers?");
+        assert_eq!(transcript_from(&[], 100), "");
+    }
 }
