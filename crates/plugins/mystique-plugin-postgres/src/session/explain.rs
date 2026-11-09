@@ -18,8 +18,7 @@ pub(super) async fn explain_query(
     analyze: bool,
 ) -> ConnectorResult<ExplainPlan> {
     session.ensure_open()?;
-    let client = session.client().await?;
-    let _guard = session.arm_cancel(&client, &query.control);
+    let mut client = session.run_client(&query.control).await?;
     let timeout = query.timeout_ms; // 0 turns statement_timeout off.
     client
         .batch_execute("BEGIN READ ONLY")
@@ -29,11 +28,11 @@ pub(super) async fn explain_query(
         .batch_execute(&format!("SET LOCAL statement_timeout = {timeout}"))
         .await
     {
-        return end_read_only_txn(client, Err(query_failed(err))).await;
+        return end_read_only_txn(&mut client, Err(query_failed(err))).await;
     }
     let sql = postgres_explain_sql(&query.text, analyze);
     let fetched = fetch_text(&client, &sql).await;
-    let raw = end_read_only_txn(client, fetched).await?;
+    let raw = end_read_only_txn(&mut client, fetched).await?;
     parse_postgres_explain(&raw)
 }
 

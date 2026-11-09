@@ -52,8 +52,7 @@ pub(super) async fn fetch_table_preview(
         "SELECT {select_list} FROM {target}{where_sql}{order} LIMIT {limit} OFFSET {offset}"
     );
 
-    let client = session.client().await?;
-    let _guard = session.arm_cancel(&client, &input.control);
+    let client = session.run_client(&input.control).await?;
     let rows = client
         .query(sql.as_str(), &[])
         .await

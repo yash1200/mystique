@@ -79,7 +79,7 @@ pub(crate) struct NoticeHub {
     /// Keyed by the address of the connection's statement cache, which lives
     /// exactly as long as the pooled connection. The `Weak` proves the address
     /// was not reused by a newer connection.
-    pids: Arc<Mutex<HashMap<usize, (Weak<StatementCache>, i32)>>>,
+    pids: Arc<Mutex<HashMap<usize, CachedPid>>>,
 }
 
 impl NoticeHub {
@@ -154,6 +154,10 @@ pub(crate) fn take_notices(capture: Option<&NoticeCapture>) -> Vec<String> {
 }
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// A pooled connection's statement cache, which proves the cache key still
+/// names that connection, and its backend pid.
+type CachedPid = (Weak<StatementCache>, i32);
 
 /// deadpool connect that polls the connection itself to keep its notices.
 pub(crate) struct NoticeConnect<T> {

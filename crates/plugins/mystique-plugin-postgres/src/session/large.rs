@@ -22,8 +22,7 @@ pub(super) async fn fetch_large_value(
         SqlTextCast::Text,
         &input.locator,
     )?;
-    let client = session.client().await?;
-    let _guard = session.arm_cancel(&client, &input.control);
+    let client = session.run_client(&input.control).await?;
     let params: Vec<&(dyn ToSql + Sync)> = select
         .params
         .iter()

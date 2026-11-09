@@ -181,6 +181,77 @@ async fn notices_survive_a_pool_of_several_connections() {
     for (n, ran) in futures_util::future::join_all(runs).await {
         assert_eq!(ran.results[0].notices, vec![format!("NOTICE: run {n}")]);
     }
-    let _ = backend_pid(session).await;
+    session.close().await.ok();
+}
+
+#[tokio::test]
+#[ignore = "needs local Postgres"]
+async fn a_cancelled_run_closes_its_connection_instead_of_pooling_it() {
+    // One connection, so a pooled one would come straight back.
+    let session = connect(1).await;
+    let session = &*session;
+    let first = backend_pid(session).await;
+    assert_eq!(backend_pid(session).await, first, "a clean run is pooled");
+
+    for mode in [QueryMode::Write, QueryMode::Read] {
+        let before = backend_pid(session).await;
+        let sleeping = batch(
+            "SELECT count(*) FROM generate_series(1, 2000000000)",
+            mode,
+            &[],
+            50,
+        );
+        let control = std::sync::Arc::clone(&sleeping.control);
+        let canceller = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            control.cancel();
+        });
+        let started = std::time::Instant::now();
+        let err = session
+            .execute_batch(&sleeping)
+            .await
+            .expect_err("cancelled");
+        canceller.await.expect("canceller");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "cancel did not stop the statement"
+        );
+        assert!(
+            err.to_string().to_ascii_lowercase().contains("cancel"),
+            "{err}"
+        );
+
+        let after = backend_pid(session).await;
+        assert_ne!(
+            after, before,
+            "{mode:?}: the cancelled connection was pooled"
+        );
+        // The old backend is gone, not idle in the pool.
+        let gone = run(
+            session,
+            &format!("SELECT count(*)::text FROM pg_stat_activity WHERE pid = {before}"),
+            QueryMode::Read,
+        )
+        .await;
+        let mut alive = gone.results[0].result.as_ref().expect("count").rows[0][0].clone();
+        for _ in 0..20 {
+            if alive == json!("0") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let again = run(
+                session,
+                &format!("SELECT count(*)::text FROM pg_stat_activity WHERE pid = {before}"),
+                QueryMode::Read,
+            )
+            .await;
+            alive = again.results[0].result.as_ref().expect("count").rows[0][0].clone();
+        }
+        assert_eq!(
+            alive,
+            json!("0"),
+            "{mode:?}: backend {before} still connected"
+        );
+    }
     session.close().await.ok();
 }
