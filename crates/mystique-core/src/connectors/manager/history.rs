@@ -2,6 +2,8 @@
 //!
 //! UI, agent, and MCP all run through `execute_batch_in`. The canvas does
 //! not insert rows. A failed write does not change the query result.
+//! Grid saves, rollbacks, structure changes and EXPLAIN ANALYZE are logged
+//! too, one row per action, with a [`QueryHistoryKind`] the history labels.
 //! SQL text is stored. URI userinfo and a database value that is a URI are not.
 //! Statement parameters are not a column.
 
@@ -9,10 +11,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use mystique_connector_api::{
-    ConnectorResult, QueryBatchResult, QueryResult, SqlRange, StatementResult,
+    ConnectorError, ConnectorResult, QueryBatchResult, QueryResult, SqlRange, StatementResult,
 };
 
-use crate::domain::{redact_history_text, AppendHistoryInput, QueryHistorySource};
+use crate::domain::{
+    redact_history_text, AppendHistoryInput, QueryHistoryKind, QueryHistorySource,
+};
 
 use super::{ConnectionManager, SessionOrigin};
 
@@ -51,6 +55,34 @@ impl ConnectionManager {
         })
     }
 
+    /// One history row for an app action that is not a query run. `sql` is
+    /// what ran (or would have run, when it failed). A write-guard prompt is
+    /// not logged: nothing ran, and the confirmed retry is logged instead.
+    pub(super) async fn log_action(&self, action: HistoryAction<'_>) {
+        if matches!(action.outcome, Err(ConnectorError::WriteGuard(_))) {
+            return;
+        }
+        let Some(ctx) = self.history_context(action.session_id).await else {
+            return;
+        };
+        let body = action.sql.join(";\n");
+        if body.trim().is_empty() {
+            return;
+        }
+        let draft = Draft {
+            index: 0,
+            sql: body,
+            success: action.outcome.is_ok(),
+            row_count: None,
+            affected_rows: action.outcome.as_ref().ok().copied().flatten().map(as_i64),
+            duration_ms: Some(elapsed_ms(action.started)),
+            error_message: action.outcome.as_ref().err().map(|err| err.user_message()),
+        };
+        let mut row = to_input(&ctx, draft, stored_database(action.database));
+        row.kind = action.kind;
+        self.persist_history(vec![row]).await;
+    }
+
     pub(super) async fn persist_history(&self, rows: Vec<AppendHistoryInput>) {
         if rows.is_empty() {
             return;
@@ -61,6 +93,17 @@ impl ConnectionManager {
         let task = tokio::task::spawn_blocking(move || writer.append_queries(rows));
         let _ = task.await;
     }
+}
+
+/// What [`ConnectionManager::log_action`] records.
+pub(super) struct HistoryAction<'a> {
+    pub session_id: &'a str,
+    pub kind: QueryHistoryKind,
+    pub sql: Vec<String>,
+    pub database: Option<&'a str>,
+    pub started: Instant,
+    /// Rows affected, when the action reports them.
+    pub outcome: Result<Option<u64>, &'a ConnectorError>,
 }
 
 pub(super) fn rows_from_outcome(
@@ -188,6 +231,7 @@ fn to_input(ctx: &HistoryContext, draft: Draft, database: Option<String>) -> App
         database,
         affected_rows: draft.affected_rows,
         source: ctx.source,
+        kind: QueryHistoryKind::Query,
     }
 }
 

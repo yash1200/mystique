@@ -19,7 +19,28 @@ impl ConnectionManager {
         mut req: ExplainQueryRequest,
     ) -> ConnectorResult<ExplainPlan> {
         let run = self.begin_run(&req.session_id, req.execution_id.take());
-        self.explain_registered(req, &run.control).await
+        let analyze = req.analyze.then(|| {
+            (
+                req.session_id.clone(),
+                analyze_history_sql(&req),
+                req.database.clone(),
+            )
+        });
+        let started = std::time::Instant::now();
+        let result = self.explain_registered(req, &run.control).await;
+        // ANALYZE runs the statement, so it belongs in history.
+        if let Some((session_id, sql, database)) = analyze {
+            self.log_action(super::history::HistoryAction {
+                session_id: &session_id,
+                kind: crate::domain::QueryHistoryKind::ExplainAnalyze,
+                sql: vec![sql],
+                database: database.as_deref(),
+                started,
+                outcome: result.as_ref().map(|_| None),
+            })
+            .await;
+        }
+        result
     }
 
     async fn explain_registered(
@@ -100,6 +121,22 @@ impl ConnectionManager {
             guard,
             destructive_name: None,
         })
+    }
+}
+
+/// SQL is stored as `EXPLAIN ANALYZE …`, so running it again from history
+/// explains again instead of running the bare statement. Mongo shell text is
+/// stored as typed; the history row's kind says it was an explain.
+fn analyze_history_sql(req: &ExplainQueryRequest) -> String {
+    let text = req.text.trim();
+    if req.collection.is_some() || text.starts_with("db.") {
+        return text.to_string();
+    }
+    let lower = text.to_ascii_lowercase();
+    if lower.starts_with("explain") || lower.starts_with("analyze") {
+        text.to_string()
+    } else {
+        format!("EXPLAIN ANALYZE {text}")
     }
 }
 

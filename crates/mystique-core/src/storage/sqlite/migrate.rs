@@ -14,12 +14,13 @@ const V8_SQL: &str = include_str!("../../../migrations/008_grid_column_widths.sq
 const V9_SQL: &str = include_str!("../../../migrations/009_connection_defaults.sql");
 const V10_SQL: &str = include_str!("../../../migrations/010_secrets.sql");
 const V11_SQL: &str = include_str!("../../../migrations/011_save_password.sql");
+const V12_SQL: &str = include_str!("../../../migrations/012_query_history_kind.sql");
 
 /// Current schema version. Fresh installs apply 001 then later files.
 /// Older builds that ran incremental files 2–6 were already at the 001
 /// schema. A stamp of 6 without `query_history.source` is that build and
 /// collapses to 1 so 002+ can apply. A real version 6 has `source`.
-pub const SCHEMA_VERSION: i32 = 11;
+pub const SCHEMA_VERSION: i32 = 12;
 
 fn stamp(conn: &Connection, version: i32) -> AppResult<()> {
     conn.execute(
@@ -155,6 +156,13 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
             conn.execute_batch(V11_SQL)?;
         }
         stamp(conn, 11)?;
+    }
+
+    if current < 12 {
+        if table_exists(conn, "query_history")? && !column_exists(conn, "query_history", "kind")? {
+            conn.execute_batch(V12_SQL)?;
+        }
+        stamp(conn, 12)?;
     }
 
     // Dropped leftover from earlier builds. Live ER is not stored here.
@@ -317,6 +325,7 @@ mod tests {
         assert!(column_exists(&conn, "query_history", "database").unwrap());
         assert!(column_exists(&conn, "query_history", "affected_rows").unwrap());
         assert!(column_exists(&conn, "query_history", "duration_ms").unwrap());
+        assert!(column_exists(&conn, "query_history", "kind").unwrap());
 
         let groups: i32 = conn
             .query_row(
@@ -386,7 +395,7 @@ mod tests {
         let n: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 11);
+        assert_eq!(n, SCHEMA_VERSION);
     }
 
     #[test]
@@ -677,7 +686,7 @@ mod tests {
         // A version 10 database: no column yet, one saved profile.
         conn.execute_batch(
             "ALTER TABLE connections DROP COLUMN save_password;
-             DELETE FROM schema_migrations WHERE version = 11;
+             DELETE FROM schema_migrations WHERE version >= 11;
              INSERT INTO connections (name, engine, created_at, updated_at)
              VALUES ('old', 'postgres', 'now', 'now');",
         )
@@ -694,6 +703,35 @@ mod tests {
         );
         assert!(conn
             .execute("UPDATE connections SET save_password = 2", [])
+            .is_err());
+    }
+
+    #[test]
+    fn migrate_012_labels_existing_history_as_queries() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        // A version 11 database: no column yet, one history row.
+        conn.execute_batch(
+            "ALTER TABLE query_history DROP COLUMN kind;
+             DELETE FROM schema_migrations WHERE version = 12;
+             INSERT INTO query_history (body, success, ran_at) VALUES ('SELECT 1', 1, 'now');",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap(); // idempotent
+        let kind: String = conn
+            .query_row("SELECT kind FROM query_history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kind, "query");
+        let version: i32 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert!(conn
+            .execute("UPDATE query_history SET kind = 'other'", [])
             .is_err());
     }
 }

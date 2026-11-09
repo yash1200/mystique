@@ -34,7 +34,7 @@ export type AppendHistoryInput = { connectionId?: string | null, engine?: string
 /**
  * Catalog name. A URI is dropped at insert.
  */
-database?: string | null, affectedRows?: number | null, source?: QueryHistorySource, };
+database?: string | null, affectedRows?: number | null, source?: QueryHistorySource, kind?: QueryHistoryKind, };
 
 export type ApplyDdlRequest = { sessionId: string, draft: TableDefinition, confirmObjectName?: string | null, };
 
@@ -725,7 +725,13 @@ export type QueryHistoryItem = { id: string, connectionId: string | null, engine
 /**
  * Catalog or database name. Never a connection URL.
  */
-database: string | null, affectedRows: number | null, source: QueryHistorySource, };
+database: string | null, affectedRows: number | null, source: QueryHistorySource, kind: QueryHistoryKind, };
+
+/**
+ * What wrote the row. A query run is `query`; the rest are app actions the
+ * history lists so a change can be traced.
+ */
+export type QueryHistoryKind = "query" | "grid_save" | "ddl" | "rollback" | "explain_analyze";
 
 export type QueryHistoryPage = { items: Array<QueryHistoryItem>, hasMore: boolean, };
 

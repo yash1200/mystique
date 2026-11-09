@@ -2242,6 +2242,133 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
 }
 
 #[tokio::test]
+async fn history_logs_grid_saves_rollbacks_ddl_and_explain_analyze() {
+    use crate::domain::QueryHistoryKind;
+
+    let path = temp_db("history-kinds");
+    let _ = std::fs::remove_file(&path);
+    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    db.with_conn(|c| {
+        c.execute(
+            "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
+             VALUES ('kinds', 'sqlite', 'slate', 'local', 0, '{}', 'now', 'now')",
+            [],
+        )?;
+        Ok(())
+    })
+    .expect("profile");
+    let services = crate::application::AppServices::with_secrets(
+        db,
+        ConnectionManager::bootstrap(),
+        crate::secrets::SecretStore::memory(),
+    );
+    let mgr = services.connections();
+    let mut open = sqlite_open(&path, "kinds", "local", false);
+    open.profile_id = Some("1".into());
+    mgr.open_session(open).await.expect("open");
+    mgr.execute_query(write_req(
+        "kinds",
+        "CREATE TABLE docs (id INTEGER PRIMARY KEY, n INTEGER); INSERT INTO docs VALUES (1, 10)",
+    ))
+    .await
+    .expect("seed");
+
+    let column = |name: &str| mystique_connector_api::TableEditColumn {
+        name: name.into(),
+        data_type: "integer".into(),
+        nullable: true,
+        pk: name == "id",
+    };
+    let saved = mgr
+        .apply_table_edits(mystique_connector_api::ApplyTableEditsRequest {
+            session_id: "kinds".into(),
+            table: "docs".into(),
+            schema: None,
+            database: None,
+            columns: vec![column("id"), column("n")],
+            updates: vec![mystique_connector_api::TableRowUpdate {
+                original: [("id".into(), json!(1)), ("n".into(), json!(10))]
+                    .into_iter()
+                    .collect(),
+                values: [("n".into(), json!(11))].into_iter().collect(),
+            }],
+            inserts: Vec::new(),
+            deletes: Vec::new(),
+            confirm_object_name: None,
+            dry_run: false,
+        })
+        .await
+        .expect("grid save");
+    mgr.rollback_table_edits(mystique_connector_api::RollbackTableEditsRequest {
+        session_id: "kinds".into(),
+        save_id: saved.save_id.expect("save id"),
+        confirm_object_name: None,
+    })
+    .await
+    .expect("rollback");
+
+    let mut draft = mgr
+        .describe_table_definition(mystique_connector_api::DescribeTableDefinitionRequest {
+            session_id: "kinds".into(),
+            table: "docs".into(),
+            schema: None,
+            database: None,
+            kind: None,
+        })
+        .await
+        .expect("describe");
+    draft.columns.push(added_column("note"));
+    mgr.apply_ddl(mystique_connector_api::ApplyDdlRequest {
+        session_id: "kinds".into(),
+        draft,
+        confirm_object_name: None,
+    })
+    .await
+    .expect("add column");
+
+    mgr.explain_query(explain_req("kinds", "SELECT * FROM docs", true))
+        .await
+        .expect("explain analyze");
+    // A plain explain runs nothing and is not logged.
+    mgr.explain_query(explain_req("kinds", "SELECT 1", false))
+        .await
+        .expect("plain explain");
+
+    let page = services
+        .history()
+        .list_for_connection("1", 50)
+        .expect("list");
+    let of = |kind: QueryHistoryKind| {
+        page.iter()
+            .filter(|row| row.kind == kind)
+            .collect::<Vec<_>>()
+    };
+    let grid = of(QueryHistoryKind::GridSave);
+    assert_eq!(grid.len(), 1, "{page:?}");
+    assert!(grid[0].body.contains("UPDATE"), "{}", grid[0].body);
+    assert_eq!(grid[0].affected_rows, Some(1));
+    let rollback = of(QueryHistoryKind::Rollback);
+    assert_eq!(rollback.len(), 1, "{page:?}");
+    assert!(rollback[0].success);
+    assert!(rollback[0].body.contains("UPDATE"), "{}", rollback[0].body);
+    let ddl = of(QueryHistoryKind::Ddl);
+    assert_eq!(ddl.len(), 1, "{page:?}");
+    assert!(ddl[0].body.contains("note"), "{}", ddl[0].body);
+    let analyze = of(QueryHistoryKind::ExplainAnalyze);
+    assert_eq!(analyze.len(), 1, "{page:?}");
+    assert_eq!(analyze[0].body, "EXPLAIN ANALYZE SELECT * FROM docs");
+    assert!(page
+        .iter()
+        .all(|row| row.kind != QueryHistoryKind::Query || !row.body.contains("SELECT 1")));
+    assert!(of(QueryHistoryKind::Query)
+        .iter()
+        .any(|row| row.body.contains("CREATE TABLE docs")));
+
+    let _ = mgr.close_session("kinds").await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
 async fn bound_parameter_is_not_spliced_into_history() {
     let path = temp_db("bind-hist");
     let _ = std::fs::remove_file(&path);

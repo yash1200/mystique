@@ -8,6 +8,7 @@ import type {
 	AppendHistoryInput,
 	QueryHistoryEntry,
 	QueryHistoryItem,
+	QueryHistoryKind,
 	QueryHistorySource,
 } from './history-types'
 
@@ -26,6 +27,7 @@ export function historyItemToEntry(
 		database?: string | null
 		affectedRows?: number | null
 		source?: QueryHistorySource | null
+		kind?: QueryHistoryKind | null
 	},
 	connectionName?: string,
 ): QueryHistoryEntry {
@@ -44,6 +46,7 @@ export function historyItemToEntry(
 		database: item.database?.trim() || undefined,
 		affectedRows: item.affectedRows ?? undefined,
 		source: historySource(item.source),
+		kind: historyKind(item.kind),
 	}
 }
 
@@ -71,12 +74,41 @@ function normalizeHistoryItem(
 		affectedRows:
 			(g('affectedRows', 'affected_rows') as number | null | undefined) ?? null,
 		source: historySource(g('source', 'source')),
+		kind: historyKind(g('kind', 'kind')),
 	}
 }
 
 function historySource(value: unknown): QueryHistorySource {
 	if (value === 'agent' || value === 'mcp' || value === 'ui') return value
 	return 'ui'
+}
+
+const HISTORY_KINDS: readonly QueryHistoryKind[] = [
+	'query',
+	'grid_save',
+	'ddl',
+	'rollback',
+	'explain_analyze',
+]
+
+function historyKind(value: unknown): QueryHistoryKind {
+	return HISTORY_KINDS.find((kind) => kind === value) ?? 'query'
+}
+
+/** Label for an app action in the history list. A query run has none. */
+export function historyKindLabel(kind: QueryHistoryKind): string | null {
+	switch (kind) {
+		case 'grid_save':
+			return 'Grid save'
+		case 'ddl':
+			return 'Structure'
+		case 'rollback':
+			return 'Rollback'
+		case 'explain_analyze':
+			return 'Explain analyze'
+		default:
+			return null
+	}
 }
 
 export type { QueryHistoryPage }
