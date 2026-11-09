@@ -1,9 +1,24 @@
+<script lang="ts" module>
+	import { lazy } from '#core/ui'
+
+	// Panes most sessions never open load with their first use.
+	const AgentChatPane = lazy(() =>
+		import('#features/workspace/agent').then((m) => ({
+			default: m.AgentChatPane,
+		})),
+	)
+	const ServerMetricsView = lazy(() =>
+		import('#features/workspace/metrics').then((m) => ({
+			default: m.ServerMetricsView,
+		})),
+	)
+</script>
+
 <script lang="ts">
 	import { commands } from '#core/commands'
-	import { EmptyState, Icon } from '#core/ui'
+	import { EmptyState, Icon, Lazy } from '#core/ui'
 	import { familyFromCaps, resolveCapabilities } from '#engines'
 	import { colorHex } from '#features/connections'
-	import { AgentChatPane } from '#features/workspace/agent'
 	import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 	import {
 		ErWorkspace,
@@ -19,7 +34,6 @@
 		tablePreview,
 		tableSync,
 	} from '#features/workspace/table'
-	import { ServerMetricsView } from '#features/workspace/metrics'
 	import {
 		hydrateActiveStructure,
 		openObjectStructure,
@@ -252,7 +266,8 @@
 		{#if activeSession && activeTab?.kind === 'query'}
 			<div class="flex min-h-0 min-w-0 flex-1">
 				<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-					<QueryCanvas
+					<Lazy
+						component={QueryCanvas}
 						tabId={activeTab.id}
 						connectionId={activeSession.profile.id}
 						connectionName={activeSession.profile.name}
@@ -276,7 +291,8 @@
 						class="flex h-full shrink-0"
 						style="width: {appPrefs.agentChatPanelWidth}px"
 					>
-						<AgentChatPane
+						<Lazy
+							component={AgentChatPane}
 							tabId={activeTab.id}
 							connectionId={activeSession.profile.id}
 							connectionName={activeSession.profile.name}
@@ -311,7 +327,8 @@
 					</div>
 				{:else if activeModel}
 					{#key `${activeTab.id}:${activeModel.rev}`}
-						<ErWorkspace
+						<Lazy
+							component={ErWorkspace}
 							family={activeModel.diagram.family ||
 								familyFromCaps(
 									resolveCapabilities(
@@ -342,7 +359,8 @@
 			</div>
 		{:else if activeSession && activeTab?.kind === 'metrics'}
 			{#key activeTab.id}
-				<ServerMetricsView
+				<Lazy
+					component={ServerMetricsView}
 					engine={String(activeSession.profile.engine)}
 					engineSessionId={activeSession.engineSessionId ?? null}
 					readOnly={!!activeSession.profile.readOnly}
@@ -352,7 +370,8 @@
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'structure'}
 			{#key activeTab.id}
-				<StructurePanel
+				<Lazy
+					component={StructurePanel}
 					{structure}
 					loading={structureLoading}
 					error={structureError}

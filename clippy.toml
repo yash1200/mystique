@@ -1,0 +1,4 @@
+# The plugin and agent crates deny `unwrap_used` and `indexing_slicing` so
+# production code returns errors instead of panicking. Tests may panic.
+allow-unwrap-in-tests = true
+allow-indexing-slicing-in-tests = true

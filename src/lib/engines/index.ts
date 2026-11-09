@@ -2,6 +2,15 @@
  * Public surface of the engines zone. Features import from here; nothing
  * outside `engines/` reaches into an individual engine folder.
  */
+export type {
+	EngineAdapter,
+	EngineConnectionAdapter,
+	EngineEditorSupport,
+	EngineFieldsProps,
+	EngineLanguageAdapter,
+	FormatQueryResult,
+	QueryFormatter,
+} from './types'
 
 export {
 	adapterFor,
@@ -26,11 +35,9 @@ export {
 	queryLangFromCaps,
 } from './capabilities'
 
-export {
-	catalogSignature,
-	sqlCatalogCompletion,
-	sqlSchemaFromColumns,
-} from './sql/complete'
+export type { SqlCompleteConfig, SqlSnippetKind } from './sql/complete'
+// Completions live in each engine's `editor()`, so CodeMirror stays out of this index.
+export { catalogSignature } from './sql/signature'
 
 export { sslModeFromConfig } from './ssl'
 

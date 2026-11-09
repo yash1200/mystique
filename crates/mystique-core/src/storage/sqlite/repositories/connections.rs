@@ -102,7 +102,7 @@ pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<Connecti
 
     if let Some(id) = input.id.as_ref().filter(|s| !s.is_empty()) {
         let id_n = parse_id(id)?;
-        let favorite: Option<i64> = input.favorite.map(|f| i64::from(f));
+        let favorite: Option<i64> = input.favorite.map(i64::from);
         let save_password: Option<i64> = input.save_password.map(i64::from);
         let n = if input.clear_secret {
             conn.execute(

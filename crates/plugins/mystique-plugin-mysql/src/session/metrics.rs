@@ -13,6 +13,20 @@ use mystique_connector_api::{
 use super::query_failed;
 use super::MysqlSession;
 
+/// PROCESSLIST: id, user, db, command, time, state, info.
+type ProcessRow = (
+    u64,
+    String,
+    Option<String>,
+    String,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Statement digest: digest, text, calls, mean ms.
+type DigestRow = (Option<String>, Option<String>, u64, Option<f64>);
+
 pub(super) async fn fetch_server_metrics(
     session: &MysqlSession,
     input: &FetchServerMetricsInput,
@@ -185,15 +199,7 @@ pub(super) async fn terminate_backend_session(
 }
 
 async fn list_sessions(conn: &mut mysql_async::Conn) -> ConnectorResult<Vec<ActiveBackendSession>> {
-    let rows: Vec<(
-        u64,
-        String,
-        Option<String>,
-        String,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-    )> = crate::rows::collect_query(
+    let rows: Vec<ProcessRow> = crate::rows::collect_query(
         conn,
         "SELECT ID, USER, DB, COMMAND, TIME, STATE, INFO \
              FROM information_schema.PROCESSLIST \
@@ -204,8 +210,7 @@ async fn list_sessions(conn: &mut mysql_async::Conn) -> ConnectorResult<Vec<Acti
     Ok(rows
         .into_iter()
         .map(|(id, user, db, command, time, state, info)| {
-            let mut extras = Vec::new();
-            extras.push(MetricValue::text("command", "Command", command.clone()));
+            let extras = vec![MetricValue::text("command", "Command", command.clone())];
             ActiveBackendSession {
                 id: id.to_string(),
                 user: Some(user).filter(|s| !s.is_empty()),
@@ -254,8 +259,7 @@ async fn list_digests(conn: &mut mysql_async::Conn, limit: u32) -> ConnectorResu
          ORDER BY AVG_TIMER_WAIT DESC \
          LIMIT {limit}"
     );
-    let rows: Vec<(Option<String>, Option<String>, u64, Option<f64>)> =
-        crate::rows::collect_query(conn, &sql).await?;
+    let rows: Vec<DigestRow> = crate::rows::collect_query(conn, &sql).await?;
     Ok(rows
         .into_iter()
         .enumerate()

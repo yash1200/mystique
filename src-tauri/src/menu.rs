@@ -1,5 +1,9 @@
 //! Native app menu. Rebuilt when the frontend reports Home vs Workspace.
 
+// The menu builders split on `#[cfg(target_os = "macos")]` blocks. The macOS
+// block is not the tail expression at parse time, so its `return` is needed.
+#![allow(clippy::needless_return)]
+
 use serde::Deserialize;
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},

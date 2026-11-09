@@ -60,8 +60,9 @@ pub struct IpcError {
     /// 0-based statement of a failed batch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub statement_index: Option<u32>,
+    // Boxed so `Result<_, IpcError>` stays small; most errors carry none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<IpcPrompt>,
+    pub prompt: Option<Box<IpcPrompt>>,
     /// A manual-commit tab's transaction state after the failed run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transaction_outcome: Option<PinStatus>,
@@ -130,14 +131,20 @@ impl From<ConnectorError> for IpcError {
                 let rest = &message[crate::ROLLBACK_STALE.len() + 2..];
                 Self::new(IpcErrorKind::RollbackStale, rest)
             }
-            ConnectorError::WriteGuard(prompt) => Self {
-                prompt: Some(IpcPrompt::WriteGuard(prompt.clone())),
-                ..Self::new(IpcErrorKind::WriteGuard, prompt.summary())
-            },
-            ConnectorError::SshHostKey(prompt) => Self {
-                prompt: Some(IpcPrompt::SshHostKey(prompt.clone())),
-                ..Self::new(IpcErrorKind::SshHostKey, prompt.summary())
-            },
+            ConnectorError::WriteGuard(prompt) => {
+                let base = Self::new(IpcErrorKind::WriteGuard, prompt.summary());
+                Self {
+                    prompt: Some(Box::new(IpcPrompt::WriteGuard(*prompt))),
+                    ..base
+                }
+            }
+            ConnectorError::SshHostKey(prompt) => {
+                let base = Self::new(IpcErrorKind::SshHostKey, prompt.summary());
+                Self {
+                    prompt: Some(Box::new(IpcPrompt::SshHostKey(*prompt))),
+                    ..base
+                }
+            }
             other => {
                 let kind = match &other {
                     ConnectorError::InvalidConfig(_) => IpcErrorKind::InvalidConfig,
@@ -235,7 +242,7 @@ mod tests {
             "t",
         )
         .expect("prompt");
-        let value = wire(ConnectorError::WriteGuard(prompt));
+        let value = wire(ConnectorError::WriteGuard(Box::new(prompt)));
         assert_eq!(value["kind"], "write_guard");
         assert_eq!(value["prompt"]["type"], "writeGuard");
         assert_eq!(value["prompt"]["kind"], "unlock");
@@ -253,7 +260,7 @@ mod tests {
             "ssh-ed25519".into(),
             "AAAA".into(),
         );
-        let value = wire(ConnectorError::SshHostKey(prompt));
+        let value = wire(ConnectorError::SshHostKey(Box::new(prompt)));
         assert_eq!(value["kind"], "ssh_host_key");
         assert_eq!(value["prompt"]["type"], "sshHostKey");
         assert_eq!(value["prompt"]["fingerprint"], "SHA256:abc");

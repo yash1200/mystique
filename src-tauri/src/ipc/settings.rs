@@ -1,47 +1,10 @@
 use std::sync::Arc;
 
-use mystique_core::{AppSetting, PurgeReport, VaultStatus};
+use mystique_core::{PurgeReport, VaultStatus};
 use tauri::State;
 
 use super::IpcError;
 use crate::AppState;
-
-#[tauri::command]
-pub async fn get_setting(
-    state: State<'_, AppState>,
-    key: String,
-) -> Result<Option<AppSetting>, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || services.settings().get(&key).map_err(IpcError::from)).await
-}
-
-#[tauri::command]
-pub async fn set_setting(
-    state: State<'_, AppState>,
-    key: String,
-    value: String,
-) -> Result<AppSetting, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || {
-        services
-            .settings()
-            .set(&key, &value)
-            .map_err(IpcError::from)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn list_settings(state: State<'_, AppState>) -> Result<Vec<AppSetting>, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || services.settings().list().map_err(IpcError::from)).await
-}
-
-#[tauri::command]
-pub async fn delete_setting(state: State<'_, AppState>, key: String) -> Result<bool, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || services.settings().delete(&key).map_err(IpcError::from)).await
-}
 
 /// Never loads the vault key.
 #[tauri::command]

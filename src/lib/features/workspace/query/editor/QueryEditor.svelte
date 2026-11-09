@@ -5,13 +5,11 @@
 	 */
 	import type { CatalogColumnRow } from '#core/contracts'
 	import { Button, Icon, Input, Pill } from '#core/ui'
-	import { adapterFor, catalogSignature, formatQuery } from '#engines'
+	import { catalogSignature, formatQuery } from '#engines'
 	import { showStatus } from '#features/toast'
 	import { appPrefs } from '#lib/app'
 	import { autocompletion } from '@codemirror/autocomplete'
 	import { indentWithTab } from '@codemirror/commands'
-	import { javascript, javascriptLanguage } from '@codemirror/lang-javascript'
-	import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
 	import {
 		EditorState,
 		Prec,
@@ -30,6 +28,7 @@
 	import { onMount, untrack } from 'svelte'
 	import { mystiqueSearch } from './cm-search-panel'
 	import { markDiagnostic, revealDiagnostic } from './diagnostic-view'
+	import { loadLanguage, peekLanguage } from './language'
 	import {
 		editorCompartments,
 		holdEditorState,
@@ -143,6 +142,8 @@
 	let revealedNonce = untrack(() => locateNonce)
 	let mountedTab = ''
 	let appliedLang = ''
+	/** Bumps when a language finishes loading, so the editor picks it up. */
+	let languagesLoaded = $state(0)
 	let extensions: Extension[] = []
 
 	function themeIsDark(): boolean {
@@ -272,9 +273,11 @@
 		callbacks.onchange?.(next)
 	}
 
-	function formatEditor() {
+	async function formatEditor() {
 		const src = view?.state.doc.toString() ?? localText ?? ''
-		const result = formatQuery(callbacks.engine, src)
+		const result = await formatQuery(callbacks.engine, src)
+		// The formatter loads on first use; drop the result if the text moved on.
+		if ((view?.state.doc.toString() ?? localText ?? '') !== src) return
 		if (!result.ok) {
 			showStatus(result.error, 'warning')
 			return
@@ -284,31 +287,22 @@
 		view?.focus()
 	}
 
-	/** Language mode, dialect and completions all come from the engine adapter. */
+	/**
+	 * Language mode, dialect and completions for the engine. Plain text until
+	 * the language code arrives, then the reconfigure effect swaps it in.
+	 */
 	function languageExtension(
 		lang: string,
 		eng: string,
 		cols: CatalogColumnRow[],
 	): Extension {
-		const { language } = adapterFor(eng)
-		if (lang === 'mql') {
-			const autocomplete = language.completion(cols)
-			return [
-				javascript(),
-				...(autocomplete ? [javascriptLanguage.data.of({ autocomplete })] : []),
-			]
-		}
-		const dialect = language.sqlDialect ?? StandardSQL
-		const complete = language.sqlSchema?.(cols)
-		const extra = language.completion(cols)
-		const support = sql({
-			dialect,
-			schema: (complete?.schema ?? {}) as SQLNamespace,
-			defaultSchema: complete?.defaultSchema,
-			upperCaseKeywords: true,
-		})
-		if (!extra) return support
-		return [support, dialect.language.data.of({ autocomplete: extra })]
+		const make = peekLanguage(lang, eng)
+		if (make) return make(cols)
+		void loadLanguage(lang, eng).then(
+			() => (languagesLoaded += 1),
+			() => showStatus('Could not load syntax highlighting.', 'warning'),
+		)
+		return []
 	}
 
 	function buildExtensions(lang: string, ph: string): Extension[] {
@@ -529,7 +523,9 @@
 		const eng = engine
 		const cols = catalogColumns
 		const id = tabId
-		const sig = `${lang}\0${eng}\0${ph}\0${catalogSignature(cols)}`
+		void languagesLoaded
+		const loaded = peekLanguage(lang, eng) ? 'ready' : 'loading'
+		const sig = `${lang}\0${eng}\0${ph}\0${catalogSignature(cols)}\0${loaded}`
 		const v = view
 		void editorReady
 		if (!v || id !== mountedTab) return

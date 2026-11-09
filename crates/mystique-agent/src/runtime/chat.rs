@@ -43,6 +43,8 @@ macro_rules! keyed_chat {
     }};
 }
 
+// One call site; a struct would only rename these per-turn inputs.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_agent(
     provider: AgentProvider,
     model: &str,

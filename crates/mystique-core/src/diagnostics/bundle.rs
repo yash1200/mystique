@@ -154,7 +154,7 @@ fn profile_summary(p: &ConnectionProfile) -> JsonValue {
         "passwordSaved": p.password_set,
         "savePassword": p.save_password,
         "ssh": p.ssh.enabled,
-        "sshAuth": p.ssh.enabled.then(|| p.ssh.auth),
+        "sshAuth": p.ssh.enabled.then_some(p.ssh.auth),
         "tls": tls_on(&p.plugin_config),
         "host": host_class(&p.plugin_config),
         "queryTimeoutSecs": p.query_timeout_secs,

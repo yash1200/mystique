@@ -24,7 +24,7 @@ import { mysql } from './mysql'
 import { postgres } from './postgres'
 import { pickerProducts, productById, type EngineProduct } from './products'
 import { sqlite } from './sqlite'
-import type { EngineAdapter } from './types'
+import type { EngineAdapter, FormatQueryResult } from './types'
 
 const ADAPTERS = new Map<string, EngineAdapter>()
 const ORDERED: EngineAdapter[] = []
@@ -49,7 +49,13 @@ const genericSql: EngineAdapter = {
 	mark: 'SQL',
 	description: 'Generic SQL engine.',
 	available: false,
-	language: { ...postgres.language, sqlDialect: undefined },
+	language: {
+		...postgres.language,
+		editor: async () => ({
+			...(await postgres.language.editor()),
+			sqlDialect: undefined,
+		}),
+	},
 	defaultCapabilities: relationalCapabilities({
 		engine: 'sql',
 		sqlDialect: 'sql',
@@ -179,10 +185,13 @@ export function emptyDraft(engine: EngineId = 'postgres'): ConnectionFormDraft {
 	}
 }
 
-/** Format query text for the given engine. Never throws. */
-export function formatQuery(engine: string, text: string) {
+/** Format query text for the given engine. Never rejects. */
+export async function formatQuery(
+	engine: string,
+	text: string,
+): Promise<FormatQueryResult> {
 	try {
-		return adapterFor(engine).language.format(text)
+		return await adapterFor(engine).language.format(text)
 	} catch (e) {
 		const msg = errorMessage(e)
 		return { ok: false as const, error: msg || 'Format failed.', text }

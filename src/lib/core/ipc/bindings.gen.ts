@@ -30,8 +30,6 @@ export type AiSettingsView = { enabled: boolean, ollamaBaseUrl: string,
  */
 ollamaConfigured: boolean, keys: Array<AiKeyStatus>, providers: Array<AgentProviderInfo>, };
 
-export type AppSetting = { key: string, value: string, updatedAt: string, };
-
 export type AppendHistoryInput = { connectionId?: string | null, engine?: string | null, body: string, language?: string | null, success: boolean, rowCount?: number | null, durationMs?: number | null, errorMessage?: string | null, 
 /**
  * Catalog name. A URI is dropped at insert.
@@ -184,8 +182,6 @@ password?: string | null, favorite: boolean,
  */
 queryTimeoutSecs: number | null, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
 
-export type CreateAgentChatInput = { connectionId: string, title?: string | null, provider: string, model: string, };
-
 export type DdlPlan = { statements: Array<string>, warnings: Array<string>, transactional: boolean, requiresRebuild: boolean, 
 /**
  * Shown with the preview. Not a warning, so it does not block apply.
@@ -289,11 +285,6 @@ supportsExplorer: boolean,
  * Product honesty: `operate` | `browse` | `connect`.
  */
 supportDepth: SupportDepth, };
-
-/**
- * Lightweight engine card for Home / API catalog.
- */
-export type EngineDescriptor = { id: string, displayName: string, family: EngineFamily, queryLanguage: string, available: boolean, supportsPooling: boolean, description: string, capabilities: EngineCapabilities | null, };
 
 export type EngineFamily = "RELATIONAL" | "DOCUMENT" | "WIDE_COLUMN" | "KEY_VALUE" | "OTHER";
 

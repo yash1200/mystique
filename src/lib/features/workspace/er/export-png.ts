@@ -2,7 +2,6 @@
  * Rasterize the live ER canvas to a PNG of the current layout.
  * The clone drops the grid; crop follows table cards and relationship paths.
  */
-import { toCanvas } from 'html-to-image'
 import type { ErNode } from './types'
 
 export const ER_EXPORT_PAD = 40
@@ -248,6 +247,8 @@ export async function captureErDiagramPng(opts: {
 	const layerH = Math.max(1, Math.round(root.offsetHeight || rawCrop.height))
 	const crop = clampErExportCrop(rawCrop, layerW, layerH)
 	const bg = canvasBackground(root)
+	// Only an export needs the rasterizer, so it loads here.
+	const { toCanvas } = await import('html-to-image')
 	const { host, clone } = prepareExportClone(root, layerW, layerH)
 
 	try {

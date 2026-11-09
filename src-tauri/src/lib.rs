@@ -56,6 +56,8 @@ fn set_native_menu(app: tauri::AppHandle, state: NativeMenuState) -> ipc::IpcRes
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // No JS import: its injected click handler opens `target="_blank"`
+        // http(s)/mailto links (agent chat markdown) in the default browser.
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -107,7 +109,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // engines / connection pools
-            ipc::engines::list_engines,
             ipc::engines::parse_engine_connection_url,
             ipc::engines::format_engine_connection_url,
             ipc::engines::test_engine_connection,
@@ -115,11 +116,9 @@ pub fn run() {
             ipc::engines::open_engine_session,
             ipc::engines::close_engine_session,
             ipc::engines::ping_engine_session,
-            ipc::engines::engine_session_pool_status,
             ipc::engines::list_engine_sessions,
             ipc::engines::get_engine_session,
             ipc::engines::unlock_engine_writes,
-            ipc::engines::execute_engine_query,
             ipc::engines::explain_engine_query,
             ipc::engines::execute_engine_batch,
             ipc::engines::execute_pinned_batch,
@@ -154,7 +153,6 @@ pub fn run() {
             ipc::engines::terminate_engine_session,
             // profiles
             ipc::profiles::list_profiles,
-            ipc::profiles::get_profile,
             ipc::profiles::save_profile,
             ipc::profiles::delete_profile,
             ipc::profiles::touch_profile_connected,
@@ -169,19 +167,12 @@ pub fn run() {
             ipc::workspace_tabs::list_workspace_tabs,
             ipc::workspace_tabs::replace_workspace_tabs,
             ipc::workspace_tabs::upsert_workspace_tab,
-            ipc::workspace_tabs::delete_workspace_tab,
             // history
             ipc::history::append_query_history,
             ipc::history::list_query_history,
             ipc::history::list_recent_query_history,
-            ipc::history::clear_query_history,
-            ipc::history::retain_query_history,
             // settings
             set_native_menu,
-            ipc::settings::get_setting,
-            ipc::settings::set_setting,
-            ipc::settings::list_settings,
-            ipc::settings::delete_setting,
             ipc::settings::get_vault_status,
             ipc::settings::retry_vault_unlock,
             ipc::settings::purge_keychain_items,
@@ -199,10 +190,8 @@ pub fn run() {
             ipc::agent::set_ai_enabled,
             ipc::agent::set_ai_ollama_url,
             ipc::agent::set_ai_api_key,
-            ipc::agent::list_agent_providers,
             ipc::agent::list_agent_models,
             ipc::agent::list_agent_chats,
-            ipc::agent::create_agent_chat,
             ipc::agent::delete_agent_chat,
             ipc::agent::list_agent_messages,
             ipc::agent::update_agent_chat,
@@ -218,7 +207,7 @@ pub fn run() {
                 };
                 let services = std::sync::Arc::clone(&state.services);
                 services.forget_session_passwords();
-                let _ = tauri::async_runtime::block_on(async move {
+                tauri::async_runtime::block_on(async move {
                     services.connections().rollback_all_pins().await;
                 });
             }

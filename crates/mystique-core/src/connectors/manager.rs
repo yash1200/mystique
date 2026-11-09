@@ -5,7 +5,7 @@ use chrono::Utc;
 use mystique_connector_api::{
     forces_terminate_off, stamp_connect_overlay, ConnectionConfig, ConnectorError, ConnectorResult,
     ConnectorSession, EngineCapabilities, EngineDescriptor, EngineProduct, FormattedConnectionUrl,
-    ParsedConnectionUrl, PoolConfig, PoolStatus, SessionInfo, TestResult,
+    ParsedConnectionUrl, PoolConfig, SessionInfo, TestResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -434,14 +434,6 @@ impl ConnectionManager {
         updated
     }
 
-    pub async fn pool_status(&self, session_id: &str) -> ConnectorResult<Option<PoolStatus>> {
-        let guard = self.sessions.read().await;
-        let live = guard.get(session_id).ok_or_else(|| {
-            ConnectorError::InvalidConfig(format!("session not found: {session_id}"))
-        })?;
-        Ok(live.session.pool_status())
-    }
-
     pub async fn list_sessions(&self) -> Vec<SessionInfo> {
         let guard = self.sessions.read().await;
         guard
@@ -601,7 +593,7 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
                 "SSH host key {}: {} ({}:{})",
                 prompt.kind, prompt.fingerprint, prompt.host, prompt.port
             ),
-            ssh_host_key: Some(prompt),
+            ssh_host_key: Some(*prompt),
         };
     }
     TestResult {

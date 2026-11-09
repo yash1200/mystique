@@ -4,10 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{TransferError, TransferResult};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ImportEncoding {
+    #[default]
     Utf8,
     Utf16Le,
     Utf16Be,
@@ -33,12 +34,6 @@ impl ImportEncoding {
             Self::Utf16Be => encoding_rs::UTF_16BE,
             Self::Windows1252 | Self::Iso88591 => encoding_rs::WINDOWS_1252,
         }
-    }
-}
-
-impl Default for ImportEncoding {
-    fn default() -> Self {
-        Self::Utf8
     }
 }
 

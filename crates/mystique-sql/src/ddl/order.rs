@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use super::types::{SchemaChange, TableDefinition};
 
 pub(super) fn order_changes(
-    changes: &mut Vec<SchemaChange>,
+    changes: &mut [SchemaChange],
     drafts: &[TableDefinition],
 ) -> Result<(), String> {
     let creates: HashSet<String> = drafts

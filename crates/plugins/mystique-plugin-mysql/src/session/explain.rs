@@ -59,10 +59,7 @@ async fn fetch_text(
     for row in &rows {
         let mut cells = Vec::new();
         let mut index = 0;
-        loop {
-            let Some(cell) = cell_string(row, index) else {
-                break;
-            };
+        while let Some(cell) = cell_string(row, index) {
             cells.push(cell);
             index += 1;
             if index > 16 {

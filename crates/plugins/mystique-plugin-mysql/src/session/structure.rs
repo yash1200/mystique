@@ -7,6 +7,15 @@ use mystique_connector_api::{
 use super::catalog;
 use super::MysqlSession;
 
+/// Constraint, column, referenced schema, referenced table, referenced column.
+type ForeignKeyRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// One `information_schema.STATISTICS` row. `column` is `None` for a functional
 /// index, whose `COLUMN_NAME` is NULL.
 pub(crate) struct MysqlIndexColumn {
@@ -133,13 +142,7 @@ pub(super) async fn describe_object_structure(
     )
     .with_empty_message("No indexes.");
 
-    let fks: Vec<(
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = crate::rows::collect_exec(
+    let fks: Vec<ForeignKeyRow> = crate::rows::collect_exec(
         &mut conn,
         r#"
             SELECT

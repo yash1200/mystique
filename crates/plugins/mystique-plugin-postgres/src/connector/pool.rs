@@ -61,14 +61,11 @@ pub(crate) fn query_failed_at(sql: &str, err: tokio_postgres::Error) -> Connecto
 }
 
 fn char_to_byte(sql: &str, char_index: u32) -> u32 {
-    let mut seen = 0u32;
-    for (index, _) in sql.char_indices() {
-        if seen == char_index {
-            return u32::try_from(index).unwrap_or(u32::MAX);
-        }
-        seen += 1;
-    }
-    u32::try_from(sql.len()).unwrap_or(u32::MAX)
+    let byte = usize::try_from(char_index)
+        .ok()
+        .and_then(|n| sql.char_indices().nth(n))
+        .map_or(sql.len(), |(index, _)| index);
+    u32::try_from(byte).unwrap_or(u32::MAX)
 }
 
 /// `DECLARE … FOR <body>` reports positions in the wrapped text.
@@ -309,7 +306,7 @@ pub(crate) enum PgCancelTls {
 impl PgCancelTls {
     pub(crate) async fn cancel_query(&self, token: tokio_postgres::CancelToken) {
         let result = match self {
-            Self::Plain(tls) => token.cancel_query(tls.clone()).await,
+            Self::Plain(tls) => token.cancel_query(*tls).await,
             Self::Native(tls) => token.cancel_query(tls.clone()).await,
         };
         let _ = result;

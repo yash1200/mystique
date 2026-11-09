@@ -445,7 +445,7 @@ impl ProfileService<'_> {
             raw = None;
         }
         // Plaintext from older builds, in the row or in a Mongo URI.
-        if raw.as_deref().map_or(true, is_legacy_plaintext_secret) {
+        if raw.as_deref().is_none_or(is_legacy_plaintext_secret) {
             return self.seal_plaintext_row(id);
         }
         if raw.as_deref().is_some_and(pointer_is_account) {

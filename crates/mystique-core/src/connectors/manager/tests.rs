@@ -616,7 +616,7 @@ async fn import_into_production_needs_no_extra_prompt() {
 
 fn guard_prompt(err: ConnectorError) -> mystique_connector_api::WriteGuardPrompt {
     match err {
-        ConnectorError::WriteGuard(prompt) => prompt,
+        ConnectorError::WriteGuard(prompt) => *prompt,
         other => panic!("expected a write guard prompt, got {other:?}"),
     }
 }

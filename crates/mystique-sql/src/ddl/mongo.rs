@@ -5,10 +5,10 @@ use super::types::{DdlPlan, TableDefinition};
 use super::{finish, DdlTarget};
 
 pub(super) fn plan_mongo(draft: &TableDefinition, mut warnings: Vec<String>) -> DdlPlan {
-    if draft.columns.iter().any(|column| column_changes(column)) {
+    if draft.columns.iter().any(column_changes) {
         warnings.push("Mongo collections have no columns. Edit indexes or the validator.".into());
     }
-    if draft.foreign_keys.iter().any(|fk| fk_changes(fk)) {
+    if draft.foreign_keys.iter().any(fk_changes) {
         warnings.push("Mongo collections have no foreign keys.".into());
     }
     let mut statements = Vec::new();

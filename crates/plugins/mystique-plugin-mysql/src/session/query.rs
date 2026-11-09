@@ -554,19 +554,14 @@ async fn show_warnings(conn: &mut mysql_async::Conn) -> Vec<String> {
     };
     let width = qr.columns_ref().len();
     let mut notes = Vec::new();
-    loop {
-        match qr.next().await {
-            Ok(Some(row)) => {
-                if width >= 3 {
-                    if let Some(Value::Bytes(bytes)) = row.as_ref(2).cloned() {
-                        let text = String::from_utf8_lossy(&bytes).trim().to_string();
-                        if !text.is_empty() {
-                            notes.push(text);
-                        }
-                    }
+    while let Ok(Some(row)) = qr.next().await {
+        if width >= 3 {
+            if let Some(Value::Bytes(bytes)) = row.as_ref(2).cloned() {
+                let text = String::from_utf8_lossy(&bytes).trim().to_string();
+                if !text.is_empty() {
+                    notes.push(text);
                 }
             }
-            _ => break,
         }
     }
     notes

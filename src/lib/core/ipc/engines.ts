@@ -37,7 +37,6 @@ import type {
 	PreviewImportRequest,
 	PreviewImportResult,
 	QueryBatchResult,
-	QueryResult,
 	ServerMetricsSnapshot,
 	SessionInfo,
 	SshHostKeyPrompt,
@@ -133,12 +132,6 @@ export async function getEngineSession(
 
 export async function unlockEngineWrites(sessionId: string): Promise<void> {
 	return invoke('unlock_engine_writes', { sessionId })
-}
-
-export async function executeEngineQuery(
-	request: ExecuteQueryRequest,
-): Promise<QueryResult> {
-	return invoke('execute_engine_query', { request })
 }
 
 export async function pinQueryTab(

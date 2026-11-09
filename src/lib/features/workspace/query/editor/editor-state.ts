@@ -4,46 +4,20 @@
  */
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
+import { holdEditorState, peekEditorState } from './held'
+
+export {
+	holdEditorState,
+	peekEditorState,
+	pruneEditorStates,
+	resetEditorStates,
+} from './held'
 
 export const editorCompartments = {
 	lang: new Compartment(),
 	placeholder: new Compartment(),
 	theme: new Compartment(),
 	runGutter: new Compartment(),
-}
-
-type HeldEditor = {
-	state: EditorState
-	scrollTop: number
-	scrollLeft: number
-}
-
-const held = new Map<string, HeldEditor>()
-
-export function holdEditorState(
-	tabId: string,
-	state: EditorState,
-	scrollTop: number,
-	scrollLeft: number,
-) {
-	if (!tabId) return
-	held.set(tabId, { state, scrollTop, scrollLeft })
-}
-
-export function peekEditorState(tabId: string): HeldEditor | undefined {
-	return held.get(tabId)
-}
-
-/** Drop states for tabs that are no longer open. */
-export function pruneEditorStates(openIds: readonly string[]) {
-	const keep = new Set(openIds)
-	for (const id of held.keys()) {
-		if (!keep.has(id)) held.delete(id)
-	}
-}
-
-export function resetEditorStates() {
-	held.clear()
 }
 
 /**
@@ -66,7 +40,7 @@ export function switchEditorState(
 			view.scrollDOM.scrollLeft,
 		)
 	}
-	const existing = held.get(toId)
+	const existing = peekEditorState(toId)
 	if (existing) {
 		const top = existing.scrollTop
 		const left = existing.scrollLeft

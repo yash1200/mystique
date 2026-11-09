@@ -3,19 +3,13 @@
 use std::sync::Arc;
 
 use mystique_core::{
-    EngineDescriptor, FormatConnectionUrlRequest, FormattedConnectionUrl, OpenSessionRequest,
-    ParseConnectionUrlRequest, ParsedConnectionUrl, PoolStatus, SessionInfo, SshHostKeyPrompt,
-    TestResult,
+    FormatConnectionUrlRequest, FormattedConnectionUrl, OpenSessionRequest,
+    ParseConnectionUrlRequest, ParsedConnectionUrl, SessionInfo, SshHostKeyPrompt, TestResult,
 };
 use tauri::State;
 
 use super::IpcError;
 use crate::AppState;
-
-#[tauri::command]
-pub async fn list_engines(state: State<'_, AppState>) -> Result<Vec<EngineDescriptor>, IpcError> {
-    super::guard(async move { Ok(state.services.connections().list_engines()) }).await
-}
 
 /// Parse a connection URL into discrete plugin config fields (plugin-owned).
 #[tauri::command]
@@ -221,22 +215,6 @@ pub async fn ping_engine_session(
 }
 
 #[tauri::command]
-pub async fn engine_session_pool_status(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<Option<PoolStatus>, IpcError> {
-    super::guard(async move {
-        state
-            .services
-            .connections()
-            .pool_status(&session_id)
-            .await
-            .map_err(IpcError::from)
-    })
-    .await
-}
-
-#[tauri::command]
 pub async fn list_engine_sessions(
     state: State<'_, AppState>,
 ) -> Result<Vec<SessionInfo>, IpcError> {
@@ -296,19 +274,6 @@ pub async fn explain_engine_query(
             .explain_query(request)
             .await
             .map_err(IpcError::from)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn execute_engine_query(
-    state: State<'_, AppState>,
-    request: mystique_core::ExecuteQueryRequest,
-) -> Result<mystique_core::QueryResult, IpcError> {
-    super::guard(async move {
-        let mut result = state.services.connections().execute_query(request).await?;
-        mystique_core::clip_query_result(&mut result);
-        Ok(result)
     })
     .await
 }

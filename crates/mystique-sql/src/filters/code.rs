@@ -110,7 +110,7 @@ fn quote_unquoted_json_keys(input: &str) -> String {
 
 fn parse_predicate_lines(code: &str) -> BuildResult<Vec<TableFilter>> {
     let chunks: Vec<&str> = code
-        .split(|c| c == '\n')
+        .split('\n')
         .flat_map(|line| line.split(" AND ").flat_map(|p| p.split(" and ")))
         .map(str::trim)
         .filter(|s| !s.is_empty())

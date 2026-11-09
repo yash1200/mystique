@@ -1,8 +1,6 @@
 /** PostgreSQL adapter — mirrors `crates/plugins/mystique-plugin-postgres`. */
-import { PostgreSQL } from '@codemirror/lang-sql'
 import { relationalCapabilities } from '../capabilities'
 import { emptySslDraft, sslPluginFields } from '../ssl'
-import { sqlCatalogCompletion, sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
 
@@ -57,16 +55,7 @@ export const postgres: EngineAdapter = {
 	language: {
 		id: 'sql',
 		format: sqlFormatter('postgresql'),
-		sqlDialect: PostgreSQL,
-		completion: (rows) =>
-			sqlCatalogCompletion(rows, {
-				nestSchemas: true,
-				dialect: PostgreSQL,
-				kind: 'postgresql',
-			}),
-		// Postgres always nests by schema, even with a single non-public schema.
-		sqlSchema: (rows) =>
-			sqlSchemaFromColumns(rows, { nestSchemas: true, quote: 'postgres' }),
+		editor: () => import('./editor').then((m) => m.postgresEditor),
 	},
 
 	defaultCapabilities: relationalCapabilities({

@@ -6373,7 +6373,6 @@ name = "mystique-agent"
 version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
- "async-trait",
  "base64 0.22.1",
  "mystique-core",
  "rand 0.8.8",
@@ -6398,7 +6397,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "ts-rs",
- "uuid",
 ]
 
 [[package]]
@@ -6435,7 +6433,6 @@ name = "mystique-ipc-gen"
 version = "0.1.0"
 dependencies = [
  "mystique-agent",
- "mystique-connector-api",
  "mystique-core",
  "mystique-mcp",
  "ts-rs",
@@ -6466,7 +6463,6 @@ dependencies = [
  "mongodb",
  "mystique-connector-api",
  "mystique-tls",
- "serde",
  "serde_json",
  "tokio",
 ]
@@ -6497,7 +6493,6 @@ dependencies = [
  "mystique-connector-api",
  "mystique-sql",
  "mystique-tls",
- "native-tls",
  "postgres-native-tls",
  "serde_json",
  "tokio",

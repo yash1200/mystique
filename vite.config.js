@@ -25,6 +25,33 @@ export default defineConfig(() => ({
 		})
 	],
 
+	// Vendor code in named chunks of its own, so an app update that leaves a
+	// library alone keeps its file (and hash) and the webview cache stays warm.
+	// Each group only holds code that loads together: the editor's chunks load
+	// with the first query tab, the formatter on the first Format.
+	// `codeSplitting.groups` is Rolldown's successor to `manualChunks`.
+	build: {
+		rolldownOptions: {
+			output: {
+				codeSplitting: {
+					groups: [
+						{ name: 'svelte', test: /node_modules[\\/](svelte|esm-env|clsx)[\\/]/ },
+						{
+							name: 'codemirror',
+							test: /node_modules[\\/](@codemirror[\\/](?!lang-)|@lezer[\\/](common|highlight|lr)[\\/]|codemirror[\\/]|style-mod|w3c-keyname|crelt|@marijn)/,
+						},
+						{ name: 'codemirror-sql', test: /node_modules[\\/]@codemirror[\\/]lang-sql[\\/]/ },
+						{
+							name: 'codemirror-javascript',
+							test: /node_modules[\\/](@codemirror[\\/]lang-javascript|@lezer[\\/]javascript)[\\/]/,
+						},
+						{ name: 'sql-formatter', test: /node_modules[\\/](sql-formatter|nearley)[\\/]/ },
+					],
+				},
+			},
+		},
+	},
+
 	// Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
 	//
 	// 1. prevent Vite from obscuring rust errors

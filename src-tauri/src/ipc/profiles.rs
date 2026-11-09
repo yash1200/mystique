@@ -13,15 +13,6 @@ pub async fn list_profiles(state: State<'_, AppState>) -> Result<Vec<ConnectionP
 }
 
 #[tauri::command]
-pub async fn get_profile(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<ConnectionProfile, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || services.profiles().get(&id).map_err(IpcError::from)).await
-}
-
-#[tauri::command]
 pub async fn save_profile(
     state: State<'_, AppState>,
     input: SaveConnectionInput,

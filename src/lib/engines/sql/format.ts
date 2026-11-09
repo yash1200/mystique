@@ -1,14 +1,16 @@
 /** sql-formatter wrapper shared by every SQL engine adapter. */
-import { format as formatSql, type SqlLanguage } from 'sql-formatter'
+import type { SqlLanguage } from 'sql-formatter'
 import type { QueryFormatter } from '../types'
 
 export function sqlFormatter(dialect: SqlLanguage): QueryFormatter {
-	return (text) => {
+	return async (text) => {
 		const src = text.trim()
 		if (!src) {
 			return { ok: false, error: 'Nothing to format.', text }
 		}
 		try {
+			// sql-formatter is the largest dependency; it loads on the first Format.
+			const { format: formatSql } = await import('sql-formatter')
 			const formatted = formatSql(src, {
 				language: dialect,
 				tabWidth: 2,

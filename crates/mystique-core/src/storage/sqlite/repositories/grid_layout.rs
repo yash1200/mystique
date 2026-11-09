@@ -196,7 +196,10 @@ mod tests {
             order: vec!["name".into(), "id".into()],
             hidden: vec!["secret".into()],
             frozen: vec!["id".into()],
-            widths: widths.iter().map(|(name, w)| (name.to_string(), *w)).collect(),
+            widths: widths
+                .iter()
+                .map(|(name, w)| (name.to_string(), *w))
+                .collect(),
         }
     }
 
@@ -206,20 +209,30 @@ mod tests {
         migrate(&conn).unwrap();
         let saved = layout(&[("id", 64), ("name", 240)]);
         save_layout(&conn, &saved).unwrap();
-        assert_eq!(get_layout(&conn, "c1", "db.public.users").unwrap(), Some(saved));
+        assert_eq!(
+            get_layout(&conn, "c1", "db.public.users").unwrap(),
+            Some(saved)
+        );
         // Same table name in another schema is a separate layout.
         assert!(get_layout(&conn, "c1", "db.audit.users").unwrap().is_none());
 
         let resized = layout(&[("name", 300)]);
         save_layout(&conn, &resized).unwrap();
-        assert_eq!(get_layout(&conn, "c1", "db.public.users").unwrap(), Some(resized));
+        assert_eq!(
+            get_layout(&conn, "c1", "db.public.users").unwrap(),
+            Some(resized)
+        );
     }
 
     #[test]
     fn out_of_range_widths_are_dropped() {
         let conn = Connection::open_in_memory().unwrap();
         migrate(&conn).unwrap();
-        save_layout(&conn, &layout(&[("id", 0), ("name", 9000), ("", 80), ("ok", 90)])).unwrap();
+        save_layout(
+            &conn,
+            &layout(&[("id", 0), ("name", 9000), ("", 80), ("ok", 90)]),
+        )
+        .unwrap();
         let back = get_layout(&conn, "c1", "db.public.users").unwrap().unwrap();
         assert_eq!(back.widths, layout(&[("ok", 90)]).widths);
     }

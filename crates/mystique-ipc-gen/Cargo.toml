@@ -14,7 +14,6 @@ path = "src/main.rs"
 required-features = ["ts"]
 
 [dependencies]
-mystique-connector-api = { path = "../mystique-connector-api" }
 mystique-core = { path = "../mystique-core" }
 mystique-mcp = { path = "../mystique-mcp" }
 mystique-agent = { path = "../mystique-agent" }
@@ -23,7 +22,6 @@ ts-rs = { version = "12", optional = true, default-features = false, features = 
 [features]
 ts = [
     "dep:ts-rs",
-    "mystique-connector-api/ts",
     "mystique-core/ts",
     "mystique-mcp/ts",
     "mystique-agent/ts",

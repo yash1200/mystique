@@ -50,15 +50,3 @@ pub async fn upsert_workspace_tab(
     })
     .await
 }
-
-#[tauri::command]
-pub async fn delete_workspace_tab(state: State<'_, AppState>, id: String) -> Result<(), IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || {
-        services
-            .workspace_tabs()
-            .delete_tab(&id)
-            .map_err(IpcError::from)
-    })
-    .await
-}

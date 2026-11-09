@@ -39,7 +39,7 @@ impl<'a> WriteCheck<'a> {
 impl ConnectionManager {
     pub(super) async fn enforce_write_guard(&self, check: WriteCheck<'_>) -> ConnectorResult<()> {
         match self.write_prompt(check).await? {
-            Some(prompt) => Err(ConnectorError::WriteGuard(prompt)),
+            Some(prompt) => Err(ConnectorError::WriteGuard(Box::new(prompt))),
             None => Ok(()),
         }
     }

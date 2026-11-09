@@ -8,7 +8,7 @@ import type { QueryFormatter } from '../types'
  * Mongo / MQL: pretty-print bare JSON and shell `db.coll.find({ … }, { … }).sort(…)`.
  * Unquoted keys are shell-style, not JSON — normalize before pretty-print.
  */
-export const formatMql: QueryFormatter = (text) => {
+export const formatMql: QueryFormatter = async (text) => {
 	const src = text.trim()
 	if (!src) {
 		return { ok: false, error: 'Nothing to format.', text }

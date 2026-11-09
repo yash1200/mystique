@@ -1,7 +1,5 @@
 /** SQLite adapter — mirrors `crates/plugins/mystique-plugin-sqlite`. */
-import { SQLite } from '@codemirror/lang-sql'
 import { relationalCapabilities } from '../capabilities'
-import { sqlCatalogCompletion, sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
 
@@ -41,15 +39,7 @@ export const sqlite: EngineAdapter = {
 	language: {
 		id: 'sql',
 		format: sqlFormatter('sqlite'),
-		sqlDialect: SQLite,
-		completion: (rows) =>
-			sqlCatalogCompletion(rows, {
-				nestSchemas: false,
-				dialect: SQLite,
-				kind: 'sqlite',
-			}),
-		sqlSchema: (rows) =>
-			sqlSchemaFromColumns(rows, { nestSchemas: false, quote: 'postgres' }),
+		editor: () => import('./editor').then((m) => m.sqliteEditor),
 	},
 
 	defaultCapabilities: relationalCapabilities({
