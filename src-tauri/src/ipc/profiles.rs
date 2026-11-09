@@ -30,21 +30,6 @@ pub async fn save_profile(
     Ok(saved)
 }
 
-/// Mark one database of a profile with an environment, or clear its mark.
-#[tauri::command]
-pub async fn set_profile_database_environment(
-    state: State<'_, AppState>,
-    input: mystique_core::SetDatabaseEnvironmentInput,
-) -> Result<ConnectionProfile, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || {
-        services
-            .set_database_environment(&input)
-            .map_err(IpcError::from)
-    })
-    .await
-}
-
 #[tauri::command]
 pub async fn delete_profile(state: State<'_, AppState>, id: String) -> Result<bool, IpcError> {
     let services = Arc::clone(&state.services);

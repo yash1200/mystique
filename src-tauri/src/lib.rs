@@ -226,7 +226,6 @@ pub fn run() {
             // profiles
             ipc::profiles::list_profiles,
             ipc::profiles::save_profile,
-            ipc::profiles::set_profile_database_environment,
             ipc::profiles::delete_profile,
             ipc::profiles::touch_profile_connected,
             // query library (per-connection, no groups)

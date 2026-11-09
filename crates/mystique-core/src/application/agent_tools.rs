@@ -238,8 +238,6 @@ impl AgentTools {
         let profile = self
             .db
             .with_conn(|c| repo::connections::get_by_id(c, connection_id.trim()))?;
-        self.connections
-            .set_database_marks(&profile.id, profile.database_environments.clone());
         // MCP requests arrive while nobody may be looking: never prompt.
         let prompt = match caller {
             policy::ToolCaller::Agent => Prompt::Allowed,

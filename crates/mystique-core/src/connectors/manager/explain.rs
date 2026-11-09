@@ -66,21 +66,12 @@ impl ConnectionManager {
             prepare_sql_explain(&req, &engine, mode)?
         };
 
-        let targets = if prepared.guard == mystique_connector_api::WriteRisk::Read {
-            None
-        } else {
-            Some(
-                self.text_targets(&req.session_id, &req.text, req.database.as_deref())
-                    .await,
-            )
-        };
         self.enforce_write_guard(WriteCheck {
             preview: req.text.clone(),
             statements: vec![req.text.clone()],
             object_name: prepared.destructive_name.as_deref(),
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,
-            targets,
             where_dialect: (!engine.eq_ignore_ascii_case("mongodb"))
                 .then(|| SqlDialect::from_engine(&engine)),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, prepared.guard)

@@ -6,8 +6,8 @@
 
 use crate::{ConnectorError, ConnectorResult, WriteRisk};
 
-/// Profile environment. Anything unknown counts as local. Ordered by danger.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// Profile environment. Anything unknown counts as local.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Environment {
     Local,
     Staging,
@@ -20,14 +20,6 @@ impl Environment {
             "production" => Self::Production,
             "staging" => Self::Staging,
             _ => Self::Local,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Local => "local",
-            Self::Staging => "staging",
-            Self::Production => "production",
         }
     }
 }

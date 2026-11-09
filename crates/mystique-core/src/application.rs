@@ -196,43 +196,9 @@ impl AppServices {
     /// dial works.
     pub async fn open_session(&self, req: OpenSessionRequest) -> AppResult<SessionInfo> {
         let (req, session) = self.bind_off_thread(req).await?;
-        self.load_database_marks(&req);
         let result = self.connections.open_session(req).await;
         settle_session_password(&self.secrets, session, &result);
         Ok(result?)
-    }
-
-    /// The saved profile's per-database marks reach the manager before its
-    /// session opens, so the first write is judged with them.
-    fn load_database_marks(&self, req: &OpenSessionRequest) {
-        let Some(id) = req
-            .profile_id
-            .as_deref()
-            .or(req.session_id.as_deref())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        else {
-            return;
-        };
-        if let Ok(profile) = self
-            .db
-            .with_conn(|c| crate::storage::sqlite::repo::connections::get_by_id(c, id))
-        {
-            self.connections
-                .set_database_marks(&profile.id, profile.database_environments);
-        }
-    }
-
-    /// Mark one database of a profile (or clear its mark). Open sessions of
-    /// the profile use the new marks from their next write.
-    pub fn set_database_environment(
-        &self,
-        input: &crate::domain::SetDatabaseEnvironmentInput,
-    ) -> AppResult<crate::domain::ConnectionProfile> {
-        let profile = self.profiles().set_database_environment(input)?;
-        self.connections
-            .set_database_marks(&profile.id, profile.database_environments.clone());
-        Ok(profile)
     }
 
     /// Bind secrets and test. A typed password that passes is kept, as for

@@ -28,8 +28,8 @@ mod principal;
 mod query;
 mod row_preview;
 mod run;
+mod session_db;
 mod table;
-mod target_env;
 mod timed_unlock;
 mod transfer;
 
@@ -129,17 +129,10 @@ struct LiveSession {
     origin: SessionOrigin,
     /// Saved profile id. History is keyed by this, not the live session id.
     profile_id: Option<String>,
-    /// `database` in the plugin config at open: where unqualified names go.
+    /// `database` in the plugin config at open: where unqualified names go
+    /// (the row preview names an `INSERT`'s columns from it).
     default_database: Option<String>,
     last_used: std::sync::Mutex<std::time::Instant>,
-}
-
-impl LiveSession {
-    /// The profile whose marks and timed unlock apply. The desktop keys
-    /// its session by profile id.
-    fn profile_key<'a>(&'a self, session_id: &'a str) -> &'a str {
-        self.profile_id.as_deref().unwrap_or(session_id)
-    }
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
@@ -152,9 +145,8 @@ pub struct ConnectionManager {
     /// Human sessions on a read-only profile with writes allowed until the
     /// instant. Not persisted; agent and MCP sessions never get one.
     timed_unlocks: timed_unlock::TimedUnlocks,
-    /// Profile id → per-database environment marks, set before a session
-    /// opens and whenever the marks change.
-    database_marks: target_env::DatabaseMarks,
+    /// Sessions whose database a `USE` moved. See `session_db`.
+    database_switches: session_db::DatabaseSwitches,
     /// One-shot write authorizations for agent and MCP sessions (F-01).
     tool_writes: principal::ToolWrites,
     /// `execution_id` → control. Not the profile id.
@@ -187,7 +179,7 @@ impl ConnectionManager {
             sessions: RwLock::new(HashMap::new()),
             write_unlocks: Mutex::new(HashSet::new()),
             timed_unlocks: timed_unlock::TimedUnlocks::default(),
-            database_marks: target_env::DatabaseMarks::default(),
+            database_switches: session_db::DatabaseSwitches::default(),
             tool_writes: principal::ToolWrites::default(),
             running: std::sync::Mutex::new(HashMap::new()),
             metadata: run::metadata_limiter(),
@@ -415,7 +407,7 @@ impl ConnectionManager {
         };
         self.write_unlocks.lock().await.remove(&session_id);
         self.timed_unlocks.end(&session_id);
-        self.database_marks.forget_session(&session_id);
+        self.database_switches.forget_session(&session_id);
         if let Some(prev) = prev {
             let _ = shutdown_live(prev).await;
         }
@@ -440,7 +432,7 @@ impl ConnectionManager {
             guard.remove(session_id)
         };
         self.timed_unlocks.end(session_id);
-        self.database_marks.forget_session(session_id);
+        self.database_switches.forget_session(session_id);
         if let Some(live) = live {
             self.write_unlocks.lock().await.remove(session_id);
             tracing::info!(session_id, engine = %live.product_id, busy, "session closed");

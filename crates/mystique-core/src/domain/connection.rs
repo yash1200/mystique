@@ -39,68 +39,9 @@ pub struct ConnectionProfile {
     /// Query timeout for this profile. `None` uses the app setting; 0 is none.
     #[serde(default)]
     pub query_timeout_secs: Option<u32>,
-    /// Databases (or schemas) whose environment is not `environment`.
-    /// Empty: `environment` applies to every database. Set with
-    /// [`crate::ProfileService::set_database_environment`], not on save.
-    #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional = nullable))]
-    pub database_environments: Vec<mystique_connector_api::DatabaseEnvironment>,
     pub last_connected_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-}
-
-/// Most marks one profile keeps.
-pub const MAX_DATABASE_ENVIRONMENTS: usize = 256;
-
-/// Add, change or (with `environment: None`) remove one database mark.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
-#[serde(rename_all = "camelCase")]
-pub struct SetDatabaseEnvironmentInput {
-    pub profile_id: String,
-    pub database: String,
-    /// Postgres schema. Omitted marks the whole database.
-    #[serde(default)]
-    pub schema: Option<String>,
-    /// `local` | `staging` | `production`; omitted removes the mark.
-    #[serde(default)]
-    pub environment: Option<String>,
-}
-
-/// `marks` with one mark set or removed. Names compare case-insensitively.
-pub fn with_database_environment(
-    mut marks: Vec<mystique_connector_api::DatabaseEnvironment>,
-    database: &str,
-    schema: Option<&str>,
-    environment: Option<&str>,
-) -> Result<Vec<mystique_connector_api::DatabaseEnvironment>, String> {
-    let database = database.trim();
-    if database.is_empty() {
-        return Err("database is required".into());
-    }
-    let schema = schema.map(str::trim).filter(|s| !s.is_empty());
-    let same = |m: &mystique_connector_api::DatabaseEnvironment| {
-        m.database.trim().eq_ignore_ascii_case(database)
-            && m.schema.as_deref().map(str::trim).filter(|s| !s.is_empty()) == schema
-    };
-    marks.retain(|m| !same(m));
-    if let Some(environment) = environment {
-        let environment = environment.trim();
-        validate_environment(environment)?;
-        if marks.len() >= MAX_DATABASE_ENVIRONMENTS {
-            return Err(format!(
-                "a connection keeps at most {MAX_DATABASE_ENVIRONMENTS} database marks"
-            ));
-        }
-        marks.push(mystique_connector_api::DatabaseEnvironment {
-            database: database.to_string(),
-            schema: schema.map(str::to_string),
-            environment: environment.to_string(),
-        });
-    }
-    Ok(marks)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

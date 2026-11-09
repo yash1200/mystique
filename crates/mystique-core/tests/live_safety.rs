@@ -1,15 +1,14 @@
-//! Live checks for per-database production (F-03) and the affected-row
-//! preview (F-05) on Postgres and MySQL.
+//! Live checks for the affected-row preview (F-05) and the production
+//! prompt on Postgres and MySQL.
 //!
 //! `cargo test -p mystique-core --test live_safety -- --ignored`
 //!
 //! Postgres: the local `postgres` database. MySQL: `admin`/`123`, database
-//! `mystique`, plus a scratch database `mq_fb_scratch` it creates and drops.
-//! Every table is `mq_fb_*` and is dropped at the end.
+//! `mystique`. Every table is `mq_fb_*` and is dropped at the end.
 
 use mystique_core::{
-    ConnectionManager, ConnectorError, DatabaseEnvironment, ExecuteQueryRequest,
-    OpenSessionRequest, PreviewWriteRowsRequest, QueryMode, WriteRowPreview,
+    ConnectionManager, ConnectorError, ExecuteQueryRequest, OpenSessionRequest,
+    PreviewWriteRowsRequest, QueryMode, WriteRowPreview,
 };
 use serde_json::{json, Value as JsonValue};
 use tokio::sync::Mutex;
@@ -167,9 +166,41 @@ async fn previews_rows_without_writing(mgr: &ConnectionManager, sid: &str) {
     );
 }
 
+/// A second session on the same database, on a production connection:
+/// the write asks first and nothing changes.
+async fn production_connection_asks(
+    mgr: &ConnectionManager,
+    engine: &str,
+    database: &str,
+    seed_sid: &str,
+) {
+    let sid = format!("{seed_sid}_prod");
+    mgr.open_session(open(engine, &sid, database, "production"))
+        .await
+        .expect("open production");
+    let err = mgr
+        .execute_query(req(
+            &sid,
+            "UPDATE mq_fb_preview SET name = 'x' WHERE id = 1",
+        ))
+        .await
+        .expect_err("production asks");
+    let ConnectorError::WriteGuard(prompt) = err else {
+        panic!("expected a prompt, got {err:?}");
+    };
+    assert_eq!(prompt.environment, "production");
+    assert_eq!(prompt.kind, "unlock");
+    assert_eq!(
+        text(&value(mgr, seed_sid, "SELECT name FROM mq_fb_preview WHERE id = 1").await),
+        "one",
+        "the prompt stopped the write"
+    );
+    let _ = mgr.close_session(&sid).await;
+}
+
 #[tokio::test]
 #[ignore = "needs local Postgres"]
-async fn postgres_preview_and_per_database_production() {
+async fn postgres_preview_and_production_prompt() {
     let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
     let sid = "mq_fb_pg";
@@ -196,117 +227,33 @@ async fn postgres_preview_and_per_database_production() {
     .await;
     assert!(!sneaky.available || sneaky.error.is_some(), "{sneaky:?}");
 
-    // Mark this database production: the same local connection now asks.
-    mgr.set_database_marks(
-        &format!("{sid}-profile"),
-        vec![DatabaseEnvironment {
-            database: "postgres".into(),
-            schema: None,
-            environment: "production".into(),
-        }],
-    );
-    let err = mgr
-        .execute_query(req(sid, "UPDATE mq_fb_preview SET name = 'x' WHERE id = 1"))
-        .await
-        .expect_err("marked database asks");
-    let ConnectorError::WriteGuard(prompt) = err else {
-        panic!("expected a prompt, got {err:?}");
-    };
-    assert_eq!(prompt.environment, "production");
-    assert_eq!(prompt.database.as_deref(), Some("postgres"));
-    // A name in another database is that database: not marked, no prompt
-    // from the guard (Postgres itself refuses the cross-database name).
-    let other = mgr
-        .execute_query(req(
-            sid,
-            "UPDATE other_db.public.mq_fb_preview SET name = 'x'",
-        ))
-        .await
-        .expect_err("postgres refuses cross-database names");
-    assert!(!matches!(other, ConnectorError::WriteGuard(_)), "{other:?}");
+    production_connection_asks(&mgr, "postgres", "postgres", sid).await;
 
-    mgr.set_database_marks(&format!("{sid}-profile"), Vec::new());
     write(&mgr, sid, "DROP TABLE mq_fb_preview").await;
     let _ = mgr.close_session(sid).await;
 }
 
 #[tokio::test]
 #[ignore = "needs local MySQL"]
-async fn mysql_preview_and_cross_database_production() {
+async fn mysql_preview_and_production_prompt() {
     let _serial = SERIAL.lock().await;
     let mgr = ConnectionManager::bootstrap();
-    let setup = "mq_fb_my_setup";
-    mgr.open_session(open("mysql", setup, "mystique", "local"))
+    let sid = "mq_fb_my";
+    mgr.open_session(open("mysql", sid, "mystique", "local"))
         .await
         .expect("open");
-    write(&mgr, setup, "CREATE DATABASE IF NOT EXISTS mq_fb_scratch").await;
-    write(
-        &mgr,
-        setup,
-        "DROP TABLE IF EXISTS mystique.mq_fb_preview; \
-         CREATE TABLE mystique.mq_fb_preview (id INT PRIMARY KEY, name VARCHAR(20)); \
-         INSERT INTO mystique.mq_fb_preview VALUES (1, 'one'), (2, 'two'), (3, 'three'); \
-         DROP TABLE IF EXISTS mq_fb_scratch.mq_fb_preview; \
-         CREATE TABLE mq_fb_scratch.mq_fb_preview (id INT PRIMARY KEY, name VARCHAR(20))",
-    )
-    .await;
-
-    previews_rows_without_writing(&mgr, setup).await;
-
-    // A session on the scratch database; `mystique` is marked production.
-    let sid = "mq_fb_my";
-    mgr.open_session(open("mysql", sid, "mq_fb_scratch", "local"))
-        .await
-        .expect("open scratch");
-    mgr.set_database_marks(
-        &format!("{sid}-profile"),
-        vec![DatabaseEnvironment {
-            database: "mystique".into(),
-            schema: None,
-            environment: "production".into(),
-        }],
-    );
-    write(&mgr, sid, "INSERT INTO mq_fb_preview VALUES (1, 'scratch')").await;
     write(
         &mgr,
         sid,
-        "UPDATE mq_fb_scratch.mq_fb_preview SET name = 'still scratch'",
+        "DROP TABLE IF EXISTS mq_fb_preview; \
+         CREATE TABLE mq_fb_preview (id INT PRIMARY KEY, name VARCHAR(20)); \
+         INSERT INTO mq_fb_preview VALUES (1, 'one'), (2, 'two'), (3, 'three')",
     )
     .await;
-    for statement in [
-        "UPDATE mystique.mq_fb_preview SET name = 'x' WHERE id = 1",
-        "UPDATE `mystique`.`mq_fb_preview` SET name = 'x' WHERE id = 1",
-        "USE mystique; UPDATE mq_fb_preview SET name = 'x' WHERE id = 1",
-    ] {
-        let err = mgr
-            .execute_query(req(sid, statement))
-            .await
-            .expect_err(statement);
-        let ConnectorError::WriteGuard(prompt) = err else {
-            panic!("{statement}: expected a prompt, got {err:?}");
-        };
-        assert_eq!(prompt.environment, "production", "{statement}");
-        assert_eq!(prompt.database.as_deref(), Some("mystique"), "{statement}");
-    }
-    assert_eq!(
-        text(
-            &value(
-                &mgr,
-                setup,
-                "SELECT name FROM mystique.mq_fb_preview WHERE id = 1"
-            )
-            .await
-        ),
-        "one",
-        "the prompts stopped every write to the production database"
-    );
 
+    previews_rows_without_writing(&mgr, sid).await;
+    production_connection_asks(&mgr, "mysql", "mystique", sid).await;
+
+    write(&mgr, sid, "DROP TABLE mq_fb_preview").await;
     let _ = mgr.close_session(sid).await;
-    write(
-        &mgr,
-        setup,
-        "DROP TABLE mystique.mq_fb_preview; DROP DATABASE mq_fb_scratch",
-    )
-    .await;
-    let _ = mgr.close_session(setup).await;
 }

@@ -99,14 +99,9 @@ impl ConnectionManager {
                 "This save belongs to another connection.".into(),
             ));
         }
-        // The inverse statements name their table as the save did.
-        let targets = self
-            .text_targets(&req.session_id, &save.undo.inverse.join(";\n"), None)
-            .await;
         self.enforce_write_guard(WriteCheck {
             preview: "Roll back a grid save".into(),
             statements: save.undo.inverse.clone(),
-            targets: Some(targets),
             confirm_object_name: req.confirm_object_name.as_deref(),
             ..WriteCheck::new(&req.session_id, WriteAction::GridSave, WriteRisk::Write)
         })

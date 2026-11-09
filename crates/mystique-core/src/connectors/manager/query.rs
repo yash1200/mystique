@@ -74,21 +74,12 @@ impl ConnectionManager {
         } else {
             policy.classify(&req.text)
         };
-        let targets = if risk == mystique_connector_api::WriteRisk::Read {
-            None
-        } else {
-            let current = self
-                .document_database(&req.session_id, req.database.as_deref())
-                .await;
-            Some(policy.write_targets(&req.text, current.as_deref()))
-        };
         self.enforce_write_guard(WriteCheck {
             preview: policy.op_preview(&req.text),
             statements: vec![req.text.clone()],
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,
             pinned: tab_id.is_some(),
-            targets,
             request: Some(&req.text),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, risk)
         })

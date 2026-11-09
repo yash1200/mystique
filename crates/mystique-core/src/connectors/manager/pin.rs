@@ -533,18 +533,6 @@ impl ConnectionManager {
         )?;
         let dialect = SqlDialect::from_engine(&engine);
         let risk = plan.worst.write_risk();
-        // SQL plugins run in the database the session opened with; the
-        // request's `database` only picks the explorer's catalog.
-        let targets = if risk == mystique_connector_api::WriteRisk::Read {
-            None
-        } else {
-            let current = self.session_database(&req.session_id).await;
-            Some(mystique_connector_api::sql_write_targets(
-                &req.text,
-                dialect,
-                current.as_deref(),
-            ))
-        };
         self.enforce_write_guard(WriteCheck {
             preview: req.text.clone(),
             statements: plan
@@ -556,7 +544,6 @@ impl ConnectionManager {
             confirm_object_name: req.confirm_object_name.as_deref(),
             profile_read_only: read_only,
             pinned: tab_id.is_some(),
-            targets,
             request: Some(&req.text),
             where_dialect: Some(dialect),
             ..WriteCheck::new(&req.session_id, WriteAction::Query, risk)

@@ -143,7 +143,6 @@ fn roots(c: &mut Collect) {
         // Profiles, settings, vault.
         core::ConnectionProfile,
         core::SaveConnectionInput,
-        core::SetDatabaseEnvironmentInput,
         core::VaultStatus,
         core::PurgeReport,
         // History, saved queries, tabs, grid layout.

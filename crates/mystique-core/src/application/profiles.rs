@@ -183,27 +183,6 @@ impl ProfileService<'_> {
             .map(redact_profile)
     }
 
-    /// Mark one database (or schema) with an environment, or clear its mark.
-    pub fn set_database_environment(
-        &self,
-        input: &crate::domain::SetDatabaseEnvironmentInput,
-    ) -> AppResult<ConnectionProfile> {
-        let id = input.profile_id.trim();
-        self.db
-            .with_conn(|c| {
-                let profile = repo::connections::get_by_id(c, id)?;
-                let marks = crate::domain::with_database_environment(
-                    profile.database_environments,
-                    &input.database,
-                    input.schema.as_deref(),
-                    input.environment.as_deref(),
-                )
-                .map_err(crate::error::AppError::Invalid)?;
-                repo::connections::set_database_environments(c, id, &marks)
-            })
-            .map(redact_profile)
-    }
-
     /// The row and its secrets commit in one transaction. The vault key
     /// loads first, outside it, so a denied prompt writes nothing.
     pub fn save(&self, mut input: SaveConnectionInput) -> AppResult<ConnectionProfile> {
