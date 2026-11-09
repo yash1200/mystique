@@ -6,8 +6,7 @@
 		TableMeta,
 	} from '#core/contracts'
 	import {
-		isProductionDatabase,
-		markAction,
+		hasProduction,
 		productionLabel,
 		ProductionMark,
 	} from '#features/connections'
@@ -68,13 +67,8 @@
 			table: TableMeta,
 			extra?: string,
 		) => void
-		/** The connection, for per-database production marks. */
-		profile?: Pick<
-			ConnectionProfile,
-			'name' | 'environment' | 'databaseEnvironments'
-		> | null
-		/** Mark a database (`environment`) or clear its mark (`null`). */
-		onmarkdatabase?: (database: string, environment: string | null) => void
+		/** The connection: its production shield leads the database picker. */
+		profile?: Pick<ConnectionProfile, 'name' | 'environment'> | null
 	}
 
 	let {
@@ -97,7 +91,6 @@
 		onopen,
 		ontableaction,
 		profile = null,
-		onmarkdatabase,
 	}: Props = $props()
 
 	let query = $state('')
@@ -122,30 +115,14 @@
 
 	const tables = $derived(currentDb?.tables ?? [])
 
-	const productionDb = (name: string) =>
-		!!profile && isProductionDatabase(profile, name)
-
 	const dbOptions = $derived(
 		databases.map((d) => ({
 			value: d.name,
 			label: d.name,
-			mark: productionDb(d.name)
-				? {
-						icon: 'shield' as const,
-						label: 'Production',
-						class: 'text-warning',
-					}
-				: undefined,
 		})),
 	)
 
-	const selectedProduction = $derived(productionDb(selectedDatabase))
-	/** Mark / unmark the selected database (multi-database engines only). */
-	const markToggle = $derived(
-		profile && onmarkdatabase && presentation.multiDatabase && selectedDatabase.trim()
-			? markAction(profile, selectedDatabase)
-			: null,
-	)
+	const production = $derived(!!profile && hasProduction(profile))
 
 	const filtered = $derived.by(() => {
 		const q = query.trim().toLowerCase()
@@ -564,8 +541,8 @@
 					onchange={onDbChange}
 				>
 					{#snippet leading()}
-						{#if selectedProduction && profile}
-							<ProductionMark label={productionLabel(profile, selectedDatabase)} />
+						{#if production && profile}
+							<ProductionMark label={productionLabel(profile)} />
 						{:else}
 							<CatalogIcon name="database" class="size-3.5" />
 						{/if}
@@ -588,19 +565,6 @@
 				>
 					<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 				</IconButton>
-				{#if markToggle}
-					<IconButton
-						label="{markToggle.label} (“{selectedDatabase}”)"
-						size="sm"
-						variant="quiet"
-						aria-pressed={selectedProduction}
-						class={selectedProduction ? 'text-warning' : ''}
-						onclick={() =>
-							onmarkdatabase?.(selectedDatabase, markToggle.environment)}
-					>
-						<Icon name="shield" />
-					</IconButton>
-				{/if}
 				{#if presentation.canCreateDatabase}
 					<IconButton
 						label="Create {presentation.databaseLabel.toLowerCase()}"

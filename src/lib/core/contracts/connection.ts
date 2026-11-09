@@ -1,12 +1,6 @@
 import type { ConnectionProfile as ConnectionProfileRow, SshAuth } from '../ipc/bindings.gen'
 
-export type {
-	DatabaseEnvironment,
-	SaveConnectionInput,
-	SetDatabaseEnvironmentInput,
-	SshAuth,
-	SshConfig,
-} from '../ipc/bindings.gen'
+export type { SaveConnectionInput, SshAuth, SshConfig } from '../ipc/bindings.gen'
 
 export type EngineId = 'postgres' | 'sqlite' | 'mysql' | 'mongodb' | string
 

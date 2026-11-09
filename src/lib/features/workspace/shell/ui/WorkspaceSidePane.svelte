@@ -40,7 +40,6 @@
 	import { resolveCapabilities } from '#engines'
 	import {
 		liveStatusMark,
-		markDatabase,
 		timedUnlocks,
 		workspaceSession,
 		workspaceStudio,
@@ -180,8 +179,6 @@
 					)}
 					capabilities={activeSession.capabilities}
 					profile={activeSession.profile}
-					onmarkdatabase={(database, environment) =>
-						void markDatabase(activeSession.profile.id, database, environment)}
 				/>
 			{:else if activeSession}
 				<aside

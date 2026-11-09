@@ -18,7 +18,7 @@
 	import { commands } from '#core/commands'
 	import { EmptyState, Icon, Lazy } from '#core/ui'
 	import { familyFromCaps, resolveCapabilities } from '#engines'
-	import { colorHex, isProductionDatabase } from '#features/connections'
+	import { colorHex, hasProduction } from '#features/connections'
 	import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 	import {
 		ErWorkspace,
@@ -88,10 +88,9 @@
 			activeSession?.engineSessionId,
 		),
 	)
-	/** The current database is production (connection or per-database mark). */
+	/** The active connection is production. */
 	const productionNow = $derived(
-		!!activeSession &&
-			isProductionDatabase(activeSession.profile, currentDatabaseName),
+		!!activeSession && hasProduction(activeSession.profile),
 	)
 	const connectionTabs = $derived(
 		activeId ? openTabs.filter((t) => t.connectionId === activeId) : [],
@@ -302,7 +301,6 @@
 				<SessionMarks
 					profile={activeSession.profile}
 					engineSessionId={activeSession.engineSessionId ?? null}
-					database={currentDatabaseName}
 				/>
 			{/if}
 		</div>

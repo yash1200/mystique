@@ -6,7 +6,6 @@
 export * from './api'
 export * from './close-guard'
 export * from './connection-cache.svelte'
-export { markDatabase } from './database-marks'
 export { formatCountdown, TIMED_UNLOCK_CHOICES } from './timed-unlock'
 export { timedUnlocks } from './timed-unlock.svelte'
 export * from './edit-buffer'

@@ -1,6 +1,6 @@
 <!--
 	Marks at the end of the tab bar for the active connection: the production
-	shield when the current database is production, and on a read-only
+	shield when the connection is production, and on a read-only
 	connection the lock, which offers a timed write unlock and shows its
 	countdown while it runs.
 -->
@@ -8,11 +8,7 @@
 	import type { ConnectionProfile } from '#core/contracts'
 	import { ContextMenu, Icon, type ContextMenuItem } from '#core/ui'
 	import { cn } from '#core/util'
-	import {
-		isProductionDatabase,
-		productionLabel,
-		ProductionMark,
-	} from '#features/connections'
+	import { hasProduction, productionLabel, ProductionMark } from '#features/connections'
 	import {
 		formatCountdown,
 		TIMED_UNLOCK_CHOICES,
@@ -22,12 +18,11 @@
 	interface Props {
 		profile: ConnectionProfile
 		engineSessionId: string | null
-		database: string | null
 	}
 
-	let { profile, engineSessionId, database }: Props = $props()
+	let { profile, engineSessionId }: Props = $props()
 
-	const production = $derived(isProductionDatabase(profile, database))
+	const production = $derived(hasProduction(profile))
 	const remaining = $derived(timedUnlocks.remainingMs(engineSessionId))
 
 	let menu = $state<{ x: number; y: number } | null>(null)
@@ -63,7 +58,7 @@
 		aria-label="Connection safety"
 	>
 		{#if production}
-			<ProductionMark label={productionLabel(profile, database)} />
+			<ProductionMark label={productionLabel(profile)} />
 		{/if}
 		{#if profile.readOnly}
 			<button

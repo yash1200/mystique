@@ -5,15 +5,7 @@
  * directly and the kernel can import this index without a cycle.
  */
 export * from './api'
-export {
-	databaseEnvironment,
-	databaseMark,
-	hasProduction,
-	isProductionDatabase,
-	markAction,
-	productionLabel,
-	worstEnvironment,
-} from './environments'
+export { hasProduction, productionLabel } from './environments'
 export { connectionFacts, connectionUrlPreview, copyConnectionUrl, environmentLabel } from './facts'
 export {
 	colorHex,

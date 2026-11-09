@@ -218,13 +218,7 @@ password?: string | null, favorite: boolean,
 /**
  * Query timeout for this profile. `None` uses the app setting; 0 is none.
  */
-queryTimeoutSecs: number | null, 
-/**
- * Databases (or schemas) whose environment is not `environment`.
- * Empty: `environment` applies to every database. Set with
- * [`crate::ProfileService::set_database_environment`], not on save.
- */
-databaseEnvironments?: Array<DatabaseEnvironment>, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
+queryTimeoutSecs: number | null, lastConnectedAt: string | null, createdAt: string, updatedAt: string, };
 
 export type ConstraintDraft = { kind: string, name: string, columns?: Array<string>, expression?: string | null, original?: ConstraintOriginal | null, drop?: boolean, };
 
@@ -248,20 +242,6 @@ columns?: Array<string>,
  * CHECK expression, without the `CHECK` keyword.
  */
 expression?: string | null, };
-
-/**
- * A database (or one schema of it) whose environment is not the
- * connection's.
- */
-export type DatabaseEnvironment = { database: string, 
-/**
- * Postgres schema. `None` marks the whole database.
- */
-schema?: string | null, 
-/**
- * `local` | `staging` | `production`.
- */
-environment: string, };
 
 export type DdlPlan = { statements: Array<string>, warnings: Array<string>, transactional: boolean, requiresRebuild: boolean, 
 /**
@@ -1068,19 +1048,6 @@ extras: Array<MetricValue>, };
 export type SessionInfo = { sessionId: string, engine: string, displayName: string, capabilities: EngineCapabilities, pool: PoolStatus | null, openedAt: string, };
 
 /**
- * Add, change or (with `environment: None`) remove one database mark.
- */
-export type SetDatabaseEnvironmentInput = { profileId: string, database: string, 
-/**
- * Postgres schema. Omitted marks the whole database.
- */
-schema?: string | null, 
-/**
- * `local` | `staging` | `production`; omitted removes the mark.
- */
-environment?: string | null, };
-
-/**
  * A currently-running or historically slow statement.
  */
 export type SlowQuery = { id: string, query: string, durationMs: number | null, meanMs: number | null, calls: number | null, database: string | null, user: string | null, 
@@ -1448,11 +1415,6 @@ statements?: Array<string>,
  * Name to send back as `confirmObjectName` for `confirm` and `typeConfirm`.
  */
 objectName?: string | null, 
-/**
- * The database marked with `environment` that the write lands in, when
- * the mark is per database rather than the connection's.
- */
-database?: string | null, 
 /**
  * Production only: things to look at before confirming, such as an
  * `UPDATE` / `DELETE` with no `WHERE` or one that is always true.

@@ -5,15 +5,12 @@
 	 */
 	import { cn, popover } from '#core/util'
 	import type { Snippet } from 'svelte'
-	import type { IconName } from '#icons'
 	import Icon from './Icon.svelte'
 
 	export type SelectOption = {
 		value: string
 		label: string
 		disabled?: boolean
-		/** A marker icon after the label (e.g. a production database). */
-		mark?: { icon: IconName; label: string; class?: string }
 	}
 
 	interface Props {
@@ -377,16 +374,6 @@
 						onclick={() => selectOption(opt)}
 					>
 						<span class="min-w-0 flex-1 truncate">{opt.label}</span>
-						{#if opt.mark}
-							<span
-								class={cn('ml-2 inline-flex shrink-0', opt.mark.class)}
-								title={opt.mark.label}
-								role="img"
-								aria-label={opt.mark.label}
-							>
-								<Icon name={opt.mark.icon} class="size-3.5" />
-							</span>
-						{/if}
 						{#if isSelected}
 							<Icon name="check" class="ml-2 size-3.5 text-accent" />
 						{/if}

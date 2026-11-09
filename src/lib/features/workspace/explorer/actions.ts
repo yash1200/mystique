@@ -1,7 +1,6 @@
 /** Explorer context-menu actions. */
 import type { TableAdminOp, TableMeta } from '#core/contracts'
 import { errorMessage, applyEngineTableAdmin } from '#core/ipc'
-import { databaseEnvironment } from '#features/connections'
 import {
 	catalogStore,
 	databaseNameFor,
@@ -70,11 +69,7 @@ export async function onTableExplorerAction(
 			action,
 			name: table.name,
 			noun: table.kind || 'table',
-			environment: databaseEnvironment(
-				session.profile,
-				table.database || databaseNameFor(id),
-				table.schema || null,
-			),
+			environment: session.profile.environment ?? 'local',
 			connectionName: session.profile.name,
 		})
 		if (prompt) {

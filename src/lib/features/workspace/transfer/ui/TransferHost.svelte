@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolveCapabilities } from '#engines'
 	import { Button, Modal } from '#core/ui'
-	import { isProductionDatabase } from '#features/connections'
+	import { hasProduction } from '#features/connections'
 	import { workspaceSession } from '#features/workspace/session'
 	import {
 		answerImportGate,
@@ -70,12 +70,7 @@
 	objectName={transferStore.importTable?.name ?? ''}
 	{objectLabel}
 	{formats}
-	production={!!activeSession &&
-		isProductionDatabase(
-			activeSession.profile,
-			transferStore.importTable?.database || null,
-			transferStore.importTable?.schema || null,
-		)}
+	production={!!activeSession && hasProduction(activeSession.profile)}
 	preview={transferStore.importPreview}
 	busy={transferStore.importBusy}
 	error={transferStore.importError}

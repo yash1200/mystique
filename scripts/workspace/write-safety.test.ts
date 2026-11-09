@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WriteGuardPrompt, WriteRowPreview } from '../../src/lib/core/contracts/engines'
-import {
-	databaseEnvironment,
-	databaseMark,
-	hasProduction,
-	isProductionDatabase,
-	markAction,
-	productionLabel,
-	worstEnvironment,
-} from '../../src/lib/features/connections/environments'
+import { hasProduction, productionLabel } from '../../src/lib/features/connections/environments'
 import { guardCopy } from '../../src/lib/features/workspace/session/guard-copy'
 import {
 	isNewColumn,
@@ -23,81 +15,15 @@ import {
 	TIMED_UNLOCK_CHOICES,
 } from '../../src/lib/features/workspace/session/timed-unlock'
 
-type Env = 'local' | 'staging' | 'production'
-
-function profile(environment: Env, marks: [string, string, string?][] = []) {
-	return {
-		name: 'Dev server',
-		environment,
-		databaseEnvironments: marks.map(([database, env, schema]) => ({
-			database,
-			environment: env,
-			schema: schema ?? null,
-		})),
-	}
-}
-
-describe('per-database production marks', () => {
-	it('a marked database on a local connection is production; others are not', () => {
-		const dev = profile('local', [['prod', 'production']])
-		expect(isProductionDatabase(dev, 'prod')).toBe(true)
-		expect(isProductionDatabase(dev, 'PROD')).toBe(true)
-		expect(isProductionDatabase(dev, 'scratch')).toBe(false)
-		expect(isProductionDatabase(dev, null)).toBe(false)
-		expect(hasProduction(dev)).toBe(true)
-		expect(hasProduction(profile('local'))).toBe(false)
-		expect(worstEnvironment(dev)).toBe('production')
+describe('the production marker', () => {
+	it('follows the connection environment only', () => {
+		expect(hasProduction({ environment: 'production' })).toBe(true)
+		expect(hasProduction({ environment: 'staging' })).toBe(false)
+		expect(hasProduction({ environment: 'local' })).toBe(false)
 	})
 
-	it('no marks keeps the connection environment for every database', () => {
-		const prod = profile('production')
-		expect(isProductionDatabase(prod, 'anything')).toBe(true)
-		expect(databaseEnvironment(profile('staging'), 'x')).toBe('staging')
-		expect(databaseEnvironment({ environment: 'local' }, 'x')).toBe('local')
-	})
-
-	it('a local mark relaxes one database of a production connection', () => {
-		const prod = profile('production', [['scratch', 'local']])
-		expect(isProductionDatabase(prod, 'scratch')).toBe(false)
-		expect(isProductionDatabase(prod, 'app')).toBe(true)
-	})
-
-	it('a schema mark beats its database, which beats the connection', () => {
-		const dev = profile('local', [
-			['app', 'production', 'billing'],
-			['app', 'staging'],
-		])
-		expect(databaseEnvironment(dev, 'app', 'billing')).toBe('production')
-		expect(databaseEnvironment(dev, 'app', 'public')).toBe('staging')
-		expect(databaseEnvironment(dev, 'app')).toBe('staging')
-		expect(databaseMark(dev, 'app', 'billing')?.environment).toBe('production')
-		expect(databaseMark(dev, 'app')?.environment).toBe('staging')
-	})
-
-	it('the explorer action marks, unmarks or relaxes', () => {
-		expect(markAction(profile('local'), 'prod')).toEqual({
-			label: 'Mark as production',
-			environment: 'production',
-		})
-		expect(markAction(profile('local', [['prod', 'production']]), 'prod')).toEqual({
-			label: 'Remove production mark',
-			environment: null,
-		})
-		expect(markAction(profile('production'), 'scratch')).toEqual({
-			label: 'Mark as not production',
-			environment: 'local',
-		})
-		expect(markAction(profile('production', [['scratch', 'local']]), 'scratch')).toEqual({
-			label: 'Mark as production',
-			environment: null,
-		})
-	})
-
-	it('the marker tooltip names what is production', () => {
-		expect(productionLabel(profile('local', [['prod', 'production']]), 'prod')).toContain(
-			'“prod”',
-		)
-		expect(productionLabel(profile('production'))).toContain('“Dev server”')
+	it('the tooltip names the connection', () => {
+		expect(productionLabel({ name: 'Dev server' })).toContain('“Dev server”')
 	})
 })
 
@@ -187,22 +113,15 @@ describe('affected-row preview', () => {
 	})
 })
 
-describe('the write dialog names a marked database', () => {
-	const base: WriteGuardPrompt = {
-		code: 'writeGuard',
-		kind: 'unlock',
-		environment: 'production',
-		connectionName: 'Dev server',
-		preview: 'UPDATE prod.t SET a = 1',
-	}
-
-	it('per-database: the database and the connection', () => {
-		expect(guardCopy({ ...base, database: 'prod' }).description).toContain(
-			'Database “prod” on “Dev server” is production.',
-		)
-	})
-
-	it('connection-level: the connection only', () => {
-		expect(guardCopy(base).description).toContain('“Dev server” is production.')
+describe('the write dialog names the connection', () => {
+	it('says which connection is production', () => {
+		const prompt: WriteGuardPrompt = {
+			code: 'writeGuard',
+			kind: 'unlock',
+			environment: 'production',
+			connectionName: 'Dev server',
+			preview: 'UPDATE t SET a = 1',
+		}
+		expect(guardCopy(prompt).description).toContain('“Dev server” is production.')
 	})
 })

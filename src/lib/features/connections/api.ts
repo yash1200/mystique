@@ -1,8 +1,4 @@
-import type {
-	ConnectionProfile,
-	SaveConnectionInput,
-	SetDatabaseEnvironmentInput,
-} from '#core/contracts'
+import type { ConnectionProfile, SaveConnectionInput } from '#core/contracts'
 import { invoke } from '#core/ipc'
 import { asColorId, asEnvironment } from './model'
 
@@ -32,16 +28,6 @@ export async function saveProfile(
 	input: SaveConnectionInput,
 ): Promise<ConnectionProfile> {
 	const row = await invoke<ConnectionProfile>('save_profile', { input })
-	return normalizeProfile(row)
-}
-
-/** Mark one database with an environment; `environment: null` clears it. */
-export async function setProfileDatabaseEnvironment(
-	input: SetDatabaseEnvironmentInput,
-): Promise<ConnectionProfile> {
-	const row = await invoke<ConnectionProfile>('set_profile_database_environment', {
-		input,
-	})
 	return normalizeProfile(row)
 }
 
