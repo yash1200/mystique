@@ -200,14 +200,6 @@ pub fn upsert_one(
         .ok_or_else(|| AppError::NotFound(format!("workspace tab '{id}'")))
 }
 
-pub fn delete_tab(conn: &Connection, id: &str) -> AppResult<()> {
-    let n = conn.execute("DELETE FROM workspace_tabs WHERE id = ?1", params![id])?;
-    if n == 0 {
-        return Err(AppError::NotFound(format!("workspace tab '{id}'")));
-    }
-    Ok(())
-}
-
 pub fn delete_tabs_for_connection(conn: &Connection, connection_id: &str) -> AppResult<()> {
     let connection_id = parse_id(connection_id)?;
     conn.execute(

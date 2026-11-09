@@ -77,7 +77,6 @@ fn roots(c: &mut Collect) {
         core::IpcError,
         core::BatchEvent,
         // Engines and sessions (ipc/engines.rs).
-        core::EngineDescriptor,
         core::ParseConnectionUrlRequest,
         core::ParsedConnectionUrl,
         core::FormatConnectionUrlRequest,
@@ -87,9 +86,7 @@ fn roots(c: &mut Collect) {
         core::TestResult,
         core::SessionInfo,
         core::PinStatus,
-        core::PoolStatus,
         core::ExecuteQueryRequest,
-        core::QueryResult,
         core::QueryBatchResult,
         core::ExplainQueryRequest,
         core::ExplainPlan,
@@ -139,7 +136,6 @@ fn roots(c: &mut Collect) {
         // Profiles, settings, vault.
         core::ConnectionProfile,
         core::SaveConnectionInput,
-        core::AppSetting,
         core::VaultStatus,
         core::PurgeReport,
         // History, saved queries, tabs, grid layout.
@@ -156,11 +152,9 @@ fn roots(c: &mut Collect) {
         // Agent.
         core::AgentChat,
         core::AgentMessage,
-        core::CreateAgentChatInput,
         core::UpdateAgentChatInput,
         agent::AiSettingsView,
         agent::AiKeyStatus,
-        agent::AgentProviderInfo,
         agent::AgentModelInfo,
         agent::SendAgentMessage,
         agent::SendAgentResult,

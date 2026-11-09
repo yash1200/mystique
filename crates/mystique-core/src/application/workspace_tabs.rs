@@ -25,9 +25,4 @@ impl WorkspaceTabsService<'_> {
         self.db
             .with_conn(|c| repo::workspace_tabs::upsert_one(c, input))
     }
-
-    pub fn delete_tab(&self, id: &str) -> AppResult<()> {
-        self.db
-            .with_conn(|c| repo::workspace_tabs::delete_tab(c, id))
-    }
 }

@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
 use mystique_agent::{
-    default_model, parse_provider, provider_catalog, AgentModelInfo, AgentProviderInfo,
-    AiSettingsView, SecretStore, SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL,
-    SETTING_AI_ENABLED, SETTING_OLLAMA_URL,
+    parse_provider, provider_catalog, AgentModelInfo, AiSettingsView, SecretStore,
+    SendAgentMessage, SendAgentResult, DEFAULT_OLLAMA_URL, SETTING_AI_ENABLED, SETTING_OLLAMA_URL,
 };
-use mystique_core::{
-    AgentChat, AgentMessage, AppServices, CreateAgentChatInput, UpdateAgentChatInput,
-};
+use mystique_core::{AgentChat, AgentMessage, AppServices, UpdateAgentChatInput};
 use tauri::State;
 
 use super::IpcError;
@@ -101,12 +98,6 @@ pub async fn set_ai_api_key(
     .await
 }
 
-/// Static catalog. Stays sync: no keychain and no SQLite. See `ipc/mod.rs`.
-#[tauri::command]
-pub fn list_agent_providers() -> Result<Vec<AgentProviderInfo>, IpcError> {
-    super::guard_sync(|| Ok(provider_catalog()))
-}
-
 #[tauri::command]
 pub async fn list_agent_models(
     state: State<'_, AppState>,
@@ -134,32 +125,6 @@ pub async fn list_agent_chats(
         services
             .agent_chats()
             .list(&connection_id)
-            .map_err(IpcError::from)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn create_agent_chat(
-    state: State<'_, AppState>,
-    input: CreateAgentChatInput,
-) -> Result<AgentChat, IpcError> {
-    let services = Arc::clone(&state.services);
-    super::guard_blocking(move || {
-        let provider = parse_provider(&input.provider).map_err(IpcError::from)?;
-        let model = if input.model.trim().is_empty() {
-            default_model(provider)
-        } else {
-            input.model
-        };
-        services
-            .agent_chats()
-            .create(CreateAgentChatInput {
-                connection_id: input.connection_id,
-                title: input.title,
-                provider: provider.as_str().into(),
-                model,
-            })
             .map_err(IpcError::from)
     })
     .await

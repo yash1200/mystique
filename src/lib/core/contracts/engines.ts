@@ -21,7 +21,6 @@ export type {
 	ColumnInfo,
 	DescribeTableRequest,
 	DistinctColumnValuesRequest,
-	EngineDescriptor,
 	ExecuteQueryRequest,
 	ExplainPlan,
 	ExplainQueryRequest,

@@ -5,7 +5,7 @@ use crate::domain::{
     QueryHistoryPage, QueryHistorySource, QUERY_HISTORY_CAP,
 };
 use crate::error::AppResult;
-use crate::storage::sqlite::repositories::ids::{id_string, id_string_opt, parse_id, parse_id_opt};
+use crate::storage::sqlite::repositories::ids::{id_string, id_string_opt, parse_id_opt};
 
 const BODY_MAX: usize = 1_048_576;
 const ERROR_MAX: usize = 4_000;
@@ -255,32 +255,6 @@ fn retain_connection(conn: &Connection, connection_id: Option<i64>, keep: i64) -
             params![keep],
         )?
     };
-    Ok(n)
-}
-
-/// Keep the latest `keep` rows on every connection, including rows with none.
-pub fn retain_latest(conn: &Connection, keep: i64) -> AppResult<usize> {
-    let mut ids: Vec<Option<i64>> = Vec::new();
-    {
-        let mut stmt = conn.prepare("SELECT DISTINCT connection_id FROM query_history")?;
-        let rows = stmt.query_map([], |row| row.get::<_, Option<i64>>(0))?;
-        for row in rows {
-            ids.push(row?);
-        }
-    }
-    let mut removed = 0;
-    for id in ids {
-        removed += retain_connection(conn, id, keep)?;
-    }
-    Ok(removed)
-}
-
-pub fn clear_for_connection(conn: &Connection, connection_id: &str) -> AppResult<usize> {
-    let connection_id = parse_id(connection_id)?;
-    let n = conn.execute(
-        "DELETE FROM query_history WHERE connection_id = ?1",
-        params![connection_id],
-    )?;
     Ok(n)
 }
 

@@ -46,16 +46,6 @@ impl HistoryService<'_> {
             })?
             .items)
     }
-
-    pub fn clear_for_connection(&self, connection_id: &str) -> AppResult<usize> {
-        self.db
-            .with_conn(|c| repo::history::clear_for_connection(c, connection_id))
-    }
-
-    /// Keep the latest `keep` rows on each connection.
-    pub fn retain_latest(&self, keep: i64) -> AppResult<usize> {
-        self.db.with_conn(|c| repo::history::retain_latest(c, keep))
-    }
 }
 
 pub(crate) struct DbQueryHistoryWriter {

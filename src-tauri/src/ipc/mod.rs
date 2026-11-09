@@ -1,21 +1,20 @@
 //! IPC adapters.
 //!
-//! Sync commands left on the main thread. Neither touches the keychain or SQLite:
+//! The one sync command left on the main thread touches neither the keychain
+//! nor SQLite:
 //! - `set_native_menu` — native menus are built on the UI thread
-//! - `list_agent_providers` — static provider catalog
 //!
 //! Moved to `async` + [`blocking`] in 4.5.13 (keychain or metadata SQLite):
-//! - profiles: `list_profiles`, `get_profile`, `save_profile`, `delete_profile`,
+//! - profiles: `list_profiles`, `save_profile`, `delete_profile`,
 //!   `touch_profile_connected`
-//! - settings: `get_setting`, `set_setting`, `list_settings`, `delete_setting`,
-//!   `get_vault_status`, `retry_vault_unlock`, `purge_keychain_items`
+//! - settings: `get_vault_status`, `retry_vault_unlock`, `purge_keychain_items`
 //! - queries: `list_saved_queries`, `save_query`, `delete_saved_query`
-//! - tabs: `list_workspace_tabs`, `replace_workspace_tabs`, `delete_workspace_tab`
+//! - tabs: `list_workspace_tabs`, `replace_workspace_tabs`, `upsert_workspace_tab`
 //! - history: `append_query_history`, `list_query_history`,
-//!   `list_recent_query_history`, `clear_query_history`, `retain_query_history`
+//!   `list_recent_query_history`
 //! - agent: `get_ai_settings`, `set_ai_enabled`, `set_ai_ollama_url`,
-//!   `set_ai_api_key`, `list_agent_chats`, `create_agent_chat`,
-//!   `delete_agent_chat`, `list_agent_messages`, `update_agent_chat`
+//!   `set_ai_api_key`, `list_agent_chats`, `delete_agent_chat`,
+//!   `list_agent_messages`, `update_agent_chat`
 //! - mcp: `get_mcp_access`, `set_mcp_access`
 //! - diagnostics: `export_diagnostics` (metadata SQLite + log files)
 //! - engines: `trust_ssh_host_key` (known-hosts row). `test_engine_connection`
