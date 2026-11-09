@@ -18,7 +18,7 @@
 	import { commands } from '#core/commands'
 	import { EmptyState, Icon, Lazy } from '#core/ui'
 	import { familyFromCaps, resolveCapabilities } from '#engines'
-	import { colorHex } from '#features/connections'
+	import { colorHex, isProductionDatabase } from '#features/connections'
 	import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 	import {
 		ErWorkspace,
@@ -54,9 +54,11 @@
 		reconnectSession,
 		findCatalogTable,
 		objectKindById as kindsFromCatalog,
+		timedUnlocks,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
+	import SessionMarks from './SessionMarks.svelte'
 	import TableTabs from './TableTabs.svelte'
 	import WorkspaceEmpty from './WorkspaceEmpty.svelte'
 
@@ -79,6 +81,18 @@
 
 	const databases = $derived(catalogStore.databases(activeId))
 	const currentDatabaseName = $derived(databaseNameFor(activeId))
+	/** Read-only unless a timed unlock runs on this session. */
+	const readOnlyNow = $derived(
+		timedUnlocks.readOnly(
+			activeSession?.profile.readOnly,
+			activeSession?.engineSessionId,
+		),
+	)
+	/** The current database is production (connection or per-database mark). */
+	const productionNow = $derived(
+		!!activeSession &&
+			isProductionDatabase(activeSession.profile, currentDatabaseName),
+	)
 	const connectionTabs = $derived(
 		activeId ? openTabs.filter((t) => t.connectionId === activeId) : [],
 	)
@@ -198,7 +212,7 @@
 	}
 
 	function onInspectorChange(column: string, value: unknown) {
-		if (activeSession?.profile.readOnly) return
+		if (readOnlyNow) return
 		if (rowSelectionIndex === null || !gridTable) return
 		const i = rowSelectionIndex
 		const current = gridTable.rows[i] ?? {}
@@ -260,27 +274,38 @@
 <main class="flex min-w-0 flex-1 flex-col">
 	<!-- Tabs stay visible: explorer / saved / history all open content in the editor. -->
 	{#if (sideMode === 'explorer' || sideMode === 'saved-queries' || sideMode === 'history') && activeId}
-		<TableTabs
-			tabs={connectionTabs}
-			{activeTabId}
-			connectionColor={activeSession
-				? colorHex(activeSession.profile.colorId)
-				: null}
-			production={activeSession?.profile.environment === 'production'}
-			onactivate={(id) => workspaceSession.setActiveTab(id)}
-			onclose={(id) =>
-				onclosetab ? onclosetab(id) : workspaceSession.closeTab(id)}
-			onclosemany={(ids) =>
-				onclosemany
-					? onclosemany(ids)
-					: ids.forEach((id) =>
-							onclosetab ? onclosetab(id) : workspaceSession.closeTab(id),
-						)}
-			onopenquery={() => workspaceSession.openNewQuery(activeId)}
-			onreorder={(movedId, beforeId) =>
-				workspaceSession.reorderTabs(movedId, beforeId)}
-			{objectKindById}
-		/>
+		<div
+			class="flex min-w-0 shrink-0 [&>[role=tablist]]:min-w-0 [&>[role=tablist]]:flex-1"
+		>
+			<TableTabs
+				tabs={connectionTabs}
+				{activeTabId}
+				connectionColor={activeSession
+					? colorHex(activeSession.profile.colorId)
+					: null}
+				production={productionNow}
+				onactivate={(id) => workspaceSession.setActiveTab(id)}
+				onclose={(id) =>
+					onclosetab ? onclosetab(id) : workspaceSession.closeTab(id)}
+				onclosemany={(ids) =>
+					onclosemany
+						? onclosemany(ids)
+						: ids.forEach((id) =>
+								onclosetab ? onclosetab(id) : workspaceSession.closeTab(id),
+							)}
+				onopenquery={() => workspaceSession.openNewQuery(activeId)}
+				onreorder={(movedId, beforeId) =>
+					workspaceSession.reorderTabs(movedId, beforeId)}
+				{objectKindById}
+			/>
+			{#if activeSession}
+				<SessionMarks
+					profile={activeSession.profile}
+					engineSessionId={activeSession.engineSessionId ?? null}
+					database={currentDatabaseName}
+				/>
+			{/if}
+		</div>
 	{/if}
 
 	<div class="flex min-h-0 flex-1">
@@ -294,7 +319,7 @@
 						connectionName={activeSession.profile.name}
 						engine={String(activeSession.profile.engine)}
 						capabilities={activeSession.capabilities}
-						readOnly={!!activeSession.profile.readOnly}
+						readOnly={readOnlyNow}
 						engineSessionId={activeSession.engineSessionId}
 						database={currentDatabaseName}
 						text={workspaceSession.queryDrafts[activeTab.id] ?? ''}
@@ -384,9 +409,9 @@
 					component={ServerMetricsView}
 					engine={String(activeSession.profile.engine)}
 					engineSessionId={activeSession.engineSessionId ?? null}
-					readOnly={!!activeSession.profile.readOnly}
+					readOnly={readOnlyNow}
 					capabilities={activeSession.capabilities}
-					production={activeSession.profile.environment === 'production'}
+					production={productionNow}
 				/>
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'structure'}
@@ -398,7 +423,7 @@
 					error={structureError}
 					lastFetchedAt={structureFetchedAt}
 					canEdit={structureCaps?.supportsStructureEdit === true}
-					readOnly={!!activeSession.profile.readOnly}
+					readOnly={readOnlyNow}
 					showForeignKeys={structureCaps?.supportsForeignKeys === true}
 					editLimited={structureCaps?.structureEditLimited === true}
 					connectionId={activeSession.profile.id}
@@ -442,8 +467,8 @@
 								activeSession.capabilities,
 							).supportsDistinctValues !== false}
 							sessionId={activeSession.engineSessionId}
-							readOnly={!!activeSession.profile.readOnly}
-							production={activeSession.profile.environment === 'production'}
+							readOnly={readOnlyNow}
+							production={productionNow}
 							connectionName={activeSession.profile.name}
 							onreload={(opts) => tablePreview.reload(opts)}
 							onreconnect={reconnectActiveSession}
@@ -482,7 +507,7 @@
 						rowIndex={inspectorData.rowIndex}
 						savedRow={gridOriginals[inspectorData.rowIndex] ?? null}
 						tabId={activeTab.id}
-						readOnly={!!activeSession.profile.readOnly}
+						readOnly={readOnlyNow}
 						onclose={() => workspaceSession.clearRowSelection()}
 						onchange={onInspectorChange}
 					/>

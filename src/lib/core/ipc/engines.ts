@@ -36,6 +36,7 @@ import type {
 	ParsedConnectionUrl,
 	PreviewImportRequest,
 	PreviewImportResult,
+	PreviewWriteRowsRequest,
 	QueryBatchResult,
 	ServerMetricsSnapshot,
 	SessionInfo,
@@ -47,7 +48,9 @@ import type {
 	TerminateSessionRequest,
 	TerminateSessionResult,
 	TestResult,
+	TimedUnlockStatus,
 	TransferProgress,
+	WriteRowPreview,
 } from '../contracts/engines'
 import type {
 	ApplyDdlRequest,
@@ -133,6 +136,31 @@ export async function getEngineSession(
 
 export async function unlockEngineWrites(sessionId: string): Promise<void> {
 	return invoke('unlock_engine_writes', { sessionId })
+}
+
+/** Allow writes on a read-only connection for 60 or 300 seconds. */
+export async function startTimedWriteUnlock(
+	sessionId: string,
+	seconds: number,
+): Promise<TimedUnlockStatus> {
+	return invoke('start_timed_write_unlock', { sessionId, seconds })
+}
+
+export async function endTimedWriteUnlock(sessionId: string): Promise<TimedUnlockStatus> {
+	return invoke('end_timed_write_unlock', { sessionId })
+}
+
+export async function timedWriteUnlockStatus(
+	sessionId: string,
+): Promise<TimedUnlockStatus> {
+	return invoke('timed_write_unlock_status', { sessionId })
+}
+
+/** The rows one write would touch. Runs reads only. */
+export async function previewWriteRows(
+	request: PreviewWriteRowsRequest,
+): Promise<WriteRowPreview> {
+	return invoke('preview_write_rows', { request })
 }
 
 export async function pinQueryTab(

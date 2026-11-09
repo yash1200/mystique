@@ -52,6 +52,7 @@
 		dropEditBuffer,
 		saveTableTab,
 		selectedDatabases,
+		timedUnlocks,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
@@ -354,6 +355,7 @@
 		modelStore.forget(id)
 		structureStore.forget(id)
 		if (sid) catalogColumnsCache.invalidate(sid)
+		timedUnlocks.forget(sid)
 		savedStore.forget(id)
 		historyStore.forget(id)
 		if (sid) {

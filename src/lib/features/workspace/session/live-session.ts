@@ -13,6 +13,7 @@ import {
 import { isSessionMissingError, preferredDbForProfile } from './session-utils'
 import { workspaceSession } from './session.svelte'
 import { selectedDatabases } from './selected-db.svelte'
+import { timedUnlocks } from './timed-unlock.svelte'
 
 const HEALTH_INTERVAL_MS = 15_000
 
@@ -89,6 +90,8 @@ export async function reopenEngineSession(
 		? await openSessionWithPassword(request, profile.name)
 		: await ensureSessionWithPassword(request, profile.name)
 	workspaceSession.connect(profile, session.sessionId, session.capabilities)
+	// A reopened session starts without a timed unlock.
+	void timedUnlocks.refresh(session.sessionId)
 	return session.sessionId
 }
 
