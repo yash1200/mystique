@@ -21,7 +21,11 @@ function envLabel(environment: string): string {
 export function guardCopy(prompt: WriteGuardPrompt): GuardCopy {
 	const env = envLabel(prompt.environment)
 	const production = env === 'Production'
-	const where = `“${prompt.connectionName}” is ${env.toLowerCase()}.`
+	// A per-database mark names the database, not only the connection.
+	const database = prompt.database?.trim()
+	const where = database
+		? `Database “${database}” on “${prompt.connectionName}” is ${env.toLowerCase()}.`
+		: `“${prompt.connectionName}” is ${env.toLowerCase()}.`
 	const statements = prompt.statements ?? []
 	const body = statements.length > 0 ? statements.join(';\n') : prompt.preview
 	const name = prompt.objectName?.trim() || ''

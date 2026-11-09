@@ -59,6 +59,7 @@ export type {
 	PoolStatus,
 	PreviewImportRequest,
 	PreviewImportResult,
+	PreviewWriteRowsRequest,
 	QueryBatchResult,
 	QueryColumn,
 	QueryMode,
@@ -90,8 +91,10 @@ export type {
 	TableRowUpdate,
 	TerminateSessionRequest,
 	TerminateSessionResult,
+	TimedUnlockStatus,
 	TransferProgress,
 	TestResult,
+	WriteRowPreview,
 } from '../ipc/bindings.gen'
 
 /** One grid filter clause (`TableFilter` on the wire). */
@@ -115,4 +118,6 @@ export type TableFileFormat = ExportFormat
 export type WriteGuardPrompt = WriteGuardPromptWire & {
 	title?: string
 	confirmLabel?: string
+	/** The engine session the write runs on; enables the row preview. */
+	sessionId?: string
 }

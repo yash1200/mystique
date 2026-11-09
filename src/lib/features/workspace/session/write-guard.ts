@@ -50,7 +50,10 @@ export function runWithWriteGuard<T>(
 ): Promise<T> {
 	return guardLoop(
 		run,
-		{ ask: askWriteGuard, unlock: () => unlockEngineWrites(sessionId) },
+		{
+			ask: (prompt) => askWriteGuard({ ...prompt, sessionId }),
+			unlock: () => unlockEngineWrites(sessionId),
+		},
 		options,
 	)
 }
