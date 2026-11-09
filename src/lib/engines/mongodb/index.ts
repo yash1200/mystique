@@ -87,7 +87,10 @@ export const mongodb: EngineAdapter = {
 	language: {
 		id: 'mql',
 		format: formatMql,
-		completion: (rows) => mongoCompletionSource(rows),
+		// Completions here carry no CodeMirror code, so nothing more to fetch.
+		editor: async () => ({
+			completion: (rows) => mongoCompletionSource(rows),
+		}),
 	},
 
 	defaultCapabilities: {

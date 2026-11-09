@@ -5,6 +5,7 @@
 export type {
 	EngineAdapter,
 	EngineConnectionAdapter,
+	EngineEditorSupport,
 	EngineFieldsProps,
 	EngineLanguageAdapter,
 	FormatQueryResult,
@@ -45,11 +46,8 @@ export {
 } from './capabilities'
 
 export type { SqlCompleteConfig, SqlSnippetKind } from './sql/complete'
-export {
-	catalogSignature,
-	sqlCatalogCompletion,
-	sqlSchemaFromColumns,
-} from './sql/complete'
+// Completions live in each engine's `editor()`, so CodeMirror stays out of this index.
+export { catalogSignature } from './sql/signature'
 
 export {
 	emptySslDraft,

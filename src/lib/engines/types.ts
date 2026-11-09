@@ -23,7 +23,7 @@ export type FormatQueryResult =
 	| { ok: true; text: string }
 	| { ok: false; error: string; text: string }
 
-export type QueryFormatter = (text: string) => FormatQueryResult
+export type QueryFormatter = (text: string) => Promise<FormatQueryResult>
 
 /** Props every engine's connection `Fields` component accepts. */
 export interface EngineFieldsProps {
@@ -65,8 +65,16 @@ export interface EngineConnectionAdapter {
 
 export interface EngineLanguageAdapter {
 	id: 'sql' | 'mql'
-	/** Pretty-printer used by the editor's Format action. Never throws. */
+	/** Pretty-printer used by the editor's Format action. Never rejects. */
 	format: QueryFormatter
+	/**
+	 * Dialect and completions for the query editor. They pull in CodeMirror,
+	 * so they load when an editor first needs them, not with the app.
+	 */
+	editor(): Promise<EngineEditorSupport>
+}
+
+export interface EngineEditorSupport {
 	/** CodeMirror SQL dialect; undefined for non-SQL engines. */
 	sqlDialect?: SQLDialect
 	/** Catalog-driven completions for the query editor. */

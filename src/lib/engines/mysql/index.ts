@@ -1,8 +1,6 @@
 /** MySQL / MariaDB adapter — mirrors `crates/plugins/mystique-plugin-mysql`. */
-import { MySQL } from '@codemirror/lang-sql'
 import { relationalCapabilities } from '../capabilities'
 import { emptySslDraft, sslPluginFields } from '../ssl'
-import { sqlCatalogCompletion, sqlSchemaFromColumns } from '../sql/complete'
 import { sqlFormatter } from '../sql/format'
 import type { EngineAdapter } from '../types'
 
@@ -55,16 +53,7 @@ export const mysql: EngineAdapter = {
 	language: {
 		id: 'sql',
 		format: sqlFormatter('mysql'),
-		sqlDialect: MySQL,
-		completion: (rows) =>
-			sqlCatalogCompletion(rows, {
-				nestSchemas: false,
-				dialect: MySQL,
-				kind: 'mysql',
-			}),
-		// MySQL databases are not schemas — keep the table list flat.
-		sqlSchema: (rows) =>
-			sqlSchemaFromColumns(rows, { nestSchemas: false, quote: 'mysql' }),
+		editor: () => import('./editor').then((m) => m.mysqlEditor),
 	},
 
 	defaultCapabilities: relationalCapabilities({
