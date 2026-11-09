@@ -3,14 +3,12 @@
 	import type {
 		ConnectionFormDraft,
 		ConnectionProfile,
-		SshHostKeyPrompt,
 	} from '#core/contracts'
 	import { commands } from '#core/commands'
 	import {
 		errorMessage,
 		formatEngineConnectionUrl,
 		setNativeMenu,
-		sshHostKeyPrompt,
 		testEngineConnection,
 	} from '#core/ipc'
 	import { Button, EmptyState, Icon, Modal } from '#core/ui'
@@ -32,14 +30,13 @@
 	} from '../password-prompt.svelte'
 	import { isConnectCancelled } from '../password-prompt'
 	import { connectionProfiles } from '../profiles.svelte'
+	import { sshHostKeys } from '../ssh-host-key.svelte'
 	import ConnectionDetail from './ConnectionDetail.svelte'
 	import type { ConnectionMenuAction } from './ConnectionSidebar.svelte'
 	import ConnectionSidebar from './ConnectionSidebar.svelte'
 	import HomeIllustration from './HomeIllustration.svelte'
 	import NewConnectionPanel from './NewConnectionPanel.svelte'
-	import SshHostKeyModal from './SshHostKeyModal.svelte'
 	import {
-		acceptSshHostKey,
 		connectErrorMessage,
 		prettifyConnectError,
 		sshTunnelFromDraft,
@@ -72,8 +69,6 @@
 	let connectingId = $state<string | null>(null)
 	/** Last live connectivity result from BE (shown on the form). */
 	let testResult = $state<{ ok: boolean; message: string } | null>(null)
-	let sshHostKey = $state<SshHostKeyPrompt | null>(null)
-	let sshHostKeyRetry = $state<null | (() => Promise<void>)>(null)
 	let loadError = $state<string | null>(null)
 
 	const selected = $derived(
@@ -204,11 +199,7 @@
 				},
 			})
 
-			if (result.sshHostKey) {
-				sshHostKey = result.sshHostKey
-				sshHostKeyRetry = () => handleTestConnection(draft)
-				return
-			}
+			if (sshHostKeys.offer(result, () => handleTestConnection(draft))) return
 
 			if (result.ok) {
 				const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
@@ -224,12 +215,7 @@
 				)
 			}
 		} catch (err) {
-			const prompt = sshHostKeyPrompt(err)
-			if (prompt) {
-				sshHostKey = prompt
-				sshHostKeyRetry = () => handleTestConnection(draft)
-				return
-			}
+			if (sshHostKeys.offer(err, () => handleTestConnection(draft))) return
 			reportTestResult(
 				false,
 				`Connection failed: ${connectErrorMessage(err)}`,
@@ -445,11 +431,7 @@
 				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
 			}, profile.name)
 
-			if (result.sshHostKey) {
-				sshHostKey = result.sshHostKey
-				sshHostKeyRetry = () => connectProfile(profile)
-				return
-			}
+			if (sshHostKeys.offer(result, () => connectProfile(profile))) return
 
 			if (!result.ok) {
 				statusOverride = { ...statusOverride, [profile.id]: 'error' }
@@ -484,12 +466,7 @@
 			)
 		} catch (err) {
 			if (isConnectCancelled(err)) return
-			const prompt = sshHostKeyPrompt(err)
-			if (prompt) {
-				sshHostKey = prompt
-				sshHostKeyRetry = () => connectProfile(profile)
-				return
-			}
+			if (sshHostKeys.offer(err, () => connectProfile(profile))) return
 			statusOverride = { ...statusOverride, [profile.id]: 'error' }
 			showToast(
 				'danger',
@@ -636,24 +613,4 @@
 			</Button>
 		{/snippet}
 	</Modal>
-
-	<SshHostKeyModal
-		prompt={sshHostKey}
-		busy={testing}
-		oncancel={() => {
-			sshHostKey = null
-			sshHostKeyRetry = null
-		}}
-		onaccept={async (prompt) => {
-			try {
-				await acceptSshHostKey(prompt)
-				const retry = sshHostKeyRetry
-				sshHostKey = null
-				sshHostKeyRetry = null
-				await retry?.()
-			} catch (err) {
-				showToast('danger', errorMessage(err))
-			}
-		}}
-	/>
 </div>

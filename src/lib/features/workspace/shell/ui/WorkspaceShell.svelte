@@ -3,7 +3,6 @@
 	import { resolve } from '$app/paths'
 	import type {
 		ConnectionProfile,
-		SshHostKeyPrompt,
 		TableMeta,
 	} from '#core/contracts'
 	import {
@@ -12,19 +11,17 @@
 		commitPinnedTab,
 		rollbackPinnedTab,
 		setNativeMenu,
-		sshHostKeyPrompt,
 	} from '#core/ipc'
 	import { commands } from '#core/commands'
 	import { closeTopDialog } from '#core/ui'
 	import { setAppTitle } from '#core/util'
 	import {
-		acceptSshHostKey,
 		colorHex,
 		connectionProfiles,
 		ensureSessionWithPassword,
 		isConnectCancelled,
 		pluginConfigForSession,
-		SshHostKeyModal,
+		sshHostKeys,
 		testSessionWithPassword,
 	} from '#features/connections'
 	import { appChrome, cmd } from '#lib/app'
@@ -273,8 +270,6 @@
 	let pickerOpen = $state(false)
 	let pickerBusy = $state(false)
 	let pickerError = $state<string | null>(null)
-	let sshHostKey = $state<SshHostKeyPrompt | null>(null)
-	let sshHostKeyRetry = $state<null | (() => Promise<void>)>(null)
 	const openConnectionIds = $derived(sessions.map((s) => s.profile.id))
 
 	function onSelectConnection(id: string) {
@@ -301,11 +296,7 @@
 				},
 				profile.name,
 			)
-			if (result.sshHostKey) {
-				sshHostKey = result.sshHostKey
-				sshHostKeyRetry = () => connectAdditional(profile)
-				return
-			}
+			if (sshHostKeys.offer(result, () => connectAdditional(profile))) return
 			if (!result.ok) {
 				pickerError = `Could not connect: ${result.message}`
 				return
@@ -330,12 +321,7 @@
 			pickerOpen = false
 		} catch (e) {
 			if (isConnectCancelled(e)) return
-			const prompt = sshHostKeyPrompt(e)
-			if (prompt) {
-				sshHostKey = prompt
-				sshHostKeyRetry = () => connectAdditional(profile)
-				return
-			}
+			if (sshHostKeys.offer(e, () => connectAdditional(profile))) return
 			pickerError = errorMessage(e)
 		} finally {
 			pickerBusy = false
@@ -537,25 +523,5 @@
 		onsave={() => void confirmSaveAndClose()}
 		ondiscard={() => void confirmDiscardAndClose()}
 		oncancel={cancelCloseTab}
-	/>
-
-	<SshHostKeyModal
-		prompt={sshHostKey}
-		busy={pickerBusy}
-		oncancel={() => {
-			sshHostKey = null
-			sshHostKeyRetry = null
-		}}
-		onaccept={async (prompt) => {
-			try {
-				await acceptSshHostKey(prompt)
-				const retry = sshHostKeyRetry
-				sshHostKey = null
-				sshHostKeyRetry = null
-				await retry?.()
-			} catch (e) {
-				pickerError = errorMessage(e)
-			}
-		}}
 	/>
 </div>

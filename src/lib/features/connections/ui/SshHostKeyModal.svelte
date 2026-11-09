@@ -1,22 +1,15 @@
 <script lang="ts">
-	import type { SshHostKeyPrompt } from '#core/contracts'
-	import { Button, Modal } from '#core/ui'
+	import { Alert, Button, Modal } from '#core/ui'
+	import { sshHostKeys } from '../ssh-host-key.svelte'
 
-	interface Props {
-		prompt: SshHostKeyPrompt | null
-		busy?: boolean
-		oncancel: () => void
-		onaccept: (prompt: SshHostKeyPrompt) => void | Promise<void>
-	}
-
-	let { prompt, busy = false, oncancel, onaccept }: Props = $props()
-
+	const prompt = $derived(sshHostKeys.prompt)
+	const busy = $derived(sshHostKeys.busy)
 	const mismatch = $derived(prompt?.kind === 'mismatch')
 </script>
 
 <Modal
 	open={!!prompt}
-	onclose={oncancel}
+	onclose={sshHostKeys.cancel}
 	title={mismatch ? 'SSH host key changed' : 'Unknown SSH host key'}
 	description={prompt
 		? `${prompt.host}:${prompt.port}`
@@ -41,13 +34,18 @@
 				{prompt.fingerprint}
 			</div>
 		</dl>
+		{#if sshHostKeys.error}
+			<div class="mt-3">
+				<Alert tone="danger">{sshHostKeys.error}</Alert>
+			</div>
+		{/if}
 	{/if}
 	{#snippet footer()}
-		<Button variant="ghost" onclick={oncancel} disabled={busy}>Cancel</Button>
+		<Button variant="ghost" onclick={sshHostKeys.cancel} disabled={busy}>Cancel</Button>
 		<Button
 			variant={mismatch ? 'danger' : 'primary'}
 			disabled={busy || !prompt}
-			onclick={() => prompt && onaccept(prompt)}
+			onclick={() => void sshHostKeys.accept()}
 		>
 			{mismatch ? 'Replace and continue' : 'Trust host'}
 		</Button>

@@ -1,5 +1,5 @@
-import type { ConnectionFormDraft, SshHostKeyPrompt, SshTunnelRequest } from '#core/contracts'
-import { errorMessage, isPasswordRequired, trustSshHostKey } from '#core/ipc'
+import type { ConnectionFormDraft, SshTunnelRequest } from '#core/contracts'
+import { errorMessage, isPasswordRequired } from '#core/ipc'
 
 export function sshTunnelFromDraft(
 	draft: ConnectionFormDraft,
@@ -14,12 +14,6 @@ export function sshTunnelFromDraft(
 		privateKeyPath: draft.sshPrivateKeyPath || null,
 		passphrase: draft.sshPassphrase || null,
 	}
-}
-
-export async function acceptSshHostKey(
-	prompt: SshHostKeyPrompt,
-): Promise<void> {
-	await trustSshHostKey(prompt)
 }
 
 /** A failed connect or test, worded for the toast. */

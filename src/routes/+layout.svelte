@@ -7,7 +7,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
-	import { PasswordPromptModal } from '#features/connections'
+	import { PasswordPromptModal, SshHostKeyModal } from '#features/connections'
 	import { appSettingsUi, type SettingsSection } from '#features/settings'
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
@@ -84,6 +84,7 @@
 	<QuickOpen />
 	<ResetConfirmModal />
 	<PasswordPromptModal />
+	<SshHostKeyModal />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}
