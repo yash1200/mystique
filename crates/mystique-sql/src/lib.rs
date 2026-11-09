@@ -19,6 +19,7 @@ mod projection;
 mod read_proof;
 mod risk;
 mod split;
+mod tautology;
 
 pub use dialect::{SqlDialect, SqlPlaceholder};
 pub use error::{BuildError, BuildResult};
@@ -33,3 +34,4 @@ pub use risk::{
     is_safe_dml, StatementRisk,
 };
 pub use split::{split_statement_spans, split_statements, statement_at, StatementSpan};
+pub use tautology::where_warnings;
