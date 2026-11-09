@@ -2,7 +2,7 @@
  * Editor-side copy of `mystique-sql` `params.rs`.
  * The server still rejects a count mismatch. Values are never spliced in.
  */
-import type { SplitDialect } from './statement-span'
+import type { SplitDialect } from '../editor/statement-span'
 
 export type ParamSlot = {
 	/** What the prompt shows (`:id`, `?`, `$1`). */

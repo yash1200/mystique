@@ -2,7 +2,7 @@
 	import type { ExplainPlan, PlanNode } from '#core/contracts'
 	import { Button } from '#core/ui'
 	import { SvelteSet } from 'svelte/reactivity'
-	import { selfCostShare } from '../explain-cost'
+	import { selfCostShare } from './explain-cost'
 
 	interface Props {
 		plan: ExplainPlan

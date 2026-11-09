@@ -28,25 +28,25 @@
 	} from '@codemirror/view'
 	import { basicSetup } from 'codemirror'
 	import { onMount, untrack } from 'svelte'
-	import { mystiqueSearch } from '../cm-search-panel'
-	import { markDiagnostic, revealDiagnostic } from '../diagnostic-view'
+	import { mystiqueSearch } from './cm-search-panel'
+	import { markDiagnostic, revealDiagnostic } from './diagnostic-view'
 	import {
 		editorCompartments,
 		holdEditorState,
 		peekEditorState,
 		switchEditorState,
-	} from '../editor-state'
+	} from './editor-state'
 	import {
 		createMystiqueEditorTheme,
 		identPathHighlight,
 		mystiqueHighlight,
-	} from '../cm-theme'
+	} from './cm-theme'
 	import {
 		splitDialectFor,
 		splitStatementSpans,
 		submissionStart,
 		textToRun,
-	} from '../statement-span'
+	} from './statement-span'
 
 	interface Props {
 		tabId: string

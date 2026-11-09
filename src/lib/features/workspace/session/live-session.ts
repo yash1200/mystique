@@ -12,7 +12,7 @@ import {
 } from '#features/connections'
 import { isSessionMissingError, preferredDbForProfile } from './session-utils'
 import { workspaceSession } from './session.svelte'
-import { workspaceStudio } from './studio.svelte'
+import { selectedDatabases } from './selected-db.svelte'
 
 const HEALTH_INTERVAL_MS = 15_000
 
@@ -58,7 +58,7 @@ export function sessionDatabase(
 	connectionId: string,
 	profile: ConnectionProfile,
 ): string | null {
-	const selected = workspaceStudio.selectedDb[connectionId]?.trim()
+	const selected = selectedDatabases.get(connectionId)?.trim()
 	if (selected) return selected
 	return preferredDbForProfile(profile)
 }
@@ -68,13 +68,6 @@ export function systemDbNames(engine: string, connectionId?: string): string[] {
 		? workspaceSession.sessions.find((s) => s.profile.id === connectionId)
 		: workspaceSession.activeSession
 	return resolveCapabilities(engine, session?.capabilities).systemDatabases
-}
-
-export function currentDatabaseName(): string {
-	const id = workspaceSession.activeConnectionId
-	if (!id) return ''
-	const catalogs = workspaceStudio.catalogs[id] ?? []
-	return workspaceStudio.selectedDb[id] ?? catalogs[0]?.name ?? ''
 }
 
 export async function reopenEngineSession(

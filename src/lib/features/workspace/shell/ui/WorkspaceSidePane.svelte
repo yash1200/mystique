@@ -2,9 +2,11 @@
 	import { commands } from '#core/commands'
 	import { Icon, IconButton, Resizable } from '#core/ui'
 	import {
+		catalogStore,
 		createCatalogGroup,
 		createCatalogObject,
 		createDatabase,
+		databaseNameFor,
 		refreshCurrentTables,
 		refreshDatabases,
 		selectDatabase,
@@ -16,11 +18,13 @@
 	import { tablePreview } from '#features/workspace/table'
 	import {
 		clearHistorySearch,
+		historyStore,
 		loadOlderHistory,
 		queryLibrary,
 		QueryListPanel,
 		refreshHistory,
 		refreshSavedQueries,
+		savedStore,
 		selectHistory,
 		selectSavedQuery,
 		setHistorySearch,
@@ -36,8 +40,6 @@
 	import { resolveCapabilities } from '#engines'
 	import {
 		liveStatusMark,
-		catalogsFor,
-		selectedDatabaseName,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
@@ -47,10 +49,8 @@
 	const activeSession = $derived(workspaceSession.activeSession)
 	const activeId = $derived(workspaceSession.activeConnectionId)
 	const activeTab = $derived(workspaceSession.activeTab)
-	const databases = $derived(catalogsFor(workspaceStudio.catalogs, activeId))
-	const currentDatabaseName = $derived(
-		selectedDatabaseName(workspaceStudio.selectedDb, activeId, databases),
-	)
+	const databases = $derived(catalogStore.databases(activeId))
+	const currentDatabaseName = $derived(databaseNameFor(activeId))
 	const activeTableId = $derived(
 		activeTab &&
 			(activeTab.kind === 'table' || activeTab.kind === 'structure') &&
@@ -58,13 +58,16 @@
 			? (activeTab.tableId ?? null)
 			: null,
 	)
-	const refreshing = $derived(workspaceStudio.refreshing)
-	const refreshingTables = $derived(workspaceStudio.refreshingTables)
-	const createBusy = $derived(workspaceStudio.createBusy)
-	const queryHistory = $derived(workspaceStudio.queryHistory)
-	const savedQueries = $derived(workspaceStudio.savedQueries)
-	const selectedQueryId = $derived(workspaceStudio.selectedQueryId)
-	const selectedHistoryId = $derived(workspaceStudio.selectedHistoryId)
+	const catalogStatus = $derived(catalogStore.statusOf(activeId))
+	const refreshing = $derived(catalogStatus.refreshing)
+	const refreshingTables = $derived(catalogStatus.refreshingTables)
+	const createBusy = $derived(catalogStatus.createBusy)
+	const history = $derived(historyStore.of(activeId))
+	const saved = $derived(savedStore.of(activeId))
+	const queryHistory = $derived(history.entries)
+	const savedQueries = $derived(saved.items)
+	const selectedQueryId = $derived(saved.selectedId)
+	const selectedHistoryId = $derived(history.selectedId)
 
 	const widthPx = $derived(appPrefs.explorerPanelWidth)
 	let infoOpen = $state(false)
@@ -141,9 +144,9 @@
 					onrefresh={() => void refreshHistory({ force: true })}
 					onhistorysearch={setHistorySearch}
 					onhistorymore={() => void loadOlderHistory()}
-					historyHasMore={workspaceStudio.historyHasMore}
-					historyLoadingMore={workspaceStudio.historyLoadingMore}
-					loading={workspaceStudio.historyLoading}
+					historyHasMore={history.hasMore}
+					historyLoadingMore={history.loadingMore}
+					loading={history.loading}
 				/>
 				{/key}
 			{:else if activeSession && explorerOk}

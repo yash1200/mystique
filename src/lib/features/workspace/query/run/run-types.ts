@@ -1,5 +1,5 @@
 import type { QueryBatchResult, QueryMode, QueryResult } from '#core/contracts'
-import type { QueryDiagnostic } from './query-diagnostic'
+import type { QueryDiagnostic } from '../editor/query-diagnostic'
 
 export type RunState =
 	| { status: 'idle' }

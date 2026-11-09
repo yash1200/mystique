@@ -7,12 +7,12 @@
 		type ContextMenuItem,
 	} from '#core/ui'
 	import { appPrefs, type SavedQueryListSort } from '#lib/app'
-	import type { QueryHistoryEntry } from '../history-types'
-	import type { SavedQueryListItem } from '../saved-types'
-	import HistoryQueryList from './HistoryQueryList.svelte'
+	import type { QueryHistoryEntry } from '../history/history-types'
+	import type { SavedQueryListItem } from '../saved/saved-types'
+	import HistoryQueryList from '../history/HistoryQueryList.svelte'
 	import SavedQueryList, {
 		type SavedQueryMenuAction,
-	} from './SavedQueryList.svelte'
+	} from '../saved/SavedQueryList.svelte'
 
 	type Mode = 'saved-queries' | 'history'
 

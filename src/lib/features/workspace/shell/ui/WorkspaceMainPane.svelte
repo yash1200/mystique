@@ -4,16 +4,15 @@
 	import { familyFromCaps, resolveCapabilities } from '#engines'
 	import { colorHex } from '#features/connections'
 	import { AgentChatPane } from '#features/workspace/agent'
+	import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 	import {
 		ErWorkspace,
 		hydrateActiveModel,
+		modelKey,
+		modelStore,
 		openModelDiagram,
 	} from '#features/workspace/er'
-	import {
-		hydrateActiveStructure,
-		openObjectStructure,
-		StructurePanel,
-	} from '#features/workspace/explorer'
+	import { StructurePanel } from '#features/workspace/explorer'
 	import {
 		DataGrid,
 		RowInspector,
@@ -21,6 +20,11 @@
 		tableSync,
 	} from '#features/workspace/table'
 	import { ServerMetricsView } from '#features/workspace/metrics'
+	import {
+		hydrateActiveStructure,
+		openObjectStructure,
+		structureStore,
+	} from '#features/workspace/structure'
 	import {
 		prependHistoryItem,
 		pruneEditorStates,
@@ -32,12 +36,8 @@
 	import { onMount } from 'svelte'
 	import {
 		reconnectActiveSession,
-		catalogsFor,
 		findCatalogTable,
 		objectKindById as kindsFromCatalog,
-		selectedDatabaseName,
-		structureCacheKey,
-		modelCacheKey,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
@@ -61,10 +61,8 @@
 	const openTabs = $derived(workspaceSession.openTabs)
 	const selectedRow = $derived(workspaceSession.selectedRow)
 
-	const databases = $derived(catalogsFor(workspaceStudio.catalogs, activeId))
-	const currentDatabaseName = $derived(
-		selectedDatabaseName(workspaceStudio.selectedDb, activeId, databases),
-	)
+	const databases = $derived(catalogStore.databases(activeId))
+	const currentDatabaseName = $derived(databaseNameFor(activeId))
 	const connectionTabs = $derived(
 		activeId ? openTabs.filter((t) => t.connectionId === activeId) : [],
 	)
@@ -73,12 +71,12 @@
 	const gridTable = $derived(
 		activeTab?.kind === 'table'
 			? findCatalogTable(
-					catalogsFor(workspaceStudio.catalogs, activeTab.connectionId),
+					catalogStore.databases(activeTab.connectionId),
 					activeTab.tableId,
 				)
 			: null,
 	)
-	const tableLoading = $derived(workspaceStudio.loadingTabId === activeTabId)
+	const tableLoading = $derived(tablePreview.loadingTabId === activeTabId)
 	const rowSelectionIndex = $derived.by(() => {
 		if (!selectedRow || !activeTab || activeTab.kind !== 'table') return null
 		if (
@@ -108,11 +106,7 @@
 	const activeModel = $derived.by(() => {
 		if (!activeTab || activeTab.kind !== 'model' || !activeId) return null
 		const db = activeTab.modelDatabase ?? currentDatabaseName ?? ''
-		return (
-			workspaceStudio.liveModels[
-				modelCacheKey(activeId, db, activeTab.tableId)
-			] ?? null
-		)
+		return modelStore.get(activeId, modelKey(db, activeTab.tableId)) ?? null
 	})
 	const activeStructure = $derived.by(() => {
 		if (
@@ -123,11 +117,7 @@
 		) {
 			return null
 		}
-		return (
-			workspaceStudio.liveStructures[
-				structureCacheKey(activeId, activeTab.tableId)
-			] ?? null
-		)
+		return structureStore.get(activeId, activeTab.tableId) ?? null
 	})
 	const structure = $derived(activeStructure?.data ?? null)
 	const structureFetchedAt = $derived(activeStructure?.rev ?? null)
@@ -137,7 +127,7 @@
 			: null,
 	)
 
-	const catalogError = $derived(workspaceStudio.catalogError)
+	const catalogError = $derived(catalogStore.statusOf(activeId).error)
 	// A restored tab renders before hydrate starts. The catalog leaf has no
 	// columns yet. Mounting the grid then stores an empty edit buffer and the
 	// real preview is ignored on remount. Wait until the fetch settles.
@@ -158,11 +148,11 @@
 		pruneEditorStates(workspaceSession.openTabs.map((tab) => tab.id))
 	})
 
-	const modelError = $derived(workspaceStudio.modelError)
-	const modelLoading = $derived(workspaceStudio.modelLoading)
-	const structureLoading = $derived(workspaceStudio.structureLoading)
+	const modelError = $derived(modelStore.of(activeId).error)
+	const modelLoading = $derived(modelStore.of(activeId).loading)
+	const structureLoading = $derived(structureStore.of(activeId).loading)
 
-	const structureError = $derived(workspaceStudio.structureError)
+	const structureError = $derived(structureStore.of(activeId).error)
 	const structureCaps = $derived(
 		activeSession
 			? resolveCapabilities(
@@ -171,7 +161,9 @@
 				)
 			: null,
 	)
-	const querysaving = $derived(workspaceStudio.querySaving)
+	const querysaving = $derived(
+		!!activeTabId && querySave.savingTabId === activeTabId,
+	)
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
 
@@ -209,10 +201,10 @@
 			...cmd.cancelLoad,
 			// An open context menu takes Esc first.
 			when: () =>
-				workspaceStudio.loadingTabId != null &&
+				tablePreview.loadingTabId != null &&
 				!document.querySelector('[role="menu"]'),
 			run: () => {
-				const loading = workspaceStudio.loadingTabId
+				const loading = tablePreview.loadingTabId
 				if (loading) void cancelTabRun(loading, 'preview')
 			},
 		}),

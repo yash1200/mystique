@@ -12,9 +12,9 @@ import {
 	runWithWriteGuard,
 	sessionDatabase,
 	systemDbNames,
+	selectedDatabases,
 	withLiveSession,
 	workspaceSession,
-	workspaceStudio,
 } from '#features/workspace/session'
 import {
 	loadLiveCatalog,
@@ -24,6 +24,7 @@ import {
 } from './api'
 import { catalogColumnsCache } from './columns.svelte'
 import { clearCatalogFailure, recordCatalogFailure } from './failure'
+import { catalogStore, databaseNameFor } from './store.svelte'
 
 function reportCatalogError(connectionId: string, err: unknown) {
 	// The user closed the password prompt.
@@ -31,11 +32,11 @@ function reportCatalogError(connectionId: string, err: unknown) {
 	const message = errorMessage(err)
 	const first = recordCatalogFailure(connectionId, message)
 	if (first) {
-		workspaceStudio.setCatalogError(message)
+		catalogStore.setError(connectionId, message)
 		return
 	}
 	// Same failure again: keep the banner, do not toast in a loop.
-	workspaceStudio.catalogError = message
+	catalogStore.patchStatus(connectionId, { error: message })
 }
 
 export async function ensureLiveCatalog(
@@ -46,23 +47,23 @@ export async function ensureLiveCatalog(
 	force = false,
 	includeObjects = true,
 ) {
-	const existing = workspaceStudio.catalogs[connectionId]
+	const existing = catalogStore.catalogs[connectionId]
 	if (
 		!force &&
-		workspaceStudio.liveCatalogKey[connectionId] === engineSessionId &&
+		catalogStore.liveKey[connectionId] === engineSessionId &&
 		existing &&
 		existing.length > 0
 	) {
 		return
 	}
-	if (workspaceStudio.catalogLoadInFlight[connectionId]) return
+	if (catalogStore.loadInFlight[connectionId]) return
 	if (force) catalogColumnsCache.invalidate(engineSessionId)
-	workspaceStudio.catalogLoadInFlight = {
-		...workspaceStudio.catalogLoadInFlight,
+	catalogStore.loadInFlight = {
+		...catalogStore.loadInFlight,
 		[connectionId]: true,
 	}
-	workspaceStudio.refreshing = true
-	workspaceStudio.setCatalogError(null)
+	catalogStore.patchStatus(connectionId, { refreshing: true })
+	catalogStore.setError(connectionId, null)
 	let sessionId = engineSessionId
 	try {
 		const live = await loadLiveCatalog(sessionId, engine, {
@@ -70,8 +71,8 @@ export async function ensureLiveCatalog(
 			includeObjects,
 		})
 		applyCatalog(connectionId, live, preferredDatabase, engine)
-		workspaceStudio.liveCatalogKey = {
-			...workspaceStudio.liveCatalogKey,
+		catalogStore.liveKey = {
+			...catalogStore.liveKey,
 			[connectionId]: sessionId,
 		}
 		clearCatalogFailure(connectionId)
@@ -90,12 +91,12 @@ export async function ensureLiveCatalog(
 					includeObjects,
 				})
 				applyCatalog(connectionId, live, preferredDatabase, engine)
-				workspaceStudio.liveCatalogKey = {
-					...workspaceStudio.liveCatalogKey,
+				catalogStore.liveKey = {
+					...catalogStore.liveKey,
 					[connectionId]: sessionId,
 				}
 				clearCatalogFailure(connectionId)
-				workspaceStudio.setCatalogError(null)
+				catalogStore.setError(connectionId, null)
 				return
 			} catch (retryErr) {
 				reportCatalogError(connectionId, retryErr)
@@ -103,18 +104,15 @@ export async function ensureLiveCatalog(
 		} else {
 			reportCatalogError(connectionId, e)
 		}
-		if (!workspaceStudio.catalogs[connectionId]) {
-			workspaceStudio.catalogs = {
-				...workspaceStudio.catalogs,
-				[connectionId]: [],
-			}
+		if (!catalogStore.catalogs[connectionId]) {
+			catalogStore.setDatabases(connectionId, [])
 		}
 	} finally {
-		workspaceStudio.catalogLoadInFlight = {
-			...workspaceStudio.catalogLoadInFlight,
+		catalogStore.loadInFlight = {
+			...catalogStore.loadInFlight,
 			[connectionId]: false,
 		}
-		workspaceStudio.refreshing = false
+		catalogStore.patchStatus(connectionId, { refreshing: false })
 	}
 }
 
@@ -124,31 +122,22 @@ function applyCatalog(
 	preferredDatabase: string | null,
 	engine: string,
 ) {
-	workspaceStudio.catalogs = {
-		...workspaceStudio.catalogs,
-		[connectionId]: mergeCatalogKeepCached(
-			workspaceStudio.catalogs[connectionId],
-			live,
-		),
-	}
+	catalogStore.setDatabases(
+		connectionId,
+		mergeCatalogKeepCached(catalogStore.catalogs[connectionId], live),
+	)
 	const names = live.map((d) => d.name)
 	const pick = preferDatabase(
 		names,
 		preferredDatabase,
 		systemDbNames(engine, connectionId),
 	)
-	const current = workspaceStudio.selectedDb[connectionId]
+	const current = selectedDatabases.get(connectionId)
 	if (current && names.includes(current)) return
 	if (pick) {
-		workspaceStudio.selectedDb = {
-			...workspaceStudio.selectedDb,
-			[connectionId]: pick,
-		}
+		selectedDatabases.set(connectionId, pick)
 	} else if (live[0]) {
-		workspaceStudio.selectedDb = {
-			...workspaceStudio.selectedDb,
-			[connectionId]: live[0].name,
-		}
+		selectedDatabases.set(connectionId, live[0].name)
 	}
 }
 
@@ -175,28 +164,23 @@ export async function selectDatabase(name: string) {
 	if (!active) return
 	const { id, session } = active
 	const next = name.trim()
-	if (!next || workspaceStudio.selectedDb[id] === next) return
-	const previous = workspaceStudio.selectedDb[id] ?? ''
-	workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [id]: next }
+	if (!next || selectedDatabases.get(id) === next) return
+	const previous = selectedDatabases.get(id) ?? ''
+	selectedDatabases.set(id, next)
 
 	const engine = String(session.profile.engine)
 	if (!isTauri() || !engineBindsSessionToDatabase(engine, session.capabilities))
 		return
 
-	workspaceStudio.refreshing = true
-	workspaceStudio.setCatalogError(null)
+	catalogStore.patchStatus(id, { refreshing: true })
+	catalogStore.setError(id, null)
 	try {
 		const sid = await reopenEngineSession(session.profile, next)
 		await ensureLiveCatalog(id, engine, sid, next, true)
 	} catch (e) {
-		workspaceStudio.selectedDb = {
-			...workspaceStudio.selectedDb,
-			[id]: previous,
-		}
-		workspaceStudio.setCatalogError(
-			errorMessage(e),
-		)
-		workspaceStudio.refreshing = false
+		selectedDatabases.set(id, previous)
+		catalogStore.setError(id, errorMessage(e))
+		catalogStore.patchStatus(id, { refreshing: false })
 	}
 }
 
@@ -206,16 +190,14 @@ export async function refreshDatabases() {
 	const { id, session } = active
 	const engine = String(session.profile.engine)
 	const preferred = sessionDatabase(id, session.profile)
-	workspaceStudio.refreshing = true
-	workspaceStudio.setCatalogError(null)
+	catalogStore.patchStatus(id, { refreshing: true })
+	catalogStore.setError(id, null)
 	try {
 		const sid = await withLiveSession(id, async (sessionId) => sessionId)
 		await ensureLiveCatalog(id, engine, sid, preferred, true, false)
 	} catch (e) {
-		workspaceStudio.setCatalogError(
-			errorMessage(e),
-		)
-		workspaceStudio.refreshing = false
+		catalogStore.setError(id, errorMessage(e))
+		catalogStore.patchStatus(id, { refreshing: false })
 	}
 }
 
@@ -225,25 +207,23 @@ export async function refreshCurrentTables() {
 	const { id, session } = active
 	const engine = String(session.profile.engine)
 	const db =
-		workspaceStudio.selectedDb[id] || sessionDatabase(id, session.profile) || ''
-	workspaceStudio.refreshingTables = true
-	workspaceStudio.setCatalogError(null)
+		selectedDatabases.get(id) || sessionDatabase(id, session.profile) || ''
+	catalogStore.patchStatus(id, { refreshingTables: true })
+	catalogStore.setError(id, null)
 	try {
 		const sid = await withLiveSession(id, async (sessionId) => sessionId)
 		const live = await loadLiveCatalog(sid, engine, {
 			preferredDatabase: db,
 			includeObjects: true,
 		})
-		workspaceStudio.catalogs = {
-			...workspaceStudio.catalogs,
-			[id]: mergeCatalogReplaceDatabase(workspaceStudio.catalogs[id], live, db),
-		}
-	} catch (e) {
-		workspaceStudio.setCatalogError(
-			errorMessage(e),
+		catalogStore.setDatabases(
+			id,
+			mergeCatalogReplaceDatabase(catalogStore.catalogs[id], live, db),
 		)
+	} catch (e) {
+		catalogStore.setError(id, errorMessage(e))
 	} finally {
-		workspaceStudio.refreshingTables = false
+		catalogStore.patchStatus(id, { refreshingTables: false })
 	}
 }
 
@@ -251,9 +231,8 @@ export function createDatabase(name: string) {
 	const id = workspaceSession.activeConnectionId
 	if (!id) return
 	const entry: DatabaseMeta = { name, meta: 'created', tables: [] }
-	const list = [...(workspaceStudio.catalogs[id] ?? []), entry]
-	workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [id]: list }
-	workspaceStudio.selectedDb = { ...workspaceStudio.selectedDb, [id]: name }
+	catalogStore.setDatabases(id, [...catalogStore.databases(id), entry])
+	selectedDatabases.set(id, name)
 }
 
 export async function createCatalogGroup(name: string) {
@@ -261,11 +240,11 @@ export async function createCatalogGroup(name: string) {
 	if (!active) return
 	const { id, session } = active
 	if (!isTauri()) {
-		workspaceStudio.setCatalogError(null)
+		catalogStore.setError(id, null)
 		return
 	}
-	workspaceStudio.createBusy = true
-	workspaceStudio.setCatalogError(null)
+	catalogStore.patchStatus(id, { createBusy: true })
+	catalogStore.setError(id, null)
 	try {
 		await withLiveSession(
 			id,
@@ -275,7 +254,7 @@ export async function createCatalogGroup(name: string) {
 						sessionId: sid,
 						op: 'createGroup',
 						name,
-						database: currentDb(id),
+						database: databaseNameFor(id),
 						confirmObjectName: confirmObjectName ?? null,
 					}),
 				),
@@ -283,13 +262,9 @@ export async function createCatalogGroup(name: string) {
 		)
 		await refreshCurrentTables()
 	} catch (e) {
-		if (!isWriteCancelled(e)) {
-			workspaceStudio.setCatalogError(
-				errorMessage(e),
-			)
-		}
+		if (!isWriteCancelled(e)) catalogStore.setError(id, errorMessage(e))
 	} finally {
-		workspaceStudio.createBusy = false
+		catalogStore.patchStatus(id, { createBusy: false })
 	}
 }
 
@@ -303,7 +278,7 @@ export async function createCatalogObject(name: string, group?: string) {
 	)
 	const kind =
 		caps.explorer.objectLabelSingular === 'collection' ? 'collection' : 'table'
-	const dbName = currentDb(id)
+	const dbName = databaseNameFor(id)
 	if (!isTauri()) {
 		const schema = group || (kind === 'collection' ? '' : 'public')
 		const tableId = schema ? `${dbName}.${schema}.${name}` : `${dbName}.${name}`
@@ -317,17 +292,17 @@ export async function createCatalogObject(name: string, group?: string) {
 			columns: [],
 			rows: [],
 		}
-		const list = (workspaceStudio.catalogs[id] ?? []).map((d) => {
+		const list = catalogStore.databases(id).map((d) => {
 			if (d.name !== dbName) return d
 			if (d.tables.some((t) => t.id === tableId)) return d
 			return { ...d, tables: [...d.tables, table] }
 		})
-		workspaceStudio.catalogs = { ...workspaceStudio.catalogs, [id]: list }
-		workspaceStudio.setCatalogError(null)
+		catalogStore.setDatabases(id, list)
+		catalogStore.setError(id, null)
 		return
 	}
-	workspaceStudio.createBusy = true
-	workspaceStudio.setCatalogError(null)
+	catalogStore.patchStatus(id, { createBusy: true })
+	catalogStore.setError(id, null)
 	try {
 		await withLiveSession(
 			id,
@@ -347,20 +322,8 @@ export async function createCatalogObject(name: string, group?: string) {
 		)
 		await refreshCurrentTables()
 	} catch (e) {
-		if (!isWriteCancelled(e)) {
-			workspaceStudio.setCatalogError(
-				errorMessage(e),
-			)
-		}
+		if (!isWriteCancelled(e)) catalogStore.setError(id, errorMessage(e))
 	} finally {
-		workspaceStudio.createBusy = false
+		catalogStore.patchStatus(id, { createBusy: false })
 	}
-}
-
-function currentDb(connectionId: string): string {
-	return (
-		workspaceStudio.selectedDb[connectionId] ??
-		workspaceStudio.catalogs[connectionId]?.[0]?.name ??
-		''
-	)
 }

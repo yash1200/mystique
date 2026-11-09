@@ -2,10 +2,10 @@
 import type { TableMeta } from '#core/contracts'
 import { errorMessage, isTauri } from '#core/ipc'
 import { modelTabTitle, resolveCapabilities } from '#engines'
+import { catalogStore, databaseNameFor } from '#features/workspace/catalog'
 import {
-	currentDatabaseName,
+	findCatalogTable,
 	isSessionMissingError,
-	modelCacheKey,
 	reopenEngineSession,
 	requireActiveConnection,
 	sessionDatabase,
@@ -13,6 +13,7 @@ import {
 	workspaceStudio,
 } from '#features/workspace/session'
 import { loadLiveErDiagram } from './api'
+import { modelKey, modelStore } from './store.svelte'
 
 export async function openModelDiagram(
 	force = false,
@@ -26,7 +27,7 @@ export async function openModelDiagram(
 		opts?.table ??
 		(tab?.kind === 'model' && tab.tableId ? findTable(id, tab.tableId) : null)
 	if (!table) {
-		workspaceStudio.modelError = 'Pick a table to open its ER diagram.'
+		modelStore.setError(id, 'Pick a table to open its ER diagram.')
 		return
 	}
 	workspaceStudio.sideMode = 'explorer'
@@ -34,7 +35,7 @@ export async function openModelDiagram(
 	const database = (
 		opts?.database ??
 		table.database ??
-		currentDatabaseName() ??
+		databaseNameFor(id) ??
 		''
 	).trim()
 	const title = modelTabTitle(
@@ -42,7 +43,6 @@ export async function openModelDiagram(
 		database,
 		table.name,
 	)
-	const key = modelCacheKey(id, database, table.id)
 	const alreadyOpen =
 		tab?.kind === 'model' &&
 		(tab.modelDatabase ?? '') === database &&
@@ -52,20 +52,40 @@ export async function openModelDiagram(
 	if (
 		!force &&
 		!alreadyOpen &&
-		workspaceStudio.liveModels[key]?.diagram?.nodes?.length
+		modelStore.get(id, modelKey(database, table.id))?.diagram?.nodes?.length
 	) {
-		workspaceStudio.modelError = null
+		modelStore.setError(id, null)
 		return
 	}
 
 	if (!isTauri()) {
-		workspaceStudio.modelError =
-			'Live ER diagram requires the Mystique desktop app. Connect and try again.'
+		modelStore.setError(
+			id,
+			'Live ER diagram requires the Mystique desktop app. Connect and try again.',
+		)
 		return
 	}
 
-	workspaceStudio.modelLoading = true
-	workspaceStudio.modelError = null
+	const load = async (sid: string) => {
+		const loaded = await loadLiveErDiagram(
+			sid,
+			engine,
+			database || null,
+			session.capabilities,
+			{ schema: table.schema, name: table.name },
+		)
+		modelStore.put(id, modelKey(database, table.id), {
+			diagram: loaded.diagram,
+			title: loaded.title,
+			summary: loaded.summary,
+			rev: Date.now(),
+			focusNodeId: loaded.focusNodeId,
+		})
+		workspaceSession.openModel(id, database, loaded.title, table.id)
+	}
+
+	modelStore.setLoading(id, true)
+	modelStore.setError(id, null)
 	try {
 		let sid = session.engineSessionId
 		if (!sid) {
@@ -74,93 +94,42 @@ export async function openModelDiagram(
 				sessionDatabase(id, session.profile),
 			)
 		}
-		const loaded = await loadLiveErDiagram(
-			sid,
-			engine,
-			database || null,
-			session.capabilities,
-			{ schema: table.schema, name: table.name },
-		)
-		workspaceStudio.liveModels = {
-			...workspaceStudio.liveModels,
-			[key]: {
-				diagram: loaded.diagram,
-				title: loaded.title,
-				summary: loaded.summary,
-				rev: Date.now(),
-				focusNodeId: loaded.focusNodeId,
-			},
-		}
-		workspaceSession.openModel(id, database, loaded.title, table.id)
+		await load(sid)
 	} catch (e) {
 		if (isSessionMissingError(e)) {
 			try {
-				const sid = await reopenEngineSession(
-					session.profile,
-					sessionDatabase(id, session.profile),
+				await load(
+					await reopenEngineSession(
+						session.profile,
+						sessionDatabase(id, session.profile),
+					),
 				)
-				const loaded = await loadLiveErDiagram(
-					sid,
-					engine,
-					database || null,
-					session.capabilities,
-					{ schema: table.schema, name: table.name },
-				)
-				workspaceStudio.liveModels = {
-					...workspaceStudio.liveModels,
-					[key]: {
-						diagram: loaded.diagram,
-						title: loaded.title,
-						summary: loaded.summary,
-						rev: Date.now(),
-						focusNodeId: loaded.focusNodeId,
-					},
-				}
-				workspaceSession.openModel(id, database, loaded.title, table.id)
-				workspaceStudio.modelError = null
+				modelStore.setError(id, null)
 				return
 			} catch (retryErr) {
-				workspaceStudio.modelError =
-					errorMessage(retryErr)
+				modelStore.setError(id, errorMessage(retryErr))
 				return
 			}
 		}
-		workspaceStudio.modelError = errorMessage(e)
+		modelStore.setError(id, errorMessage(e))
 	} finally {
-		workspaceStudio.modelLoading = false
+		modelStore.setLoading(id, false)
 	}
 }
 
 export function hydrateActiveModel() {
 	const active = requireActiveConnection()
 	const tab = workspaceSession.activeTab
-	if (
-		!active ||
-		!tab ||
-		tab.kind !== 'model' ||
-		!tab.tableId ||
-		workspaceStudio.modelLoading ||
-		workspaceStudio.modelError
-	) {
-		return
-	}
-	const db = tab.modelDatabase ?? currentDatabaseName() ?? ''
-	if (
-		workspaceStudio.liveModels[modelCacheKey(active.id, db, tab.tableId)]
-			?.diagram
-	) {
-		return
-	}
+	if (!active || !tab || tab.kind !== 'model' || !tab.tableId) return
+	const state = modelStore.of(active.id)
+	if (state.loading || state.error) return
+	const db = tab.modelDatabase ?? databaseNameFor(active.id) ?? ''
+	if (modelStore.get(active.id, modelKey(db, tab.tableId))?.diagram) return
 	const table = findTable(active.id, tab.tableId)
 	if (!table) return
 	void openModelDiagram(true, { database: db, table })
 }
 
 function findTable(connectionId: string, tableId: string): TableMeta | null {
-	const cat = workspaceStudio.catalogs[connectionId] ?? []
-	for (const d of cat) {
-		const t = d.tables.find((x) => x.id === tableId)
-		if (t) return t
-	}
-	return null
+	return findCatalogTable(catalogStore.databases(connectionId), tableId)
 }

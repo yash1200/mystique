@@ -1,5 +1,10 @@
-/** Import / export a table. Owned by the grid. */
-import type { ImportEncoding, ImportFormat, TableMeta } from '#core/contracts'
+/** Import / export a table. */
+import type {
+	ImportEncoding,
+	ImportFormat,
+	PreviewImportResult,
+	TableMeta,
+} from '#core/contracts'
 import {
 	errorMessage,
 	cancelTabRun,
@@ -10,38 +15,74 @@ import {
 	previewEngineImport,
 	startTabRun,
 } from '#core/ipc'
+import { databaseNameFor } from '#features/workspace/catalog'
 import {
-	currentDatabaseName,
 	dropEditBuffer,
-	requireActiveConnection,
 	saveTableTab,
 	tabEditsAreDirty,
 	tableTabId,
 	withLiveSession,
 	workspaceSession,
-	workspaceStudio,
 } from '#features/workspace/session'
 import { tableSync } from '#features/workspace/table'
 import { resolveImportGate, type ImportGateChoice } from './import-gate'
 import type { ExportDataSpec } from './ui/ExportDataModal.svelte'
 import type { ImportFileSpec, ImportRunSpec } from './ui/ImportDataModal.svelte'
 
+/**
+ * The import and export dialogs. One of each is open at a time (they are
+ * modal), and each is bound to the connection it was opened on: every call it
+ * makes goes to that connection, whichever one is active by then.
+ */
+class TransferStore {
+	exportConnectionId = $state<string | null>(null)
+	exportTable = $state<TableMeta | null>(null)
+	exportBusy = $state(false)
+	exportError = $state<string | null>(null)
+
+	importConnectionId = $state<string | null>(null)
+	importTable = $state<TableMeta | null>(null)
+	importBusy = $state(false)
+	importError = $state<string | null>(null)
+	importPath = $state('')
+	importPreview = $state<PreviewImportResult | null>(null)
+	importFormat = $state<ImportFormat>('csv')
+
+	/** The connection the open dialog belongs to. */
+	get connectionId(): string | null {
+		if (this.importTable) return this.importConnectionId
+		if (this.exportTable) return this.exportConnectionId
+		return null
+	}
+}
+
+export const transferStore = new TransferStore()
+
 export function closeImport() {
-	if (workspaceStudio.importBusy) return
-	workspaceStudio.importTable = null
-	workspaceStudio.importPreview = null
-	workspaceStudio.importError = null
-	workspaceStudio.importPath = ''
+	if (transferStore.importBusy) return
+	transferStore.importTable = null
+	transferStore.importConnectionId = null
+	transferStore.importPreview = null
+	transferStore.importError = null
+	transferStore.importPath = ''
+}
+
+export function closeExport() {
+	transferStore.exportTable = null
+	transferStore.exportConnectionId = null
+	transferStore.exportError = null
 }
 
 export function beginExport(table: TableMeta) {
-	workspaceStudio.exportTable = table
-	workspaceStudio.exportError = null
+	transferStore.exportConnectionId = workspaceSession.activeConnectionId
+	transferStore.exportTable = table
+	transferStore.exportError = null
 }
 
 /** Set while import asks about the table's pending grid edits. */
 export const importGate = $state({
 	table: null as TableMeta | null,
+	connectionId: null as string | null,
 	tabId: '',
 	/** The grid's save dialogs are up; the gate hides meanwhile. */
 	saving: false,
@@ -54,15 +95,16 @@ function tabHasEdits(tabId: string): boolean {
 }
 
 export function beginImport(table: TableMeta) {
-	const active = requireActiveConnection()
-	const tabId = active ? tableTabId(active.id, table.id) : ''
+	const connectionId = workspaceSession.activeConnectionId
+	const tabId = connectionId ? tableTabId(connectionId, table.id) : ''
 	if (tabId && tabHasEdits(tabId)) {
 		importGate.table = table
+		importGate.connectionId = connectionId
 		importGate.tabId = tabId
 		importGate.error = null
 		return
 	}
-	openImport(table)
+	openImport(table, connectionId)
 }
 
 export async function answerImportGate(choice: ImportGateChoice) {
@@ -86,7 +128,7 @@ export async function answerImportGate(choice: ImportGateChoice) {
 		return
 	}
 	importGate.table = null
-	openImport(table)
+	openImport(table, importGate.connectionId)
 }
 
 async function discardTabEdits(table: TableMeta, tabId: string) {
@@ -97,11 +139,12 @@ async function discardTabEdits(table: TableMeta, tabId: string) {
 	await tablePreview.open(table)
 }
 
-function openImport(table: TableMeta) {
-	workspaceStudio.importTable = table
-	workspaceStudio.importError = null
-	workspaceStudio.importPreview = null
-	workspaceStudio.importPath = ''
+function openImport(table: TableMeta, connectionId: string | null) {
+	transferStore.importConnectionId = connectionId
+	transferStore.importTable = table
+	transferStore.importError = null
+	transferStore.importPreview = null
+	transferStore.importPath = ''
 }
 
 export async function loadImportPreview(
@@ -110,42 +153,42 @@ export async function loadImportPreview(
 	format: ImportFormat,
 	encoding: ImportEncoding,
 ) {
-	const active = requireActiveConnection()
-	if (!active) return
-	workspaceStudio.importBusy = true
-	workspaceStudio.importError = null
+	const connectionId = transferStore.importConnectionId
+	if (!connectionId) return
+	transferStore.importBusy = true
+	transferStore.importError = null
 	try {
-		workspaceStudio.importPreview = await withLiveSession(active.id, (sid) =>
+		transferStore.importPreview = await withLiveSession(connectionId, (sid) =>
 			previewEngineImport({
 				sessionId: sid,
 				name: table.name,
 				schema: table.schema || null,
-				database: table.database || currentDatabaseName(),
+				database: table.database || databaseNameFor(connectionId),
 				kind: table.kind,
 				path,
 				format,
 				encoding,
 			}),
 		)
-		workspaceStudio.importPath = path
-		workspaceStudio.importFormat = format
+		transferStore.importPath = path
+		transferStore.importFormat = format
 	} catch (e) {
-		workspaceStudio.importError = errorMessage(e)
+		transferStore.importError = errorMessage(e)
 	} finally {
-		workspaceStudio.importBusy = false
+		transferStore.importBusy = false
 	}
 }
 
 export async function confirmImportFile(spec: ImportFileSpec) {
-	if (!workspaceStudio.importTable) return
+	if (!transferStore.importTable) return
 	if (!isTauri()) {
-		workspaceStudio.importError = 'Import requires the desktop app.'
+		transferStore.importError = 'Import requires the desktop app.'
 		return
 	}
 	// A new file replaces the old mapping.
-	workspaceStudio.importPreview = null
+	transferStore.importPreview = null
 	await loadImportPreview(
-		workspaceStudio.importTable,
+		transferStore.importTable,
 		spec.path,
 		spec.format,
 		'utf8',
@@ -153,34 +196,35 @@ export async function confirmImportFile(spec: ImportFileSpec) {
 }
 
 export async function confirmImportRun(spec: ImportRunSpec) {
-	const table = workspaceStudio.importTable
-	const active = requireActiveConnection()
-	if (!table || !active || !workspaceStudio.importPath) return
-	workspaceStudio.importBusy = true
-	workspaceStudio.importError = null
+	const table = transferStore.importTable
+	const connectionId = transferStore.importConnectionId
+	if (!table || !connectionId || !transferStore.importPath) return
+	transferStore.importBusy = true
+	transferStore.importError = null
 	try {
 		// The import dialog is the confirmation, production included.
 		await withLiveSession(
-			active.id,
+			connectionId,
 			(sid) =>
 				importEngineObject({
 					sessionId: sid,
 					name: table.name,
 					schema: table.schema || null,
-					database: table.database || currentDatabaseName(),
+					database: table.database || databaseNameFor(connectionId),
 					kind: table.kind,
-					path: workspaceStudio.importPath,
-					format: workspaceStudio.importFormat,
+					path: transferStore.importPath,
+					format: transferStore.importFormat,
 					encoding: spec.encoding,
 					mapping: spec.mapping,
 					onDuplicate: spec.onDuplicate,
 				}),
 			{ replay: false },
 		)
-		workspaceStudio.importTable = null
-		workspaceStudio.importPreview = null
-		workspaceStudio.importPath = ''
-		const tabId = tableTabId(active.id, table.id)
+		transferStore.importTable = null
+		transferStore.importConnectionId = null
+		transferStore.importPreview = null
+		transferStore.importPath = ''
+		const tabId = tableTabId(connectionId, table.id)
 		if (workspaceSession.openTabs.some((t) => t.id === tabId)) {
 			// Import already changed the server page. Drop local edits so the
 			// reload is allowed to replace them.
@@ -189,9 +233,9 @@ export async function confirmImportRun(spec: ImportRunSpec) {
 			void tablePreview.open(table)
 		}
 	} catch (e) {
-		workspaceStudio.importError = errorMessage(e)
+		transferStore.importError = errorMessage(e)
 	} finally {
-		workspaceStudio.importBusy = false
+		transferStore.importBusy = false
 	}
 }
 
@@ -203,39 +247,39 @@ export function cancelActiveExport() {
 }
 
 export async function confirmExport(spec: ExportDataSpec) {
-	const table = workspaceStudio.exportTable
-	const active = requireActiveConnection()
-	if (!table || !active) return
+	const table = transferStore.exportTable
+	const connectionId = transferStore.exportConnectionId
+	if (!table || !connectionId) return
 	if (!isTauri()) {
-		workspaceStudio.exportError = 'Export requires the desktop app.'
+		transferStore.exportError = 'Export requires the desktop app.'
 		return
 	}
-	workspaceStudio.exportBusy = true
-	workspaceStudio.exportError = null
-	const tabId = tableTabId(active.id, table.id)
+	transferStore.exportBusy = true
+	transferStore.exportError = null
+	const tabId = tableTabId(connectionId, table.id)
 	exportRunTab = tabId
 	const executionId = startTabRun(tabId, 'export')
 	try {
 		const { join } = await import('@tauri-apps/api/path')
 		const path = await join(spec.folder, spec.fileName)
-		await withLiveSession(active.id, (sid) =>
+		await withLiveSession(connectionId, (sid) =>
 			exportEngineObject({
 				sessionId: sid,
 				name: table.name,
 				schema: table.schema || null,
-				database: table.database || currentDatabaseName(),
+				database: table.database || databaseNameFor(connectionId),
 				kind: table.kind,
 				format: spec.format,
 				path,
 				executionId,
 			}),
 		)
-		workspaceStudio.exportTable = null
+		closeExport()
 	} catch (e) {
-		workspaceStudio.exportError = errorMessage(e)
+		transferStore.exportError = errorMessage(e)
 	} finally {
 		finishTabRun(tabId, executionId)
 		if (exportRunTab === tabId) exportRunTab = null
-		workspaceStudio.exportBusy = false
+		transferStore.exportBusy = false
 	}
 }

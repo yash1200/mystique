@@ -6,7 +6,7 @@ import {
 	paramHistory,
 	rememberParamValue,
 	scanQueryParams,
-} from '../../src/lib/features/workspace/query/params'
+} from '../../src/lib/features/workspace/query/params/params'
 
 test('a string literal does not open a parameter', () => {
 	assert.deepEqual(scanQueryParams("SELECT ':id'", 'postgres').slots, [])

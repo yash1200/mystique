@@ -6,9 +6,9 @@ import {
 	noteEditorEdit,
 	placeDiagnostic,
 	tokenEnd,
-} from '../../src/lib/features/workspace/query/query-diagnostic'
+} from '../../src/lib/features/workspace/query/editor/query-diagnostic'
 import { toIpcError } from '../../src/lib/core/ipc/error'
-import { submissionStart } from '../../src/lib/features/workspace/query/statement-span'
+import { submissionStart } from '../../src/lib/features/workspace/query/editor/statement-span'
 
 describe('query diagnostics', () => {
 	it('underlines FORM inside statement 2', () => {

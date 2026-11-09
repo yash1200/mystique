@@ -8,7 +8,7 @@ import {
 	pruneEditorStates,
 	resetEditorStates,
 	switchEditorState,
-} from '../../src/lib/features/workspace/query/editor-state'
+} from '../../src/lib/features/workspace/query/editor/editor-state'
 
 test('switching tabs keeps undo, the cursor, and scroll', () => {
 	resetEditorStates()

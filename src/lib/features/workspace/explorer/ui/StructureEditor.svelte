@@ -8,15 +8,17 @@
 	import { Alert, Button, EmptyState } from '#core/ui'
 	import { latestRun } from '#core/util'
 	import { showToast } from '#features/toast'
-	import { refreshCurrentTables } from '#features/workspace/catalog'
 	import {
-		currentDatabaseName,
+		databaseNameFor,
+		refreshCurrentTables,
+	} from '#features/workspace/catalog'
+	import {
 		isWriteCancelled,
 		runWithWriteGuard,
 		withLiveSession,
 	} from '#features/workspace/session'
 	import { onMount } from 'svelte'
-	import { openObjectStructure } from '../structure-live'
+	import { openObjectStructure } from '#features/workspace/structure'
 	import {
 		addColumn,
 		addForeignKey,
@@ -81,7 +83,7 @@
 					sessionId,
 					table: table.name,
 					schema: table.schema || null,
-					database: table.database || currentDatabaseName() || null,
+					database: table.database || databaseNameFor(connectionId) || null,
 					kind: table.kind,
 				}),
 			)

@@ -34,14 +34,16 @@ src/
     │   ├── settings/             # appearance, workspace, AI, MCP
     │   ├── shortcuts/            # keyboard reference
     │   └── workspace/
-    │       ├── session/          # kernel: session + studio stores, tabs, drafts, write guard (no UI)
+    │       ├── session/          # kernel: session store, tabs, drafts, write guard, per-connection cache (no UI)
     │       ├── shell/            # composition: panes, sessions rail, tabs, modals
-    │       ├── catalog/          # live catalog, labels, icons
+    │       ├── catalog/          # live catalog per connection, labels, icons
     │       ├── explorer/         # object tree, structure panel
+    │       ├── structure/        # structure tab loading, per-connection cache
     │       ├── data-grid/        # shared grid core: selection, keys, copy, windowing, GridTable
     │       ├── table/            # table tab: editable grid, filters, paging, saves, row inspector
-    │       ├── grid/             # table import/export
-    │       ├── query/            # editor, results, saved queries, history
+    │       ├── grid/             # row serialization for export (aliases until callers move)
+    │       ├── transfer/         # table import / export dialogs and runs
+    │       ├── query/            # editor/, run/, results/, explain/, params/, saved/, history/
     │       ├── er/               # canvas, layout, DBML, PNG export
     │       └── agent/            # chat pane, markdown
     │
@@ -130,7 +132,7 @@ supplies what a session cannot (a form, a dialect, a badge mark).
 3. **`$bindable` for form values** — parent owns state; primitives stay controlled/bindable.
 4. **Spread HTML attrs** — primitives forward `...rest` for `id`, `aria-*`, `data-*`.
 5. **Tokens only** — no hard-coded theme hex in components (connection color props are the exception).
-6. **Read state, don't drill it** — `workspaceSession`, `workspaceStudio`, `appPrefs`.
+6. **Read state, don't drill it** — `workspaceSession`, `appPrefs`, and each feature's store (`catalogStore`, `historyStore`, …). State that belongs to one connection is keyed by its connectionId.
 
 ## Import style
 

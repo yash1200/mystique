@@ -8,19 +8,21 @@ import type {
 import { errorMessage, finishTabRun, isTauri, startTabRun } from '#core/ipc'
 import {
 	applyPreviewStats,
+	catalogStore,
+	currentDatabaseName,
 	loadTablePreview,
 	loadTablePreviewStats,
 	selectDatabase,
 } from '#features/workspace/catalog'
 import {
 	catalogsFor,
-	currentDatabaseName,
 	engineBindsSessionToDatabase,
 	findCatalogTable,
 	patchCatalogTable,
 	reopenTableAction,
 	requireActiveConnection,
 	resolveTablePreview,
+	selectedDatabases,
 	tableTabId,
 	withLiveSession,
 	workspaceSession,
@@ -31,6 +33,8 @@ import { tableSync } from './sync.svelte'
 class TablePreview {
 	hydratedTabs = $state<Record<string, boolean>>({})
 	epochByTab = $state<Record<string, number>>({})
+	/** Tab whose preview is in flight. Per-tab so a stale finish cannot hide another open. */
+	loadingTabId = $state<string | null>(null)
 
 	async open(
 		table: TableMeta,
@@ -67,8 +71,8 @@ class TablePreview {
 		this.epochByTab = { ...this.epochByTab, [tabId]: epoch }
 		const stillThis = () => this.epochByTab[tabId] === epoch
 
-		workspaceStudio.loadingTabId = tabId
-		workspaceStudio.setCatalogError(null)
+		this.loadingTabId = tabId
+		catalogStore.setError(id, null)
 		const executionId = startTabRun(tabId, 'preview')
 		try {
 			const engine = String(session.profile.engine)
@@ -86,8 +90,8 @@ class TablePreview {
 				),
 			)
 			if (!stillThis()) return
-			workspaceStudio.catalogs = patchCatalogTable(
-				workspaceStudio.catalogs,
+			catalogStore.catalogs = patchCatalogTable(
+				catalogStore.catalogs,
 				id,
 				table.id,
 				loaded,
@@ -102,12 +106,12 @@ class TablePreview {
 				.then((stats) => {
 					if (!stillThis()) return
 					const current = findCatalogTable(
-						catalogsFor(workspaceStudio.catalogs, id),
+						catalogsFor(catalogStore.catalogs, id),
 						table.id,
 					)
 					if (!current) return
-					workspaceStudio.catalogs = patchCatalogTable(
-						workspaceStudio.catalogs,
+					catalogStore.catalogs = patchCatalogTable(
+						catalogStore.catalogs,
 						id,
 						table.id,
 						applyPreviewStats(current, stats),
@@ -118,14 +122,12 @@ class TablePreview {
 				})
 		} catch (e) {
 			if (stillThis() && workspaceSession.activeTabId === tabId) {
-				workspaceStudio.setCatalogError(
-					errorMessage(e),
-				)
+				catalogStore.setError(id, errorMessage(e))
 			}
 		} finally {
 			finishTabRun(tabId, executionId)
-			if (stillThis() && workspaceStudio.loadingTabId === tabId) {
-				workspaceStudio.loadingTabId = null
+			if (stillThis() && this.loadingTabId === tabId) {
+				this.loadingTabId = null
 			}
 		}
 	}
@@ -140,7 +142,7 @@ class TablePreview {
 		const tab = workspaceSession.activeTab
 		if (!tab || tab.kind !== 'table' || !tab.tableId) return
 		const table = findCatalogTable(
-			catalogsFor(workspaceStudio.catalogs, tab.connectionId),
+			catalogsFor(catalogStore.catalogs, tab.connectionId),
 			tab.tableId,
 		)
 		if (!table) return
@@ -175,7 +177,7 @@ class TablePreview {
 			return
 		}
 		const table = findCatalogTable(
-			catalogsFor(workspaceStudio.catalogs, tab.connectionId),
+			catalogsFor(catalogStore.catalogs, tab.connectionId),
 			tab.tableId,
 		)
 		if (!table) return
@@ -184,7 +186,7 @@ class TablePreview {
 			this.hydratedTabs = { ...this.hydratedTabs, [tab.id]: true }
 			return
 		}
-		if (workspaceStudio.loadingTabId === tab.id) return
+		if (this.loadingTabId === tab.id) return
 		this.hydratedTabs = { ...this.hydratedTabs, [tab.id]: true }
 		void this.open(table)
 	}
@@ -195,7 +197,8 @@ class TablePreview {
 		if (!active) return
 		const target = findReferencedTable(ref)
 		if (!target) {
-			workspaceStudio.setCatalogError(
+			catalogStore.setError(
+				active.id,
 				`Referenced table “${ref.schema ? `${ref.schema}.` : ''}${ref.table}” is not in the explorer catalog.`,
 			)
 			return
@@ -211,10 +214,7 @@ class TablePreview {
 					/* selectDatabase reports the catalog error */
 				}
 			} else {
-				workspaceStudio.selectedDb = {
-					...workspaceStudio.selectedDb,
-					[active.id]: targetDb,
-				}
+				selectedDatabases.set(active.id, targetDb)
 			}
 		}
 		const filterValue =
@@ -230,7 +230,7 @@ class TablePreview {
 function findReferencedTable(ref: ColumnReference): TableMeta | null {
 	const id = workspaceSession.activeConnectionId
 	if (!id) return null
-	const list = catalogsFor(workspaceStudio.catalogs, id)
+	const list = catalogsFor(catalogStore.catalogs, id)
 	const refDb = (ref.database ?? '').trim()
 	const refSchema = (ref.schema ?? '').trim()
 	const refTable = ref.table.trim()

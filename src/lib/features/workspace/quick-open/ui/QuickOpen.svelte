@@ -2,7 +2,9 @@
 	import { pushDialog } from '#core/ui'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
 	import { colorHex, connectionProfiles } from '#features/connections'
-	import { workspaceSession, workspaceStudio } from '#features/workspace/session'
+	import { catalogStore } from '#features/workspace/catalog'
+	import { historyStore, savedStore } from '#features/workspace/query'
+	import { workspaceSession } from '#features/workspace/session'
 	import { tick } from 'svelte'
 	import { runQuickOpenItem } from '../actions'
 	import { quickOpen } from '../chrome.svelte'
@@ -56,7 +58,7 @@
 			if (!session) continue
 			const profile =
 				profiles.find((row) => row.id === id) ?? toProfile(session.profile)
-			const databases = workspaceStudio.catalogs[id] ?? []
+			const databases = catalogStore.databases(id)
 			catalogs.push({
 				connectionId: id,
 				name: profile.name,
@@ -76,7 +78,7 @@
 					).supportsServerMetrics
 				: false,
 			catalogs,
-			saved: workspaceStudio.savedQueries.flatMap((query) => {
+			saved: savedStore.of(activeId).items.flatMap((query) => {
 				const connectionId = query.connectionId || activeId
 				if (!connectionId) return []
 				return [
@@ -88,7 +90,7 @@
 					},
 				]
 			}),
-			history: workspaceStudio.queryHistory.map((entry) => ({
+			history: historyStore.of(activeId).entries.map((entry) => ({
 				id: entry.id,
 				connectionId: entry.connectionId ?? null,
 				title: historyTitle(entry.sql),

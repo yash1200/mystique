@@ -1,21 +1,28 @@
 <script lang="ts">
 	import { resolveCapabilities } from '#engines'
 	import { Button, Modal } from '#core/ui'
-	import { workspaceSession, workspaceStudio } from '#features/workspace/session'
+	import { workspaceSession } from '#features/workspace/session'
 	import {
 		answerImportGate,
 		cancelActiveExport,
+		closeExport,
 		closeImport,
 		confirmExport,
 		confirmImportFile,
 		confirmImportRun,
 		importGate,
 		loadImportPreview,
+		transferStore,
 	} from '../transfer.svelte'
 	import ExportDataModal from './ExportDataModal.svelte'
 	import ImportDataModal from './ImportDataModal.svelte'
 
-	const activeSession = $derived(workspaceSession.activeSession)
+	// The dialog's own connection, not whichever one is active now.
+	const activeSession = $derived(
+		workspaceSession.sessions.find(
+			(s) => s.profile.id === transferStore.connectionId,
+		) ?? workspaceSession.activeSession,
+	)
 	const formats = $derived(
 		activeSession
 			? resolveCapabilities(
@@ -25,10 +32,10 @@
 			: ['csv', 'json', 'jsonl'],
 	)
 	const objectLabel = $derived(
-		workspaceStudio.importTable?.kind === 'collection' ||
-			workspaceStudio.exportTable?.kind === 'collection'
+		transferStore.importTable?.kind === 'collection' ||
+			transferStore.exportTable?.kind === 'collection'
 			? 'collection'
-			: workspaceStudio.exportTable?.kind === 'view'
+			: transferStore.exportTable?.kind === 'view'
 				? 'view'
 				: 'table',
 	)
@@ -57,21 +64,21 @@
 </Modal>
 
 <ImportDataModal
-	open={!!workspaceStudio.importTable}
-	objectName={workspaceStudio.importTable?.name ?? ''}
+	open={!!transferStore.importTable}
+	objectName={transferStore.importTable?.name ?? ''}
 	{objectLabel}
 	{formats}
 	production={activeSession?.profile.environment === 'production'}
-	preview={workspaceStudio.importPreview}
-	busy={workspaceStudio.importBusy}
-	error={workspaceStudio.importError}
+	preview={transferStore.importPreview}
+	busy={transferStore.importBusy}
+	error={transferStore.importError}
 	onfile={(spec) => void confirmImportFile(spec)}
 	onencoding={(enc) => {
-		if (!workspaceStudio.importTable || !workspaceStudio.importPath) return
+		if (!transferStore.importTable || !transferStore.importPath) return
 		void loadImportPreview(
-			workspaceStudio.importTable,
-			workspaceStudio.importPath,
-			workspaceStudio.importFormat,
+			transferStore.importTable,
+			transferStore.importPath,
+			transferStore.importFormat,
 			enc,
 		)
 	}}
@@ -80,19 +87,18 @@
 />
 
 <ExportDataModal
-	open={!!workspaceStudio.exportTable}
-	objectName={workspaceStudio.exportTable?.name ?? ''}
+	open={!!transferStore.exportTable}
+	objectName={transferStore.exportTable?.name ?? ''}
 	{objectLabel}
 	{formats}
-	busy={workspaceStudio.exportBusy}
-	error={workspaceStudio.exportError}
+	busy={transferStore.exportBusy}
+	error={transferStore.exportError}
 	onconfirm={(spec) => void confirmExport(spec)}
 	oncancel={() => {
-		if (workspaceStudio.exportBusy) {
+		if (transferStore.exportBusy) {
 			cancelActiveExport()
 			return
 		}
-		workspaceStudio.exportTable = null
-		workspaceStudio.exportError = null
+		closeExport()
 	}}
 />

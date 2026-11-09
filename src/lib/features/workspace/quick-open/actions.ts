@@ -1,4 +1,5 @@
 import { commands } from '#core/commands'
+import { catalogStore } from '#features/workspace/catalog'
 import { tablePreview } from '#features/workspace/grid'
 import {
 	findCatalogTable,
@@ -125,10 +126,7 @@ async function openConnection(id: string) {
 async function openCatalogObject(connectionId: string, tableId: string) {
 	await focusConnection(connectionId)
 	workspaceStudio.sideMode = 'explorer'
-	const table = findCatalogTable(
-		workspaceStudio.catalogs[connectionId] ?? [],
-		tableId,
-	)
+	const table = findCatalogTable(catalogStore.databases(connectionId), tableId)
 	if (!table) return
 	await tablePreview.open(table)
 }
