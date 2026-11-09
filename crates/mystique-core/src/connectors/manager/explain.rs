@@ -18,12 +18,8 @@ impl ConnectionManager {
         &self,
         mut req: ExplainQueryRequest,
     ) -> ConnectorResult<ExplainPlan> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.take())
-            .await;
-        let result = self.explain_registered(req, &control).await;
-        self.finish_run(&id).await;
-        result
+        let run = self.begin_run(&req.session_id, req.execution_id.take());
+        self.explain_registered(req, &run.control).await
     }
 
     async fn explain_registered(

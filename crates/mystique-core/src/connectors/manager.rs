@@ -128,7 +128,8 @@ pub struct ConnectionManager {
     /// Session ids unlocked for writes this process (P3.1). Not persisted.
     write_unlocks: Mutex<HashSet<String>>,
     /// `execution_id` → control. Not the profile id.
-    running: Mutex<HashMap<String, run::Inflight>>,
+    /// A std mutex so a run's drop guard can unregister without awaiting.
+    running: std::sync::Mutex<HashMap<String, run::Inflight>>,
     /// Caps explorer/metadata fan-out. Never closed. Queries do not take a permit.
     metadata: Semaphore,
     /// Query-tab id → pinned connection.
@@ -149,7 +150,7 @@ impl ConnectionManager {
             registry,
             sessions: RwLock::new(HashMap::new()),
             write_unlocks: Mutex::new(HashSet::new()),
-            running: Mutex::new(HashMap::new()),
+            running: std::sync::Mutex::new(HashMap::new()),
             metadata: run::metadata_limiter(),
             pins: Mutex::new(HashMap::new()),
             rolled_back: Mutex::new(HashSet::new()),

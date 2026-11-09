@@ -79,23 +79,17 @@ impl ConnectionManager {
         &self,
         req: FetchTablePreviewRequest,
     ) -> ConnectorResult<TablePreviewResult> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.clone())
-            .await;
-        let result = async {
-            let session = self.session(&req.session_id).await?;
-            let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
-            input.control = Arc::clone(&control);
-            self.drive_registered(
-                &control,
-                FETCH_TIMEOUT_MS,
-                session.fetch_table_preview(&input),
-            )
-            .await
-        }
-        .await;
-        self.finish_run(&id).await;
-        result
+        let run = self.begin_run(&req.session_id, req.execution_id.clone());
+        let control = &run.control;
+        let session = self.session(&req.session_id).await?;
+        let mut input = req.into_input(DEFAULT_MAX_ROWS, HARD_MAX_ROWS);
+        input.control = Arc::clone(control);
+        self.drive_registered(
+            control,
+            FETCH_TIMEOUT_MS,
+            session.fetch_table_preview(&input),
+        )
+        .await
     }
 
     pub async fn fetch_table_preview_stats(
@@ -110,23 +104,13 @@ impl ConnectionManager {
         &self,
         req: FetchLargeValueRequest,
     ) -> ConnectorResult<FetchLargeValueResult> {
-        let (id, control) = self
-            .begin_run(&req.session_id, req.execution_id.clone())
-            .await;
-        let result = async {
-            let session = self.session(&req.session_id).await?;
-            let mut input = req.into_input();
-            input.control = Arc::clone(&control);
-            self.drive_registered(
-                &control,
-                FETCH_TIMEOUT_MS,
-                session.fetch_large_value(&input),
-            )
+        let run = self.begin_run(&req.session_id, req.execution_id.clone());
+        let control = &run.control;
+        let session = self.session(&req.session_id).await?;
+        let mut input = req.into_input();
+        input.control = Arc::clone(control);
+        self.drive_registered(control, FETCH_TIMEOUT_MS, session.fetch_large_value(&input))
             .await
-        }
-        .await;
-        self.finish_run(&id).await;
-        result
     }
     /// Plugin-owned table/collection admin (CREATE text + mutating ops).
     pub async fn apply_table_admin(
