@@ -240,7 +240,7 @@ async fn host_key_or_connect(
     presented: &Arc<Mutex<Option<SshHostKeyPrompt>>>,
 ) -> ConnectorError {
     if let Some(prompt) = presented.lock().await.take() {
-        return ConnectorError::SshHostKey(prompt);
+        return ConnectorError::SshHostKey(Box::new(prompt));
     }
     ConnectorError::Connect(format!("SSH: {err}"))
 }

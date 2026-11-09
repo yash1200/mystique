@@ -89,11 +89,13 @@ pub enum ConnectorError {
     #[error("internal: {0}")]
     Internal(String),
 
+    /// Boxed: the prompt is several times larger than every other variant.
     #[error("{0}")]
-    SshHostKey(crate::SshHostKeyPrompt),
+    SshHostKey(Box<crate::SshHostKeyPrompt>),
 
+    /// Boxed: the prompt is several times larger than every other variant.
     #[error("{0}")]
-    WriteGuard(crate::WriteGuardPrompt),
+    WriteGuard(Box<crate::WriteGuardPrompt>),
 }
 
 impl From<mystique_sql::BuildError> for ConnectorError {

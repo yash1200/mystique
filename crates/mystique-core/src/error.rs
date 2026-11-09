@@ -64,7 +64,7 @@ impl From<AppError> for IpcError {
             AppError::Connector(inner) => return IpcError::from(inner),
             AppError::PasswordRequired => {
                 return IpcError {
-                    prompt: Some(IpcPrompt::PasswordRequired),
+                    prompt: Some(Box::new(IpcPrompt::PasswordRequired)),
                     ..IpcError::new(IpcErrorKind::PasswordRequired, PASSWORD_REQUIRED_MESSAGE)
                 };
             }

@@ -52,7 +52,7 @@ impl ConnectionManager {
             if let Ok(planned) = session.apply_table_edits(&plan).await {
                 prompt.statements = planned.statements;
             }
-            return Err(ConnectorError::WriteGuard(prompt));
+            return Err(ConnectorError::WriteGuard(Box::new(prompt)));
         }
         let mut result = session.apply_table_edits(&input).await?;
         self.remember_save(

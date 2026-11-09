@@ -593,7 +593,7 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
                 "SSH host key {}: {} ({}:{})",
                 prompt.kind, prompt.fingerprint, prompt.host, prompt.port
             ),
-            ssh_host_key: Some(prompt),
+            ssh_host_key: Some(*prompt),
         };
     }
     TestResult {
