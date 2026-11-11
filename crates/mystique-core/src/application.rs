@@ -4,7 +4,6 @@
 
 mod agent_chat;
 mod agent_tools;
-mod ai_secrets;
 pub(crate) mod dbml;
 mod grid_layout;
 mod history;
@@ -24,7 +23,6 @@ pub use agent_tools::{
     AGENT_RAW_DEFAULT_CHARS, AGENT_SAMPLE_DEFAULT_ROWS, AGENT_SAMPLE_MAX_ROWS, APPROVAL_TIMEOUT,
     SETTING_AGENT_LEVEL, SETTING_MCP_LEVEL,
 };
-pub use ai_secrets::AiSecretsService;
 pub(crate) use grid_layout::DbGridSaveStore;
 pub use grid_layout::GridLayoutService;
 pub use history::HistoryService;
@@ -100,16 +98,8 @@ impl AppServices {
         }
     }
 
-    /// One-time startup cleanup of placeholder pointers.
-    ///
-    /// Not part of construction: the shell runs it off the main thread. It
-    /// loads no vault key and reads no keychain item.
-    pub fn migrate_legacy_secrets(&self) -> AppResult<()> {
-        self.profiles().startup_cleanup()
-    }
-
-    /// Once the key first loads, in the background: seal leftover plaintext
-    /// rows, then (once per install) delete orphaned keychain items.
+    /// Once the key first loads, in the background (once per install):
+    /// delete the keychain items older builds left behind.
     fn maintain_after_first_unlock(&self) {
         let db = Arc::downgrade(&self.db);
         let secrets = Arc::downgrade(&self.secrets);
@@ -160,7 +150,7 @@ impl AppServices {
         }
     }
 
-    /// Fill DB password + SSH tunnel from the profile / keychain / known_hosts.
+    /// Fill DB password + SSH tunnel from the profile / vault / known_hosts.
     ///
     /// A saved profile's secret is only attached when the client is dialing
     /// that profile's host. Database name and SSL fields may still change.
@@ -260,10 +250,6 @@ impl AppServices {
 
     pub fn agent_chats(&self) -> AgentChatService<'_> {
         AgentChatService { db: &self.db }
-    }
-
-    pub fn ai_secrets(&self) -> AiSecretsService<'_> {
-        AiSecretsService { db: &self.db }
     }
 
     pub fn connections(&self) -> Arc<ConnectionManager> {
@@ -535,8 +521,8 @@ fn lift_request_credentials(req: &mut OpenSessionRequest) {
     }
 }
 
-/// Older saves kept the Mongo username in a keychain item. The first
-/// connect moves it into `plugin_config`; later connects read no item.
+/// A request without a Mongo username gets the one saved in the profile's
+/// `plugin_config`.
 fn inject_mongo_username(
     profiles: &ProfileService<'_>,
     engine: &str,

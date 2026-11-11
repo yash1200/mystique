@@ -170,7 +170,7 @@ mod tests {
     use mystique_connector_api::{GridUndo, RowCheck};
 
     use super::*;
-    use crate::storage::sqlite::migrate::migrate;
+    use crate::storage::sqlite::ensure_schema;
 
     fn record(save_id: &str) -> GridSaveRecord {
         GridSaveRecord {
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn column_widths_round_trip_per_table() {
         let conn = Connection::open_in_memory().unwrap();
-        migrate(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         let saved = layout(&[("id", 64), ("name", 240)]);
         save_layout(&conn, &saved).unwrap();
         assert_eq!(
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn out_of_range_widths_are_dropped() {
         let conn = Connection::open_in_memory().unwrap();
-        migrate(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         save_layout(
             &conn,
             &layout(&[("id", 0), ("name", 9000), ("", 80), ("ok", 90)]),
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn a_save_can_be_taken_once() {
         let conn = Connection::open_in_memory().unwrap();
-        migrate(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         put_save(&conn, &record("s1")).unwrap();
         assert_eq!(get_save(&conn, "s1").unwrap(), Some(record("s1")));
         assert_eq!(take_save(&conn, "s1").unwrap(), Some(record("s1")));
@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn latest_save_is_the_newest_one_left() {
         let conn = Connection::open_in_memory().unwrap();
-        migrate(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         put_save(&conn, &record("s1")).unwrap();
         put_save(&conn, &record("s2")).unwrap();
         let latest = latest_save(&conn, "c1", "t").unwrap().map(|s| s.save_id);

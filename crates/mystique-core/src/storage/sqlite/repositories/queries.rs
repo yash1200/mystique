@@ -159,14 +159,14 @@ pub fn delete_query(conn: &Connection, id: &str) -> AppResult<()> {
 mod tests {
     use super::*;
     use crate::domain::SaveConnectionInput;
-    use crate::storage::sqlite::migrate;
+    use crate::storage::sqlite::ensure_schema;
     use crate::storage::sqlite::repo::connections;
     use serde_json::json;
 
     fn mem() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        migrate(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         conn
     }
 

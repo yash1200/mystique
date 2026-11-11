@@ -22,11 +22,6 @@ impl AgentService {
         Self::with_secrets(app.clone(), SecretStore::new(app))
     }
 
-    /// Import leftover plaintext keys from the old `ai_secrets.json` file once.
-    pub fn with_legacy_file(app: Arc<AppServices>, path: impl Into<std::path::PathBuf>) -> Self {
-        Self::with_secrets(app.clone(), SecretStore::with_legacy_file(app, path))
-    }
-
     fn with_secrets(app: Arc<AppServices>, secrets: SecretStore) -> Self {
         Self {
             app,

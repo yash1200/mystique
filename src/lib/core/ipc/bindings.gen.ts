@@ -342,8 +342,7 @@ export type ConnectionKind = "host" | "uri" | "file";
  * Saved connection profile (any engine).
  *
  * List/get never include a password. Secrets are vault envelopes in the
- * `secrets` table; `secret_ref` is [`VAULT_SECRET_REF`] for those. Older rows
- * still name a keychain account until their first use moves it.
+ * `secrets` table; `secret_ref` is [`VAULT_SECRET_REF`] for those, else null.
  */
 export type ConnectionProfile = { id: string, name: string, 
 /**
@@ -355,7 +354,7 @@ engine: string, colorId: string, environment: string, readOnly: boolean, notes: 
  */
 pluginConfig: Record<string, unknown>, 
 /**
- * True when a password is saved (vault, or an old keychain item).
+ * True when a password is saved in the vault.
  */
 passwordSet: boolean, 
 /**
@@ -1252,8 +1251,7 @@ export type SaveConnectionInput = { id?: string | null, name: string, engine: st
  */
 password?: string | null, 
 /**
- * Legacy alias: if `password` is unset, non-empty `secret_ref` is treated as the password
- * when it is not a keychain pointer or placeholder.
+ * Ignored. Only `password` is saved.
  */
 secretRef?: string | null, 
 /**
@@ -1261,7 +1259,7 @@ secretRef?: string | null,
  */
 clearSecret?: boolean, 
 /**
- * After insert, copy the keychain secret from this profile id (duplicate).
+ * After insert, copy the saved secrets from this profile id (duplicate).
  */
 copySecretFrom?: string | null, 
 /**

@@ -1,6 +1,6 @@
 //! Keychain access counts (K-01…K-04) under the vault, and host binding
 //! (R-06, R-07, R-16). A counting key source stands in for the one vault
-//! item; a counting backend stands in for items older builds left behind.
+//! item; a fake keychain stands in for items older builds left behind.
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -10,12 +10,8 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::domain::{
-    scoped_secret_account, scoped_ssh_secret_account, scoped_tls_secret_account, secret_account,
-    user_secret_account, SaveConnectionInput, SshAuth, SshConfig, SshTunnelRequest,
-    VAULT_SECRET_REF,
-};
-use crate::secrets::counting::{CountingBackend, CountingKeySource};
+use crate::domain::{SaveConnectionInput, SshAuth, SshConfig, SshTunnelRequest, VAULT_SECRET_REF};
+use crate::secrets::counting::{CountingKeySource, FakeKeychain};
 use crate::secrets::KeySource;
 use crate::storage::sqlite::repo;
 
@@ -44,24 +40,17 @@ impl Drop for TempDb {
     }
 }
 
-/// One process: a fresh vault over a shared key source and old items.
-fn app_on(
-    db: AppDatabase,
-    keys: &Arc<CountingKeySource>,
-    items: &Arc<CountingBackend>,
-) -> AppServices {
+/// One process: a fresh vault over a shared key source.
+fn app_on(db: AppDatabase, keys: &Arc<CountingKeySource>) -> AppServices {
     AppServices::with_secrets(
         db,
         ConnectionManager::bootstrap(),
-        SecretStore::from_parts(keys.clone(), Some(items.clone())),
+        SecretStore::with_key_source(keys.clone()),
     )
 }
 
-fn fakes() -> (Arc<CountingKeySource>, Arc<CountingBackend>) {
-    (
-        Arc::new(CountingKeySource::default()),
-        Arc::new(CountingBackend::default()),
-    )
+fn fakes() -> Arc<CountingKeySource> {
+    Arc::new(CountingKeySource::default())
 }
 
 fn pg_input(name: &str) -> SaveConnectionInput {
@@ -147,10 +136,6 @@ fn open_req(profile: &crate::domain::ConnectionProfile) -> OpenSessionRequest {
     }
 }
 
-fn install_of(app: &AppServices) -> String {
-    app.db.with_conn(crate::secrets::install_id).unwrap()
-}
-
 fn refs(app: &AppServices, id: &str) -> (Option<String>, Option<String>) {
     app.db
         .with_conn(|c| {
@@ -162,122 +147,31 @@ fn refs(app: &AppServices, id: &str) -> (Option<String>, Option<String>) {
         .unwrap()
 }
 
-fn has_envelope(app: &AppServices, id: &str, kind: &str) -> bool {
-    app.db
-        .with_conn(|c| repo::secrets::exists(c, "connection", id, kind))
-        .unwrap()
-}
-
-/// A Phase A row: secrets in `conn.<install>.<id>` items, pointers to them.
-fn phase_a_row(
-    app: &AppServices,
-    items: &CountingBackend,
-    input: SaveConnectionInput,
-) -> crate::domain::ConnectionProfile {
-    let mut bare = input.clone();
-    bare.password = None;
-    bare.ssh_password = None;
-    bare.tls_key_passphrase = None;
-    let saved = app.profiles().save(bare).unwrap();
-    let install = install_of(app);
-    let id = saved.id.as_str();
-    let mut cfg = saved.plugin_config.clone();
-    if let Some(pw) = input.password.as_deref() {
-        let account = scoped_secret_account(&install, id);
-        items.plant(&account, pw);
-        app.db
-            .with_conn(|c| repo::connections::set_secret_ref(c, id, Some(&account)))
-            .unwrap();
-    }
-    if let Some(secret) = input.ssh_password.as_deref() {
-        let account = scoped_ssh_secret_account(&install, id);
-        items.plant(&account, secret);
-        app.db
-            .with_conn(|c| repo::connections::set_ssh_secret_ref(c, id, Some(&account)))
-            .unwrap();
-    }
-    if let Some(pp) = input.tls_key_passphrase.as_deref() {
-        items.plant(&scoped_tls_secret_account(&install, id), pp);
-        cfg["clientKeyPassphraseSaved"] = json!(true);
-    }
-    app.db
-        .with_conn(|c| repo::connections::set_plugin_config(c, id, &cfg))
-        .unwrap();
-    app.profiles().get(id).unwrap()
-}
-
 #[test]
-fn startup_reads_no_keychain_item_and_loads_no_key() {
+fn startup_loads_no_key() {
     let file = TempDb::new("boot");
-    let (keys, items) = fakes();
-    let (plaintext_id, placeholder_id, legacy_id) = {
-        let app = app_on(file.open(), &keys, &items);
+    let keys = fakes();
+    {
+        let app = app_on(file.open(), &keys);
         full_pg(&app);
         app.profiles().save(pg_input("pw-only")).unwrap();
         app.profiles().save(mongo_input()).unwrap();
-        // Older rows: a `conn.<id>` pointer, plaintext, and a placeholder.
-        let legacy = app.profiles().save(pg_input("legacy")).unwrap();
-        items.plant(&secret_account(&legacy.id), "legacy-pw");
-        app.db
-            .with_conn(|c| {
-                repo::connections::set_secret_ref(c, &legacy.id, Some(&secret_account(&legacy.id)))
-            })
-            .unwrap();
-        let plain = app.profiles().save(pg_input("plain")).unwrap();
-        app.db
-            .with_conn(|c| repo::connections::set_secret_ref(c, &plain.id, Some("plain-pw")))
-            .unwrap();
-        let placeholder = app.profiles().save(pg_input("placeholder")).unwrap();
-        app.db
-            .with_conn(|c| {
-                repo::connections::set_secret_ref(c, &placeholder.id, Some("mystique/conn/9"))
-            })
-            .unwrap();
-        (plain.id, placeholder.id, legacy.id)
-    };
+    }
     keys.reset();
-    items.reset_reads();
 
-    // A cold launch: construct the services, then run the startup cleanup.
-    let app = app_on(file.open(), &keys, &items);
-    app.migrate_legacy_secrets().unwrap();
-    app.profiles().list().unwrap();
+    // A cold launch: construct the services and list the profiles.
+    let app = app_on(file.open(), &keys);
+    assert_eq!(app.profiles().list().unwrap().len(), 3);
     assert_eq!(keys.loads(), 0, "startup loaded the vault key");
-    assert_eq!(
-        items.total_reads(),
-        0,
-        "startup read {:?}",
-        items.read_accounts()
-    );
     assert_eq!(app.secrets.status().state, "idle");
-    // Placeholders are cleared; plaintext and old pointers wait for first use.
-    assert!(refs(&app, &placeholder_id).0.is_none());
-    assert_eq!(refs(&app, &plaintext_id).0.as_deref(), Some("plain-pw"));
-    assert_eq!(
-        refs(&app, &legacy_id).0.as_deref(),
-        Some(secret_account(&legacy_id).as_str())
-    );
-
-    // The flag makes it one-time.
-    app.db
-        .with_conn(|c| {
-            repo::connections::set_secret_ref(c, &placeholder_id, Some("mystique/conn/9"))
-        })
-        .unwrap();
-    app.migrate_legacy_secrets().unwrap();
-    assert_eq!(
-        refs(&app, &placeholder_id).0.as_deref(),
-        Some("mystique/conn/9")
-    );
-    assert_eq!(keys.loads() + items.total_reads(), 0);
 }
 
 #[test]
 fn connect_loads_the_vault_key_once_even_in_parallel() {
     let file = TempDb::new("connect");
-    let (keys, items) = fakes();
+    let keys = fakes();
     let (profile, other) = {
-        let app = app_on(file.open(), &keys, &items);
+        let app = app_on(file.open(), &keys);
         (
             full_pg(&app),
             app.profiles().save(pg_input("other")).unwrap(),
@@ -287,8 +181,7 @@ fn connect_loads_the_vault_key_once_even_in_parallel() {
     let slow = Arc::new(CountingKeySource::slow(Duration::from_millis(40)));
     let key = keys.load(crate::secrets::Prompt::Allowed).unwrap();
     slow.seed(key);
-    let app = Arc::new(app_on(file.open(), &slow, &items));
-    items.reset_reads();
+    let app = Arc::new(app_on(file.open(), &slow));
     let handles: Vec<_> = (0..6)
         .map(|i| {
             let app = Arc::clone(&app);
@@ -306,7 +199,6 @@ fn connect_loads_the_vault_key_once_even_in_parallel() {
         }
     }
     assert_eq!(slow.loads(), 1, "one vault item, read once");
-    assert_eq!(items.total_reads(), 0, "{:?}", items.read_accounts());
 
     // Later connects in the same process read nothing.
     app.attach_session_secrets(open_req(&profile)).unwrap();
@@ -315,8 +207,8 @@ fn connect_loads_the_vault_key_once_even_in_parallel() {
 
 #[test]
 fn a_profile_without_saved_secrets_loads_no_key() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let mut plain = pg_input("no-pw");
     plain.password = None;
     let plain = app.profiles().save(plain).unwrap();
@@ -334,7 +226,6 @@ fn a_profile_without_saved_secrets_loads_no_key() {
         assert!(filled.tls_key_passphrase.is_none());
     }
     assert_eq!(keys.loads(), 0);
-    assert_eq!(items.total_reads(), 0);
 
     // An update that leaves the passphrase blank keeps the saved one.
     let full = full_pg(&app);
@@ -352,151 +243,12 @@ fn a_profile_without_saved_secrets_loads_no_key() {
     assert_eq!(filled.tls_key_passphrase.as_deref(), Some("tls-pp"));
 }
 
-#[test]
-fn an_old_keychain_row_is_read_once_moved_and_deleted() {
-    let file = TempDb::new("migrate");
-    let (keys, items) = fakes();
-    let (profile, install) = {
-        let app = app_on(file.open(), &keys, &items);
-        (phase_a_row(&app, &items, full_input()), install_of(&app))
-    };
-    let accounts = [
-        scoped_secret_account(&install, &profile.id),
-        scoped_ssh_secret_account(&install, &profile.id),
-        scoped_tls_secret_account(&install, &profile.id),
-    ];
-    keys.reset();
-    items.reset_reads();
-
-    // First connect after the upgrade.
-    let app = app_on(file.open(), &keys, &items);
-    let filled = app.attach_session_secrets(open_req(&profile)).unwrap();
-    assert_eq!(filled.password.as_deref(), Some("pg-pw"));
-    assert_eq!(filled.tls_key_passphrase.as_deref(), Some("tls-pp"));
-    assert_eq!(
-        filled.ssh.and_then(|s| s.password).as_deref(),
-        Some("ssh-pw")
-    );
-    for account in &accounts {
-        assert_eq!(items.reads_of(account), 1, "{account}");
-        assert!(!items.contains(account), "{account} deleted after the move");
-    }
-    assert_eq!(items.total_reads(), 3, "{:?}", items.read_accounts());
-    assert_eq!(keys.loads(), 1);
-    let (password_ref, ssh_ref) = refs(&app, &profile.id);
-    assert_eq!(password_ref.as_deref(), Some(VAULT_SECRET_REF));
-    assert_eq!(ssh_ref.as_deref(), Some(VAULT_SECRET_REF));
-    for kind in ["password", "ssh", "tls"] {
-        assert!(has_envelope(&app, &profile.id, kind), "{kind}");
-    }
-
-    // Second connect, in a new process: no keychain item, the vault key once.
-    keys.reset();
-    items.reset_reads();
-    let app = app_on(file.open(), &keys, &items);
-    let again = app.attach_session_secrets(open_req(&profile)).unwrap();
-    assert_eq!(again.password.as_deref(), Some("pg-pw"));
-    assert_eq!(items.total_reads(), 0, "{:?}", items.read_accounts());
-    assert_eq!(keys.loads(), 1);
-}
-
-#[test]
-fn the_oldest_pointers_move_too() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
-    let mut bare = pg_input("aug");
-    bare.password = None;
-    let profile = app.profiles().save(bare).unwrap();
-    let pointer = format!("connection.{}.password", uuid::Uuid::new_v4());
-    items.plant(&pointer, "aug-pw");
-    app.db
-        .with_conn(|c| repo::connections::set_secret_ref(c, &profile.id, Some(&pointer)))
-        .unwrap();
-    let filled = app.attach_session_secrets(open_req(&profile)).unwrap();
-    assert_eq!(filled.password.as_deref(), Some("aug-pw"));
-    assert!(!items.contains(&pointer));
-    assert_eq!(refs(&app, &profile.id).0.as_deref(), Some(VAULT_SECRET_REF));
-}
-
-#[test]
-fn a_missing_old_item_keeps_the_pointer_and_is_not_reread() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
-    let mut bare = pg_input("gone");
-    bare.password = None;
-    let profile = app.profiles().save(bare).unwrap();
-    let pointer = secret_account(&profile.id);
-    app.db
-        .with_conn(|c| repo::connections::set_secret_ref(c, &profile.id, Some(&pointer)))
-        .unwrap();
-    for _ in 0..3 {
-        let err = app.attach_session_secrets(open_req(&profile)).unwrap_err();
-        assert!(err.to_string().contains("missing"), "{err}");
-    }
-    assert_eq!(items.reads_of(&pointer), 1);
-    assert_eq!(keys.loads(), 0);
-    assert_eq!(refs(&app, &profile.id).0.as_deref(), Some(pointer.as_str()));
-}
-
-#[test]
-fn plaintext_and_placeholder_rows_behave_as_before() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
-    let mut bare = pg_input("plain");
-    bare.password = None;
-    let plain = app.profiles().save(bare.clone()).unwrap();
-    app.db
-        .with_conn(|c| repo::connections::set_secret_ref(c, &plain.id, Some("plain-pw")))
-        .unwrap();
-    let placeholder = app.profiles().save(bare).unwrap();
-    app.db
-        .with_conn(|c| {
-            repo::connections::set_secret_ref(c, &placeholder.id, Some("mystique-db/connection/3"))
-        })
-        .unwrap();
-
-    let filled = app.attach_session_secrets(open_req(&plain)).unwrap();
-    assert_eq!(filled.password.as_deref(), Some("plain-pw"));
-    assert_eq!(refs(&app, &plain.id).0.as_deref(), Some(VAULT_SECRET_REF));
-    let filled = app.attach_session_secrets(open_req(&placeholder)).unwrap();
-    assert!(filled.password.is_none());
-    assert!(refs(&app, &placeholder.id).0.is_none());
-    assert_eq!(items.total_reads(), 0);
-    assert_eq!(keys.loads(), 1);
-}
-
-#[test]
-fn file_mode_never_touches_old_items() {
-    let app = AppServices::with_secrets(
-        AppDatabase::open_in_memory().unwrap(),
-        ConnectionManager::bootstrap(),
-        SecretStore::from_parts(Arc::new(crate::secrets::MemoryKeySource::new()), None),
-    );
-    let mut bare = pg_input("old");
-    bare.password = None;
-    let profile = app.profiles().save(bare).unwrap();
-    app.db
-        .with_conn(|c| {
-            repo::connections::set_secret_ref(c, &profile.id, Some(&secret_account(&profile.id)))
-        })
-        .unwrap();
-    let err = app.attach_session_secrets(open_req(&profile)).unwrap_err();
-    assert!(
-        err.to_string().contains("MYSTIQUE_VAULT_KEY_SOURCE"),
-        "{err}"
-    );
-    // New saves still work.
-    let saved = app.profiles().save(pg_input("new")).unwrap();
-    let filled = app.attach_session_secrets(open_req(&saved)).unwrap();
-    assert_eq!(filled.password.as_deref(), Some("pg-pw"));
-}
-
 #[tokio::test]
 async fn a_live_tool_session_binds_no_secret() {
     let file = TempDb::new("tool-db");
     let data = TempDb::new("tool-data");
-    let (keys, items) = fakes();
-    let app = app_on(file.open(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(file.open(), &keys);
     let mut input = pg_input("sqlite");
     input.engine = "sqlite".into();
     input.plugin_config = json!({"path": data.0.to_string_lossy()});
@@ -519,7 +271,6 @@ async fn a_live_tool_session_binds_no_secret() {
         .await
         .unwrap();
     assert_eq!(keys.loads(), 0, "a live session needs no secret");
-    assert_eq!(items.total_reads(), 0);
     let _ = app
         .connections
         .close_session(&format!("agent:{}", profile.id))
@@ -530,9 +281,9 @@ async fn a_live_tool_session_binds_no_secret() {
 async fn mcp_never_prompts_for_a_locked_vault() {
     let file = TempDb::new("mcp-db");
     let data = TempDb::new("mcp-data");
-    let (keys, items) = fakes();
+    let keys = fakes();
     let profile = {
-        let app = app_on(file.open(), &keys, &items);
+        let app = app_on(file.open(), &keys);
         let mut input = pg_input("sqlite");
         input.engine = "sqlite".into();
         input.plugin_config = json!({"path": data.0.to_string_lossy()});
@@ -541,7 +292,7 @@ async fn mcp_never_prompts_for_a_locked_vault() {
     };
     // A new process where reading the key would need a prompt.
     keys.needs_ui.store(true, Ordering::SeqCst);
-    let app = app_on(file.open(), &keys, &items);
+    let app = app_on(file.open(), &keys);
     let tools = app.agent_tools();
     let err = tools
         .ensure_session_for(&profile.id, ToolCaller::Mcp)
@@ -572,8 +323,8 @@ async fn mcp_never_prompts_for_a_locked_vault() {
 
 #[test]
 fn mongo_username_lives_in_plugin_config() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let saved = app.profiles().save(mongo_input()).unwrap();
     assert_eq!(saved.plugin_config["username"], "admin");
     assert_eq!(refs(&app, &saved.id).0.as_deref(), Some(VAULT_SECRET_REF));
@@ -586,13 +337,12 @@ fn mongo_username_lives_in_plugin_config() {
     assert_eq!(filled.plugin_config["username"], "admin");
     assert_eq!(filled.password.as_deref(), Some("s@cret"));
     assert_eq!(keys.loads(), 1);
-    assert_eq!(items.total_reads(), 0);
 }
 
 #[test]
 fn editing_a_mongo_profile_keeps_the_username() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let saved = app.profiles().save(mongo_input()).unwrap();
     // The form sends back the stripped URI and no username.
     let mut update = mongo_input();
@@ -604,82 +354,52 @@ fn editing_a_mongo_profile_keeps_the_username() {
 }
 
 #[test]
-fn legacy_mongo_user_item_moves_to_plugin_config_on_first_connect() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
-    let mut input = mongo_input();
-    input.plugin_config = json!({"uri": "mongodb://127.0.0.1:27017/app?authSource=admin"});
-    input.password = Some("s@cret".into());
-    // How an older build left it: no username in the row, `.user` beside the password.
-    let saved = phase_a_row(&app, &items, input);
-    let pointer = refs(&app, &saved.id).0.unwrap();
-    let user_account = user_secret_account(&pointer);
-    items.plant(&user_account, "admin");
-    items.reset_reads();
-
-    let filled = app.attach_session_secrets(open_req(&saved)).unwrap();
-    assert_eq!(filled.plugin_config["username"], "admin");
-    assert_eq!(filled.password.as_deref(), Some("s@cret"));
-    assert_eq!(items.reads_of(&user_account), 1);
-    assert!(
-        !items.contains(&user_account),
-        "item deleted after the move"
+fn orphaned_items_are_purged_except_the_vault_key() {
+    let keys = fakes();
+    let items = Arc::new(FakeKeychain::default());
+    let app = AppServices::with_secrets(
+        AppDatabase::open_in_memory().unwrap(),
+        ConnectionManager::bootstrap(),
+        SecretStore::from_parts(keys.clone(), Some(items.clone())),
     );
-    assert!(!items.contains(&pointer));
-    assert_eq!(
-        app.profiles().get(&saved.id).unwrap().plugin_config["username"],
-        "admin"
-    );
-
-    app.secrets.forget_cached();
-    let again = app.attach_session_secrets(open_req(&saved)).unwrap();
-    assert_eq!(again.plugin_config["username"], "admin");
-    assert_eq!(items.reads_of(&user_account), 1, "no second read");
-}
-
-#[test]
-fn orphaned_items_are_purged_without_touching_live_ones() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
-    let install = install_of(&app);
-    let live = phase_a_row(&app, &items, pg_input("still-old"));
-    let live_account = scoped_secret_account(&install, &live.id);
-    let gone_id = "999";
+    let live = app.profiles().save(pg_input("live")).unwrap();
+    let install = uuid::Uuid::new_v4();
     let orphans = [
         format!("connection.{}.password", uuid::Uuid::new_v4()),
         "ai.api_key.google".to_string(),
-        scoped_secret_account(&install, gone_id),
-        scoped_tls_secret_account(&install, gone_id),
-        format!("conn.{}.4", uuid::Uuid::new_v4()),
+        format!("conn.{}", live.id),
+        format!("conn.{}.tls", live.id),
+        format!("conn.{install}.{}", live.id),
+        format!("conn.{install}.{}.ssh", live.id),
+        format!("conn.{install}.{}.user", live.id),
     ];
     for account in &orphans {
         items.plant(account, "x");
     }
     items.plant(crate::secrets::VAULT_ACCOUNT, "key");
     items.plant("someone.else", "x");
-    items.reset_reads();
+    keys.reset();
 
     let report = app.vault().purge_keychain().unwrap();
     assert!(report.supported);
     assert_eq!(report.deleted, orphans.len());
+    assert_eq!(report.skipped, 0);
     for account in &orphans {
         assert!(!items.contains(account), "{account}");
     }
-    assert!(items.contains(&live_account), "a row still points at it");
     assert!(items.contains(crate::secrets::VAULT_ACCOUNT));
     assert!(items.contains("someone.else"));
-    assert_eq!(items.total_reads(), 0, "listing reads no secret");
     assert_eq!(keys.loads(), 0);
 
-    // The row still moves on its next connect.
+    // The saved password lives in the vault, not in a purged item.
     let filled = app.attach_session_secrets(open_req(&live)).unwrap();
     assert_eq!(filled.password.as_deref(), Some("pg-pw"));
 }
 
 #[test]
 fn saved_ssh_secret_only_goes_to_the_saved_bastion() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let profile = full_pg(&app);
     let tunnel = |host: &str, port: u16, user: &str, auth: SshAuth| SshTunnelRequest {
         host: host.into(),
@@ -718,8 +438,8 @@ fn saved_ssh_secret_only_goes_to_the_saved_bastion() {
 
 #[test]
 fn environment_and_read_only_come_from_the_profile() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let mut input = pg_input("prod");
     input.environment = "production".into();
     input.read_only = true;
@@ -734,8 +454,8 @@ fn environment_and_read_only_come_from_the_profile() {
 
 #[test]
 fn tls_server_name_redirect_gets_no_saved_password() {
-    let (keys, items) = fakes();
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
+    let keys = fakes();
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let profile = app.profiles().save(pg_input("pg")).unwrap();
     app.secrets.forget_cached();
     keys.reset();
@@ -744,5 +464,4 @@ fn tls_server_name_redirect_gets_no_saved_password() {
     let filled = app.attach_session_secrets(req).unwrap();
     assert!(filled.password.is_none());
     assert_eq!(keys.loads(), 0);
-    assert_eq!(items.total_reads(), 0);
 }

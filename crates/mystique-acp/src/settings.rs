@@ -27,15 +27,6 @@ pub const SETTING_DEFAULT_AGENT: &str = "ai.agent.default";
 /// The built-in agent's id in the agent menu.
 pub const BUILTIN: &str = "builtin";
 
-// The single agent of earlier versions, moved into the list once.
-const LEGACY_KIND: &str = "ai.agent.kind";
-const LEGACY_COMMAND: &str = "ai.acp.command";
-const LEGACY_ARGS: &str = "ai.acp.args";
-const LEGACY_ENV: &str = "ai.acp.env";
-const LEGACY_NAME: &str = "ai.acp.agent_name";
-/// The migrated agent's id. Its secrets keep their old vault names.
-const LEGACY_ID: &str = "custom";
-
 /// The provider tag an external agent's chats carry. The chat's `model` is
 /// the agent's id, so each chat remembers which agent it talks to.
 pub const ACP_PROVIDER: &str = "acp";
@@ -188,65 +179,14 @@ fn valid_env_name(name: &str) -> bool {
 }
 
 fn vault_name(agent_id: &str, name: &str) -> String {
-    if agent_id == LEGACY_ID {
-        format!("acp-env:{name}")
-    } else {
-        format!("acp-env:{agent_id}:{name}")
-    }
+    format!("acp-env:{agent_id}:{name}")
 }
 
 fn get(app: &AppServices, key: &str) -> Option<String> {
     app.settings().get(key).ok().flatten().map(|s| s.value)
 }
 
-/// Move the single agent of earlier versions into the list, once. Never
-/// opens the vault: the moved agent keeps its secrets' vault names.
-fn migrate(app: &AppServices) -> AppResult<()> {
-    if get(app, SETTING_AGENTS).is_some() {
-        return Ok(());
-    }
-    let command = get(app, LEGACY_COMMAND).unwrap_or_default();
-    let mut agents = Vec::new();
-    let mut default = BUILTIN.to_string();
-    if !command.trim().is_empty() {
-        let args: Vec<String> = get(app, LEGACY_ARGS)
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default();
-        let env: Vec<StoredEnv> = get(app, LEGACY_ENV)
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default();
-        agents.push(StoredAgent {
-            id: LEGACY_ID.into(),
-            catalog_id: None,
-            label: command_label(&command, &args),
-            command: command.trim().to_string(),
-            args,
-            env,
-            agent_name: get(app, LEGACY_NAME).filter(|s| !s.trim().is_empty()),
-        });
-        if get(app, LEGACY_KIND).as_deref().map(str::trim) == Some("acp") {
-            default = LEGACY_ID.into();
-        }
-    }
-    let settings = app.settings();
-    settings.set(SETTING_AGENTS, &serde_json::to_string(&agents)?)?;
-    settings.set(SETTING_DEFAULT_AGENT, &default)?;
-    for key in [
-        LEGACY_KIND,
-        LEGACY_COMMAND,
-        LEGACY_ARGS,
-        LEGACY_ENV,
-        LEGACY_NAME,
-    ] {
-        let _ = settings.delete(key);
-    }
-    Ok(())
-}
-
 fn stored(app: &AppServices) -> Vec<StoredAgent> {
-    if let Err(e) = migrate(app) {
-        tracing::warn!(error = %e, "acp: could not move the old agent setting");
-    }
     get(app, SETTING_AGENTS)
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
@@ -776,48 +716,6 @@ mod tests {
 
         remember_agent_name(&app, &second, "Fake Agent");
         assert_eq!(agent_label(&app, &second), "Fake Agent");
-    }
-
-    #[test]
-    fn the_single_agent_of_earlier_versions_moves_into_the_list() {
-        let app = app();
-        let s = app.settings();
-        s.set(LEGACY_KIND, "acp").unwrap();
-        s.set(LEGACY_COMMAND, "npx").unwrap();
-        s.set(
-            LEGACY_ARGS,
-            r#"["-y","@agentclientprotocol/claude-agent-acp"]"#,
-        )
-        .unwrap();
-        s.set(
-            LEGACY_ENV,
-            r#"[{"name":"ANTHROPIC_API_KEY","secret":true},{"name":"DEBUG","value":"1"}]"#,
-        )
-        .unwrap();
-        s.set(LEGACY_NAME, "Claude Code").unwrap();
-        app.vault()
-            .set(SecretKind::Ai("acp-env:ANTHROPIC_API_KEY"), "sk-old-123456")
-            .unwrap();
-
-        let v = view(&app);
-        assert_eq!(v.default_agent, LEGACY_ID);
-        assert_eq!(v.agents.len(), 1);
-        let agent = &v.agents[0];
-        assert_eq!(agent.id, LEGACY_ID);
-        assert_eq!(agent.label, "Claude Code");
-        assert_eq!(agent.args[1], "@agentclientprotocol/claude-agent-acp");
-        let key = agent
-            .env
-            .iter()
-            .find(|e| e.name == "ANTHROPIC_API_KEY")
-            .unwrap();
-        assert!(key.secret && key.saved);
-        assert!(get(&app, LEGACY_COMMAND).is_none() && get(&app, LEGACY_KIND).is_none());
-        // Its secret kept the old vault name, and leaves with the agent.
-        remove_agent(&app, LEGACY_ID).unwrap();
-        assert!(!has_secret(&app, "acp-env:ANTHROPIC_API_KEY"));
-        // Migrated once: the old keys are gone, nothing comes back.
-        assert!(view(&app).agents.is_empty());
     }
 
     #[test]

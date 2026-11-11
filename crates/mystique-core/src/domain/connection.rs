@@ -4,8 +4,7 @@ use serde_json::Value as JsonValue;
 /// Saved connection profile (any engine).
 ///
 /// List/get never include a password. Secrets are vault envelopes in the
-/// `secrets` table; `secret_ref` is [`VAULT_SECRET_REF`] for those. Older rows
-/// still name a keychain account until their first use moves it.
+/// `secrets` table; `secret_ref` is [`VAULT_SECRET_REF`] for those, else null.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -21,7 +20,7 @@ pub struct ConnectionProfile {
     /// Engine-specific connection parameters (JSON object).
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub plugin_config: JsonValue,
-    /// True when a password is saved (vault, or an old keychain item).
+    /// True when a password is saved in the vault.
     pub password_set: bool,
     /// False: the password is asked once per app session and kept in memory.
     #[serde(default = "default_true")]
@@ -61,15 +60,14 @@ pub struct SaveConnectionInput {
     /// Plaintext password to store. Empty / omitted keeps the existing secret on update.
     #[serde(default)]
     pub password: Option<String>,
-    /// Legacy alias: if `password` is unset, non-empty `secret_ref` is treated as the password
-    /// when it is not a keychain pointer or placeholder.
+    /// Ignored. Only `password` is saved.
     #[serde(default)]
     pub secret_ref: Option<String>,
     /// When true, clear the stored password on update.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub clear_secret: bool,
-    /// After insert, copy the keychain secret from this profile id (duplicate).
+    /// After insert, copy the saved secrets from this profile id (duplicate).
     #[serde(default)]
     pub copy_secret_from: Option<String>,
     /// `None` leaves the stored flag unchanged on update.
@@ -105,58 +103,13 @@ fn default_true() -> bool {
 /// `secret_ref` / `ssh_secret_ref` value: the secret is an envelope in `secrets`.
 pub const VAULT_SECRET_REF: &str = "vault";
 
-/// Old UI wrote keychain-style placeholders into `secret_ref` without a real secret.
-pub fn is_placeholder_secret_ref(value: &str) -> bool {
-    let v = value.trim();
-    v.starts_with("mystique-db/connection") || v.starts_with("mystique/conn/")
-}
-
-/// Legacy keychain account `conn.<id>`. Reads use the stored pointer, not this.
-pub fn secret_account(connection_id: &str) -> String {
-    format!("conn.{connection_id}")
-}
-
-pub fn tls_secret_account(connection_id: &str) -> String {
-    format!("conn.{connection_id}.tls")
-}
-
-/// Password account scoped to one install of the app database.
-///
-/// `install_id` is the UUID in `app_settings.install_id`. A new database
-/// gets a new id, so a recycled integer cannot open the previous install's item.
-pub fn scoped_secret_account(install_id: &str, connection_id: &str) -> String {
-    format!("conn.{}.{}", install_id.trim(), connection_id.trim())
-}
-
-pub fn scoped_ssh_secret_account(install_id: &str, connection_id: &str) -> String {
-    format!("{}.ssh", scoped_secret_account(install_id, connection_id))
-}
-
-pub fn scoped_tls_secret_account(install_id: &str, connection_id: &str) -> String {
-    format!("{}.tls", scoped_secret_account(install_id, connection_id))
-}
-
-/// Mongo/DocumentDB URI username. Sibling of the password account.
-pub fn user_secret_account(password_account: &str) -> String {
-    format!("{}.user", password_account.trim())
-}
-
-pub fn is_keychain_pointer(secret_ref: &str) -> bool {
-    let t = secret_ref.trim();
-    t.starts_with("conn.") && t.len() > 5 && !is_placeholder_secret_ref(t)
-}
-
-/// Pre-integer-id keychain account (`connection.{id}.password`, Aug 2026).
-pub fn is_legacy_keychain_pointer(secret_ref: &str) -> bool {
-    let t = secret_ref.trim();
+/// Keychain item name from builds before integer ids (`connection.{id}.password`).
+/// Only the keychain cleanup matches it.
+pub fn is_legacy_keychain_pointer(account: &str) -> bool {
+    let t = account.trim();
     t.starts_with("connection.")
         && t.ends_with(".password")
         && t.len() > "connection..password".len()
-}
-
-/// Keychain account used before `conn.<id>`.
-pub fn legacy_secret_account(connection_id: &str) -> String {
-    format!("connection.{}.password", connection_id.trim())
 }
 
 pub fn validate_environment(env: &str) -> Result<(), String> {

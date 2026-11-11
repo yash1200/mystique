@@ -150,15 +150,8 @@ pub fn run() {
                 let _ = handle.emit(TOOL_APPROVALS_CHANGED, ());
             });
             // Setup never touches the keychain. The vault key loads on first secret use.
-            let cleanup = Arc::clone(&services);
-            tauri::async_runtime::spawn_blocking(move || {
-                let _ = cleanup.migrate_legacy_secrets();
-            });
             let mcp = McpService::new(Arc::clone(&services));
-            let agent = AgentService::with_legacy_file(
-                Arc::clone(&services),
-                data_dir.join("ai_secrets.json"),
-            );
+            let agent = AgentService::new(Arc::clone(&services));
             // External ACP agents: run in an empty folder under app data.
             // Agents without HTTP MCP start this binary as the stdio bridge.
             let mut acp = AcpService::new(Arc::clone(&services), &data_dir);

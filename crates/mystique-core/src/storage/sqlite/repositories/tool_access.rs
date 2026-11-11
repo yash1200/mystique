@@ -7,16 +7,11 @@ use crate::domain::now_iso;
 use crate::error::AppResult;
 
 use super::ids::parse_id;
-use super::settings;
 
 /// Global default for MCP. Absent = `none`.
 pub const SETTING_MCP_LEVEL: &str = "mcp.access.level";
 /// Global default for the built-in agent. Absent = `read`.
 pub const SETTING_AGENT_LEVEL: &str = "agent.access.level";
-
-/// Settings the levels replace (migration 014 reads and removes them).
-pub const LEGACY_MCP_POLICY: &str = "mcp.policy";
-pub const LEGACY_MCP_ALLOWLIST: &str = "mcp.allowlist";
 
 /// One stored override. `database` is empty for the connection itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,69 +101,5 @@ fn prune(conn: &Connection) -> AppResult<()> {
         "DELETE FROM tool_access WHERE level IS NULL AND ask_high_risk = 0",
         [],
     )?;
-    Ok(())
-}
-
-/// Migration 014: the old `mcp.policy` + `mcp.allowlist` become levels.
-///
-/// The old model let MCP see only allowlisted connections, so the MCP default
-/// becomes `none` and each allowlisted connection gets the policy's level.
-/// That level is what the policy could actually do there: the write guard
-/// asked for an unlock MCP could never give on production (so `read`), and
-/// for a typed confirmation it could never type on staging (so destructive
-/// statements were out: `write` at most). The agent was never allowlisted
-/// and only reads; it keeps the `read` default. Both old keys are removed.
-pub fn migrate_legacy_settings(conn: &Connection) -> AppResult<()> {
-    let policy = settings::get(conn, LEGACY_MCP_POLICY)?.map(|s| s.value);
-    let allowlist = settings::get(conn, LEGACY_MCP_ALLOWLIST)?.map(|s| s.value);
-    if policy.is_none() && allowlist.is_none() {
-        return Ok(());
-    }
-    let level = match policy
-        .as_deref()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase()
-        .replace('-', "_")
-        .as_str()
-    {
-        "safe_write" => "write",
-        "high_risk_write" => "full",
-        _ => "read",
-    };
-    // Invalid JSON was "none" before, and still is.
-    let ids: Vec<String> =
-        serde_json::from_str(allowlist.as_deref().unwrap_or("[]").trim()).unwrap_or_default();
-    if settings::get(conn, SETTING_MCP_LEVEL)?.is_none() {
-        settings::set(conn, SETTING_MCP_LEVEL, "none")?;
-    }
-    for raw in ids {
-        let Ok(id) = parse_id(&raw) else {
-            continue;
-        };
-        let environment: Option<String> = conn
-            .query_row(
-                "SELECT environment FROM connections WHERE id = ?1",
-                [id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(environment) = environment else {
-            continue;
-        };
-        let capped = match (environment.as_str(), level) {
-            ("production", _) => "read",
-            ("staging", "full") => "write",
-            (_, level) => level,
-        };
-        conn.execute(
-            "INSERT INTO tool_access (connection_id, database, level, updated_at)
-             VALUES (?1, '', ?2, ?3)
-             ON CONFLICT (connection_id, database) DO NOTHING",
-            params![id, capped, now_iso()],
-        )?;
-    }
-    settings::delete(conn, LEGACY_MCP_POLICY)?;
-    settings::delete(conn, LEGACY_MCP_ALLOWLIST)?;
     Ok(())
 }

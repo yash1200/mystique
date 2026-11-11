@@ -288,12 +288,12 @@ fn clip_chars(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::domain::QueryHistorySource;
-    use crate::storage::sqlite::migrate;
+    use crate::storage::sqlite::ensure_schema;
 
     fn setup() -> Connection {
         let conn = Connection::open_in_memory().expect("memory");
         conn.execute_batch("PRAGMA foreign_keys = ON;").expect("fk");
-        migrate(&conn).expect("migrate");
+        ensure_schema(&conn).expect("migrate");
         conn.execute(
             "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
              VALUES ('t', 'sqlite', 'slate', 'local', 0, '{}', 'now', 'now')",

@@ -67,12 +67,12 @@ pub fn upsert(conn: &Connection, host: &KnownHost) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::sqlite::migrate;
+    use crate::storage::sqlite::ensure_schema;
 
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        migrate(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         conn
     }
 

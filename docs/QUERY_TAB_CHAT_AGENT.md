@@ -1390,7 +1390,7 @@ No further questions block PR 1. A-4 is implemented, not left open.
 - Inspector layout to mirror — `RowInspector.svelte` (`w-72`)
 - Settings KV — `crates/mystique-core/src/application/settings.rs`, `src-tauri/src/ipc/settings.rs`
 - Schema docs — `docs/SQLITE_SCHEMA.md` (`ai.provider` / `ai.baseUrl`; no keys)
-- Migrations — `crates/mystique-core/migrations/`, `storage/sqlite/migrate.rs`
+- Schema — `crates/mystique-core/schema/schema.sql`, `storage/sqlite/schema.rs` (single schema, no migrations; see SQLITE_SCHEMA.md)
 - Layering — `docs/BACKEND_STRUCTURE.md`
 - History retention pattern — `application/history.rs` `retain_latest` (global N; agent prune is per-connection — do not copy the SQL)
 - Query language helper — `src/lib/utils/queryPolicyFe.ts` `queryLanguageFor`

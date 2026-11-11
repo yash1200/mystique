@@ -1,11 +1,11 @@
 use super::*;
-use crate::storage::sqlite::migrate;
+use crate::storage::sqlite::ensure_schema;
 use serde_json::json;
 
 fn test_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    migrate(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
     conn
 }
 
@@ -176,7 +176,7 @@ fn clear_secret_removes_password() {
 }
 
 #[test]
-fn ignores_legacy_placeholder_secret_ref() {
+fn a_secret_ref_in_the_input_is_not_stored() {
     let conn = test_db();
     let saved = save(
         &conn,

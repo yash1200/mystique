@@ -1,5 +1,5 @@
 //! C-06: "Don't save password, ask once per session". The password lives in
-//! process memory only; the vault and the keychain are never read for it.
+//! process memory only; the vault is never read for it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use serde_json::json;
 use super::*;
 use crate::domain::{SaveConnectionInput, VAULT_SECRET_REF};
 use crate::error::AppError;
-use crate::secrets::counting::{CountingBackend, CountingKeySource};
+use crate::secrets::counting::CountingKeySource;
 use crate::storage::sqlite::repo;
 
 struct TempFile(PathBuf);
@@ -32,23 +32,18 @@ impl Drop for TempFile {
     }
 }
 
-fn app_on(
-    db: AppDatabase,
-    keys: &Arc<CountingKeySource>,
-    items: &Arc<CountingBackend>,
-) -> AppServices {
+fn app_on(db: AppDatabase, keys: &Arc<CountingKeySource>) -> AppServices {
     AppServices::with_secrets(
         db,
         ConnectionManager::bootstrap(),
-        SecretStore::from_parts(keys.clone(), Some(items.clone())),
+        SecretStore::with_key_source(keys.clone()),
     )
 }
 
-fn counted() -> (AppServices, Arc<CountingKeySource>, Arc<CountingBackend>) {
+fn counted() -> (AppServices, Arc<CountingKeySource>) {
     let keys = Arc::new(CountingKeySource::default());
-    let items = Arc::new(CountingBackend::default());
-    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys, &items);
-    (app, keys, items)
+    let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
+    (app, keys)
 }
 
 fn pg(name: &str, password: Option<&str>, save_password: Option<bool>) -> SaveConnectionInput {
@@ -114,7 +109,7 @@ fn hold(app: &AppServices, id: &str, pw: &str) {
 
 #[test]
 fn the_flag_round_trips_and_defaults_to_saving() {
-    let (app, _, _) = counted();
+    let (app, _) = counted();
     let saved = app.profiles().save(pg("on", None, None)).unwrap();
     assert!(saved.save_password, "the default saves the password");
 
@@ -139,7 +134,7 @@ fn the_flag_round_trips_and_defaults_to_saving() {
 
 #[test]
 fn turning_the_flag_off_deletes_the_saved_password() {
-    let (app, _, _) = counted();
+    let (app, _) = counted();
     let saved = app.profiles().save(pg("pg", Some("s3cret"), None)).unwrap();
     assert!(saved.password_set);
     assert!(envelope(&app, &saved.id).is_some());
@@ -169,8 +164,7 @@ fn turning_the_flag_off_deletes_the_saved_password() {
 fn open_without_a_session_password_asks_and_reads_nothing() {
     let file = TempFile::new("asks");
     let keys = Arc::new(CountingKeySource::default());
-    let items = Arc::new(CountingBackend::default());
-    let saved = app_on(AppDatabase::open(&file.0).unwrap(), &keys, &items)
+    let saved = app_on(AppDatabase::open(&file.0).unwrap(), &keys)
         .profiles()
         .save(pg("pg", Some("s3cret"), None))
         .unwrap();
@@ -187,13 +181,12 @@ fn open_without_a_session_password_asks_and_reads_nothing() {
         .unwrap();
 
     // Next launch.
-    let app = app_on(AppDatabase::open(&file.0).unwrap(), &keys, &items);
-    let (loads, reads) = (keys.loads(), items.total_reads());
+    let app = app_on(AppDatabase::open(&file.0).unwrap(), &keys);
+    let loads = keys.loads();
     let err = app.attach_session_secrets(open_req(&saved)).unwrap_err();
     assert!(matches!(err, AppError::PasswordRequired), "{err}");
     assert!(err.to_string().starts_with("password_required"), "{err}");
     assert_eq!(keys.loads(), loads, "the vault key was loaded");
-    assert_eq!(items.total_reads(), reads, "a keychain item was read");
     assert_eq!(
         app.db
             .with_conn(|c| repo::connections::get_secret_ref(c, &saved.id))
@@ -205,7 +198,7 @@ fn open_without_a_session_password_asks_and_reads_nothing() {
 
 #[tokio::test]
 async fn a_typed_password_is_kept_and_the_next_open_reads_nothing() {
-    let (app, keys, items) = counted();
+    let (app, keys) = counted();
     let file = TempFile::new("target");
     let mut input = pg("lite", None, Some(false));
     input.engine = "sqlite".into();
@@ -223,12 +216,11 @@ async fn a_typed_password_is_kept_and_the_next_open_reads_nothing() {
     assert_eq!(bound.password.as_deref(), Some("typed-pw"));
     app.open_session(again).await.unwrap();
     assert_eq!(keys.loads(), 0);
-    assert_eq!(items.total_reads(), 0);
 }
 
 #[tokio::test]
 async fn a_passing_test_keeps_the_typed_password_like_a_connect() {
-    let (app, _, _) = counted();
+    let (app, _) = counted();
     let file = TempFile::new("tested");
     let mut input = pg("lite", None, Some(false));
     input.engine = "sqlite".into();
@@ -249,7 +241,7 @@ async fn a_passing_test_keeps_the_typed_password_like_a_connect() {
 
 #[test]
 fn a_password_typed_for_another_host_is_not_kept() {
-    let (app, _, _) = counted();
+    let (app, _) = counted();
     let saved = app.profiles().save(pg("pg", None, Some(false))).unwrap();
     let mut req = open_req(&saved);
     req.plugin_config = json!({"host": "elsewhere.example", "port": 5432, "database": "app"});
@@ -260,7 +252,7 @@ fn a_password_typed_for_another_host_is_not_kept() {
 
 #[test]
 fn a_refused_held_password_is_forgotten() {
-    let (app, _, _) = counted();
+    let (app, _) = counted();
     let saved = app.profiles().save(pg("pg", None, Some(false))).unwrap();
     hold(&app, &saved.id, "old");
     let (_, session) =
@@ -273,7 +265,7 @@ fn a_refused_held_password_is_forgotten() {
 
 #[test]
 fn delete_and_a_host_change_forget_the_session_password() {
-    let (app, _, _) = counted();
+    let (app, _) = counted();
     let saved = app.profiles().save(pg("pg", None, Some(false))).unwrap();
 
     // A rename keeps it.
@@ -311,7 +303,7 @@ fn delete_and_a_host_change_forget_the_session_password() {
 
 #[tokio::test]
 async fn mcp_with_no_session_password_says_to_connect_in_the_app() {
-    let (app, keys, items) = counted();
+    let (app, keys) = counted();
     let saved = app.profiles().save(pg("pg", None, Some(false))).unwrap();
     let err = app
         .agent_tools()
@@ -323,5 +315,4 @@ async fn mcp_with_no_session_password_says_to_connect_in_the_app() {
         "This connection asks for its password each session. Connect to it in Mystique first."
     );
     assert_eq!(keys.loads(), 0);
-    assert_eq!(items.total_reads(), 0);
 }

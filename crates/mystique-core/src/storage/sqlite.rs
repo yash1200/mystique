@@ -1,18 +1,18 @@
 //! SQLite implementation of local app metadata storage.
 
 mod connection;
-mod migrate;
 mod repositories;
+mod schema;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rusqlite::Connection;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 
 pub use connection::{db_file_name, open_path};
-pub use migrate::{applied_version, migrate, SCHEMA_VERSION};
+pub use schema::{applied_version, ensure_schema, schema_state, SchemaState, SCHEMA_VERSION};
 
 /// Process-wide handle to the local app database.
 pub struct AppDatabase {
@@ -20,9 +20,28 @@ pub struct AppDatabase {
 }
 
 impl AppDatabase {
+    /// Opens the app database, creating it if needed. A file from an older
+    /// build is not converted: it is moved aside (`mystique.db.<time>.bak`) and
+    /// a new database takes its place. A newer build's file is left alone.
     pub fn open(path: &Path) -> AppResult<Self> {
-        let conn = open_path(path)?;
-        migrate(&conn)?;
+        let mut conn = open_path(path)?;
+        if let SchemaState::Other(version) = schema_state(&conn)? {
+            if version > SCHEMA_VERSION {
+                return Err(AppError::Invalid(format!(
+                    "This database was written by a newer Mystique (schema {version}). \
+                     Update the app to open it."
+                )));
+            }
+            drop(conn);
+            let backup = set_aside(path)?;
+            tracing::warn!(
+                from = version,
+                backup = %backup.display(),
+                "app database is from an older build; moved aside, starting fresh"
+            );
+            conn = open_path(path)?;
+        }
+        ensure_schema(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -36,7 +55,7 @@ impl AppDatabase {
             PRAGMA busy_timeout = 5000;
             ",
         )?;
-        migrate(&conn)?;
+        ensure_schema(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -72,9 +91,83 @@ impl AppDatabase {
     }
 }
 
+/// Renames the database and its WAL / shared-memory files to
+/// `<name>.<timestamp>.bak[-wal|-shm]`. Returns the main file's new path.
+fn set_aside(path: &Path) -> AppResult<PathBuf> {
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| connection::DB_FILE_NAME.to_string());
+    let backup = path.with_file_name(format!("{name}.{stamp}.bak"));
+    std::fs::rename(path, &backup)?;
+    for suffix in ["-wal", "-shm"] {
+        let side = path.with_file_name(format!("{name}{suffix}"));
+        if side.exists() {
+            let _ = std::fs::rename(
+                &side,
+                path.with_file_name(format!("{name}.{stamp}.bak{suffix}")),
+            );
+        }
+    }
+    Ok(backup)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_older_database_file_is_moved_aside() {
+        let dir = std::env::temp_dir().join(format!("mystique-db-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mystique.db");
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);
+                 CREATE TABLE connections (id INTEGER PRIMARY KEY, name TEXT);
+                 INSERT INTO connections VALUES (1, 'old');",
+            )
+            .unwrap();
+        }
+        let db = AppDatabase::open(&path).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        let rows: i64 = db
+            .with_conn(|c| Ok(c.query_row("SELECT COUNT(*) FROM connections", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(rows, 0, "a fresh database");
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".bak"))
+            .collect();
+        assert_eq!(backups.len(), 1, "{backups:?}");
+        let kept = Connection::open(dir.join(&backups[0])).unwrap();
+        let name: String = kept
+            .query_row("SELECT name FROM connections", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "old");
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_newer_database_file_is_refused_and_kept() {
+        let dir = std::env::temp_dir().join(format!("mystique-db-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mystique.db");
+        {
+            let newer = Connection::open(&path).unwrap();
+            newer
+                .execute_batch("CREATE TABLE t (x); PRAGMA user_version = 99;")
+                .unwrap();
+        }
+        assert!(AppDatabase::open(&path).is_err());
+        assert!(path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_panic_mid_transaction_does_not_wedge_the_database() {
@@ -104,7 +197,6 @@ mod tests {
 
 pub mod repo {
     pub use super::repositories::agent_chats;
-    pub use super::repositories::ai_secrets;
     pub use super::repositories::connections;
     pub use super::repositories::grid_layout;
     pub use super::repositories::history;

@@ -1,10 +1,9 @@
 //! The OS keychain, service `dev.mystique.db`.
 //!
 //! Since the vault, the app keeps one item here: `vault.v1`, the vault key.
-//! Older builds kept one item per secret. Those are read once each to move
-//! them into the vault, then deleted. Deletes and listing never show UI: on
-//! macOS they run with keychain user interaction off and skip whatever would
-//! need a prompt.
+//! Older builds kept one item per secret. Those are never read; Settings can
+//! list and delete them. Deletes and listing never show UI: on macOS they run
+//! with keychain user interaction off and skip whatever would need a prompt.
 //!
 //! Keychain calls are serialized, so turning interaction off for one call
 //! never hides a prompt another thread is about to show.
@@ -108,24 +107,10 @@ impl KeySource for KeychainKeySource {
     }
 }
 
-/// Items from builds before the vault.
+/// Items from builds before the vault: listed and deleted, never read.
 pub(crate) struct KeyringBackend;
 
 impl SecretBackend for KeyringBackend {
-    fn get(&self, account: &str, prompt: Prompt) -> AppResult<Option<String>> {
-        let _serial = serial();
-        let Some(_quiet) = quiet(prompt) else {
-            return Err(AppError::SecretStore(LOCKED_MESSAGE.into()));
-        };
-        match entry(account)?.get_password() {
-            Ok(p) if !p.is_empty() => Ok(Some(p)),
-            Ok(_) => Ok(None),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) if prompt == Prompt::Never => Err(AppError::SecretStore(LOCKED_MESSAGE.into())),
-            Err(e) => Err(secret_store_err(e)),
-        }
-    }
-
     fn delete(&self, account: &str) -> AppResult<bool> {
         let _serial = serial();
         platform::delete(account)

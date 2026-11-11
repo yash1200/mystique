@@ -10,7 +10,7 @@ use mystique_core::{AppError, AppResult, AppServices, Prompt, SecretKind};
 
 use crate::clients::{self, Host, McpEndpoint, McpHarness};
 use crate::server::{ensure_token, McpController, McpStatus, TokenGate};
-use crate::settings::{DEFAULT_MCP_PORT, SETTING_MCP_ENABLED, SETTING_MCP_PORT, SETTING_MCP_TOKEN};
+use crate::settings::{DEFAULT_MCP_PORT, SETTING_MCP_ENABLED, SETTING_MCP_PORT};
 
 /// Host-facing MCP service. Uses [`AppServices`] for tools + settings only.
 #[derive(Clone)]
@@ -177,8 +177,7 @@ impl McpService {
     }
 }
 
-/// The token from the vault. A plaintext `mcp.token` setting from older
-/// builds moves in on first load and is deleted.
+/// The token from the vault, created there on first use.
 fn load_token(app: &AppServices, prompt: Prompt) -> AppResult<String> {
     let vault = match prompt {
         Prompt::Allowed => app.vault(),
@@ -189,12 +188,8 @@ fn load_token(app: &AppServices, prompt: Prompt) -> AppResult<String> {
             return Ok(token);
         }
     }
-    let plaintext = app.settings().get(SETTING_MCP_TOKEN)?.map(|s| s.value);
-    let token = ensure_token(plaintext.as_deref());
+    let token = ensure_token(None);
     vault.set(SecretKind::McpToken, &token)?;
-    if plaintext.is_some() {
-        app.settings().delete(SETTING_MCP_TOKEN)?;
-    }
     Ok(token)
 }
 
@@ -233,29 +228,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_plaintext_token_moves_into_the_vault() {
+    async fn the_token_is_created_once_in_the_vault() {
         let dir = tempfile::tempdir().unwrap();
         let app = process(
             &dir.path().join("m.db"),
             Arc::new(mystique_core::secrets::MemoryKeySource::new()),
         );
-        let old = "0123456789abcdef0123";
-        app.settings().set(SETTING_MCP_TOKEN, old).unwrap();
         let mcp = McpService::new(Arc::clone(&app));
-        assert_eq!(mcp.status().await.token.as_deref(), Some(old));
-        assert!(app.settings().get(SETTING_MCP_TOKEN).unwrap().is_none());
+        let first = mcp.status().await.token.unwrap();
+        assert!(first.len() >= 16);
+        assert_eq!(mcp.status().await.token.as_deref(), Some(first.as_str()));
         assert_eq!(
             app.vault().get(SecretKind::McpToken).unwrap().as_deref(),
-            Some(old)
+            Some(first.as_str())
         );
 
         let rotated = mcp.rotate_token().await.unwrap().token.unwrap();
-        assert_ne!(rotated, old);
+        assert_ne!(rotated, first);
         assert_eq!(
             app.vault().get(SecretKind::McpToken).unwrap().as_deref(),
             Some(rotated.as_str())
         );
-        assert!(app.settings().get(SETTING_MCP_TOKEN).unwrap().is_none());
     }
 
     #[tokio::test]

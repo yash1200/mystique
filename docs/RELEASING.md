@@ -19,8 +19,8 @@ it stops asking for good.
 | Developer ID + notarized | keychain | once, ever (survives updates) |
 
 Dev and release builds share the same key, so secrets saved in one open in
-the other. Old per-connection keychain items move into the vault the first
-time each connection is used (one read each, once).
+the other. Per-connection keychain items from builds before the vault are not
+read any more; Settings › Passwords can delete them.
 
 `MYSTIQUE_VAULT_KEY_SOURCE=keychain` forces keychain-only in any build;
 `MYSTIQUE_VAULT_KEY_SOURCE=file` uses only the file and never touches the

@@ -125,11 +125,6 @@ impl SshTunnelRequest {
     }
 }
 
-/// Keychain account for the bastion password or key passphrase.
-pub fn ssh_secret_account(connection_id: &str) -> String {
-    format!("conn.{connection_id}.ssh")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

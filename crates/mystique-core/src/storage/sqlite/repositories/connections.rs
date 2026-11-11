@@ -3,16 +3,13 @@ use serde_json::Value as JsonValue;
 
 use crate::domain::now_iso;
 use crate::domain::{
-    is_placeholder_secret_ref, validate_environment, ConnectionProfile, SaveConnectionInput,
+    validate_environment, ConnectionProfile, SaveConnectionInput, VAULT_SECRET_REF,
 };
 use crate::error::{AppError, AppResult};
 use crate::storage::sqlite::repositories::ids::{id_string, parse_id};
 
 fn password_set_from_stored(secret_ref: Option<&str>) -> bool {
-    secret_ref.is_some_and(|s| {
-        let t = s.trim();
-        !t.is_empty() && !is_placeholder_secret_ref(t)
-    })
+    secret_ref.is_some_and(|s| s.trim() == VAULT_SECRET_REF)
 }
 
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConnectionProfile> {
@@ -80,7 +77,7 @@ pub fn get_by_id(conn: &Connection, id: &str) -> AppResult<ConnectionProfile> {
 }
 
 /// Create or update a connection. Never writes a password into `secret_ref`;
-/// [`ProfileService`] stores a keychain pointer after save.
+/// [`ProfileService`] sets it to [`VAULT_SECRET_REF`] after save.
 pub fn save(conn: &Connection, input: SaveConnectionInput) -> AppResult<ConnectionProfile> {
     if input.name.trim().is_empty() {
         return Err(AppError::Invalid("name is required".into()));
@@ -308,22 +305,6 @@ pub fn set_secret_ref(conn: &Connection, id: &str, secret_ref: Option<&str>) -> 
         return Err(AppError::NotFound(format!("connection '{id}'")));
     }
     Ok(())
-}
-
-/// `(id, secret_ref)` for plaintext → keychain migration.
-pub fn list_secret_refs(conn: &Connection) -> AppResult<Vec<(String, Option<String>)>> {
-    let mut stmt = conn.prepare("SELECT id, secret_ref FROM connections")?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            id_string(row, "id")?,
-            row.get::<_, Option<String>>("secret_ref")?,
-        ))
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
