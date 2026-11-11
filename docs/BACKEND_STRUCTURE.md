@@ -54,11 +54,17 @@ mystique/
 ## Adding a new database
 
 1. Create `crates/plugins/mystique-plugin-<engine>` implementing `DatabaseConnector` + `ConnectorSession`.
-2. Implement **`EngineQueryPolicy` for that engine** (validation before any execute).
-3. Own pooling **inside** the session (`connect` builds the pool).
-4. Implement **`fetch_server_metrics`** (and `terminate_backend_session` if the engine can kill sessions). Fill the shared snapshot; put engine-only facts in `overview.extras` / row `extras`. Set `supports_server_metrics` / `supports_terminate_session` on capabilities.
-5. Register connector **and** policy in `ConnectorRegistry::bootstrap()` — two lines, not a core rewrite.
-6. Expose via existing IPC (`list_engines`, `open_engine_session`, query commands, …).
+2. Write `default_capabilities()` in the plugin (`src/capabilities.rs`). Start from `EngineCapabilities::relational(engine, dialect)` or `EngineCapabilities::document(engine, language)` and override what differs. Nothing in `mystique-connector-api` names your engine.
+3. Declare every catalog kind you list in `object_kinds` (`ObjectKindSpec`): `browsable` opens a grid, `editable` allows grid edits and import, `primary` lists it with tables instead of under its own heading. The explorer renders from the spec and never matches on the id. Rename, drop, truncate and duplicate apply only to `table`, `view` and `collection`; any other kind offers its definition (`TableAdminOp::CreateStatement`, with `TableAdminInput::object_kind`).
+4. Implement **`EngineQueryPolicy` for that engine** (validation before any execute).
+5. Own pooling **inside** the session (`connect` builds the pool).
+6. Pick a paging style. `PagingStyle::Offset` (default) pages by `offset`. `PagingStyle::Token` engines (Redis `SCAN`, Elasticsearch `search_after`) read `FetchTablePreviewInput::page_token` and return `next_page_token`; the default `stream_rows` follows the tokens.
+7. A catalog too large to list at once (a keyspace, a cluster) overrides `list_catalog_children` (one level, paged, with a server-side name filter) and sets `supports_catalog_paging`. The default derives pages from `list_catalog`.
+8. A result that is not a table returns `QueryResult::from_payload(…)` with a `QueryPayload` (`Value`, `Hits`, `Message`). The tabular form is filled in for export, history, MCP and the agent; `clip_query_result` keeps the payload under 1 MiB.
+9. Implement **`fetch_server_metrics`** (and `terminate_backend_session` if the engine can kill sessions). Fill the shared snapshot; put engine-only facts in `overview.extras` / row `extras`. Set `supports_server_metrics` / `supports_terminate_session` on capabilities.
+10. Register connector **and** policy in `ConnectorRegistry::bootstrap()` — two lines, not a core rewrite.
+11. Expose via existing IPC (`list_engines`, `open_engine_session`, query commands, …).
+12. **Pass the conformance suite** (`docs/CONFORMANCE.md`): add `tests/conformance.rs` with a `Fixture`, and a step to the `live` CI job.
 
 ## Connection pool API (IPC)
 

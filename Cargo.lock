@@ -6422,6 +6422,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mystique-conformance"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "mystique-connector-api",
+ "mystique-sql",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "mystique-connector-api"
 version = "0.1.0"
 dependencies = [
@@ -6499,6 +6510,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "mongodb",
+ "mystique-conformance",
  "mystique-connector-api",
  "mystique-tls",
  "serde_json",
@@ -6512,6 +6524,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "mysql_async",
+ "mystique-conformance",
  "mystique-connector-api",
  "mystique-sql",
  "mystique-tls",
@@ -6528,6 +6541,7 @@ dependencies = [
  "chrono",
  "deadpool-postgres",
  "futures-util",
+ "mystique-conformance",
  "mystique-connector-api",
  "mystique-sql",
  "mystique-tls",
@@ -6544,6 +6558,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "mystique-conformance",
  "mystique-connector-api",
  "mystique-sql",
  "r2d2",

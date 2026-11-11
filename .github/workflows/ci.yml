@@ -1,5 +1,6 @@
 # Checks for every push to main and every pull request.
-# No live databases: plugin integration tests that need a server are #[ignore]d.
+# Plugin integration tests that need a server are #[ignore]d; the `live` job
+# runs the conformance suites against real servers.
 #
 # Jobs:
 #   frontend      pnpm check (svelte-kit sync, zone boundaries, svelte-check) + vitest
@@ -11,6 +12,8 @@
 #   tauri-smoke   the desktop shell builds on macOS (debug, no bundle) and
 #                 passes clippy
 #   lint          rustfmt + clippy -D warnings for every crate except the shell
+#   live          the plugin conformance suite (crates/mystique-conformance)
+#                 against Postgres 16, MySQL 8.4, MariaDB 10.11 and MongoDB 7
 name: ci
 
 on:
@@ -128,3 +131,82 @@ jobs:
           -p mystique-sql -p mystique-tls -p mystique-transfer -p mystique-connector-api
           -p mystique-core -p mystique-mcp -p mystique-agent -p mystique-ipc-gen
           -- -D warnings
+
+  # A-17 / #183: every engine plugin passes the same conformance suite on a
+  # real server. SQLite runs it in the `rust` job too (no server needed).
+  live:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: mystique
+          POSTGRES_DB: mystique
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mystique
+          MYSQL_DATABASE: mystique
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmystique"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: mystique
+          MARIADB_DATABASE: mystique
+        ports: ["3307:3306"]
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      mongo:
+        image: mongo:7
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: mystique
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      MYSTIQUE_PG_HOST: 127.0.0.1
+      MYSTIQUE_PG_PORT: "5432"
+      MYSTIQUE_PG_USER: postgres
+      MYSTIQUE_PG_PASSWORD: mystique
+      MYSTIQUE_PG_DATABASE: mystique
+      MYSTIQUE_MONGO_URI: mongodb://admin:mystique@127.0.0.1:27017/mystique?authSource=admin
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: live
+      - name: Build the suites
+        run: >-
+          cargo test --locked --no-run --test conformance
+          -p mystique-plugin-postgres -p mystique-plugin-mysql
+          -p mystique-plugin-mongodb -p mystique-plugin-sqlite
+      - name: SQLite
+        run: cargo test --locked -p mystique-plugin-sqlite --test conformance -- --nocapture
+      - name: Postgres 16
+        run: cargo test --locked -p mystique-plugin-postgres --test conformance -- --ignored --nocapture
+      - name: MySQL 8.4
+        env:
+          MYSTIQUE_MYSQL_PORT: "3306"
+          MYSTIQUE_MYSQL_USER: root
+          MYSTIQUE_MYSQL_PASSWORD: mystique
+        run: cargo test --locked -p mystique-plugin-mysql --test conformance -- --ignored --nocapture
+      - name: MariaDB 10.11
+        env:
+          MYSTIQUE_MYSQL_PORT: "3307"
+          MYSTIQUE_MYSQL_USER: root
+          MYSTIQUE_MYSQL_PASSWORD: mystique
+        run: cargo test --locked -p mystique-plugin-mysql --test conformance -- --ignored --nocapture
+      - name: MongoDB 7
+        run: cargo test --locked -p mystique-plugin-mongodb --test conformance -- --ignored --nocapture

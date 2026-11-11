@@ -16,6 +16,7 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
+mystique-conformance = { path = "../../mystique-conformance" }
 mystique-connector-api = { path = "../../mystique-connector-api" }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

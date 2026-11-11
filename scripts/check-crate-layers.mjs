@@ -10,6 +10,7 @@
  *     └ mystique-mcp, mystique-agent        adapters over core
  *         └ mystique-core                   app services, storage, connection manager
  *             └ mystique-plugin-*           engine drivers (never each other, never core)
+ *                 └ mystique-conformance    plugin test kit (plugins' dev-dependency only)
  *                 └ mystique-connector-api  plugin SPI (re-exports the three below)
  *                     └ mystique-transfer   import parsers, export writers
  *                     └ mystique-tls        TLS settings; no workspace deps
@@ -37,7 +38,18 @@ const RULES = [
 	['mystique-tls', []],
 	['mystique-transfer', ['mystique-sql']],
 	['mystique-connector-api', ['mystique-sql', 'mystique-tls', 'mystique-transfer']],
-	[PLUGINS, ['mystique-sql', 'mystique-connector-api', 'mystique-tls', 'mystique-transfer']],
+	// The conformance kit tests plugins through the SPI; it never ships.
+	['mystique-conformance', ['mystique-sql', 'mystique-connector-api']],
+	[
+		PLUGINS,
+		[
+			'mystique-sql',
+			'mystique-connector-api',
+			'mystique-tls',
+			'mystique-transfer',
+			'mystique-conformance',
+		],
+	],
 	[
 		'mystique-core',
 		['mystique-sql', 'mystique-connector-api', 'mystique-tls', 'mystique-transfer', PLUGINS],
