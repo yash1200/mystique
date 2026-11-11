@@ -130,8 +130,8 @@ function appendArrowHead(
 	fill: string,
 ) {
 	const angle = Math.atan2(to.y - from.y, to.x - from.x)
-	const size = 11
-	const wing = size * 0.42
+	const size = 8
+	const wing = size * 0.44
 	const leftX = to.x - size * Math.cos(angle) + wing * Math.sin(angle)
 	const leftY = to.y - size * Math.sin(angle) - wing * Math.cos(angle)
 	const rightX = to.x - size * Math.cos(angle) - wing * Math.sin(angle)

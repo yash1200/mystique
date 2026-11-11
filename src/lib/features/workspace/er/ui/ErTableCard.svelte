@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { Pill } from '#core/ui'
+	import { Icon } from '#core/ui'
 	import { cn } from '#core/util'
-	import type { CatalogIconName } from '#features/workspace/catalog'
-	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
+	import type { IconName } from '#icons'
 	import { erNodeKindShort } from '../constants'
 	import type { ErNode } from '../types'
+
 	interface Props {
 		node: ErNode
 		preview?: { x: number; y: number } | null
@@ -45,34 +45,38 @@
 
 	const dragDx = $derived((preview?.x ?? node.x) - node.x)
 	const dragDy = $derived((preview?.y ?? node.y) - node.y)
+	const lit = $derived(isSelected || inLinkFocus)
 
-	const iconName = $derived<CatalogIconName>(
-		node.kind === 'collection'
-			? 'collection'
-			: node.kind === 'key_pattern'
-				? 'schema'
-				: 'table',
+	const icon = $derived<IconName>(
+		node.kind === 'collection' ? 'collection' : node.kind === 'key_pattern' ? 'schema' : 'table',
 	)
+
+	/** `schema.table` → a quiet schema and a bold table name. */
+	const title = $derived.by(() => {
+		const dot = node.name.indexOf('.')
+		return dot > 0
+			? { schema: node.name.slice(0, dot + 1), name: node.name.slice(dot + 1) }
+			: { schema: '', name: node.name }
+	})
+
+	const z = $derived(isDragging ? 5 : inLinkFocus ? 4 : dimmed ? 1 : 2)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	data-er-table
 	class={cn(
-		'absolute overflow-hidden rounded-lg border bg-panel shadow-sm transition-opacity duration-150',
-		isSelected || inLinkFocus
-			? 'border-accent ring-1 ring-accent/25'
+		'absolute overflow-hidden rounded-xl border bg-surface shadow-md',
+		'transition-[opacity,border-color,box-shadow] duration-150',
+		lit
+			? 'border-accent shadow-[0_0_0_1px_var(--accent),var(--shadow-2)]'
 			: 'border-line hover:border-line-strong',
-		dimmed && 'opacity-25',
-		isDragging && 'cursor-grabbing',
+		dimmed && 'opacity-30',
+		isDragging && 'cursor-grabbing shadow-lg',
 	)}
-	style="left: {node.x}px; top: {node.y}px; width: {tableW}px; transform: translate({dragDx}px, {dragDy}px); z-index: {isDragging
-		? 5
-		: inLinkFocus
-			? 4
-			: dimmed
-				? 1
-				: 2}; {isDragging ? 'will-change: transform;' : ''}"
+	style="left: {node.x}px; top: {node.y}px; width: {tableW}px; transform: translate({dragDx}px, {dragDy}px); z-index: {z};{isDragging
+		? ' will-change: transform;'
+		: ''}"
 	{onpointerdown}
 	{onpointermove}
 	{onpointerup}
@@ -81,68 +85,58 @@
 >
 	<div
 		class={cn(
-			'relative flex min-w-0 cursor-grab items-center gap-1.5 overflow-hidden border-b border-line bg-elevated px-2',
+			'flex min-w-0 cursor-grab items-center gap-2 border-b border-line pr-2 pl-3',
 			isDragging && 'cursor-grabbing',
 		)}
 		style="height: {headerH}px"
 	>
-		<span class="absolute inset-x-0 top-0 h-0.5 bg-conn" aria-hidden="true"
-		></span>
 		<span
-			class={cn(
-				'grid size-5 shrink-0 place-items-center rounded-sm',
-				isSelected || inLinkFocus ? 'bg-accent-muted' : 'bg-input',
-			)}
+			class={cn('flex shrink-0 [&_svg]:size-3.5', lit ? 'text-accent-text' : 'text-fg-muted')}
 			aria-hidden="true"
 		>
-			<CatalogIcon
-				name={iconName}
-				class="size-3"
-				tone={iconToneForName(iconName, isSelected || inLinkFocus)}
-			/>
+			<Icon name={icon} />
 		</span>
-		<span
-			class="min-w-0 flex-1 truncate font-mono text-label font-semibold leading-tight text-fg"
-			title={node.name}
-		>
-			{node.name}
+		<span class="min-w-0 flex-1 truncate font-mono text-label leading-tight" title={node.name}>
+			{#if title.schema}<span class="text-fg-muted">{title.schema}</span>{/if}<span
+				class="font-semibold text-fg">{title.name}</span
+			>
 		</span>
-		<Pill tone="neutral" uppercase>{erNodeKindShort(node.kind)}</Pill>
+		<span class="badge badge-sm border border-line-strong text-fg-muted">
+			{erNodeKindShort(node.kind)}
+		</span>
 	</div>
 
-	<ul class="m-0 list-none overflow-hidden p-0">
+	<ul class="m-0 list-none p-0 [&>li:last-child>button]:border-b-0">
 		{#each node.columns as col (col.id)}
-			<li class="m-0 overflow-hidden p-0" style="height: {rowH}px">
+			{@const fk = !col.pk && fkColumnIds.has(col.id)}
+			<li class="m-0 p-0" style="height: {rowH}px">
 				<button
 					type="button"
 					data-er-column
 					class={cn(
-						'box-border flex h-full w-full min-w-0 cursor-default items-center gap-1.5 overflow-hidden border-b border-line/50 px-2.5 text-left last:border-b-0',
-						focusedColIds?.has(col.id) && 'bg-accent-muted',
+						'box-border flex h-full w-full min-w-0 cursor-default items-center gap-2 border-b border-line/60 pr-3 pl-3 text-left',
+						'transition-colors duration-150',
+						focusedColIds?.has(col.id) ? 'bg-accent-soft' : 'hover:bg-hover',
 					)}
 					onclick={(e) => oncolumnclick(col.id, e)}
 				>
-					{#if col.pk}
-						<span
-							class="shrink-0 text-micro font-semibold leading-none text-accent"
-							>PK</span
-						>
-					{:else if fkColumnIds.has(col.id)}
-						<span
-							class="shrink-0 text-micro font-semibold leading-none text-fg-muted"
-							>FK</span
-						>
-					{/if}
 					<span
-						class="min-w-0 flex-1 truncate font-mono text-caption leading-normal text-fg"
-						title={col.name}
+						class={cn(
+							'w-5 shrink-0 font-mono text-[0.625rem] font-semibold tracking-wide',
+							col.pk ? 'text-accent-text' : 'text-info',
+						)}
 					>
+						{col.pk ? 'PK' : fk ? 'FK' : ''}
+					</span>
+					<span class="min-w-0 flex-1 truncate font-mono text-caption text-fg" title={col.name}>
 						{col.name}
 					</span>
 					<span
-						class="max-w-[40%] shrink-0 truncate font-mono text-caption leading-normal text-fg-muted"
-						title={col.dataType}>{col.dataType}</span
+						class="max-w-[45%] shrink-0 truncate font-mono text-caption text-fg-muted"
+						title={col.dataType}
 					>
+						{col.dataType}
+					</span>
 				</button>
 			</li>
 		{/each}

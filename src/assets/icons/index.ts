@@ -20,6 +20,7 @@ import expandAll from './expand-all.svg?raw'
 import external from './external.svg?raw'
 import funnel from './funnel.svg?raw'
 import grid from './grid.svg?raw'
+import hash from './hash.svg?raw'
 import help from './help.svg?raw'
 import history from './history.svg?raw'
 import info from './info.svg?raw'
@@ -51,6 +52,7 @@ import bolt from './bolt.svg?raw'
 import contrast from './contrast.svg?raw'
 import format from './format.svg?raw'
 import heart from './heart.svg?raw'
+import layout from './layout.svg?raw'
 import keyboard from './keyboard.svg?raw'
 import link from './link.svg?raw'
 import pencil from './pencil.svg?raw'
@@ -116,8 +118,10 @@ const files = {
 	bolt,
 	contrast,
 	format,
+	hash,
 	heart,
 	keyboard,
+	layout,
 	link,
 	pencil,
 	play,

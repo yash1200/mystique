@@ -89,13 +89,9 @@ export function erNodeKindShort(kind: ErNode['kind']): string {
 	return 'Table'
 }
 
+/** Columns that reference another table: the FK side of each link. */
 export function erFkColumnIds(edges: ErEdge[]): Set<string> {
-	const ids = new Set<string>()
-	for (const e of edges) {
-		ids.add(e.fromColumnId)
-		ids.add(e.toColumnId)
-	}
-	return ids
+	return new Set(edges.map((e) => e.fromColumnId))
 }
 
 export function erFocusedLink(

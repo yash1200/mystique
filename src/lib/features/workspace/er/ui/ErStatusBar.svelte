@@ -49,72 +49,55 @@
 		onToggleGrid,
 		onToggleDbml,
 	}: Props = $props()
+
+	const step =
+		'grid h-full w-7 place-items-center border-none bg-transparent text-body leading-none text-fg-secondary transition-colors enabled:hover:bg-hover enabled:hover:text-fg disabled:opacity-40'
 </script>
 
-<StatusBar class="pl-1!" ariaLabel="ER diagram status">
+<StatusBar class="pl-1.5!" ariaLabel="ER diagram status">
 	{#snippet left()}
 		<Button
-			variant="ghost"
+			variant="secondary"
 			size="sm"
-			class="px-1.5!"
 			onclick={onAutoLayout}
 			disabled={!hasNodes}
-			title="Arrange tables on the canvas"
+			title="Arrange the tables on the canvas"
 		>
-			<Icon name="expand-all" class="size-3.5" />
-			Layout
+			<Icon name="layout" />Auto layout
 		</Button>
-		{#if hasDiagram}
-			<span class="truncate font-mono tabular-nums">
+		<span class="ml-1 min-w-0 truncate font-mono text-fg-muted tabular-nums">
+			{#if hasDiagram}
 				{nodeCount}
 				{entityWord}{nodeCount === 1 ? '' : 's'}
-				{#if edgeCount > 0}
-					· {edgeCount} link{edgeCount === 1 ? '' : 's'}
-				{/if}
-			</span>
-		{:else}
-			<span class="truncate font-mono tabular-nums text-fg-muted"
-				>No diagram</span
-			>
-		{/if}
-		{#if selectionCount > 0}
-			<span class="shrink-0 text-fg-muted">{selectionCount} selected</span>
-		{/if}
+				{#if edgeCount > 0}· {edgeCount} link{edgeCount === 1 ? '' : 's'}{/if}
+				{#if selectionCount > 0}· {selectionCount} selected{/if}
+			{:else}
+				No diagram
+			{/if}
+		</span>
 		<StatusNote />
 	{/snippet}
 	{#snippet center()}
 		<div
-			class="flex items-center gap-1.5"
+			class="flex h-6.5 items-center overflow-hidden rounded-lg border border-line bg-field"
 			role="group"
 			aria-label="Canvas zoom"
 		>
-			<IconButton
-				label="Zoom out"
-				size="sm"
-				variant="quiet"
-				onclick={onZoomOut}
-				disabled={!canZoomOut}
-			>
-				<span class="text-title leading-none">−</span>
-			</IconButton>
+			<button type="button" class={step} aria-label="Zoom out" title="Zoom out" onclick={onZoomOut} disabled={!canZoomOut}>
+				−
+			</button>
 			<button
 				type="button"
-				class="min-w-12 shrink-0 border-none bg-transparent px-1.5 text-center font-mono text-caption text-fg-secondary tabular-nums whitespace-nowrap hover:text-fg"
+				class="h-full min-w-13 border-x border-y-0 border-line bg-transparent px-2 font-mono text-caption font-medium text-fg tabular-nums hover:bg-hover"
 				onclick={onResetZoom}
 				title="Reset zoom to 100%"
-				aria-label="Reset zoom to 100%"
+				aria-label="Zoom {zoomLabel}. Reset to 100%"
 			>
 				{zoomLabel}
 			</button>
-			<IconButton
-				label="Zoom in"
-				size="sm"
-				variant="quiet"
-				onclick={onZoomIn}
-				disabled={!canZoomIn}
-			>
-				<span class="text-title leading-none">+</span>
-			</IconButton>
+			<button type="button" class={step} aria-label="Zoom in" title="Zoom in" onclick={onZoomIn} disabled={!canZoomIn}>
+				+
+			</button>
 		</div>
 	{/snippet}
 	{#snippet right()}
@@ -126,22 +109,10 @@
 				onclick={onRefresh}
 				disabled={refreshing}
 				aria-busy={refreshing}
-				class={refreshing ? 'opacity-45' : ''}
 			>
 				<Icon name="refresh" class={cn(refreshing && 'animate-spin')} />
 			</IconButton>
 		{/if}
-		<IconButton
-			label={exportingPng ? 'Downloading PNG…' : 'Download PNG'}
-			size="sm"
-			variant="quiet"
-			onclick={onDownloadPng}
-			disabled={!hasNodes || exportingPng}
-			aria-busy={exportingPng}
-			class={exportingPng ? 'opacity-45' : ''}
-		>
-			<Icon name="download" />
-		</IconButton>
 		<IconButton
 			label={showGrid ? 'Hide grid' : 'Show grid'}
 			size="sm"
@@ -149,10 +120,20 @@
 			active={showGrid}
 			onclick={onToggleGrid}
 		>
-			<Icon name="grid" />
+			<Icon name="hash" />
 		</IconButton>
 		<IconButton
-			label={showDbml ? 'Hide DBML snapshot' : 'Show DBML snapshot'}
+			label={exportingPng ? 'Downloading PNG…' : 'Download PNG'}
+			size="sm"
+			variant="quiet"
+			onclick={onDownloadPng}
+			disabled={!hasNodes || exportingPng}
+			aria-busy={exportingPng}
+		>
+			<Icon name="download" />
+		</IconButton>
+		<IconButton
+			label={showDbml ? 'Hide DBML' : 'Show DBML'}
 			size="sm"
 			variant="quiet"
 			active={showDbml}

@@ -78,7 +78,7 @@ const JS_ATOMS = new Set([
 const HIGHLIGHT_MAX = 20_000
 
 /** Which tokenizer to run. Callers classify; this module never guesses. */
-export type SyntaxLang = 'sql' | 'json' | 'js' | 'plain'
+export type SyntaxLang = 'sql' | 'json' | 'js' | 'dbml' | 'plain'
 
 export function highlightCode(kind: SyntaxLang, source: string): SyntaxToken[] {
 	if (source.length > HIGHLIGHT_MAX) {
@@ -87,6 +87,7 @@ export function highlightCode(kind: SyntaxLang, source: string): SyntaxToken[] {
 	if (kind === 'sql') return tokenizeSql(source)
 	if (kind === 'json') return tokenizeJson(source)
 	if (kind === 'js') return tokenizeJs(source)
+	if (kind === 'dbml') return tokenizeDbml(source)
 	return tokenizeGeneric(source)
 }
 
@@ -372,6 +373,134 @@ function tokenizeJs(src: string): SyntaxToken[] {
 		const start = i
 		i += 1
 		out.push({ kind: 'text', text: src.slice(start, i) })
+	}
+	return mergeTokens(out)
+}
+
+const DBML_KEYWORDS = new Set([
+	'table',
+	'ref',
+	'enum',
+	'project',
+	'tablegroup',
+	'note',
+	'indexes',
+	'as',
+])
+
+const DBML_SETTINGS = new Set([
+	'pk',
+	'primary',
+	'key',
+	'not',
+	'null',
+	'unique',
+	'increment',
+	'default',
+	'note',
+	'ref',
+	'delete',
+	'update',
+	'cascade',
+	'restrict',
+	'set',
+	'no',
+	'action',
+])
+
+/**
+ * DBML, read a line at a time. Block keywords are keywords; table names
+ * (in a header or a Ref) take the `func` colour so they stand apart from
+ * types; a column name stays plain; everything after it up to `[` is its
+ * type; words inside `[...]` are settings.
+ */
+function tokenizeDbml(src: string): SyntaxToken[] {
+	const out: SyntaxToken[] = []
+	let i = 0
+	let depth = 0
+	let inSettings = false
+	/** Identifiers seen on this line, outside settings. */
+	let words = 0
+	let line: 'header' | 'ref' | null = null
+	let afterDot = false
+
+	const ident = (text: string, quoted: boolean) => {
+		const lower = text.toLowerCase()
+		let kind: SyntaxKind
+		if (inSettings) {
+			kind = DBML_SETTINGS.has(lower) ? 'atom' : 'name'
+		} else if (words === 0 && !quoted && DBML_KEYWORDS.has(lower)) {
+			kind = 'keyword'
+			line = lower === 'ref' ? 'ref' : 'header'
+		} else if (line === 'ref') {
+			kind = afterDot ? 'text' : 'func'
+		} else if (line === 'header') {
+			kind = !quoted && lower === 'as' ? 'keyword' : 'func'
+		} else if (depth > 0) {
+			kind = words === 0 ? 'text' : 'type'
+		} else {
+			kind = 'text'
+		}
+		if (!inSettings) words += 1
+		afterDot = false
+		out.push({ kind, text })
+	}
+
+	while (i < src.length) {
+		const c = src[i]!
+		if (c === '\n') {
+			out.push({ kind: 'text', text: c })
+			words = 0
+			line = null
+			afterDot = false
+			i += 1
+			continue
+		}
+		if (c === '/' && src[i + 1] === '/') {
+			const end = src.indexOf('\n', i)
+			const stop = end < 0 ? src.length : end
+			out.push({ kind: 'comment', text: src.slice(i, stop) })
+			i = stop
+			continue
+		}
+		if (c === ' ' || c === '\t' || c === '\r') {
+			const start = i
+			while (i < src.length && /[ \t\r]/.test(src[i]!)) i += 1
+			out.push({ kind: 'text', text: src.slice(start, i) })
+			continue
+		}
+		if (c === '"') {
+			const stop = readJsString(src, i)
+			ident(src.slice(i, stop), true)
+			i = stop
+			continue
+		}
+		if (c === "'" || c === '`') {
+			const stop = readJsString(src, i)
+			out.push({ kind: 'string', text: src.slice(i, stop) })
+			afterDot = false
+			i = stop
+			continue
+		}
+		if (isDigit(c)) {
+			const start = i
+			while (i < src.length && /[0-9.]/.test(src[i]!)) i += 1
+			out.push({ kind: 'number', text: src.slice(start, i) })
+			continue
+		}
+		if (/[A-Za-z_]/.test(c)) {
+			const start = i
+			while (i < src.length && /[A-Za-z0-9_]/.test(src[i]!)) i += 1
+			ident(src.slice(start, i), false)
+			continue
+		}
+		if (c === '[') inSettings = true
+		else if (c === ']') inSettings = false
+		else if (c === '{') depth += 1
+		else if (c === '}') depth = Math.max(0, depth - 1)
+		afterDot = c === '.'
+		out.push({ kind: /[<>-]/.test(c) ? 'operator' : 'punct', text: c })
+		i += 1
 	}
 	return mergeTokens(out)
 }

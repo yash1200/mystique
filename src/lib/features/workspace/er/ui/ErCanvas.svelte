@@ -128,10 +128,9 @@
 						data-er-grid
 						class="pointer-events-none absolute inset-0"
 						style="
-							background-image:
-								linear-gradient(to right, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px),
-								linear-gradient(to bottom, color-mix(in srgb, var(--border-subtle) 70%, transparent) 1px, transparent 1px);
+							background-image: radial-gradient(circle, color-mix(in oklab, var(--text-3) 38%, transparent) 1px, transparent 1.25px);
 							background-size: {ER_GRID}px {ER_GRID}px;
+							background-position: -{ER_GRID / 2}px -{ER_GRID / 2}px;
 						"
 					></div>
 				{/if}
@@ -142,56 +141,27 @@
 					<defs>
 						<marker
 							id="er-arrow-head"
-							viewBox="0 0 14 14"
-							markerWidth="14"
-							markerHeight="14"
-							refX="12"
-							refY="7"
-							orient="auto"
-							markerUnits="userSpaceOnUse"
-						>
-							<path
-								d="M1,1 L13,7 L1,13 L4,7 Z"
-								fill="var(--accent)"
-								stroke="var(--accent)"
-								stroke-width="0.5"
-							/>
-						</marker>
-						<marker
-							id="er-arrow-head-sel"
-							viewBox="0 0 16 16"
-							markerWidth="16"
-							markerHeight="16"
-							refX="14"
-							refY="8"
-							orient="auto"
-							markerUnits="userSpaceOnUse"
-						>
-							<path
-								d="M1,1 L15,8 L1,15 L4.5,8 Z"
-								fill="var(--accent)"
-								stroke="var(--accent-hover)"
-								stroke-width="1"
-							/>
-						</marker>
-						<marker
-							id="er-arrow-tail"
 							viewBox="0 0 10 10"
-							markerWidth="8"
-							markerHeight="8"
-							refX="5"
+							markerWidth="9"
+							markerHeight="9"
+							refX="9"
 							refY="5"
 							orient="auto"
 							markerUnits="userSpaceOnUse"
 						>
-							<circle
-								cx="5"
-								cy="5"
-								r="3.5"
-								fill="var(--accent)"
-								stroke="var(--accent-hover)"
-								stroke-width="1"
-							/>
+							<path d="M1,1.5 L9,5 L1,8.5 Z" fill="var(--text-3)" />
+						</marker>
+						<marker
+							id="er-arrow-head-sel"
+							viewBox="0 0 10 10"
+							markerWidth="10"
+							markerHeight="10"
+							refX="9"
+							refY="5"
+							orient="auto"
+							markerUnits="userSpaceOnUse"
+						>
+							<path d="M1,1.5 L9,5 L1,8.5 Z" fill="var(--accent)" />
 						</marker>
 					</defs>
 
@@ -200,6 +170,7 @@
 						{@const edgeDim = !!focusedLink && !selected}
 						{@const d = geom.edgePolyline(displayDiagram, edgeSpines, edge)}
 						<path
+							class="er-edge-hit"
 							data-er-edge-hit
 							{d}
 							fill="none"
@@ -218,18 +189,18 @@
 							}}
 						/>
 						<path
+							class={selected ? 'er-edge' : 'er-edge er-edge-quiet'}
 							{d}
 							fill="none"
-							stroke="var(--accent)"
-							stroke-width={selected ? 3.25 : 2.25}
+							stroke={selected ? 'var(--accent)' : 'var(--text-3)'}
+							stroke-width={selected ? 2 : 1.25}
 							stroke-linecap="round"
 							stroke-linejoin="round"
-							stroke-dasharray={isBrokenEdge(edge.kind) ? '8 5' : '0'}
-							marker-start="url(#er-arrow-tail)"
+							stroke-dasharray={isBrokenEdge(edge.kind) ? '6 4' : '0'}
 							marker-end={selected
 								? 'url(#er-arrow-head-sel)'
 								: 'url(#er-arrow-head)'}
-							opacity={edgeDim ? 0.12 : selected ? 1 : 0.95}
+							opacity={edgeDim ? 0.15 : selected ? 1 : 0.8}
 							style="pointer-events: none;"
 						/>
 					{/each}
@@ -272,3 +243,11 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	/* Hovering a link lifts it out of the quiet grey. */
+	.er-edge-hit:hover + .er-edge-quiet {
+		opacity: 1;
+		stroke-width: 1.75;
+	}
+</style>
