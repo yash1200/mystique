@@ -11,8 +11,9 @@
 		EmptyState,
 		Icon,
 		IconButton,
-		Pill,
 		StatusBar,
+		ViewLinks,
+		type ViewLink,
 	} from '#core/ui'
 	import {
 		cn,
@@ -20,8 +21,6 @@
 		fetchedLabel,
 	} from '#core/util'
 	import { showToast } from '#features/toast'
-	import type { CatalogIconName } from '#features/workspace/catalog'
-	import { CatalogIcon, iconToneForName } from '#features/workspace/catalog'
 	import type { IconName } from '#icons'
 	import { cmd } from '#lib/app'
 	import { onMount } from 'svelte'
@@ -38,6 +37,8 @@
 		lastFetchedAt?: number | null
 		onretry?: () => void
 		onopentable?: () => void
+		/** Opens this table's ER diagram; absent when the engine has none. */
+		onopenerd?: () => void
 		canEdit?: boolean
 		readOnly?: boolean
 		showForeignKeys?: boolean
@@ -55,6 +56,7 @@
 		lastFetchedAt = null,
 		onretry,
 		onopentable,
+		onopenerd,
 		canEdit = false,
 		readOnly = false,
 		showForeignKeys = false,
@@ -89,7 +91,7 @@
 		)
 	})
 
-	const kindIcon = $derived.by((): CatalogIconName => {
+	const kindIcon = $derived.by((): IconName => {
 		const k = structure?.objectKind?.toLowerCase()
 		if (k === 'view') return 'view'
 		if (k === 'collection') return 'collection'
@@ -97,19 +99,45 @@
 		return 'structure'
 	})
 
-	const openTableLabel = $derived.by(() => {
-		const k = structure?.objectKind?.toLowerCase()
-		if (k === 'collection') return 'Collection'
-		if (k === 'view') return 'View'
-		return 'Table'
+	/** `schema.table` → a quiet schema and the name in full weight. */
+	const title = $derived.by(() => {
+		const t = structure?.title ?? ''
+		const dot = t.indexOf('.')
+		return dot > 0 ? { schema: t.slice(0, dot + 1), name: t.slice(dot + 1) } : { schema: '', name: t }
 	})
 
-	const openTableIcon = $derived.by((): IconName => {
-		const k = structure?.objectKind?.toLowerCase()
-		if (k === 'view') return 'view'
-		if (k === 'collection') return 'collection'
-		return 'table'
+	const isColumns = $derived(section?.id === 'columns' || section?.id === 'fields')
+
+	/** Columns that reference another table, read off the foreign-keys section. */
+	const fkColumns = $derived.by(() => {
+		const fks = structure?.sections.find((s) => s.id === 'foreign_keys')
+		const at = fks?.columns.findIndex((c) => c.toLowerCase() === 'column') ?? -1
+		return new Set(at < 0 ? [] : fks!.rows.map((r) => r[at] ?? ''))
 	})
+
+	/** Engine headers, said the way the table reads. */
+	function headerLabel(h: string): string {
+		if (!isColumns) return h
+		const s = h.toLowerCase()
+		if (s === 'pk') return 'Key'
+		if (s === 'enum') return 'Enum values'
+		return h
+	}
+
+	const views = $derived.by(() => {
+		const out: ViewLink[] = []
+		if (onopentable) out.push({ label: 'Data', icon: 'table', title: 'Open the table data', onclick: onopentable })
+		if (onopenerd) out.push({ label: 'ERD', icon: 'schema', title: 'Open the ER diagram', onclick: onopenerd })
+		return out
+	})
+
+	/** PK / FK / YES chip in a key or flag column. */
+	const key =
+		'inline-block rounded-[5px] px-1.5 py-0.5 font-mono text-micro leading-none font-semibold tracking-[0.03em]'
+
+	function isEnumHeader(h: string): boolean {
+		return h.toLowerCase() === 'enum'
+	}
 
 	let now = $state(Date.now())
 
@@ -185,9 +213,12 @@
 			case 'indexes':
 				return 'sort'
 			case 'foreign_keys':
-			case 'referenced_by':
 				return 'external'
+			case 'referenced_by':
+				return 'link'
 			case 'triggers':
+				return 'bolt'
+			case 'ddl':
 				return 'code'
 			case 'checks':
 				return 'check'
@@ -271,7 +302,7 @@
 	{:else if loading && !structure}
 		<div class="flex min-h-0 flex-1 flex-col" aria-busy="true">
 			<div
-				class="flex h-control shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5"
+				class="flex h-12 shrink-0 items-center gap-2.5 border-b border-line bg-surface pr-3 pl-4"
 			>
 				<div class="size-6 animate-pulse rounded-md bg-input"></div>
 				<div class="h-3 w-36 animate-pulse rounded-sm bg-input"></div>
@@ -280,11 +311,11 @@
 				></div>
 			</div>
 			<div
-				class="flex h-control-sm shrink-0 items-stretch overflow-hidden border-b border-line bg-panel"
+				class="flex h-10.5 shrink-0 items-center gap-0.5 overflow-hidden border-b border-line bg-surface px-2.5"
 			>
 				{#each [1, 2, 3, 4] as i (i)}
 					<div
-						class="flex items-center gap-1.5 border-r border-line px-2.5"
+						class="flex items-center gap-1.5 px-2.5"
 						style="animation-delay: {i * 40}ms"
 					>
 						<div class="h-3 w-16 animate-pulse rounded-sm bg-input"></div>
@@ -292,7 +323,7 @@
 				{/each}
 			</div>
 			<div class="min-h-0 flex-1">
-				<div class="flex gap-3 border-b border-line bg-panel px-2.5 py-1.5">
+				<div class="flex h-8.5 items-center gap-4 border-b border-line bg-surface px-4">
 					<div class="h-3 w-8 animate-pulse rounded-sm bg-input"></div>
 					<div class="h-3 w-24 animate-pulse rounded-sm bg-input"></div>
 					<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
@@ -300,7 +331,7 @@
 				</div>
 				{#each [1, 2, 3, 4, 5, 6, 7, 8] as r (r)}
 					<div
-						class="flex min-h-grid-row items-center gap-3 border-b border-line px-2.5"
+						class="flex h-10 items-center gap-4 border-b border-line px-4"
 					>
 						<div class="h-3 w-6 animate-pulse rounded-sm bg-input/60"></div>
 						<div class="h-3 w-28 animate-pulse rounded-sm bg-input"></div>
@@ -328,48 +359,39 @@
 			</EmptyState>
 		</div>
 	{:else if structure}
-		<header
-			class="relative flex shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5 py-2"
-		>
-			<span class="absolute inset-x-0 top-0 h-0.5 bg-conn" aria-hidden="true"
-			></span>
-			<span
-				class="grid size-6 shrink-0 place-items-center rounded-md bg-input"
-				aria-hidden="true"
-			>
-				<CatalogIcon
-					name={kindIcon}
-					tone={iconToneForName(kindIcon)}
-					class="size-3.5"
-				/>
-			</span>
-			<div class="flex min-w-0 flex-1 items-center gap-1.5">
-				<h1
-					class="m-0 min-w-0 truncate font-mono text-label font-semibold text-fg"
-					title={structure.title}
-				>
-					{structure.title}
+		<header class="flex h-12 shrink-0 items-center gap-2.5 border-b border-line bg-surface pr-3 pl-4">
+			<div class="flex min-w-0 items-center gap-2">
+				<span class="flex shrink-0 text-accent-text [&_svg]:size-4" aria-hidden="true">
+					<Icon name={kindIcon} />
+				</span>
+				<h1 class="m-0 min-w-0 truncate font-mono text-[0.84375rem] font-normal tracking-[-0.01em]" title={structure.title}>
+					{#if title.schema}<span class="text-fg-muted">{title.schema}</span>{/if}<span
+						class="text-fg">{title.name}</span
+					>
 				</h1>
 				{#if structure.objectKind}
-					<Pill tone="neutral" uppercase>{structure.objectKind}</Pill>
+					<span class="badge bg-hover text-fg-secondary shadow-[inset_0_0_0_1px_var(--line-2)]">{structure.objectKind}</span>
 				{/if}
 			</div>
-			{#if editable}
-				<Button variant="secondary" size="sm" onclick={() => (editing = true)}>Edit</Button>
-				<Button variant="ghost" size="sm" onclick={() => (comparing = true)}>Compare</Button>
-			{/if}
-			<div class="w-40 shrink-0">
+
+			<span class="min-w-0 flex-1"></span>
+
+			<div class="w-55 min-w-0 shrink">
 				<ExplorerSearch
 					bind:value={filter}
 					id="structure-filter"
-					placeholder={section
-						? `Filter ${section.title.toLowerCase()}…`
-						: 'Filter…'}
-					label={section
-						? `Filter ${section.title.toLowerCase()}`
-						: 'Filter structure'}
+					placeholder={section ? `Filter ${section.title.toLowerCase()}…` : 'Filter…'}
+					label={section ? `Filter ${section.title.toLowerCase()}` : 'Filter structure'}
 				/>
 			</div>
+			{#if editable}
+				<Button variant="secondary" onclick={() => (comparing = true)}>
+					<Icon name="sort" />Compare
+				</Button>
+				<Button variant="primary" onclick={() => (editing = true)}>
+					<Icon name="pencil" />Edit
+				</Button>
+			{/if}
 		</header>
 
 		{#if error}
@@ -387,7 +409,7 @@
 
 		{#if structure.sections.length > 0}
 			<div
-				class="scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto border-b border-line bg-panel"
+				class="scrollbar-none flex h-10.5 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-line bg-surface px-2.5"
 				role="tablist"
 				aria-label="Structure sections"
 				aria-orientation="horizontal"
@@ -400,30 +422,30 @@
 						aria-selected={active}
 						tabindex={active ? 0 : -1}
 						class={cn(
-							'relative inline-flex shrink-0 items-center gap-1.5 border-r border-line px-2.5 text-label font-medium transition-colors',
-							active
-								? 'bg-app-wash text-fg'
-								: 'bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
+							'relative inline-flex shrink-0 items-center gap-[7px] border-none bg-transparent px-[11px] text-[0.78125rem] font-medium transition-colors duration-150',
+							active ? 'text-fg' : 'text-fg-muted hover:text-fg',
 						)}
 						onclick={() => selectSection(sec.id)}
 						onkeydown={onSectionKeydown}
 					>
-						{#if active}
-							<span
-								class="absolute inset-x-0 top-0 h-0.5 bg-accent"
-								aria-hidden="true"
-							></span>
-						{/if}
-						<Icon
-							name={sectionIcon(sec.id)}
-							class={cn('size-3.5', active ? 'text-accent' : 'text-fg-muted')}
-						/>
+						<span
+							class={cn('flex [&_svg]:size-3.5', active ? 'text-accent-text' : 'text-fg-muted')}
+							aria-hidden="true"
+						>
+							<Icon name={sectionIcon(sec.id)} />
+						</span>
 						{sec.title}
 						<span
-							class="rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
+							class={cn(
+								'rounded-[5px] px-1.5 py-px font-mono text-[0.65625rem] tabular-nums',
+								active ? 'bg-accent-soft text-accent-text' : 'bg-hover text-fg-muted',
+							)}
 						>
 							{sec.rows.length}
 						</span>
+						{#if active}
+							<span class="absolute inset-x-2.5 -bottom-px h-0.5 rounded-full bg-accent" aria-hidden="true"></span>
+						{/if}
 					</button>
 				{/each}
 			</div>
@@ -479,98 +501,66 @@
 				{:else}
 					<div class="min-h-0 flex-1 overflow-auto">
 						<table class="w-full border-collapse text-left">
-							<thead class="sticky top-0 z-10">
-								<tr class="border-b border-line bg-panel">
-									<th
-										class="w-8 px-2 py-1.5 text-center text-micro font-medium text-fg-muted"
-										scope="col"
-									>
-										#
-									</th>
+							<thead class="sticky top-0 z-10 bg-surface">
+								<tr class="h-8.5 shadow-[inset_0_-1px_0_var(--line)]">
+									<th class="w-11 pr-2 pl-4 text-right font-mono text-caption font-normal text-fg-muted" scope="col">#</th>
 									{#each section.columns as col (col)}
-										<th
-											class="px-2.5 py-1.5 text-label font-semibold text-fg-muted"
-											scope="col"
-										>
-											{col}
+										<th class="px-2 text-[0.71875rem] font-medium whitespace-nowrap text-fg-muted" scope="col">
+											{headerLabel(col)}
 										</th>
 									{/each}
-									<th class="w-9 px-1 py-1.5" scope="col">
-										<span class="sr-only">Copy</span>
-									</th>
+									<th class="w-10 pr-3 pl-1" scope="col"><span class="sr-only">Copy</span></th>
 								</tr>
 							</thead>
 							<tbody>
 								{#each filteredRows as row, ri (ri)}
-									<tr
-										class={cn(
-											'group/row border-b border-line last:border-b-0',
-											'hover:bg-hover/80',
-											ri % 2 === 1 && 'bg-input/30',
-										)}
-									>
-										<td
-											class="min-h-grid-row px-2 py-1.5 text-center font-mono text-micro text-fg-muted tabular-nums"
-										>
+									<tr class="group/row border-b border-line text-body transition-colors duration-150 hover:bg-surface">
+										<td class="h-10 pr-2 pl-4 text-right font-mono text-caption text-fg-muted tabular-nums">
 											{ri + 1}
 										</td>
 										{#each row as cell, ci (ci)}
 											{@const header = section.columns[ci] ?? ''}
-											{@const long = isLong(cell)}
 											{@const expanded = expandedCells.has(cellKey(ri, ci))}
-											<td
-												class={cn(
-													'max-w-md px-2.5 py-1.5 align-middle text-caption text-fg',
-													ci === 0 && 'font-medium',
-												)}
-											>
-												{#if isEmptyish(cell)}
-													<span class="text-fg-muted">—</span>
+											{@const fk = isColumns && ci > 0 && isPkHeader(header) && fkColumns.has(row[0] ?? '')}
+											<td class="max-w-md px-2 py-1.5 align-middle">
+												{#if isPkHeader(header) && (isYes(cell) || fk)}
+													<span class={cn(key, isYes(cell) ? 'bg-accent-soft text-accent-text' : 'bg-info-soft text-info')}>
+														{isYes(cell) ? 'PK' : 'FK'}
+													</span>
+												{:else if isEmptyish(cell)}
+													<span class="text-fg-muted" aria-label="None">—</span>
 												{:else if isNullableHeader(header) && (isYes(cell) || isNo(cell))}
 													{#if isYes(cell)}
-														<span
-															class="inline-flex items-center"
-															title="Nullable"
-														>
-															<Icon
-																name="check"
-																class="size-3.5 text-fg-secondary"
-															/>
-															<span class="sr-only">Nullable</span>
-														</span>
+														<span title="Nullable">✓</span><span class="sr-only">Nullable</span>
 													{:else}
-														<span class="text-fg-muted" title="Not nullable"
-															>—</span
-														>
+														<span title="Not nullable">—</span>
 														<span class="sr-only">Not nullable</span>
 													{/if}
 												{:else if isBoolHeader(header) && (isYes(cell) || isNo(cell))}
 													{#if isYes(cell)}
-														<span
-															class={cn(
-																'inline-flex rounded-sm border px-1.5 py-px font-mono text-micro font-semibold uppercase tracking-wide',
-																isPkHeader(header)
-																	? 'border-accent/35 bg-accent-muted text-accent'
-																	: 'border-success/35 bg-success/15 text-success',
-															)}
-														>
-															{isPkHeader(header) ? 'pk' : 'yes'}
-														</span>
+														<span class={cn(key, 'bg-accent-soft text-accent-text')}>YES</span>
 													{:else}
-														<span class="text-fg-muted">—</span>
-														<span class="sr-only">No</span>
+														<span class="text-fg-muted">—</span><span class="sr-only">No</span>
 													{/if}
+												{:else if isColumns && isEnumHeader(header)}
+													<span class="flex max-w-72 flex-wrap gap-1">
+														{#each cell.split(/,\s*/) as value, vi (vi)}
+															<span class="rounded-[5px] bg-violet-soft px-1.5 py-px font-mono text-caption leading-normal text-violet">
+																{value}
+															</span>
+														{/each}
+													</span>
 												{:else if isTypeHeader(header)}
 													<code
-														class="rounded-sm border border-line bg-input px-1.5 py-0.5 font-mono text-caption text-fg-secondary"
+														class="inline-block rounded-md bg-hover px-[7px] py-0.5 font-mono text-[0.71875rem] leading-normal whitespace-nowrap text-fg-secondary shadow-[inset_0_0_0_1px_var(--line-2)]"
 													>
 														{cell}
 													</code>
-												{:else if long}
-													<div class="flex min-w-0 items-start gap-1 py-1">
+												{:else if isLong(cell)}
+													<div class="flex min-w-0 items-start gap-1">
 														<pre
 															class={cn(
-																'm-0 min-w-0 flex-1 overflow-x-auto rounded-sm border border-line bg-input/60 p-1.5 font-mono text-caption leading-relaxed text-fg whitespace-pre-wrap break-all',
+																'm-0 min-w-0 flex-1 overflow-x-auto rounded-md bg-field px-2 py-1.5 font-mono text-label leading-relaxed break-all whitespace-pre-wrap text-fg-secondary shadow-[inset_0_0_0_1px_var(--line)]',
 																!expanded && 'line-clamp-3',
 															)}>{cell}</pre>
 														<IconButton
@@ -581,36 +571,24 @@
 														>
 															<Icon
 																name="chevron-down"
-																class={cn(
-																	'size-3.5 transition-transform duration-150',
-																	expanded && 'rotate-180',
-																)}
+																class={cn('transition-transform duration-150', expanded && 'rotate-180')}
 															/>
 														</IconButton>
 													</div>
 												{:else if ci === 0}
-													<span
-														class="font-mono text-label font-medium text-fg"
-														title={cell}>{cell}</span
-													>
+													<span class="font-mono font-medium whitespace-nowrap text-fg" title={cell}>{cell}</span>
 												{:else}
-													<span
-														class="font-mono text-caption text-fg-secondary"
-														title={cell}>{cell}</span
-													>
+													<span class="block truncate font-mono text-label text-fg-secondary" title={cell}>{cell}</span>
 												{/if}
 											</td>
 										{/each}
-										<td class="px-1 align-middle">
-											<div
-												class="opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100"
-											>
+										<td class="pr-3 pl-1 align-middle">
+											<div class="opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
 												<IconButton
 													label="Copy row"
 													size="sm"
 													variant="quiet"
-													onclick={() =>
-														void copyWithToast('Row copied', row.join('\t'))}
+													onclick={() => void copyWithToast('Row copied', row.join('\t'))}
 												>
 													<Icon name="copy" />
 												</IconButton>
@@ -629,20 +607,9 @@
 			{/if}
 		</div>
 
-		<StatusBar class="pl-1!" ariaLabel="Structure status">
+		<StatusBar class={views.length ? 'pl-1.5!' : ''} ariaLabel="Structure status">
 			{#snippet left()}
-				{#if onopentable}
-					<Button
-						variant="ghost"
-						size="sm"
-						class="px-1.5!"
-						onclick={onopentable}
-						title="Open {openTableLabel.toLowerCase()} data in a new tab"
-					>
-						<Icon name={openTableIcon} class="size-3.5" />
-						{openTableLabel}
-					</Button>
-				{/if}
+				<ViewLinks links={views} />
 				{#if lastFetchedAt != null}
 					<span
 						class="inline-flex min-w-0 items-center gap-1 truncate text-caption text-fg-muted"

@@ -45,6 +45,9 @@
 		/** Reload tables / FKs from the database. */
 		onrefresh?: () => void
 		refreshing?: boolean
+		/** The focus table's other views. */
+		onopentable?: () => void
+		onopenstructure?: () => void
 	}
 
 	let {
@@ -54,6 +57,8 @@
 		focusNodeId = null,
 		onrefresh,
 		refreshing = false,
+		onopentable,
+		onopenstructure,
 	}: Props = $props()
 
 	let uiScale = $state(typeof document !== 'undefined' ? currentUiScale() : 1)
@@ -719,6 +724,8 @@
 		onAutoLayout={autoLayout}
 		onDownloadPng={() => void downloadPng()}
 		onRefresh={onrefresh}
+		onOpenTable={onopentable}
+		onOpenStructure={onopenstructure}
 		onZoomOut={zoomOut}
 		onZoomIn={zoomIn}
 		onResetZoom={resetZoom}

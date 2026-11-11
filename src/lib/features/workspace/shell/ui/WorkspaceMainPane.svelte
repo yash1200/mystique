@@ -156,6 +156,12 @@
 			: null,
 	)
 
+	const modelTable = $derived(
+		activeTab?.kind === 'model' && activeTab.tableId
+			? findCatalogTable(databases, activeTab.tableId)
+			: null,
+	)
+
 	const catalogError = $derived(catalogStore.statusOf(activeId).error)
 	// A restored tab renders before hydrate starts. The catalog leaf has no
 	// columns yet. Mounting the grid then stores an empty edit buffer and the
@@ -192,6 +198,10 @@
 	)
 	const querysaving = $derived(
 		!!activeTabId && querySave.savingTabId === activeTabId,
+	)
+	/** The engine draws ER diagrams or models: the views offer an ERD link. */
+	const hasErd = $derived(
+		!!(structureCaps?.supportsErDiagram || structureCaps?.supportsModelView),
 	)
 
 	let gridOriginals = $state<Record<string, unknown>[]>([])
@@ -385,6 +395,8 @@
 							focusNodeId={activeModel.focusNodeId}
 							onrefresh={() => void openModelDiagram(true)}
 							refreshing={modelLoading}
+							onopentable={modelTable ? () => void tablePreview.open(modelTable) : undefined}
+							onopenstructure={modelTable ? () => void openObjectStructure(modelTable) : undefined}
 						/>
 					{/key}
 				{:else}
@@ -433,6 +445,9 @@
 					onopentable={structureTable
 						? () => void tablePreview.open(structureTable)
 						: undefined}
+					onopenerd={structureTable && hasErd
+						? () => void openModelDiagram(false, { table: structureTable })
+						: undefined}
 				/>
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}
@@ -480,6 +495,9 @@
 							onopenreference={(ref, value) =>
 								void tablePreview.openReference(ref, value)}
 							onopenstructure={() => void openObjectStructure(gridTable)}
+							onopenerd={hasErd
+								? () => void openModelDiagram(false, { table: gridTable })
+								: undefined}
 							ondirtychange={(dirty) =>
 								workspaceSession.setTabDirty(activeTab.id, dirty)}
 							bind:originals={gridOriginals}

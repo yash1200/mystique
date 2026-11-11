@@ -21,13 +21,13 @@
 
 <footer
 	class={cn(
-		'flex h-statusbar shrink-0 items-center gap-x-2 border-t border-line bg-elevated px-2.5',
+		'flex h-statusbar shrink-0 items-center gap-x-2.5 border-t border-line bg-side pr-2 pl-3.5',
 		className,
 	)}
 	aria-label={ariaLabel}
 >
 	<div
-		class="flex h-full min-w-0 flex-1 items-center gap-1.5 self-stretch overflow-hidden text-caption leading-none text-fg-secondary"
+		class="flex h-full min-w-0 flex-1 items-center gap-2.5 self-stretch overflow-hidden text-label leading-none text-fg-muted"
 	>
 		{@render left?.()}
 	</div>
@@ -40,7 +40,7 @@
 	{/if}
 	{#if right}
 		<div
-			class="flex h-full min-w-0 flex-1 items-center justify-end gap-1 self-stretch leading-none"
+			class="flex h-full min-w-0 flex-1 items-center justify-end gap-1 self-stretch text-label leading-none text-fg-muted"
 		>
 			{@render right()}
 		</div>

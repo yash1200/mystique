@@ -84,6 +84,8 @@
 		onopenreference?: (ref: ColumnReference, value: unknown) => void
 		/** Open this table's structure in a new tab. */
 		onopenstructure?: () => void
+		/** Open this table's ER diagram; absent when the engine has none. */
+		onopenerd?: () => void
 		/** Tab id for the edit buffer. Remounts rehydrate this instead of the catalog. */
 		tabId?: string | null
 		connectionId?: string | null
@@ -111,6 +113,7 @@
 		codeFilterPlaceholder = '{ "email": "user@example.com" }',
 		onopenreference,
 		onopenstructure,
+		onopenerd,
 		tabId = null,
 		connectionId = null,
 		sqlDialect = '',
@@ -640,6 +643,7 @@
 		saving={saver.saving}
 		{readOnly}
 		onOpenStructure={onopenstructure}
+		onOpenErd={onopenerd}
 		onPrev={() => void loader.goToPage(paging.safePage - 1)}
 		onNext={() => void loader.goToPage(paging.safePage + 1)}
 		onRefresh={() => void loader.refresh()}

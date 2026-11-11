@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Icon, IconButton, StatusBar } from '#core/ui'
+	import { Button, Icon, IconButton, StatusBar, ViewLinks, type ViewLink } from '#core/ui'
 	import { cn } from '#core/util'
 	import { StatusNote } from '#features/toast'
 	interface Props {
@@ -19,6 +19,8 @@
 		onAutoLayout: () => void
 		onDownloadPng: () => void
 		onRefresh?: () => void
+		onOpenTable?: () => void
+		onOpenStructure?: () => void
 		onZoomOut: () => void
 		onZoomIn: () => void
 		onResetZoom: () => void
@@ -43,6 +45,8 @@
 		onAutoLayout,
 		onDownloadPng,
 		onRefresh,
+		onOpenTable,
+		onOpenStructure,
 		onZoomOut,
 		onZoomIn,
 		onResetZoom,
@@ -50,12 +54,22 @@
 		onToggleDbml,
 	}: Props = $props()
 
+	const views = $derived.by(() => {
+		const out: ViewLink[] = []
+		if (onOpenTable) out.push({ label: 'Data', icon: 'table', title: 'Open the table data', onclick: onOpenTable })
+		if (onOpenStructure) {
+			out.push({ label: 'Structure', icon: 'structure', title: 'Open the table structure', onclick: onOpenStructure })
+		}
+		return out
+	})
+
 	const step =
 		'grid h-full w-7 place-items-center border-none bg-transparent text-body leading-none text-fg-secondary transition-colors enabled:hover:bg-hover enabled:hover:text-fg disabled:opacity-40'
 </script>
 
 <StatusBar class="pl-1.5!" ariaLabel="ER diagram status">
 	{#snippet left()}
+		<ViewLinks links={views} />
 		<Button
 			variant="secondary"
 			size="sm"
