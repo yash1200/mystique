@@ -7,7 +7,8 @@
 
 use super::{
     default_export_formats, sql_export_formats, ConnectionKind, EngineCapabilities, EngineFamily,
-    ExplorerConfig, ModelViewKind, ObjectKindSpec, ObjectLabels, SupportDepth, TableAdminFeatures,
+    ExplorerConfig, ModelViewKind, ObjectKindSpec, ObjectLabels, PagingStyle, SupportDepth,
+    TableAdminFeatures,
 };
 
 impl EngineCapabilities {
@@ -52,6 +53,7 @@ impl EngineCapabilities {
             supports_explorer: true,
             support_depth: SupportDepth::Operate,
             object_kinds: ObjectKindSpec::relational(),
+            paging: PagingStyle::Offset,
         }
     }
 
@@ -93,6 +95,7 @@ impl EngineCapabilities {
             supports_explorer: true,
             support_depth: SupportDepth::Operate,
             object_kinds: ObjectKindSpec::document(),
+            paging: PagingStyle::Offset,
         }
     }
 }
@@ -115,13 +118,14 @@ mod tests {
     }
 
     #[test]
-    fn bases_default_to_operate_with_object_kinds() {
+    fn bases_default_to_operate_with_offset_paging() {
         for caps in [
             EngineCapabilities::relational("x", "sql"),
             EngineCapabilities::document("y", "MQL"),
         ] {
             assert_eq!(caps.support_depth, SupportDepth::Operate);
             assert!(caps.supports_explorer);
+            assert_eq!(caps.paging, PagingStyle::Offset);
             assert!(!caps.object_kinds.is_empty());
         }
     }
@@ -190,6 +194,7 @@ mod tests {
             serde_json::from_value(v).unwrap_or_else(|err| panic!("{err}"));
         assert_eq!(caps.support_depth, SupportDepth::Operate);
         assert!(caps.supports_explorer);
+        assert_eq!(caps.paging, PagingStyle::Offset);
         assert!(caps.object_kinds.is_empty());
     }
 }

@@ -10,6 +10,7 @@ import type {
 	ExplorerConfig,
 	ObjectKindSpec,
 	ObjectLabels,
+	PagingStyle,
 	SupportDepth,
 	TableAdminFeatures,
 } from '#core/contracts'
@@ -154,6 +155,7 @@ export function relationalCapabilities(
 		supportsExplorer: true,
 		supportDepth: 'operate',
 		objectKinds: [...SQL_OBJECT_KINDS],
+		paging: 'offset',
 		...over,
 		explorer,
 	}
@@ -223,6 +225,14 @@ function asString(v: unknown, fallback: string): string {
 function asStringList(v: unknown, fallback: string[]): string[] {
 	if (!Array.isArray(v)) return fallback
 	return v.filter((x): x is string => typeof x === 'string')
+}
+
+function asPaging(v: unknown, fallback: PagingStyle): PagingStyle {
+	const s = String(v ?? '')
+		.toLowerCase()
+		.trim()
+	if (s === 'offset' || s === 'token') return s
+	return fallback
 }
 
 function asKindList(v: unknown, fallback: ObjectKindSpec[]): ObjectKindSpec[] {
@@ -365,6 +375,7 @@ export function mergeCapabilities(
 			c.objectKinds ?? (c as { object_kinds?: unknown }).object_kinds,
 			fallback.objectKinds ?? [],
 		),
+		paging: asPaging(c.paging, fallback.paging ?? 'offset'),
 	}
 	return applySupportDepth(merged)
 }

@@ -30,6 +30,7 @@ describe('object kinds', () => {
 	it('keeps the adapter list when an older plugin sends none', () => {
 		const caps = mergeCapabilities({ ...base, objectKinds: [] }, base)
 		expect(caps.objectKinds.map((k) => k.id)).toEqual(['table', 'view'])
+		expect(caps.paging).toBe('offset')
 	})
 
 	it('treats an unknown kind as a grouped, definition-only object', () => {
@@ -49,5 +50,10 @@ describe('object kinds', () => {
 		expect(adminOpsApply('collection')).toBe(true)
 		expect(adminOpsApply('function')).toBe(false)
 		expect(adminOpsApply('matview')).toBe(false)
+	})
+
+	it('accepts token paging and ignores nonsense', () => {
+		expect(mergeCapabilities({ ...base, paging: 'token' }, base).paging).toBe('token')
+		expect(mergeCapabilities({ ...base, paging: 'pages' }, base).paging).toBe('offset')
 	})
 })

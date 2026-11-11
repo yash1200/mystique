@@ -219,6 +219,7 @@ impl AgentTools {
                 sort_column: None,
                 sort_dir: None,
                 execution_id: None,
+                page_token: None,
             })
             .await?;
         // A plugin that returns more than asked is cut here, not trusted.

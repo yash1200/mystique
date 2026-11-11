@@ -127,6 +127,10 @@ pub struct FetchTablePreviewRequest {
     /// Same id the query canvas uses, so closing the tab cancels the page load.
     #[serde(default)]
     pub execution_id: Option<String>,
+    /// [`crate::PagingStyle::Token`] engines: the `next_page_token` of the
+    /// previous page. Absent: the first page. `offset` is ignored when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_token: Option<String>,
 }
 
 /// Plugin input (session already resolved).
@@ -141,6 +145,9 @@ pub struct FetchTablePreviewInput {
     pub code_filter: Option<String>,
     pub sort_column: Option<String>,
     pub sort_dir: Option<String>,
+    /// Opaque cursor from the previous page's `next_page_token`. Only token
+    /// engines read it; it is never parsed outside the plugin that made it.
+    pub page_token: Option<String>,
     /// Replaced by the manager with the registered control before the plugin runs.
     pub control: Arc<QueryControl>,
 }
@@ -160,6 +167,10 @@ impl FetchTablePreviewRequest {
                 .filter(|s| !s.is_empty()),
             sort_column: self.sort_column,
             sort_dir: self.sort_dir,
+            page_token: self
+                .page_token
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             control: QueryControl::new(),
         }
     }
@@ -183,6 +194,11 @@ pub struct TablePreviewResult {
     pub total_known: bool,
     pub truncated: bool,
     pub duration_ms: u64,
+    /// [`crate::PagingStyle::Token`] engines: pass back as `page_token` for
+    /// the next page. `None`: this was the last page (or an offset engine).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub next_page_token: Option<String>,
 }
 
 /// Deferred COUNT + FK targets. Does not block first paint of a table.
@@ -265,6 +281,7 @@ impl FetchTablePreviewStatsRequest {
                 .filter(|s| !s.is_empty()),
             sort_column: None,
             sort_dir: None,
+            page_token: None,
             control: QueryControl::new(),
         }
     }

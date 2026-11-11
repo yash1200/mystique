@@ -494,6 +494,7 @@ mod tests {
             total_known: false,
             truncated: false,
             duration_ms: 0,
+            next_page_token: None,
         }
     }
 

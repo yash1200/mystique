@@ -114,6 +114,7 @@ pub(super) async fn fetch_table_preview(
         total_known: false,
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
+        next_page_token: None,
     })
 }
 

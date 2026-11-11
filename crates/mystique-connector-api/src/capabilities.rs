@@ -209,6 +209,9 @@ pub struct EngineCapabilities {
     /// (an older plugin): tables, views and collections only.
     #[serde(default)]
     pub object_kinds: Vec<ObjectKindSpec>,
+    /// How the grid asks for the next page of a table.
+    #[serde(default)]
+    pub paging: PagingStyle,
 }
 
 /// One kind of catalog object (`table`, `view`, `matview`, `sequence`,
@@ -288,6 +291,20 @@ impl ObjectKindSpec {
     pub fn document() -> Vec<Self> {
         vec![Self::collection()]
     }
+}
+
+/// How the grid pages a table.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "lowercase")]
+pub enum PagingStyle {
+    /// `offset` + `max_rows`; any page can be reached directly.
+    #[default]
+    Offset,
+    /// Forward only: each page returns an opaque `next_page_token` (Redis
+    /// SCAN, Elasticsearch `search_after`). The grid keeps the tokens it has
+    /// seen to go back.
+    Token,
 }
 
 impl EngineCapabilities {

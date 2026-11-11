@@ -535,7 +535,11 @@ supportDepth: SupportDepth,
  * [`crate::CatalogObject::kind`] it returns is one of these ids. Empty
  * (an older plugin): tables, views and collections only.
  */
-objectKinds: Array<ObjectKindSpec>, };
+objectKinds: Array<ObjectKindSpec>, 
+/**
+ * How the grid asks for the next page of a table.
+ */
+paging: PagingStyle, };
 
 export type EngineFamily = "RELATIONAL" | "DOCUMENT" | "WIDE_COLUMN" | "KEY_VALUE" | "OTHER";
 
@@ -665,7 +669,12 @@ sortDir?: string | null,
 /**
  * Same id the query canvas uses, so closing the tab cancels the page load.
  */
-executionId?: string | null, };
+executionId?: string | null, 
+/**
+ * [`crate::PagingStyle::Token`] engines: the `next_page_token` of the
+ * previous page. Absent: the first page. `offset` is ignored when set.
+ */
+pageToken?: string | null, };
 
 /**
  * Deferred COUNT + FK targets. Does not block first paint of a table.
@@ -920,6 +929,11 @@ connectionName?: string | null,
  * from the SSH checkbox so an unticked box does not reuse the saved tunnel.
  */
 useSavedSsh?: boolean, };
+
+/**
+ * How the grid pages a table.
+ */
+export type PagingStyle = "offset" | "token";
 
 /**
  * `parse_engine_connection_url` request.
@@ -1451,7 +1465,12 @@ totalRows: number,
  * False on the fast path (COUNT runs later). Pager must not treat
  * `total_rows` as authoritative until this is true.
  */
-totalKnown: boolean, truncated: boolean, durationMs: number, };
+totalKnown: boolean, truncated: boolean, durationMs: number, 
+/**
+ * [`crate::PagingStyle::Token`] engines: pass back as `page_token` for
+ * the next page. `None`: this was the last page (or an offset engine).
+ */
+nextPageToken?: string, };
 
 export type TablePreviewStats = { totalRows: number, totalKnown: boolean, references: Array<TablePreviewColumnRef>, };
 

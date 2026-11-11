@@ -158,6 +158,10 @@ pub async fn stream_table_by_preview<S: ConnectorSession + ?Sized>(
     control: &Arc<QueryControl>,
     sink: &mut dyn RowSink,
 ) -> ConnectorResult<()> {
+    // Token engines (SCAN, search_after) page forward by cursor; a short or
+    // empty page does not mean the end, only a missing token does.
+    let by_token = session.capabilities().paging == crate::PagingStyle::Token;
+    let mut token: Option<String> = None;
     let mut offset: u32 = 0;
     let mut sent_columns = false;
     loop {
@@ -174,6 +178,7 @@ pub async fn stream_table_by_preview<S: ConnectorSession + ?Sized>(
                 sort_column: None,
                 sort_dir: None,
                 control: Arc::clone(control),
+                page_token: token.take(),
             })
             .await?;
         if !sent_columns && !page.columns.is_empty() {
@@ -183,6 +188,15 @@ pub async fn stream_table_by_preview<S: ConnectorSession + ?Sized>(
         let count = page.rows.len();
         if count > 0 {
             sink.rows(page.rows).await?;
+        }
+        if by_token {
+            match page.next_page_token {
+                Some(next) => {
+                    token = Some(next);
+                    continue;
+                }
+                None => return Ok(()),
+            }
         }
         if count < EXPORT_CHUNK_SIZE as usize {
             return Ok(());
@@ -599,5 +613,94 @@ mod tests {
         let sql = std::fs::read_to_string(&dest).expect("read");
         assert_eq!(sql.matches("INSERT INTO").count(), 3, "{sql}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A token engine: three pages, the middle one empty (Redis SCAN does
+    /// this), each pointing at the next.
+    struct TokenPages;
+
+    #[async_trait::async_trait]
+    impl crate::ConnectorSession for TokenPages {
+        fn engine_id(&self) -> &str {
+            "kv"
+        }
+
+        fn capabilities(&self) -> crate::EngineCapabilities {
+            crate::EngineCapabilities {
+                paging: crate::PagingStyle::Token,
+                ..crate::EngineCapabilities::document("kv", "CMD")
+            }
+        }
+
+        async fn ping(&self) -> ConnectorResult<()> {
+            Ok(())
+        }
+
+        fn pool_status(&self) -> Option<crate::PoolStatus> {
+            None
+        }
+
+        async fn close(&self) -> ConnectorResult<()> {
+            Ok(())
+        }
+
+        async fn fetch_table_preview(
+            &self,
+            input: &crate::FetchTablePreviewInput,
+        ) -> ConnectorResult<crate::TablePreviewResult> {
+            let (rows, next) = match input.page_token.as_deref() {
+                None => (vec![vec![json!("a")]], Some("p2")),
+                Some("p2") => (vec![], Some("p3")),
+                Some("p3") => (vec![vec![json!("b")], vec![json!("c")]], None),
+                Some(other) => panic!("unexpected token {other}"),
+            };
+            Ok(crate::TablePreviewResult {
+                engine: "kv".into(),
+                columns: vec![column("key")],
+                row_count: rows.len() as u64,
+                rows,
+                total_rows: 0,
+                total_known: false,
+                truncated: false,
+                duration_ms: 0,
+                next_page_token: next.map(str::to_string),
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct Collect {
+        rows: Vec<Vec<JsonValue>>,
+    }
+
+    #[async_trait::async_trait]
+    impl RowSink for Collect {
+        async fn columns(&mut self, _columns: Vec<ColumnInfo>) -> ConnectorResult<()> {
+            Ok(())
+        }
+
+        async fn rows(&mut self, rows: Vec<Vec<JsonValue>>) -> ConnectorResult<()> {
+            self.rows.extend(rows);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_token_engine_streams_past_short_and_empty_pages() {
+        let mut sink = Collect::default();
+        stream_table_by_preview(
+            &TokenPages,
+            None,
+            None,
+            "t",
+            &QueryControl::new(),
+            &mut sink,
+        )
+        .await
+        .expect("stream");
+        assert_eq!(
+            sink.rows,
+            vec![vec![json!("a")], vec![json!("b")], vec![json!("c")]]
+        );
     }
 }

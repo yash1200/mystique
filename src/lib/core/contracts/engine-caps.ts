@@ -10,6 +10,7 @@ export type {
 	ModelViewKind,
 	ObjectKindSpec,
 	ObjectLabels,
+	PagingStyle,
 	SupportDepth,
 	TableAdminFeatures,
 } from '../ipc/bindings.gen'
