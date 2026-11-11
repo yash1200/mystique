@@ -24,8 +24,8 @@
 <div class="m-auto flex max-w-panel-sm flex-col items-center py-8 text-center">
 	<span
 		class={accent
-			? 'grid size-10 place-items-center rounded-xl bg-accent-muted text-accent'
-			: 'grid size-10 place-items-center rounded-xl bg-elevated text-fg-muted ring-1 ring-line'}
+			? 'grid size-10 place-items-center rounded-xl bg-accent-soft text-accent-text'
+			: 'grid size-10 place-items-center rounded-xl bg-raised text-fg-muted ring-1 ring-line'}
 		aria-hidden="true"
 	>
 		<Icon name={icon} class="size-5" />

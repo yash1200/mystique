@@ -22,7 +22,7 @@ type TransitionConfig = {
 	css: (t: number) => string
 }
 
-/** CSS `cubic-bezier(0.23, 1, 0.32, 1)` — strong ease-out for UI enter/exit. */
+/** `cubic-bezier(0.23, 1, 0.32, 1)`: a strong ease-out for Svelte enter/exit transitions. */
 export const easeOut = cubicBezier(0.23, 1, 0.32, 1)
 
 /** CSS `ease` — toast personality (Sonner-style, slightly softer). */

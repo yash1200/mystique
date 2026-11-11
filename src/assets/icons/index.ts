@@ -1,9 +1,7 @@
 import alertCircle from './alert-circle.svg?raw'
 import arrowDown from './arrow-down.svg?raw'
 import arrowUp from './arrow-up.svg?raw'
-import bookmarkFilled from './bookmark-filled.svg?raw'
 import bookmark from './bookmark.svg?raw'
-import chat from './chat.svg?raw'
 import check from './check.svg?raw'
 import chevronDown from './chevron-down.svg?raw'
 import chevronLeft from './chevron-left.svg?raw'
@@ -81,8 +79,6 @@ const files = {
 	star,
 	'star-filled': starFilled,
 	bookmark,
-	'bookmark-filled': bookmarkFilled,
-	chat,
 	history,
 	funnel,
 	code,

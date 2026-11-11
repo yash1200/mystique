@@ -11,7 +11,7 @@
 </script>
 
 <aside
-	class="flex w-80 shrink-0 flex-col border-l border-line bg-panel"
+	class="flex w-80 shrink-0 flex-col border-l border-line bg-surface"
 	aria-label="Pending SQL"
 >
 	<header class="flex shrink-0 items-center justify-between border-b border-line px-2.5 py-1.5">

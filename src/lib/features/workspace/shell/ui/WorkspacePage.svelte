@@ -117,7 +117,7 @@
 	<div class="flex h-screen items-center justify-center bg-app p-6">
 		<div class="max-w-md text-center">
 			<p class="text-body text-danger">{bootError}</p>
-			<a class="mt-3 inline-block text-body text-accent" href="/"
+			<a class="mt-3 inline-block text-body text-accent-text" href="/"
 				>Back to home</a
 			>
 		</div>

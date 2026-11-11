@@ -529,7 +529,7 @@
 </script>
 
 <aside
-	class="flex h-full w-full min-w-0 flex-col bg-panel"
+	class="flex h-full w-full min-w-0 flex-col bg-surface"
 	aria-label="Database objects"
 	aria-busy={refreshing || refreshingTables || undefined}
 >
@@ -606,7 +606,7 @@
 				{presentation.listTitle}
 			</h2>
 			<span
-				class="shrink-0 rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
+				class="shrink-0 rounded-sm bg-field px-1 font-mono text-micro text-fg-muted tabular-nums"
 				title={filtering
 					? `${totalCount} of ${catalogCount} ${presentation.objectLabel}`
 					: `${catalogCount} ${presentation.objectLabel}`}

@@ -408,7 +408,7 @@
 				{@const pairs = columnPairsFor(change)}
 				{@const pick = columnPick[change.name] ?? { from: '', to: '' }}
 				<article
-					class="rounded-md border border-line bg-panel px-2.5 py-2"
+					class="rounded-md border border-line bg-surface px-2.5 py-2"
 					class:opacity-60={!change.selected}
 				>
 					<label class="m-0 flex items-center gap-2 font-mono text-label text-fg">

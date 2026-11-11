@@ -117,7 +117,7 @@
 	min={EXPLORER_PANEL_WIDTH_MIN}
 	max={EXPLORER_PANEL_WIDTH_MAX}
 	label="Resize side panel"
-	class="h-full border-r border-line bg-panel"
+	class="h-full border-r border-line bg-surface"
 	data-explorer-panel
 	onresize={(n) => appPrefs.setExplorerPanelWidth(n, false)}
 	oncommit={(n) => appPrefs.setExplorerPanelWidth(n, true)}

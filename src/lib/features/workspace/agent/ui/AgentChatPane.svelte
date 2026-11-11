@@ -756,7 +756,7 @@
 <style>
 	.agent-thread {
 		scrollbar-width: thin;
-		scrollbar-color: var(--border-strong) transparent;
+		scrollbar-color: var(--line-2) transparent;
 	}
 </style>
 

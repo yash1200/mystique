@@ -86,7 +86,7 @@
 </script>
 
 <aside
-	class="flex h-full w-80 shrink-0 flex-col border-l border-line bg-panel"
+	class="flex h-full w-80 shrink-0 flex-col border-l border-line bg-surface"
 	aria-label="Row details"
 >
 	<header class="shrink-0 border-b border-line">

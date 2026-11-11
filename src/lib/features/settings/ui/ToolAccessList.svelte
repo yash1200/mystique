@@ -60,7 +60,7 @@
 	}
 </script>
 
-<div class="overflow-hidden rounded-lg border border-line bg-panel">
+<div class="overflow-hidden rounded-lg border border-line bg-surface">
 	<ul class="m-0 flex list-none flex-col divide-y divide-line p-0">
 		{#each connections as c (c.id)}
 			{@const known = knownDatabases(c)}

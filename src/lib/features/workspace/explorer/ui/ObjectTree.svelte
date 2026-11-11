@@ -49,10 +49,10 @@
 
 
 	function wellClass(kind: TableMeta['kind'], active: boolean): string {
-		if (active) return 'bg-accent-muted'
+		if (active) return 'bg-accent-soft'
 		if (kind === 'view') return 'bg-info/15'
-		if (kind === 'table' || kind === 'collection') return 'bg-success/15'
-		return 'bg-input'
+		if (kind === 'table' || kind === 'collection') return 'bg-accent-soft'
+		return 'bg-field'
 	}
 
 	type KindSection = { spec: ObjectKindSpec; items: TableMeta[] }
@@ -133,7 +133,7 @@
 {#snippet highlighted(text: string)}
 	{#each matchParts(text, query) as part, i (i)}
 		{#if part.hit}
-			<mark class="rounded-sm bg-accent-muted p-0 text-fg">{part.text}</mark>
+			<mark class="rounded-sm bg-accent-soft p-0 text-fg">{part.text}</mark>
 		{:else}
 			{part.text}
 		{/if}
@@ -151,8 +151,8 @@
 			type="button"
 			class={cn(
 				'relative flex h-control-sm w-full items-center gap-1.5 rounded-md border-none px-1.5 text-left transition-colors duration-150',
-				'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
-				active ? 'bg-accent-muted' : 'bg-transparent hover:bg-hover',
+				'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
+				active ? 'bg-accent-soft' : 'bg-transparent hover:bg-hover',
 			)}
 			aria-label="{t.name}, {t.kind}"
 			title={objectTitle(t)}
@@ -219,7 +219,7 @@
 				class={cn(
 					'flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-transparent px-1.5 text-left transition-colors duration-150',
 					'text-fg-muted hover:bg-hover hover:text-fg',
-					'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+					'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 				)}
 				aria-expanded={open}
 				onclick={() => toggleSection(key)}
@@ -235,7 +235,7 @@
 					{section.spec.plural}
 				</span>
 				<span
-					class="shrink-0 rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
+					class="shrink-0 rounded-sm bg-field px-1 font-mono text-micro text-fg-muted tabular-nums"
 				>
 					{section.items.length}
 				</span>
@@ -269,7 +269,7 @@
 			class="flex flex-col items-center justify-center px-3 py-8 text-center"
 		>
 			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
 				aria-hidden="true"
 			>
 				<CatalogIcon name="database" class="size-4" />
@@ -284,7 +284,7 @@
 			class="flex flex-col items-center justify-center px-3 py-8 text-center"
 		>
 			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
 				aria-hidden="true"
 			>
 				<Icon name="refresh" class="size-4 animate-spin text-fg-muted" />
@@ -296,7 +296,7 @@
 			class="flex flex-col items-center justify-center px-3 py-8 text-center"
 		>
 			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
 				aria-hidden="true"
 			>
 				<Icon
@@ -326,9 +326,9 @@
 				<button
 					type="button"
 					class={cn(
-						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-panel/95 px-1.5 text-left transition-colors duration-150',
+						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-surface/95 px-1.5 text-left transition-colors duration-150',
 						'text-fg-secondary hover:bg-hover hover:text-fg',
-						'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+						'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 					)}
 					aria-expanded={expanded}
 					title="{groupLabel} {group.key}"
@@ -346,7 +346,7 @@
 						{@render highlighted(group.key)}
 					</span>
 					<span
-						class="shrink-0 rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
+						class="shrink-0 rounded-sm bg-field px-1 font-mono text-micro text-fg-muted tabular-nums"
 					>
 						{group.items.length}
 					</span>

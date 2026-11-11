@@ -281,7 +281,7 @@
 	)
 </script>
 
-<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app">
 	{#if comparing && table && connectionId}
 		<StructureDiff
 			{connectionId}
@@ -304,10 +304,10 @@
 			<div
 				class="flex h-12 shrink-0 items-center gap-2.5 border-b border-line bg-surface pr-3 pl-4"
 			>
-				<div class="size-6 animate-pulse rounded-md bg-input"></div>
-				<div class="h-3 w-36 animate-pulse rounded-sm bg-input"></div>
+				<div class="size-6 animate-pulse rounded-md bg-field"></div>
+				<div class="h-3 w-36 animate-pulse rounded-sm bg-field"></div>
 				<div
-					class="ml-auto h-control-sm w-52 animate-pulse rounded-md bg-input"
+					class="ml-auto h-control-sm w-52 animate-pulse rounded-md bg-field"
 				></div>
 			</div>
 			<div
@@ -318,25 +318,25 @@
 						class="flex items-center gap-1.5 px-2.5"
 						style="animation-delay: {i * 40}ms"
 					>
-						<div class="h-3 w-16 animate-pulse rounded-sm bg-input"></div>
+						<div class="h-3 w-16 animate-pulse rounded-sm bg-field"></div>
 					</div>
 				{/each}
 			</div>
 			<div class="min-h-0 flex-1">
 				<div class="flex h-8.5 items-center gap-4 border-b border-line bg-surface px-4">
-					<div class="h-3 w-8 animate-pulse rounded-sm bg-input"></div>
-					<div class="h-3 w-24 animate-pulse rounded-sm bg-input"></div>
-					<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
-					<div class="h-3 flex-1 animate-pulse rounded-sm bg-input/50"></div>
+					<div class="h-3 w-8 animate-pulse rounded-sm bg-field"></div>
+					<div class="h-3 w-24 animate-pulse rounded-sm bg-field"></div>
+					<div class="h-3 w-20 animate-pulse rounded-sm bg-field/70"></div>
+					<div class="h-3 flex-1 animate-pulse rounded-sm bg-field/50"></div>
 				</div>
 				{#each [1, 2, 3, 4, 5, 6, 7, 8] as r (r)}
 					<div
 						class="flex h-10 items-center gap-4 border-b border-line px-4"
 					>
-						<div class="h-3 w-6 animate-pulse rounded-sm bg-input/60"></div>
-						<div class="h-3 w-28 animate-pulse rounded-sm bg-input"></div>
-						<div class="h-3 w-20 animate-pulse rounded-sm bg-input/70"></div>
-						<div class="h-3 w-12 animate-pulse rounded-sm bg-input/50"></div>
+						<div class="h-3 w-6 animate-pulse rounded-sm bg-field/60"></div>
+						<div class="h-3 w-28 animate-pulse rounded-sm bg-field"></div>
+						<div class="h-3 w-20 animate-pulse rounded-sm bg-field/70"></div>
+						<div class="h-3 w-12 animate-pulse rounded-sm bg-field/50"></div>
 					</div>
 				{/each}
 			</div>
@@ -458,7 +458,7 @@
 						class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
 					>
 						<span
-							class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+							class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
 							aria-hidden="true"
 						>
 							<Icon
@@ -479,7 +479,7 @@
 						class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
 					>
 						<span
-							class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+							class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
 							aria-hidden="true"
 						>
 							<Icon name="search" class="size-4 text-fg-muted" />
@@ -655,7 +655,7 @@
 			class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
 		>
 			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-input"
+				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
 				aria-hidden="true"
 			>
 				<Icon name="structure" class="size-4 text-info" />

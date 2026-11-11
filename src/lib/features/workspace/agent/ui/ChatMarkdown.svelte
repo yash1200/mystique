@@ -44,7 +44,7 @@
 		{ label: string; box: string }
 	> = {
 		note: { label: 'Note', box: 'border-info/35 bg-info/12' },
-		tip: { label: 'Tip', box: 'border-success/35 bg-success/12' },
+		tip: { label: 'Tip', box: 'border-accent-text/35 bg-accent-soft' },
 		important: { label: 'Important', box: 'border-accent/35 bg-accent/10' },
 		warning: { label: 'Warning', box: 'border-warning/35 bg-warning/12' },
 		caution: { label: 'Caution', box: 'border-danger/35 bg-danger/12' },
@@ -61,7 +61,7 @@
 	{#each nodes ?? [] as node, i (i)}
 		{#if node.type === 'text'}{node.value}{:else if node.type === 'break'}<br
 			/>{:else if node.type === 'code'}<code
-				class="rounded-sm bg-input px-1 py-px font-mono text-caption text-syntax-name"
+				class="rounded-sm bg-field px-1 py-px font-mono text-caption text-syntax-name"
 				>{node.value}</code
 			>{:else if node.type === 'strong'}<strong class="font-semibold text-fg"
 				>{@render inlineNodes(node.children)}</strong
@@ -74,7 +74,7 @@
 				title={node.title}
 				target="_blank"
 				rel="external noreferrer"
-				class="text-accent underline-offset-2 hover:underline"
+				class="text-accent-text underline-offset-2 hover:underline"
 				>{@render inlineNodes(node.children)}</a
 			>{:else if node.type === 'link'}{@render inlineNodes(
 				node.children,
@@ -184,7 +184,7 @@
 		{:else if block.type === 'table'}
 			<div class="overflow-x-auto rounded-lg border border-line">
 				<table class="w-full border-collapse text-left">
-					<thead class="bg-elevated">
+					<thead class="bg-raised">
 						<tr>
 							{#each block.head as cell, c (c)}
 								<th
@@ -200,7 +200,7 @@
 					</thead>
 					<tbody>
 						{#each block.rows as row, r (r)}
-							<tr class="odd:bg-panel even:bg-elevated">
+							<tr class="odd:bg-surface even:bg-raised">
 								{#each row as cell, c (c)}
 									<td
 										class={cn(

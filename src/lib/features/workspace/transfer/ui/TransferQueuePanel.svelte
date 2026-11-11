@@ -35,7 +35,7 @@
 	const tone: Record<TransferTask['status'], string> = {
 		queued: 'text-fg-muted',
 		running: 'text-fg-secondary',
-		done: 'text-success',
+		done: 'text-accent-text',
 		cancelled: 'text-fg-muted',
 		failed: 'text-danger',
 	}
@@ -43,7 +43,7 @@
 
 {#if tasks.length > 0}
 	<section
-		class="fixed bottom-[calc(var(--spacing-control)+theme(spacing.5))] left-5 z-40 flex w-panel-sm max-w-[calc(100vw-2.5rem)] flex-col gap-2 rounded-lg border border-line bg-elevated px-3 py-2.5 text-caption text-fg shadow-md"
+		class="fixed bottom-[calc(var(--spacing-control)+theme(spacing.5))] left-5 z-40 flex w-panel-sm max-w-[calc(100vw-2.5rem)] flex-col gap-2 rounded-lg border border-line bg-raised px-3 py-2.5 text-caption text-fg shadow-md"
 		aria-label="Background transfers"
 	>
 		<header class="flex items-center justify-between gap-2">

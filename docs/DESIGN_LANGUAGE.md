@@ -12,9 +12,9 @@ Chrome stays neutral and recessive so connection colours, environment badges and
 query results carry the signal. Every theme is a neutral ramp crossed with one
 accent ramp, mapped onto the same semantic tokens.
 
-> **Migration:** the home screen (connection list, detail, its dialogs) is on v1.
-> Other screens still use the older class names in §3, which now alias the v1
-> tokens, so they already follow the new themes. Move them screen by screen.
+> Every screen is on v1. The pre-v1 names (`bg-panel`, `bg-elevated`,
+> `bg-input`, `accent-muted`, `success`, `--bg-app`, `--text-primary`…) are
+> gone; use only the names in §3.
 
 ---
 
@@ -95,8 +95,8 @@ every theme so PROD always reads as PROD.
 | `bg-accent` / `bg-accent-hover` | `--accent` | Primary action |
 | `bg-accent-soft` | `--accent-soft` | Selected fills, focus halo, ok state |
 
-Older names (alias the above): `bg-panel` = surface, `bg-elevated` = raised,
-`bg-input` = field, `bg-accent-muted` = accent-soft, `bg-active` / `bg-selected`.
+`bg-selected` (`--selected`, accent at 18%) marks selected text and rows in
+the editor and grids.
 
 ### 3.2 Text
 
@@ -123,7 +123,7 @@ Older names (alias the above): `bg-panel` = surface, `bg-elevated` = raised,
 
 | Tone | Text | Soft fill | Meaning |
 | ---- | ---- | --------- | ------- |
-| accent | `text-accent-text` (`text-success`) | `bg-accent-soft` | Connected, ok |
+| accent | `text-accent-text` | `bg-accent-soft` | Connected, ok |
 | warning | `text-warning` | `bg-warn-soft` | **Production only**, caution |
 | danger | `text-danger` | `bg-danger-soft` | Delete, errors |
 | info | `text-info` | `bg-info-soft` | Read-only, info |
@@ -250,7 +250,6 @@ Depth by light, not by colour.
 | `h-control-lg` / `size-control-lg` | 40px | The one hero action (Connect) |
 | `h-topbar` | 52px | Sidebar header, page bar |
 | `h-statusbar` | 34px | Workspace status footers |
-| `min-h-row`, `min-h-grid-row` | density | Lists, grid cells |
 
 Hit targets ≥ 28px. Input padding `px-3`; icon insets via `Input inset`.
 
@@ -322,8 +321,7 @@ All motion respects `prefers-reduced-motion`.
 
 ## 13. Atmosphere
 
-Quiet surfaces: no grain, no gradient washes (`bg-app-wash` is now the plain
-canvas). Personality lives in the mascot and its small, skippable easter eggs
+Quiet surfaces: no grain, no gradient washes; the canvas is plain `bg-app`. Personality lives in the mascot and its small, skippable easter eggs
 (logo zoomies, treat search, the corner peek), never in the way of work.
 
 ---

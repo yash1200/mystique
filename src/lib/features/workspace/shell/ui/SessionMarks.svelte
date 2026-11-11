@@ -50,7 +50,7 @@
 
 {#if profile.readOnly}
 	<div
-		class="flex h-control-sm shrink-0 items-center gap-1 border-b border-line bg-panel px-2"
+		class="flex h-control-sm shrink-0 items-center gap-1 border-b border-line bg-surface px-2"
 		role="group"
 		aria-label="Connection safety"
 	>

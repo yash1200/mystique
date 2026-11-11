@@ -218,7 +218,7 @@ class AppPrefsStore {
 		else delete root.dataset.palette
 		document.documentElement.dataset.density = this.density
 		const bg = getComputedStyle(document.documentElement)
-			.getPropertyValue('--bg-app')
+			.getPropertyValue('--bg')
 			.trim()
 		const meta = document.querySelector('meta[name="theme-color"]')
 		if (meta && bg) meta.setAttribute('content', bg)

@@ -103,7 +103,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
-		class="absolute inset-0 touch-none overflow-auto overscroll-none bg-app-wash"
+		class="absolute inset-0 touch-none overflow-auto overscroll-none bg-app"
 		bind:this={canvasEl}
 		role="application"
 		aria-label="Live ER diagram"

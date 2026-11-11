@@ -106,7 +106,7 @@
 	{/if}
 	{#if open && body}
 		<div
-			class="mt-1 overflow-hidden rounded-lg border border-line bg-elevated p-2"
+			class="mt-1 overflow-hidden rounded-lg border border-line bg-raised p-2"
 			data-chat-message
 			transition:fade={{ duration: 140 }}
 		>
@@ -120,7 +120,7 @@
 		width: 0.75rem;
 		height: 0.75rem;
 		border-radius: 999px;
-		border: 1.5px solid var(--border-strong);
+		border: 1.5px solid var(--line-2);
 		border-top-color: var(--accent);
 		animation: agent-tool-spin 0.8s linear infinite;
 	}

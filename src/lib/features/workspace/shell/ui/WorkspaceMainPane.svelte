@@ -357,7 +357,7 @@
 				{/if}
 			</div>
 		{:else if activeSession && activeTab?.kind === 'model'}
-			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app">
 				{#if modelError}
 					<div
 						class="shrink-0 border-b border-line bg-danger/10 px-3 py-2 text-caption text-danger"
@@ -365,7 +365,7 @@
 						{modelError}
 						<button
 							type="button"
-							class="ml-2 border-none bg-transparent text-accent underline"
+							class="ml-2 border-none bg-transparent text-accent-text underline"
 							onclick={() => void openModelDiagram(true)}
 						>
 							Retry
@@ -451,7 +451,7 @@
 				/>
 			{/key}
 		{:else if activeSession && activeTab?.kind === 'table'}
-			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+			<div class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app">
 				{#if showTableLoading}
 					<div class="flex flex-1 items-center justify-center p-8">
 						<div class="flex flex-col items-center gap-3" aria-busy="true">

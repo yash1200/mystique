@@ -285,7 +285,7 @@
 		bind:this={previewEl}
 		use:portalToBody
 		class={cn(
-			'pointer-events-none fixed z-50 flex overflow-hidden rounded-md border border-line-strong bg-elevated shadow-md',
+			'pointer-events-none fixed z-50 flex overflow-hidden rounded-md border border-line-strong bg-raised shadow-md',
 			previewClass,
 		)}
 		style={previewStyle}

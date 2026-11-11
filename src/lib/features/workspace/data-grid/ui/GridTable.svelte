@@ -399,14 +399,14 @@
 <div class="gt-scroll min-h-0 flex-1" data-grid-scroll bind:this={scrollEl}>
 	<div class="gt-canvas" style="width: {canvasW}px">
 		<table
-			class="gt-table border-collapse bg-elevated text-left"
+			class="gt-table border-collapse bg-raised text-left"
 			data-grid-head
 			style="width: {canvasW}px"
 		>
 			<thead class="sticky top-0 z-10">
 				<tr>
 					<th
-						class="gt-idx sticky left-0 z-20 border-b border-r border-line bg-elevated px-2 py-1.5 text-caption font-semibold text-fg-muted"
+						class="gt-idx sticky left-0 z-20 border-b border-r border-line bg-raised px-2 py-1.5 text-caption font-semibold text-fg-muted"
 						style="width: {indexW}px"
 					>
 						#
@@ -420,7 +420,7 @@
 						<th
 							class={cn(
 								'border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary',
-								part.left != null ? 'sticky z-20 bg-elevated' : 'relative',
+								part.left != null ? 'sticky z-20 bg-raised' : 'relative',
 							)}
 							style="width: {part.width}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
 							title={col.type}
@@ -434,7 +434,7 @@
 								<span class="min-w-0 flex-1 truncate">
 									<span class="text-fg">{col.name}</span>
 									{#if col.pk}
-										<span class="ml-1 font-semibold text-accent" title="Primary key">PK</span>
+										<span class="ml-1 font-semibold text-accent-text" title="Primary key">PK</span>
 									{/if}
 									<span class="ml-1.5 font-mono font-normal text-fg-muted">{col.type}</span>
 								</span>
@@ -444,7 +444,7 @@
 										class={cn(
 											'inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent p-0 leading-none transition-colors',
 											active
-												? 'text-accent hover:bg-accent-muted'
+												? 'text-accent-text hover:bg-accent-soft'
 												: 'text-fg-muted/70 hover:border-line hover:bg-hover hover:text-fg-secondary',
 										)}
 										title={sortLabel(col.name)}
@@ -511,7 +511,7 @@
 								!isDeleted && isNew && 'bg-info/12',
 								!isDeleted && isNew && rowSelected && 'bg-info/22',
 								!isDeleted && !isNew && rowSelected && 'bg-selected',
-								!isDeleted && !isNew && !rowSelected && stripe && 'bg-panel',
+								!isDeleted && !isNew && !rowSelected && stripe && 'bg-surface',
 							)}
 							style="height: {rowH}px"
 							aria-selected={rowSelected}
@@ -526,7 +526,7 @@
 											: rowSelected
 												? 'bg-selected text-fg-muted'
 												: stripe
-													? 'bg-panel text-fg-muted'
+													? 'bg-surface text-fg-muted'
 													: 'bg-app text-fg-muted',
 								)}
 								style="width: {indexW}px"
@@ -580,7 +580,7 @@
 													: rowSelected
 														? 'bg-selected'
 														: stripe
-															? 'bg-panel'
+															? 'bg-surface'
 															: 'bg-app'),
 										isDeleted && 'text-danger/80',
 										dirty &&
@@ -589,7 +589,7 @@
 											!cellSelected &&
 											!isFocused &&
 											'bg-warning/15 ring-1 ring-inset ring-warning/40',
-										isEditing && 'bg-input ring-2 ring-inset ring-accent',
+										isEditing && 'bg-field ring-2 ring-inset ring-accent',
 										isFocused &&
 											!isEditing &&
 											!isDeleted &&
@@ -658,7 +658,7 @@
 											{@const ref = col.ref}
 											<button
 												type="button"
-												class="inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent bg-transparent p-0 leading-none text-fg-muted transition-colors hover:border-accent/30 hover:bg-accent-muted hover:text-accent"
+												class="inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent bg-transparent p-0 leading-none text-fg-muted transition-colors hover:border-accent/30 hover:bg-accent-soft hover:text-accent-text"
 												title={`Open ${ref.schema ? `${ref.schema}.` : ''}${ref.table}.${ref.column}`}
 												aria-label={`Open referenced ${ref.table} row`}
 												onclick={(e) => {
@@ -681,7 +681,7 @@
 											{@const options = selectOptionsForColumn(col, raw)}
 											<select
 												bind:this={inputEl}
-												class="absolute inset-0 box-border h-full w-full border-none bg-input px-2 py-0.5 font-mono text-label text-fg focus:outline-none"
+												class="absolute inset-0 box-border h-full w-full border-none bg-field px-2 py-0.5 font-mono text-label text-fg focus:outline-none"
 												bind:value={draft}
 												onkeydown={onInputKeydown}
 												onchange={onCommitEdit}

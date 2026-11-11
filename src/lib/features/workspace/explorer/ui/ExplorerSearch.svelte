@@ -47,7 +47,7 @@
 	{#if hasValue}
 		<button
 			type="button"
-			class="absolute top-1/2 right-0.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm border-none bg-transparent text-fg-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1 enabled:active:scale-[0.97]"
+			class="absolute top-1/2 right-0.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm border-none bg-transparent text-fg-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1 enabled:active:scale-[0.97]"
 			aria-label="Clear filter"
 			onclick={clear}
 		>

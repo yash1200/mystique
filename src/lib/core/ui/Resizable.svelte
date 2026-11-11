@@ -158,18 +158,18 @@
 	const handleClass = $derived(
 		variant === 'split'
 			? cn(
-					'group relative z-10 flex shrink-0 items-center justify-center border-line bg-elevated p-0 hover:bg-hover',
+					'group relative z-10 flex shrink-0 items-center justify-center border-line bg-raised p-0 hover:bg-hover',
 					axis === 'y'
 						? 'h-1.5 w-full cursor-row-resize border-x-0 border-y'
 						: 'h-full w-1.5 cursor-col-resize border-y-0 border-x',
-					dragging && 'bg-accent-muted',
+					dragging && 'bg-accent-soft',
 				)
 			: cn(
 					'group absolute z-10 flex shrink-0 items-center justify-center border-none bg-transparent p-0',
 					axis === 'x' ? 'cursor-col-resize' : 'cursor-row-resize',
 					handlePos,
 					'hover:bg-hover/80',
-					dragging && 'bg-accent-muted',
+					dragging && 'bg-accent-soft',
 				),
 	)
 

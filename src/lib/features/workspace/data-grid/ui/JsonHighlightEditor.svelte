@@ -43,10 +43,10 @@
 
 <div
 	class={cn(
-		'relative overflow-hidden bg-input',
+		'relative overflow-hidden bg-field',
 		fill
 			? 'min-h-0 flex-1'
-			: 'min-h-64 flex-1 rounded-md border border-line focus-within:border-focus focus-within:ring-2 focus-within:ring-accent-muted',
+			: 'min-h-64 flex-1 rounded-md border border-line focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft',
 		invalid && 'border-danger/50',
 		className,
 	)}

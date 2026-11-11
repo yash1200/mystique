@@ -218,13 +218,13 @@
 
 {#if ready}
 	<div
-		class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel"
+		class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface"
 	>
 		<div class="px-3 py-3">
 			<p class="m-0 mb-1.5 text-caption font-medium text-fg-secondary">URL</p>
 			<div class="flex items-center gap-1.5">
 				<code
-					class="min-w-0 flex-1 truncate rounded-md border border-line bg-input px-2 py-1 font-mono text-caption text-fg"
+					class="min-w-0 flex-1 truncate rounded-md border border-line bg-field px-2 py-1 font-mono text-caption text-fg"
 					>{mcp.url}</code
 				>
 				<Button size="sm" onclick={() => void copy(mcp.url ?? '', 'url')}>
@@ -238,7 +238,7 @@
 			</p>
 			<div class="flex items-center gap-1.5">
 				<code
-					class="min-w-0 flex-1 truncate rounded-md border border-line bg-input px-2 py-1 font-mono text-caption text-fg"
+					class="min-w-0 flex-1 truncate rounded-md border border-line bg-field px-2 py-1 font-mono text-caption text-fg"
 					>{mcp.token}</code
 				>
 				<Button size="sm" onclick={() => void copy(mcp.token ?? '', 'token')}>
@@ -258,7 +258,7 @@
 			<p class="mt-0 mb-2 text-caption text-fg-muted">
 				Add Mystique to an AI tool already installed here.
 			</p>
-			<div class="overflow-hidden rounded-lg border border-line bg-panel">
+			<div class="overflow-hidden rounded-lg border border-line bg-surface">
 				<McpHarnesses
 					{harnesses}
 					{busy}
@@ -283,7 +283,7 @@
 			{/if}
 		</p>
 		<pre
-			class="m-0 max-h-40 overflow-auto rounded-lg border border-line bg-panel p-3 font-mono text-caption text-fg">{snippet}</pre>
+			class="m-0 max-h-40 overflow-auto rounded-lg border border-line bg-surface p-3 font-mono text-caption text-fg">{snippet}</pre>
 		<div class="mt-2 flex flex-wrap gap-1.5">
 			<Button size="sm" onclick={() => void copy(snippet, 'snippet')}>
 				{copied === 'snippet' ? 'Copied' : 'Copy config'}

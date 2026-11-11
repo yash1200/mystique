@@ -99,7 +99,7 @@
 		border-radius: 999px;
 		background: var(--accent);
 		opacity: 0.28;
-		animation: agent-typing 1s var(--ease-in-out) infinite;
+		animation: agent-typing 1s ease-in-out infinite;
 	}
 
 	.agent-typing span:nth-child(2) {

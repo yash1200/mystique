@@ -654,7 +654,7 @@
 		border: 0;
 		padding: 0;
 		background: transparent;
-		color: var(--text-muted);
+		color: var(--text-3);
 		font-size: 0.55rem;
 		line-height: 1;
 		cursor: pointer;
@@ -670,7 +670,7 @@
 		min-height: 100%;
 	}
 	.query-cm-host :global(.cm-mystique-search) {
-		animation: mystique-search-in var(--duration-press) var(--ease-out) both;
+		animation: mystique-search-in var(--duration-fast) var(--ease-standard) both;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.query-cm-host :global(.cm-mystique-search) {

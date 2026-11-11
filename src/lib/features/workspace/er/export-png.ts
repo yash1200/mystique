@@ -94,7 +94,7 @@ function svgContentBox(
 }
 
 function canvasBackground(el: HTMLElement): string {
-	const raw = getComputedStyle(el).getPropertyValue('--bg-app').trim()
+	const raw = getComputedStyle(el).getPropertyValue('--bg').trim()
 	if (raw) return raw
 	const wash = getComputedStyle(el).backgroundColor
 	return wash && wash !== 'rgba(0, 0, 0, 0)' && wash !== 'transparent'

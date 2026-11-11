@@ -18,7 +18,7 @@
 
 <div
 	class={cn(
-		'flex min-h-28 flex-col justify-between rounded-xl border border-line bg-elevated px-4 py-3',
+		'flex min-h-28 flex-col justify-between rounded-xl border border-line bg-raised px-4 py-3',
 		!metric.available && 'opacity-80',
 		className,
 	)}

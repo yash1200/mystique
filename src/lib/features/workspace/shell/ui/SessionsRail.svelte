@@ -179,7 +179,7 @@
 </script>
 
 <aside
-	class="flex h-full w-12 shrink-0 flex-col items-center border-r border-line bg-panel"
+	class="flex h-full w-12 shrink-0 flex-col items-center border-r border-line bg-surface"
 	aria-label="Workspace navigation"
 >
 	<header
@@ -187,7 +187,7 @@
 	>
 		<button
 			type="button"
-			class="grid size-9 place-items-center rounded-lg border-none bg-transparent p-0 transition-opacity hover:opacity-85 focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1"
+			class="grid size-9 place-items-center rounded-lg border-none bg-transparent p-0 transition-opacity hover:opacity-85 focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1"
 			title="Back to connections"
 			aria-label="Back to connections"
 			onclick={requestLeaveHome}
@@ -254,12 +254,12 @@
 								class={cn(
 									'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
 									'text-title leading-none font-semibold transition-[border-color,box-shadow,background-color] duration-150',
-									'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+									'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 									canReorder &&
 										(drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
 									active
 										? 'conn-ring conn-tint border-(--connection-color)'
-										: 'border-line bg-elevated hover:border-line-strong hover:bg-hover',
+										: 'border-line bg-raised hover:border-line-strong hover:bg-hover',
 								)}
 								title={canReorder
 									? `${label} · Drag to reorder · Right-click for actions`
@@ -297,8 +297,8 @@
 						class={cn(
 							'grid size-9 place-items-center rounded-lg border border-dashed border-line',
 							'text-fg-muted transition-colors',
-							'hover:border-accent hover:bg-accent-muted hover:text-accent',
-							'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+							'hover:border-accent hover:bg-accent-soft hover:text-accent-text',
+							'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 						)}
 						title="Open another connection"
 						aria-label="Open another connection"
@@ -321,7 +321,7 @@
 						class={cn(
 							'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
 							'text-title leading-none font-semibold',
-							'border-line bg-elevated',
+							'border-line bg-raised',
 						)}
 						style="--connection-color: {hex}"
 					>
@@ -350,10 +350,10 @@
 				type="button"
 				class={cn(
 					'grid size-9 place-items-center rounded-lg border transition-colors',
-					'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+					'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 					mode === 'saved-queries'
-						? 'border-accent bg-accent-muted text-accent'
-						: 'border-line bg-elevated text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg',
+						? 'border-accent bg-accent-soft text-accent-text'
+						: 'border-line bg-raised text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg',
 				)}
 				title="Saved queries"
 				aria-label="Saved queries"
@@ -367,10 +367,10 @@
 				type="button"
 				class={cn(
 					'grid size-9 place-items-center rounded-lg border transition-colors',
-					'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+					'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 					mode === 'history'
-						? 'border-accent bg-accent-muted text-accent'
-						: 'border-line bg-elevated text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg',
+						? 'border-accent bg-accent-soft text-accent-text'
+						: 'border-line bg-raised text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg',
 				)}
 				title="Query history"
 				aria-label="Query history"
@@ -383,7 +383,7 @@
 	</div>
 
 	<footer
-		class="flex min-h-statusbar w-full shrink-0 flex-col items-center justify-center gap-1 border-t border-line bg-elevated py-1.5"
+		class="flex min-h-statusbar w-full shrink-0 flex-col items-center justify-center gap-1 border-t border-line bg-raised py-1.5"
 		title="{sessions.length} session{sessions.length === 1 ? '' : 's'}"
 	>
 		<IconButton

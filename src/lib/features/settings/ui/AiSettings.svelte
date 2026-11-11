@@ -177,7 +177,7 @@
 		</div>
 	{:else}
 		<div
-			class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel"
+			class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface"
 		>
 			{#each configured as p (p.id)}
 				<div class="px-3 py-3">

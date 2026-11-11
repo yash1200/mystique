@@ -72,7 +72,7 @@
 		<li
 			class={cn(
 				'group flex items-start rounded-md',
-				active ? 'bg-accent-muted text-accent' : 'text-fg hover:bg-hover',
+				active ? 'bg-accent-soft text-accent-text' : 'text-fg hover:bg-hover',
 			)}
 		>
 			<button
@@ -84,7 +84,7 @@
 				<span
 					class={cn(
 						'mt-0.5 grid size-5 shrink-0 place-items-center rounded-sm',
-						active ? 'bg-accent/15' : 'bg-input',
+						active ? 'bg-accent/15' : 'bg-field',
 					)}
 					aria-hidden="true"
 				>
@@ -95,7 +95,7 @@
 					<span
 						class={cn(
 							'block text-caption',
-							active ? 'text-accent/70' : 'text-fg-muted',
+							active ? 'text-accent-text/70' : 'text-fg-muted',
 						)}
 					>
 						{formatRelativeTime(item.updatedAt)}
@@ -107,7 +107,7 @@
 				class={cn(
 					'mt-1.5 mr-1 grid size-6 shrink-0 place-items-center rounded-sm border-none bg-transparent transition-colors',
 					item.favorite
-						? 'text-accent'
+						? 'text-accent-text'
 						: 'text-fg-muted opacity-0 hover:text-fg group-hover:opacity-100',
 					'focus-visible:opacity-100',
 				)}

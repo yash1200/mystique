@@ -51,7 +51,7 @@
 				class={cn(
 					'flex w-full items-start gap-1.5 rounded-md border-none px-2 py-1.5 text-left transition-colors',
 					active
-						? 'bg-accent-muted text-accent'
+						? 'bg-accent-soft text-accent-text'
 						: 'bg-transparent text-fg hover:bg-hover',
 				)}
 				onclick={() => onselect(item.id)}
@@ -59,7 +59,7 @@
 				<span
 					class={cn(
 						'mt-0.5 grid size-5 shrink-0 place-items-center rounded-sm',
-						active ? 'bg-accent/15' : 'bg-input',
+						active ? 'bg-accent/15' : 'bg-field',
 					)}
 					aria-hidden="true"
 				>
@@ -69,7 +69,7 @@
 					<span
 						class={cn(
 							'line-clamp-2 font-mono text-label',
-							active ? 'text-accent' : 'text-fg',
+							active ? 'text-accent-text' : 'text-fg',
 						)}
 					>
 						{previewSql(item.sql)}
@@ -77,11 +77,11 @@
 					<span
 						class={cn(
 							'flex flex-wrap items-center gap-1.5 text-caption',
-							active ? 'text-accent/70' : 'text-fg-muted',
+							active ? 'text-accent-text/70' : 'text-fg-muted',
 						)}
 					>
 						<span
-							class={item.status === 'success' ? 'text-success' : 'text-danger'}
+							class={item.status === 'success' ? 'text-accent-text' : 'text-danger'}
 						>
 							{item.status === 'success' ? 'ok' : 'err'}
 						</span>
@@ -103,7 +103,7 @@
 						<span>{sourceLabel(item.source)}</span>
 						{#if kindLabel}
 							<span>·</span>
-							<span class="rounded-sm bg-input px-1 text-fg-secondary">{kindLabel}</span>
+							<span class="rounded-sm bg-field px-1 text-fg-secondary">{kindLabel}</span>
 						{/if}
 					</span>
 				</span>

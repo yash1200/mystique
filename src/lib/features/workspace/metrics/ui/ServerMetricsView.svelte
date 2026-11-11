@@ -134,7 +134,7 @@
 	})
 </script>
 
-<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app">
 	<MetricsHeader
 		{live}
 		{loading}
@@ -167,7 +167,7 @@
 					{#each skeletonSpans as span (span)}
 						<div
 							class={cn(
-								'h-32 animate-pulse rounded-xl border border-line bg-elevated',
+								'h-32 animate-pulse rounded-xl border border-line bg-raised',
 								span,
 							)}
 						></div>

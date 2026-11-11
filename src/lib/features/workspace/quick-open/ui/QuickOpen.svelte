@@ -255,7 +255,7 @@
 			onclick={onBackdrop}
 		></button>
 		<div
-			class="relative z-10 flex max-h-[min(32rem,70vh)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-lg"
+			class="relative z-10 flex max-h-[min(32rem,70vh)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-line bg-raised shadow-lg"
 			role="dialog"
 			aria-modal="true"
 			aria-label="Quick open"
@@ -265,7 +265,7 @@
 				<input
 					bind:this={inputEl}
 					bind:value={quickOpen.query}
-					class="h-control w-full rounded-md border border-line bg-input px-2.5 text-body text-fg placeholder:text-fg-muted focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted"
+					class="h-control w-full rounded-md border border-line bg-field px-2.5 text-body text-fg placeholder:text-fg-muted focus:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
 					role="combobox"
 					aria-autocomplete="list"
 					aria-expanded="true"
@@ -321,7 +321,7 @@
 									aria-selected={index === cursor}
 									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
 									cursor
-										? 'bg-accent-muted'
+										? 'bg-accent-soft'
 										: 'hover:bg-hover'}"
 									onpointerenter={() => (active = index)}
 									onclick={() => void choose(item)}

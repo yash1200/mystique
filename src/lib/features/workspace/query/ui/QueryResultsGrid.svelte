@@ -404,7 +404,7 @@
 	oncontextmenu={onGridContextMenu}
 >
 	<div class="qrg-inner" style="height: {innerH}px">
-		<div class="qrg-head bg-elevated" role="row" style="height: {HEADER_H}px">
+		<div class="qrg-head bg-raised" role="row" style="height: {HEADER_H}px">
 			<div
 				data-result-index-col
 				role="columnheader"

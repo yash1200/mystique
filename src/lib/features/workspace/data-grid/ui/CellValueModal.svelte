@@ -220,7 +220,7 @@
 						class={cn(
 							'h-control-sm rounded-sm px-2.5 text-label font-medium transition-colors',
 							hexView
-								? 'bg-accent-muted text-accent'
+								? 'bg-accent-soft text-accent-text'
 								: 'bg-transparent text-fg-muted hover:bg-hover hover:text-fg',
 						)}
 						onclick={() => (hexView = true)}
@@ -236,7 +236,7 @@
 						class={cn(
 							'h-control-sm rounded-sm px-2.5 text-label font-medium transition-colors',
 							!hexView && mode === item.id
-								? 'bg-accent-muted text-accent'
+								? 'bg-accent-soft text-accent-text'
 								: 'bg-transparent text-fg-muted hover:bg-hover hover:text-fg',
 						)}
 						onclick={() => setMode(item.id)}

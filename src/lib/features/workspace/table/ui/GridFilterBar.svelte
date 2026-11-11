@@ -125,7 +125,7 @@
 			id="{listId}-{target}"
 			role="listbox"
 			aria-label={target === 'code' && completions.length > 0 ? 'Columns' : 'Values'}
-			class="absolute top-full left-0 z-30 mt-1 max-h-48 max-w-full min-w-36 overflow-auto rounded-md border border-line bg-elevated py-1 shadow-sm"
+			class="absolute top-full left-0 z-30 mt-1 max-h-48 max-w-full min-w-36 overflow-auto rounded-md border border-line bg-raised py-1 shadow-sm"
 		>
 			{#each items as item, i (item)}
 				<li role="option" aria-selected={i === active}>
@@ -148,7 +148,7 @@
 {/snippet}
 
 <!-- Filters: fixed single-row height so UI ↔ code does not shift layout -->
-<div class="shrink-0 border-b border-line bg-elevated px-2.5 py-2">
+<div class="shrink-0 border-b border-line bg-raised px-2.5 py-2">
 	<div class="flex w-full min-w-0 items-center gap-1.5">
 		<!-- Mode switch (funnel = UI, code = expression) -->
 		<IconButton

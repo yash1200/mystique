@@ -113,7 +113,7 @@
 						{row.label}
 					</label>
 					<select
-						class="h-control-sm rounded-md border border-line bg-input px-2 text-label text-fg"
+						class="h-control-sm rounded-md border border-line bg-field px-2 text-label text-fg"
 						value={row.kind}
 						onchange={(event) => {
 							const next = event.currentTarget.value
@@ -137,7 +137,7 @@
 				{#if row.kind === 'bool'}
 					<select
 						id="param-{index}"
-						class="h-control-sm rounded-md border border-line bg-input px-2 text-label text-fg"
+						class="h-control-sm rounded-md border border-line bg-field px-2 text-label text-fg"
 						value={row.raw === 'false' ? 'false' : 'true'}
 						onchange={(event) => {
 							row.raw = event.currentTarget.value
@@ -167,7 +167,7 @@
 						{#each row.recent as memory, recentIndex (`${memory.kind}:${memory.raw}:${recentIndex}`)}
 							<button
 								type="button"
-								class="rounded-md border border-line bg-elevated px-1.5 py-0.5 font-mono text-caption text-fg-secondary"
+								class="rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-caption text-fg-secondary"
 								onclick={() => applyRecent(index, memory)}
 							>
 								{memory.kind === 'null'

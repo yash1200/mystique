@@ -56,14 +56,6 @@
 	--duration-slow: 280ms; /* modals, panels */
 	--duration-spring: 420ms; /* switches, the dog */
 
-	/* Older motion names, still read by `core/util/motion.ts`. */
-	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-	--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-	--ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-	--duration-press: 160ms;
-	--duration-popover: 200ms;
-	--duration-modal: 250ms;
-	--duration-toast: 400ms;
 }
 
 /* —— Night: Graphite × Mint (default dark) —— */
@@ -293,32 +285,9 @@
 	--ink: #2a1c10;
 }
 
-/*
-  Older token names, kept as aliases so screens that have not moved to the
-  vocabulary above follow the new themes. New code reads the names above.
-*/
+/* Derived: the selected-row and selected-text wash, from the theme accent. */
 :root {
-	--bg-app: var(--bg);
-	--bg-panel: var(--surface);
-	--bg-elevated: var(--raised);
-	--bg-input: var(--field);
-	--bg-hover: var(--s2);
-	--bg-active: var(--accent-soft);
-	--bg-selected: color-mix(in oklab, var(--accent) 18%, transparent);
-	--border-subtle: var(--line);
-	--border-strong: var(--line-2);
-	--border-focus: var(--accent);
-	--text-primary: var(--text);
-	--text-secondary: var(--text-2);
-	--text-muted: var(--text-3);
-	--text-inverse: var(--on-accent);
-	--accent-muted: var(--accent-soft);
-	--status-success: var(--accent-text);
-	--status-warning: var(--warn);
-	--status-danger: var(--danger);
-	--status-info: var(--info);
-	--mds-shadow-sm: var(--shadow-1);
-	--mds-shadow-md: var(--shadow-2);
+	--selected: color-mix(in oklab, var(--accent) 18%, transparent);
 }
 
 [data-density='compact'] {

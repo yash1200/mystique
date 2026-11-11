@@ -16,7 +16,7 @@
 
 {#if pending.length > 0}
 	<section
-		class="fixed top-14 right-5 z-50 flex max-h-[70vh] w-[26rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-md"
+		class="fixed top-14 right-5 z-50 flex max-h-[70vh] w-[26rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg border border-line bg-raised shadow-md"
 		aria-label="Write approvals"
 		aria-live="polite"
 	>
@@ -53,7 +53,7 @@
 						· {needLabel(req.needed, req.granted)}
 					</p>
 					<pre
-						class="m-0 max-h-40 overflow-auto rounded-md border border-line bg-input p-2 font-mono text-caption whitespace-pre-wrap text-fg">{req.sql}</pre>
+						class="m-0 max-h-40 overflow-auto rounded-md border border-line bg-field p-2 font-mono text-caption whitespace-pre-wrap text-fg">{req.sql}</pre>
 					<div class="flex justify-end gap-1.5">
 						<Button
 							size="sm"

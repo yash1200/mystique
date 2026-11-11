@@ -151,7 +151,7 @@
 	</div>
 
 	<ul
-		class="m-0 flex list-none flex-col divide-y divide-line rounded-lg border border-line bg-panel p-0"
+		class="m-0 flex list-none flex-col divide-y divide-line rounded-lg border border-line bg-surface p-0"
 		aria-label="Your agents"
 	>
 		<li class="flex items-center gap-3 px-3 py-2.5">
@@ -259,7 +259,7 @@
 			</p>
 		{:else}
 			<ul
-				class="m-0 mt-1.5 flex list-none flex-col divide-y divide-line rounded-lg border border-line bg-panel p-0"
+				class="m-0 mt-1.5 flex list-none flex-col divide-y divide-line rounded-lg border border-line bg-surface p-0"
 				aria-label="Detected agents"
 			>
 				{#each groups.found as agent (agent.catalogId)}
@@ -322,7 +322,7 @@
 			</button>
 			{#if showMissing}
 				<ul
-					class="m-0 mt-1.5 flex list-none flex-col divide-y divide-line rounded-lg border border-line bg-panel p-0"
+					class="m-0 mt-1.5 flex list-none flex-col divide-y divide-line rounded-lg border border-line bg-surface p-0"
 					aria-label="Agents not installed"
 				>
 					{#each groups.missing as agent (agent.catalogId)}

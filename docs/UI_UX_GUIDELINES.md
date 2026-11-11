@@ -58,7 +58,7 @@ These rules define how Mystique looks and behaves. Every screen, component, and 
 
 ### 2.2 Theme structure
 
-Themes are **semantic tokens**, not raw brand colors. Components only use tokens like `--bg-app`, `--text-primary`, `--border-subtle`.
+Themes are **semantic tokens**, not raw brand colors. Components only use tokens like `--bg`, `--text`, `--line` (see `docs/DESIGN_LANGUAGE.md`).
 
 ```
 tokens
@@ -208,7 +208,7 @@ Never flood the entire UI with the connection hue. Use **accents**:
 | Element | Treatment |
 | ------- | --------- |
 | Connection tab (inactive) | 3–4px left stripe or 8px circle in connection color |
-| Connection tab (active) | Stripe + soft background tint `color-mix(in srgb, var(--conn) 12%, var(--bg-elevated))` |
+| Connection tab (active) | Stripe + soft background tint `color-mix(in srgb, var(--conn) 12%, var(--raised))` |
 | Workspace tab | 2px top micro-stripe in parent connection color (`bg-conn`); stronger when active |
 | Sessions rail | Color-capped monogram tile (name initial); **PROD** warning pip; right-click for refresh / disconnect |
 | Workspace shell | `--connection-color` scoped on the workspace root; `data-env="production"` when applicable |

@@ -13,7 +13,7 @@
 </script>
 
 <header
-	class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2"
+	class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-2"
 >
 	<div class="flex min-w-0 flex-1 items-center gap-2">
 		<Icon name="metrics" class="size-5 text-info" />

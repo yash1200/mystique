@@ -51,12 +51,7 @@
 	--color-hover: var(--s2);
 	--color-pressed: var(--s3);
 	--color-scrim: var(--scrim);
-	/* Older names: panel = surface, elevated = raised, input = field. */
-	--color-panel: var(--surface);
-	--color-elevated: var(--raised);
-	--color-input: var(--field);
-	--color-active: var(--accent-soft);
-	--color-selected: var(--bg-selected);
+	--color-selected: var(--selected);
 
 	/* —— Text —— */
 	--color-fg: var(--text);
@@ -64,12 +59,10 @@
 	--color-fg-muted: var(--text-3);
 	--color-on-accent: var(--on-accent);
 	--color-on-danger: var(--on-danger);
-	--color-fg-inverse: var(--on-accent);
 
 	/* —— Borders —— */
 	--color-line: var(--line);
 	--color-line-strong: var(--line-2);
-	--color-focus: var(--accent);
 	--color-ring: var(--ring);
 
 	/* —— Brand / status —— */
@@ -77,8 +70,6 @@
 	--color-accent-hover: var(--accent-hover);
 	--color-accent-text: var(--accent-text);
 	--color-accent-soft: var(--accent-soft);
-	--color-accent-muted: var(--accent-soft);
-	--color-success: var(--accent-text);
 	--color-warning: var(--warn);
 	--color-warn-soft: var(--warn-soft);
 	--color-danger: var(--danger);
@@ -137,7 +128,6 @@
 	--spacing-field: 2.25rem; /* 36px — input, select */
 	--spacing-control-lg: 2.5rem; /* 40px — hero action */
 	--spacing-topbar: 3.25rem; /* 52px */
-	--spacing-row: var(--row-height);
 }
 
 @layer base {
@@ -225,70 +215,11 @@
 
 /* —— Design-language utilities —— */
 
-@utility w-sidebar {
-	width: var(--sidebar-width);
-}
-
-@utility max-w-panel-sm {
-	max-width: 26.25rem;
-}
-
-@utility max-w-panel-md {
-	max-width: 45rem;
-}
-
-@utility max-w-panel-lg {
-	max-width: 55rem;
-}
-
-@utility max-w-panel-xl {
-	max-width: 61.25rem;
-}
-
 @utility max-w-prose-ui {
 	max-width: 52ch;
 }
 
-@utility h-control-sm {
-	height: 1.75rem; /* 28px */
-}
-
-@utility h-control {
-	height: 2rem; /* 32px — button */
-}
-
-@utility h-field {
-	height: 2.25rem; /* 36px — input, select */
-}
-
-@utility h-control-lg {
-	height: 2.5rem; /* 40px */
-}
-
-/* Square control sizes (icon buttons) */
-@utility size-control-sm {
-	width: 1.75rem;
-	height: 1.75rem;
-}
-
-@utility size-control {
-	width: 2rem;
-	height: 2rem;
-}
-
-@utility size-control-lg {
-	width: 2.5rem;
-	height: 2.5rem;
-}
-
-@utility h-topbar {
-	height: 3.25rem; /* 52px — matches --spacing-topbar */
-}
-
-/*
-  Status footers must NOT track the enlarged top bar (regression in dda16c7
-  set statusbar = topbar = 52px, which starved the content area).
-*/
+/* Status bars are 34px: shorter than the 52px top bar on purpose. */
 @utility h-statusbar {
 	height: 2.125rem; /* 34px */
 	min-height: 2.125rem;
@@ -296,14 +227,6 @@
 
 @utility min-h-statusbar {
 	min-height: 2.125rem;
-}
-
-@utility min-h-grid-row {
-	min-height: var(--grid-row-height, 1.75rem);
-}
-
-@utility min-h-row {
-	min-height: var(--row-height);
 }
 
 @utility h-modal {
@@ -413,10 +336,6 @@
 	background: color-mix(in oklab, var(--connection-color) 14%, var(--surface));
 }
 
-@utility conn-tint-soft {
-	background: color-mix(in oklab, var(--connection-color) 12%, var(--surface));
-}
-
 @utility conn-ring {
 	box-shadow: 0 0 0 3px
 		color-mix(in oklab, var(--connection-color) 25%, transparent);
@@ -424,11 +343,6 @@
 
 @utility bg-conn {
 	background-color: var(--connection-color);
-}
-
-/* Quiet surfaces: the canvas carries no wash. */
-@utility bg-app-wash {
-	background: var(--bg);
 }
 
 /* Sticky page bar: the canvas, slightly see-through. */

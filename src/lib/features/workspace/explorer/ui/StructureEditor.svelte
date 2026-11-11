@@ -57,7 +57,7 @@
 	}: Props = $props()
 
 	const field =
-		'h-control-sm w-full min-w-0 rounded-md border border-line bg-elevated px-2 font-mono text-label text-fg outline-none focus:border-line-strong'
+		'h-control-sm w-full min-w-0 rounded-md border border-line bg-raised px-2 font-mono text-label text-fg outline-none focus:border-line-strong'
 
 	let draft = $state<TableDefinition | null>(null)
 	let loading = $state(true)
@@ -155,9 +155,9 @@
 	}
 </script>
 
-<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app">
 	<header
-		class="flex shrink-0 items-center gap-2 border-b border-line bg-elevated px-2.5 py-2"
+		class="flex shrink-0 items-center gap-2 border-b border-line bg-raised px-2.5 py-2"
 	>
 		<h1 class="m-0 min-w-0 flex-1 truncate font-mono text-label font-semibold text-fg">
 			Edit {table.name}
@@ -372,7 +372,7 @@
 				<section class="border-b border-line px-2.5 py-2">
 					<h2 class="m-0 mb-2 text-label font-medium text-fg">Validator</h2>
 					<textarea
-						class="min-h-24 w-full rounded-md border border-line bg-elevated px-2 py-1.5 font-mono text-label text-fg outline-none focus:border-line-strong"
+						class="min-h-24 w-full rounded-md border border-line bg-raised px-2 py-1.5 font-mono text-label text-fg outline-none focus:border-line-strong"
 						bind:value={validatorText}
 						aria-label="Collection validator"
 						spellcheck="false"
@@ -388,7 +388,7 @@
 				{#if planError}
 					<p class="m-0 text-caption text-danger">{planError}</p>
 				{:else if plan && plan.statements.length > 0}
-					<pre class="m-0 overflow-auto rounded-md border border-line bg-input p-2 font-mono text-label text-fg whitespace-pre-wrap">{plan.statements.join('\n')}</pre>
+					<pre class="m-0 overflow-auto rounded-md border border-line bg-field p-2 font-mono text-label text-fg whitespace-pre-wrap">{plan.statements.join('\n')}</pre>
 				{:else}
 					<p class="m-0 text-caption text-fg-muted">No changes yet.</p>
 				{/if}

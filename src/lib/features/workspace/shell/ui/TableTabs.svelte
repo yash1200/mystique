@@ -214,7 +214,7 @@
 		<div
 			bind:this={tablistEl}
 			class={cn(
-				'scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto overscroll-x-contain border-b border-line bg-panel',
+				'scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto overscroll-x-contain border-b border-line bg-surface',
 				production && 'bg-warning/6',
 				drag.draggingId && 'cursor-grabbing select-none',
 			)}
@@ -244,7 +244,7 @@
 						canReorder && !drag.draggingId && 'cursor-grab',
 						dragging && 'pointer-events-none cursor-grabbing opacity-35',
 						active
-							? 'bg-app-wash text-fg'
+							? 'bg-app text-fg'
 							: 'bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
 					)}
 					role="presentation"

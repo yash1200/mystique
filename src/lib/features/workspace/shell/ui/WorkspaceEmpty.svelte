@@ -33,7 +33,7 @@
 </script>
 
 <div
-	class="flex flex-1 items-center justify-center overflow-auto bg-app-wash p-8"
+	class="flex flex-1 items-center justify-center overflow-auto bg-app p-8"
 >
 	<div class="w-full max-w-panel-sm">
 		<p class="m-0 text-center text-caption text-fg-muted">{profile.name}</p>
@@ -54,7 +54,7 @@
 		</div>
 
 		<ul
-			class="mt-8 mb-0 list-none overflow-hidden rounded-xl border border-line bg-elevated p-1 shadow-sm"
+			class="mt-8 mb-0 list-none overflow-hidden rounded-xl border border-line bg-raised p-1 shadow-sm"
 			aria-label="Important shortcuts"
 		>
 			{#each featured as item (item.id)}

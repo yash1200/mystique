@@ -82,7 +82,7 @@
 	const idPrefix = `acp-${start?.id ?? 'new'}`
 </script>
 
-<div class="flex flex-col gap-3 rounded-lg border border-line bg-panel px-3 py-3">
+<div class="flex flex-col gap-3 rounded-lg border border-line bg-surface px-3 py-3">
 	<p class="m-0 text-label font-medium text-fg">
 		{start ? `Edit ${start.label}` : 'Custom agent'}
 	</p>

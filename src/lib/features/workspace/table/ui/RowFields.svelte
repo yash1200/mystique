@@ -286,7 +286,7 @@
 						class={cn(
 							'px-3 py-2 transition-colors duration-150',
 							dirty && 'bg-warning/10',
-							focused && !dirty && 'bg-input',
+							focused && !dirty && 'bg-field',
 						)}
 					>
 						<div class="mb-1 flex min-w-0 items-center gap-1.5">
@@ -297,7 +297,7 @@
 							</span>
 							{#if col.pk}
 								<span
-									class="shrink-0 rounded-sm border border-accent/35 bg-accent-muted px-1 py-px font-mono text-micro font-semibold text-accent"
+									class="shrink-0 rounded-sm border border-accent/35 bg-accent-soft px-1 py-px font-mono text-micro font-semibold text-accent-text"
 									title="Primary key">PK</span
 								>
 							{/if}
@@ -328,9 +328,9 @@
 						{:else if multiline}
 							<textarea
 								class={cn(
-									'm-0 min-h-16 w-full resize-y rounded-md border bg-elevated px-2 py-1.5',
+									'm-0 min-h-16 w-full resize-y rounded-md border bg-raised px-2 py-1.5',
 									'font-mono text-label leading-relaxed text-fg',
-									'focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted',
+									'focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft',
 									dirty ? 'border-warning/45' : 'border-line',
 									empty && 'italic text-fg-muted',
 								)}
@@ -353,9 +353,9 @@
 						{:else}
 							<input
 								class={cn(
-									'm-0 h-control-sm w-full rounded-md border bg-elevated px-2',
+									'm-0 h-control-sm w-full rounded-md border bg-raised px-2',
 									'font-mono text-label text-fg',
-									'focus:border-focus focus:outline-none focus:ring-2 focus:ring-accent-muted',
+									'focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft',
 									dirty ? 'border-warning/45' : 'border-line',
 									empty && 'italic text-fg-muted',
 								)}

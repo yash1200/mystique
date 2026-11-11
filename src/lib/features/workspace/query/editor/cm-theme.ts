@@ -186,8 +186,8 @@ const editorThemeSpec = {
 	'&': {
 		height: '100%',
 		fontSize: '0.8125rem' /* text-body */,
-		backgroundColor: 'var(--bg-input)',
-		color: 'var(--text-primary)',
+		backgroundColor: 'var(--field)',
+		color: 'var(--text)',
 	},
 	'&.cm-focused': {
 		outline: 'none',
@@ -211,16 +211,16 @@ const editorThemeSpec = {
 	},
 	'&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
 		{
-			backgroundColor: 'var(--bg-selected) !important',
+			backgroundColor: 'var(--selected) !important',
 		},
 	'.cm-activeLine': {
-		backgroundColor: 'var(--bg-hover)',
+		backgroundColor: 'var(--s2)',
 	},
 	'.cm-gutters': {
-		backgroundColor: 'var(--bg-elevated)',
-		color: 'var(--text-muted)',
+		backgroundColor: 'var(--raised)',
+		color: 'var(--text-3)',
 		border: 'none',
-		borderRight: '1px solid var(--border-subtle)',
+		borderRight: '1px solid var(--line)',
 		minWidth: '1.75rem',
 	},
 	'.cm-gutterElement': {
@@ -233,23 +233,23 @@ const editorThemeSpec = {
 		paddingRight: '0.25rem',
 	},
 	'.cm-activeLineGutter': {
-		backgroundColor: 'var(--bg-hover)',
-		color: 'var(--text-secondary)',
+		backgroundColor: 'var(--s2)',
+		color: 'var(--text-2)',
 	},
 	'.cm-foldPlaceholder': {
-		backgroundColor: 'var(--bg-input)',
+		backgroundColor: 'var(--field)',
 		border: 'none',
-		color: 'var(--text-muted)',
+		color: 'var(--text-3)',
 	},
 	'.cm-tooltip': {
-		backgroundColor: 'var(--bg-elevated)',
-		border: '1px solid var(--border-subtle)',
-		color: 'var(--text-primary)',
+		backgroundColor: 'var(--raised)',
+		border: '1px solid var(--line)',
+		color: 'var(--text)',
 		borderRadius: '5px',
 		zIndex: '40',
 	},
 	'.cm-tooltip.cm-tooltip-autocomplete': {
-		backgroundColor: 'var(--bg-elevated)',
+		backgroundColor: 'var(--raised)',
 	},
 	'.cm-tooltip.cm-tooltip-autocomplete > ul': {
 		fontFamily: 'var(--mds-font-mono)',
@@ -260,14 +260,14 @@ const editorThemeSpec = {
 		padding: '0.2rem 0.5rem',
 	},
 	'.cm-tooltip-autocomplete ul li[aria-selected]': {
-		backgroundColor: 'var(--bg-selected)',
-		color: 'var(--text-primary)',
+		backgroundColor: 'var(--selected)',
+		color: 'var(--text)',
 	},
 	'.cm-completionLabel': {
-		color: 'var(--text-primary)',
+		color: 'var(--text)',
 	},
 	'.cm-completionDetail': {
-		color: 'var(--text-muted)',
+		color: 'var(--text-3)',
 		fontStyle: 'normal',
 		marginLeft: '0.5rem',
 	},
@@ -276,7 +276,7 @@ const editorThemeSpec = {
 	},
 	'.cm-panels': {
 		backgroundColor: 'transparent',
-		color: 'var(--text-primary)',
+		color: 'var(--text)',
 		fontFamily: 'var(--mds-font-ui)',
 	},
 	'.cm-mystique-search-slot': {
@@ -291,14 +291,14 @@ const editorThemeSpec = {
 		backgroundColor: 'transparent',
 	},
 	'.cm-searchMatch': {
-		backgroundColor: 'var(--accent-muted)',
+		backgroundColor: 'var(--accent-soft)',
 	},
 	'.cm-searchMatch-selected': {
-		backgroundColor: 'var(--bg-selected)',
+		backgroundColor: 'var(--selected)',
 		outline: '1px solid color-mix(in srgb, var(--accent) 55%, transparent)',
 	},
 	'.cm-selectionMatch': {
-		backgroundColor: 'var(--bg-hover)',
+		backgroundColor: 'var(--s2)',
 	},
 	'.cm-mystique-search': {
 		position: 'absolute',
@@ -312,12 +312,12 @@ const editorThemeSpec = {
 		alignItems: 'center',
 		columnGap: '0.25rem',
 		rowGap: '0.25rem',
-		border: '1px solid var(--border-subtle)',
+		border: '1px solid var(--line)',
 		borderRadius: 'var(--mds-radius-lg)',
-		backgroundColor: 'var(--bg-elevated)',
+		backgroundColor: 'var(--raised)',
 		padding: '0.375rem 0.375rem 0.375rem 0.25rem',
-		boxShadow: 'var(--mds-shadow-md)',
-		color: 'var(--text-primary)',
+		boxShadow: 'var(--shadow-2)',
+		color: 'var(--text)',
 		fontFamily: 'var(--mds-font-ui)',
 	},
 	'.cm-mystique-search-collapsed': {
@@ -352,9 +352,9 @@ const editorThemeSpec = {
 		margin: '0',
 		border: '1px solid transparent',
 		borderRadius: 'var(--mds-radius-md)',
-		backgroundColor: 'var(--bg-input)',
+		backgroundColor: 'var(--field)',
 		padding: '0 5.25rem 0 0.55rem',
-		color: 'var(--text-primary)',
+		color: 'var(--text)',
 		fontFamily: 'var(--mds-font-ui)',
 		fontSize: 'var(--text-label)',
 		lineHeight: 'var(--text-label--line-height)',
@@ -366,14 +366,14 @@ const editorThemeSpec = {
 			paddingRight: '2rem',
 		},
 	'.cm-mystique-search-field::placeholder': {
-		color: 'var(--text-muted)',
+		color: 'var(--text-3)',
 	},
 	'.cm-mystique-search-field:focus-visible': {
-		borderColor: 'var(--border-focus)',
-		boxShadow: '0 0 0 2px var(--accent-muted)',
+		borderColor: 'var(--accent)',
+		boxShadow: '0 0 0 2px var(--accent-soft)',
 	},
 	'.cm-mystique-search-field.cm-mystique-search-bad': {
-		borderColor: 'var(--status-danger)',
+		borderColor: 'var(--danger)',
 	},
 	'.cm-mystique-search-field::-webkit-search-cancel-button, .cm-mystique-search-field::-webkit-search-decoration':
 		{
@@ -389,7 +389,7 @@ const editorThemeSpec = {
 	'.cm-mystique-search-count': {
 		minWidth: '4.25rem',
 		padding: '0 0.4rem',
-		color: 'var(--text-muted)',
+		color: 'var(--text-3)',
 		fontFamily: 'var(--mds-font-ui)',
 		fontSize: 'var(--text-caption)',
 		fontVariantNumeric: 'tabular-nums',
@@ -397,7 +397,7 @@ const editorThemeSpec = {
 		whiteSpace: 'nowrap',
 	},
 	'.cm-mystique-search-count-bad': {
-		color: 'var(--status-danger)',
+		color: 'var(--danger)',
 	},
 	'.cm-mystique-search-toggle, .cm-mystique-search-icon': {
 		display: 'inline-grid',
@@ -409,7 +409,7 @@ const editorThemeSpec = {
 		borderRadius: 'var(--mds-radius-sm)',
 		backgroundColor: 'transparent',
 		padding: '0 0.28rem',
-		color: 'var(--text-muted)',
+		color: 'var(--text-3)',
 		fontFamily: 'var(--mds-font-ui)',
 		fontSize: 'var(--text-micro)',
 		fontWeight: '600',
@@ -430,21 +430,21 @@ const editorThemeSpec = {
 		textUnderlineOffset: '0.12em',
 	},
 	'.cm-mystique-search-toggle:hover, .cm-mystique-search-icon:hover': {
-		backgroundColor: 'var(--bg-hover)',
-		color: 'var(--text-primary)',
+		backgroundColor: 'var(--s2)',
+		color: 'var(--text)',
 	},
 	'.cm-mystique-search-toggle:focus-visible, .cm-mystique-search-icon:focus-visible':
 		{
-			borderColor: 'var(--border-focus)',
+			borderColor: 'var(--accent)',
 			outline: 'none',
-			boxShadow: '0 0 0 2px var(--accent-muted)',
+			boxShadow: '0 0 0 2px var(--accent-soft)',
 		},
 	'.cm-mystique-search-on': {
-		backgroundColor: 'var(--bg-hover)',
-		color: 'var(--text-primary)',
+		backgroundColor: 'var(--s2)',
+		color: 'var(--text)',
 	},
 	'.cm-placeholder': {
-		color: 'var(--text-muted)',
+		color: 'var(--text-3)',
 		fontStyle: 'normal',
 	},
 	/* Beat highlight token color on the inner span. */

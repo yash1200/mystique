@@ -16,11 +16,11 @@
 	const resolved = $derived(tone ?? (active ? 'accent' : 'muted'))
 	const color = $derived(
 		resolved === 'accent'
-			? 'text-accent'
+			? 'text-accent-text'
 			: resolved === 'info'
 				? 'text-info'
 				: resolved === 'success'
-					? 'text-success'
+					? 'text-accent-text'
 					: 'text-fg-muted',
 	)
 	/** Open catalog kinds (functions, sequences, …) without a glyph of their own. */

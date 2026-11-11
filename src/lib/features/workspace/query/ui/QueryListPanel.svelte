@@ -157,7 +157,7 @@
 	}
 </script>
 
-<aside class="flex h-full w-full min-w-0 flex-col bg-panel" aria-label={title}>
+<aside class="flex h-full w-full min-w-0 flex-col bg-surface" aria-label={title}>
 	<header class="shrink-0 border-b border-line">
 		<div class="flex items-center gap-1 px-3 pt-2.5 pb-1.5">
 			<h2 class="m-0 min-w-0 flex-1 truncate text-body font-semibold text-fg">
@@ -232,7 +232,7 @@
 				{#if query.length > 0}
 					<button
 						type="button"
-						class="absolute top-1/2 right-0.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm border-none bg-transparent text-fg-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1 enabled:active:scale-[0.97]"
+						class="absolute top-1/2 right-0.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm border-none bg-transparent text-fg-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1 enabled:active:scale-[0.97]"
 						aria-label="Clear filter"
 						onclick={() => (query = '')}
 					>

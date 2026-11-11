@@ -48,7 +48,7 @@ export function liveStatusMark(live: SessionLiveStatus | undefined): {
 		default:
 			return {
 				icon: 'plug',
-				class: 'text-success',
+				class: 'text-accent-text',
 				label: 'Connected',
 				word: 'Connected',
 			}
