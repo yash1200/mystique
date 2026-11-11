@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { pushDialog } from '#core/ui'
+	import { EmptyHint, Icon, pushDialog } from '#core/ui'
 	import { focusTrap } from '#core/ui/focus-trap.js'
+	import { cn, modalPanel, overlayFade } from '#core/util'
 	import { adapterFor, engineLabel, resolveCapabilities } from '#engines'
-	import { colorHex, connectionProfiles } from '#features/connections'
-	import { catalogStore } from '#features/workspace/catalog'
+	import { colorHex, ConnectionTile, connectionProfiles } from '#features/connections'
+	import { isMacPlatform, keyCap } from '#features/shortcuts'
+	import { CatalogIcon, catalogStore, type CatalogIconName } from '#features/workspace/catalog'
+	import type { IconName } from '#icons'
 	import { historyStore, savedStore } from '#features/workspace/query'
 	import { workspaceSession } from '#features/workspace/session'
 	import { tick, untrack } from 'svelte'
@@ -216,6 +219,34 @@
 		await runQuickOpenItem(item)
 	}
 
+	const mac = isMacPlatform()
+
+	/** `Mod+Shift+[` → one cap per key. */
+	function caps(chord: string): string[] {
+		return chord.split('+').map((key) => keyCap(key, 'glyphs', mac))
+	}
+
+	const COMMAND_ICONS: Record<string, IconName> = {
+		'new-query': 'plus',
+		'prev-tab': 'chevron-left',
+		'next-tab': 'chevron-right',
+		'focus-filter': 'search',
+		'toggle-rail': 'sidebar',
+		metrics: 'metrics',
+	}
+
+	function itemIcon(item: QuickOpenItem): IconName {
+		if (item.kind === 'command') return COMMAND_ICONS[item.command ?? ''] ?? 'bolt'
+		if (item.kind === 'saved') return 'bookmark'
+		return 'history'
+	}
+
+	function catalogIcon(kind: string | undefined): CatalogIconName {
+		if (kind === 'view') return 'view'
+		if (kind === 'collection') return 'collection'
+		return 'table'
+	}
+
 	function historyTitle(sql: string): string {
 		const line = sql.replace(/\s+/g, ' ').trim()
 		if (line.length <= 80) return line || 'Query'
@@ -245,66 +276,66 @@
 
 {#if quickOpen.open}
 	<div
-		class="fixed inset-0 z-60 flex items-start justify-center px-4 pt-[10vh]"
+		class="fixed inset-0 z-60 flex items-start justify-center px-4 pt-[12vh]"
 		role="presentation"
 	>
 		<button
 			type="button"
-			class="absolute inset-0 border-none bg-black/45"
+			class="absolute inset-0 border-none bg-scrim"
 			aria-label="Dismiss quick open"
+			transition:overlayFade|global
 			onclick={onBackdrop}
 		></button>
 		<div
-			class="relative z-10 flex max-h-[min(32rem,70vh)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-line bg-raised shadow-lg"
+			class="relative z-10 flex max-h-[min(34rem,72vh)] w-full max-w-[38rem] flex-col overflow-hidden rounded-xl border border-line bg-raised shadow-lg"
 			role="dialog"
 			aria-modal="true"
 			aria-label="Quick open"
+			transition:modalPanel|global
 			use:focusTrap={() => quickOpen.open}
 		>
-			<div class="border-b border-line p-2">
+			<div class="flex h-13 shrink-0 items-center gap-3 border-b border-line px-4">
+				<span class="flex text-fg-muted [&_svg]:size-4" aria-hidden="true"><Icon name="search" /></span>
 				<input
 					bind:this={inputEl}
 					bind:value={quickOpen.query}
-					class="h-control w-full rounded-md border border-line bg-field px-2.5 text-body text-fg placeholder:text-fg-muted focus:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
+					class="h-full min-w-0 flex-1 border-none bg-transparent p-0 text-body-lg text-fg outline-none placeholder:text-fg-muted focus-visible:outline-none"
 					role="combobox"
 					aria-autocomplete="list"
 					aria-expanded="true"
 					aria-controls="quick-open-list"
-					aria-activedescendant={ranked[cursor]
-						? `quick-open-opt-${cursor}`
-						: undefined}
-					placeholder="Connections, tables, queries"
+					aria-activedescendant={ranked[cursor] ? `quick-open-opt-${cursor}` : undefined}
+					placeholder="Search connections, tables, queries and commands…"
 					autocomplete="off"
 					spellcheck="false"
 					oninput={onQueryInput}
 				/>
+				<kbd aria-hidden="true">esc</kbd>
 			</div>
+
 			<div
 				bind:this={listEl}
 				id="quick-open-list"
-				class="min-h-0 flex-1 overflow-y-auto p-1"
+				class="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
 				role="listbox"
 				aria-label="Quick open results"
 			>
 				{#if ranked.length === 0}
-					<p class="px-2 py-6 text-center text-label text-fg-muted">
-						No matches
-					</p>
+					<EmptyHint
+						icon="search"
+						title="No matches"
+						description={quickOpen.query.trim()
+							? `Nothing matches “${quickOpen.query.trim()}”.`
+							: 'Open a connection to search its tables.'}
+					/>
 				{:else}
 					{#each groups as group, g (group.id)}
-						<div
-							role="group"
-							aria-labelledby="quick-open-group-{g}"
-							class={g > 0 ? 'mt-1 border-t border-line pt-1' : ''}
-						>
-							<div
-								id="quick-open-group-{g}"
-								class="flex items-center gap-1.5 px-2 pb-0.5 pt-1 text-micro font-semibold uppercase tracking-wider text-fg-muted"
-							>
+						<div role="group" aria-labelledby="quick-open-group-{g}">
+							<div id="quick-open-group-{g}" class="label-caps flex items-center gap-2 px-2.5 pt-3 pb-1.5">
 								{#if group.colorId}
 									<span
-										class="size-1.5 shrink-0 rounded-full"
-										style="background: {colorHex(group.colorId)}"
+										class="size-2 shrink-0 rounded-full"
+										style:background={colorHex(group.colorId)}
 										aria-hidden="true"
 									></span>
 								{/if}
@@ -312,53 +343,71 @@
 							</div>
 							{#each group.items as item, i (item.id)}
 								{@const index = (startOf[g] ?? 0) + i}
+								{@const on = index === cursor}
 								<button
 									type="button"
 									id="quick-open-opt-{index}"
 									data-index={index}
 									role="option"
 									tabindex="-1"
-									aria-selected={index === cursor}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
-									cursor
-										? 'bg-accent-soft'
-										: 'hover:bg-hover'}"
-									onpointerenter={() => (active = index)}
+									aria-selected={on}
+									class={cn(
+										'flex h-10 w-full items-center gap-3 rounded-[9px] border-none px-2.5 text-left text-fg transition-colors duration-100',
+										on ? 'bg-hover' : 'bg-transparent',
+									)}
+									onpointermove={() => (active = index)}
 									onclick={() => void choose(item)}
 								>
-									{#if item.colorId}
-										<span
-											class="size-2 shrink-0 rounded-full"
-											style="background: {colorHex(item.colorId)}"
-											aria-hidden="true"
-										></span>
+									{#if item.kind === 'connection' && item.engine && item.colorId}
+										<ConnectionTile engine={item.engine} color={colorHex(item.colorId)} />
 									{:else}
-										<span class="size-2 shrink-0" aria-hidden="true"></span>
+										<span
+											class={cn(
+												'grid size-7 shrink-0 place-items-center rounded-md bg-hover shadow-[inset_0_0_0_1px_var(--line)] [&_svg]:size-3.5',
+												on ? 'text-accent-text' : 'text-fg-secondary',
+											)}
+											aria-hidden="true"
+										>
+											{#if item.kind === 'catalog'}
+												<CatalogIcon name={catalogIcon(item.objectKind)} active={on} />
+											{:else}
+												<Icon name={itemIcon(item)} />
+											{/if}
+										</span>
 									{/if}
-									<span
-										class="w-8 shrink-0 truncate text-caption font-medium text-fg-muted"
-										>{item.mark}</span
-									>
-									<span class="min-w-0 flex-1">
-										<span class="block truncate text-label text-fg"
-											>{item.title}</span
-										>
-										<span class="block truncate text-caption text-fg-muted"
-											>{item.detail}</span
-										>
+									<span class="flex min-w-0 flex-1 items-baseline gap-2">
+										<span class={cn('min-w-0 truncate text-body', item.kind === 'catalog' && 'font-mono')}>
+											{item.title}
+										</span>
+										{#if item.detail && !item.keys}
+											<span class="min-w-0 flex-1 truncate text-label text-fg-muted">{item.detail}</span>
+										{/if}
 									</span>
-									<span class="shrink-0 text-caption text-fg-muted"
-										>{quickOpenKindLabel(item)}</span
-									>
+									{#if item.keys}
+										<span class="flex shrink-0 gap-1" aria-label={item.keys}>
+											{#each caps(item.keys) as cap, c (c)}<kbd>{cap}</kbd>{/each}
+										</span>
+									{:else if on}
+										<kbd class="shrink-0" aria-hidden="true">↵</kbd>
+									{:else}
+										<span class="shrink-0 text-caption text-fg-muted">{quickOpenKindLabel(item)}</span>
+									{/if}
 								</button>
 							{/each}
 						</div>
 					{/each}
 				{/if}
 			</div>
-			<p class="border-t border-line px-3 py-1.5 text-caption text-fg-muted">
-				↑↓ move · Enter open · Esc close
-			</p>
+
+			<footer class="flex h-9 shrink-0 items-center gap-4 border-t border-line bg-surface px-4 text-caption text-fg-muted">
+				<span class="flex items-center gap-1.5"><kbd>↑</kbd><kbd>↓</kbd> move</span>
+				<span class="flex items-center gap-1.5"><kbd>↵</kbd> open</span>
+				<span class="flex items-center gap-1.5"><kbd>esc</kbd> close</span>
+				<span class="ml-auto tabular-nums">
+					{ranked.length}
+					{ranked.length === 1 ? 'result' : 'results'}
+				</span>
+			</footer>
 		</div>
 	</div>
 {/if}

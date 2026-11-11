@@ -32,6 +32,10 @@ export type QuickOpenItem = {
 	savedId?: string
 	body?: string
 	command?: QuickOpenCommand
+	/** A command's chord (`Mod+T`), shown as key caps. */
+	keys?: string
+	/** A connection's engine id, for its tile. */
+	engine?: string
 	/** The connection the item belongs to, for its group heading. */
 	connectionName?: string
 }
@@ -99,11 +103,11 @@ export function collectQuickOpenItems(
 	const items: QuickOpenItem[] = []
 	if (source.inWorkspace && active) {
 		items.push(
-			command('new-query', 'New query', '⌘/Ctrl+T', true),
-			command('prev-tab', 'Previous connection', '⌘/Ctrl+Shift+[', true),
-			command('next-tab', 'Next connection', '⌘/Ctrl+Shift+]', true),
-			command('focus-filter', 'Focus object filter', '⌘/Ctrl+L', true),
-			command('toggle-rail', 'Toggle session rail', '⌘/Ctrl+B', true),
+			command('new-query', 'New query', 'Open a query tab', true, 'Mod+T'),
+			command('prev-tab', 'Previous connection', 'Switch connection', true, 'Mod+Shift+['),
+			command('next-tab', 'Next connection', 'Switch connection', true, 'Mod+Shift+]'),
+			command('focus-filter', 'Focus object filter', 'Jump to the explorer filter', true, 'Mod+L'),
+			command('toggle-rail', 'Toggle session rail', 'Show or hide open sessions', true, 'Mod+B'),
 		)
 		if (source.supportsMetrics) {
 			items.push(
@@ -131,6 +135,7 @@ export function collectQuickOpenItems(
 			connectionId: profile.id,
 			colorId: profile.colorId,
 			mark: profile.mark,
+			engine: profile.engine,
 		})
 	})
 
@@ -291,9 +296,11 @@ function command(
 	title: string,
 	detail: string,
 	onCurrent: boolean,
+	keys?: string,
 ): QuickOpenItem {
 	return {
 		id: `command:${commandId}`,
+		keys,
 		kind: 'command',
 		title,
 		detail,
