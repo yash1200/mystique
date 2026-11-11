@@ -2,6 +2,7 @@
 	import {
 		ControlGroup,
 		ControlRow,
+		Icon,
 		Input,
 		Segmented,
 		Switch,
@@ -26,14 +27,21 @@
 		timeoutText = String(appPrefs.queryTimeoutSecs)
 	}
 
+	/** Sample rows for the density preview. */
+	const SAMPLE = [
+		{ id: '1042', q: 'How do I reset my password?', t: '2026-11-05' },
+		{ id: '1043', q: 'Is there a dark mode?', t: '2026-11-05' },
+		{ id: '1044', q: 'Can I export to CSV?', t: '2026-11-04' },
+	]
+
 	function onDensity(v: string) {
 		appPrefs.setDensity(v === 'comfortable' ? 'comfortable' : 'compact')
 	}
 </script>
 
-<div class="flex max-w-panel-md flex-col">
+<div class="flex flex-col gap-[1.375rem]">
 	<ControlGroup labelledby="settings-pane-title">
-		<ControlRow label="Density">
+		<ControlRow label="Density" description="Row height in tables and result grids.">
 			<Segmented
 				label="Density"
 				value={appPrefs.density}
@@ -41,6 +49,23 @@
 				onchange={onDensity}
 			/>
 		</ControlRow>
+		<div class="px-4 pb-3.5" aria-hidden="true">
+			<div
+				class="overflow-hidden rounded-md border border-line font-mono text-[0.71875rem]"
+				style:--sample-row="{appPrefs.gridRowHeightPx}px"
+			>
+				<div class="sample-row grid grid-cols-[3.75rem_1fr_7.5rem] items-center bg-hover px-3 text-fg-muted">
+					<span>id</span><span>question</span><span>created_at</span>
+				</div>
+				{#each SAMPLE as row (row.id)}
+					<div class="sample-row grid grid-cols-[3.75rem_1fr_7.5rem] items-center border-t border-line px-3">
+						<span class="text-fg-muted">{row.id}</span>
+						<span class="truncate">{row.q}</span>
+						<span class="text-fg-secondary">{row.t}</span>
+					</div>
+				{/each}
+			</div>
+		</div>
 		<ControlRow label="Open on row click">
 			<Switch
 				checked={appPrefs.inspectOnRowClick}
@@ -85,9 +110,20 @@
 			/>
 		</ControlRow>
 	</ControlGroup>
-	<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
-		Query history stores the SQL of each run, including agent and MCP runs.
-		Mystique keeps the latest 2,000 runs for each connection. Passwords and
-		connection-string userinfo are left out of those rows.
-	</p>
+	<div class="flex gap-3 rounded-lg bg-hover px-4 py-3.5 leading-relaxed text-fg-secondary">
+		<span class="mt-0.5 flex text-fg-muted [&_svg]:size-4"><Icon name="history" /></span>
+		<p class="m-0">
+			Query history stores the SQL of each run, including agent and MCP runs.
+			Mystique keeps the latest <span class="font-mono text-fg">2,000</span> runs for
+			each connection. Passwords and connection-string userinfo are left out of
+			those rows.
+		</p>
+	</div>
 </div>
+
+<style>
+	.sample-row {
+		height: var(--sample-row);
+		transition: height 0.25s var(--ease-standard);
+	}
+</style>

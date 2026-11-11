@@ -2,32 +2,44 @@
 	import { cn } from '#core/util'
 	import type { Snippet } from 'svelte'
 
-	type Tone = 'neutral' | 'warning' | 'success' | 'danger' | 'info'
+	/** warning is production, violet is staging, info is read-only. */
+	type Tone = 'neutral' | 'warning' | 'violet' | 'success' | 'danger' | 'info'
 
 	interface Props {
 		tone?: Tone
+		/** Caps status badge (PROD, RO). Off: a rounded count / label chip. */
 		uppercase?: boolean
+		/** The 16px badge for list rows. */
+		compact?: boolean
+		class?: string
 		children?: Snippet
 	}
 
-	let { tone = 'neutral', uppercase = false, children }: Props = $props()
+	let {
+		tone = 'neutral',
+		uppercase = false,
+		compact = false,
+		class: className = '',
+		children,
+	}: Props = $props()
 
 	const tones: Record<Tone, string> = {
-		neutral: 'border-line text-fg-secondary',
-		warning: 'border-warning/45 bg-warning/15 text-warning',
-		success: 'border-success/40 bg-success/15 text-success',
-		danger: 'border-danger/40 bg-danger/15 text-danger',
-		info: 'border-info/40 bg-info/15 text-info',
+		neutral: 'bg-hover text-fg-secondary [--tint:var(--line-2)]',
+		warning: 'bg-warn-soft text-warning',
+		violet: 'bg-violet-soft text-violet',
+		success: 'bg-accent-soft text-accent-text',
+		danger: 'bg-danger-soft text-danger',
+		info: 'bg-info-soft text-info',
 	}
 </script>
 
 <span
 	class={cn(
-		'inline-flex shrink-0 items-center border font-semibold leading-tight',
 		uppercase
-			? 'rounded-sm px-1 py-px text-micro uppercase tracking-wider'
-			: 'rounded-full px-2 py-0.5 text-caption',
+			? cn('badge [&_svg]:size-[0.6875rem]', compact && 'badge-sm')
+			: 'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-caption leading-tight font-medium ring-tint',
 		tones[tone],
+		className,
 	)}
 >
 	{@render children?.()}

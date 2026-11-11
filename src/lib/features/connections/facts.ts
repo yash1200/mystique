@@ -17,9 +17,19 @@ import {
 	configNum,
 	configStr,
 	connectionEndpoint,
+	redactUrl,
 } from './model'
 
-export type ConnectionFact = { label: string; value: string; wide?: boolean }
+export type ConnectionFact = {
+	label: string
+	value: string
+	/** Spans the row in the two-column (`pairs`) grid. */
+	wide?: boolean
+	/** Data (hosts, users, times) is mono; words are not. Default true. */
+	mono?: boolean
+	/** A caution shown beside the value, in the warning tone. */
+	warn?: string
+}
 
 export function environmentLabel(env: ConnectionProfile['environment']): string {
 	if (env === 'production') return 'Production'
@@ -43,16 +53,29 @@ function connectionKind(profile: ConnectionProfile) {
 	return connectionKindFromCaps(defaultCapabilitiesForEngine(profile.engine))
 }
 
-function sslLabel(profile: ConnectionProfile): string {
+function sslOn(profile: ConnectionProfile): boolean {
 	const cfg = profile.pluginConfig ?? {}
 	return configBool(cfg, 'ssl') || configStr(cfg, 'sslMode') === 'require'
-		? 'Required'
-		: 'Off'
+}
+
+function passwordLabel(profile: ConnectionProfile): string {
+	if (profile.passwordSet) return '••••••••'
+	return profile.savePassword === false ? 'Asked on connect' : 'Not set'
+}
+
+function databaseOf(profile: ConnectionProfile): string {
+	const cfg = profile.pluginConfig ?? {}
+	return (
+		configStr(cfg, 'database') ||
+		databaseFromUri(profile.engine, configStr(cfg, 'uri')) ||
+		''
+	)
 }
 
 /**
- * The fact grid. `full` (home) lists the target field by field; `summary`
- * (workspace modal) leaves the target to the URL line and skips empty fields.
+ * The fact grid. `full` (home) lists everything but the target, which the
+ * detail shows on its own line; `summary` (workspace modal) skips empty
+ * fields.
  */
 export function connectionFacts(
 	profile: ConnectionProfile,
@@ -61,59 +84,69 @@ export function connectionFacts(
 	const cfg = profile.pluginConfig ?? {}
 	const kind = connectionKind(profile)
 	const items: ConnectionFact[] = []
-	if (mode === 'full') {
-		if (kind === 'uri') {
-			items.push({ label: 'URI', value: configStr(cfg, 'uri', '—'), wide: true })
-		} else if (kind === 'file') {
-			items.push({ label: 'File', value: configStr(cfg, 'path', '—'), wide: true })
-		} else {
-			items.push(
-				{ label: 'Host', value: configStr(cfg, 'host', '—') },
-				{
-					label: 'Port',
-					value: configNum(cfg, 'port') ? String(configNum(cfg, 'port')) : '—',
-				},
-				{ label: 'Database', value: configStr(cfg, 'database', '—') },
-				{ label: 'User', value: configStr(cfg, 'username', '—') },
-				{
-					label: 'Password',
-					value: profile.passwordSet ? '••••••••' : 'Not set',
-				},
-				{ label: 'SSL', value: sslLabel(profile) },
-			)
-		}
-		items.push({ label: 'Environment', value: environmentLabel(profile.environment) })
-	} else {
-		const database =
-			configStr(cfg, 'database') ||
-			databaseFromUri(profile.engine, configStr(cfg, 'uri')) ||
-			''
-		const username = configStr(cfg, 'username')
-		if (database) items.push({ label: 'Database', value: database })
-		if (username) items.push({ label: 'User', value: username })
-		if (kind === 'host') items.push({ label: 'SSL', value: sslLabel(profile) })
-	}
-	items.push({
+	const access: ConnectionFact = {
 		label: 'Access',
 		value: profile.readOnly ? 'Read-only' : 'Read / write',
-	})
+		mono: false,
+	}
+	if (mode === 'full') {
+		const database = databaseOf(profile)
+		if (kind === 'host') {
+			const ssl = sslOn(profile)
+			const port = configNum(cfg, 'port')
+			items.push(
+				{ label: 'Database', value: database || '—' },
+				{ label: 'User', value: configStr(cfg, 'username', '—') || '—' },
+				{ label: 'Password', value: passwordLabel(profile) },
+				{ label: 'Port', value: port ? String(port) : '—' },
+				{
+					label: 'SSL',
+					value: ssl ? 'Required' : 'Off',
+					warn:
+						!ssl && profile.environment === 'production'
+							? 'Not encrypted'
+							: undefined,
+				},
+			)
+		} else if (kind === 'uri' && database) {
+			items.push({ label: 'Database', value: database })
+		}
+		items.push(
+			{
+				label: 'Environment',
+				value: environmentLabel(profile.environment),
+				mono: false,
+			},
+			access,
+			{ label: 'Last connected', value: formatConnectedAt(profile.lastConnectedAt) },
+		)
+		return items
+	}
+	const database = databaseOf(profile)
+	const username = configStr(cfg, 'username')
+	if (database) items.push({ label: 'Database', value: database })
+	if (username) items.push({ label: 'User', value: username })
+	if (kind === 'host') items.push({ label: 'SSL', value: sslOn(profile) ? 'Required' : 'Off' })
+	items.push(access)
 	items.push({
 		label: 'Last connected',
 		value: formatConnectedAt(profile.lastConnectedAt),
 		// Full width when it would sit alone on the last row.
-		wide: mode === 'full' || items.length % 2 === 0,
+		wide: items.length % 2 === 0,
 	})
 	return items
 }
 
-function redactUrl(uri: string): string {
-	try {
-		const parsed = new URL(uri)
-		if (parsed.password) parsed.password = '••••'
-		return parsed.toString()
-	} catch {
-		return uri.replace(/:([^:@/]+)@/, ':••••@')
-	}
+/** Where the connection points: host:port, the file, or the URI (password redacted). */
+export function connectionTarget(profile: ConnectionProfile): string {
+	const cfg = profile.pluginConfig ?? {}
+	const kind = connectionKind(profile)
+	if (kind === 'file') return configStr(cfg, 'path') || '—'
+	if (kind === 'uri') return redactUrl(configStr(cfg, 'uri')) || '—'
+	const host = configStr(cfg, 'host')
+	const port = configNum(cfg, 'port', 0)
+	if (!host) return connectionEndpoint(profile)
+	return port ? `${host}:${port}` : host
 }
 
 /** One line for the target, password redacted. */

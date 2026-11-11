@@ -271,18 +271,15 @@
 		{id}
 		class={cn(
 			'flex cursor-pointer items-center text-left',
-			'focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted',
+			'transition-[border-color,box-shadow,background-color] duration-150 ease-standard',
 			'disabled:cursor-not-allowed disabled:opacity-55',
 			variant === 'quiet' &&
 				'h-control-sm max-w-full gap-1 rounded-md border border-transparent bg-transparent px-1.5 text-caption text-fg-secondary hover:bg-hover hover:text-fg',
 			variant === 'quiet' && open && 'bg-hover text-fg',
 			variant === 'field' &&
-				'w-full justify-between gap-2 rounded-md border border-line bg-input px-2.5 text-fg',
-			variant === 'field' && open && 'border-focus ring-2 ring-accent-muted',
+				'w-full justify-between gap-2 rounded-md border border-line-strong bg-field px-3 text-fg focus-field',
 			variant === 'field' &&
-				(inputSize === 'sm'
-					? 'h-control-sm text-label'
-					: 'h-control text-body'),
+				(inputSize === 'sm' ? 'h-control-sm text-label' : 'h-field text-body'),
 		)}
 		{disabled}
 		aria-label={ariaLabel}
@@ -324,7 +321,7 @@
 			bind:this={listEl}
 			id={listId}
 			class={cn(
-				'z-50 m-0 overflow-auto rounded-md border border-line bg-elevated p-1 shadow-md',
+				'z-50 m-0 overflow-auto rounded-lg border border-line bg-raised p-1 shadow-md',
 				'focus:outline-none',
 			)}
 			style={menuStyle}
@@ -352,7 +349,7 @@
 						tabindex="-1"
 						disabled={opt.disabled}
 						class={cn(
-							'flex w-full items-center rounded-sm px-2.5 text-left transition-colors',
+							'flex w-full items-center rounded-md px-2.5 text-left transition-colors',
 							inputSize === 'sm'
 								? 'h-control-sm text-label'
 								: 'h-control text-body',
@@ -361,11 +358,11 @@
 							!opt.disabled &&
 								isSelected &&
 								!isActive &&
-								'bg-accent-muted text-accent',
+								'bg-accent-soft text-accent-text',
 							!opt.disabled &&
 								isSelected &&
 								isActive &&
-								'bg-accent-muted text-accent',
+								'bg-accent-soft text-accent-text',
 							!opt.disabled && !isSelected && !isActive && 'text-fg',
 						)}
 						onpointerenter={() => {
@@ -375,7 +372,7 @@
 					>
 						<span class="min-w-0 flex-1 truncate">{opt.label}</span>
 						{#if isSelected}
-							<Icon name="check" class="ml-2 size-3.5 text-accent" />
+							<Icon name="check" class="ml-2 size-3.5 text-accent-text" />
 						{/if}
 					</button>
 				</li>

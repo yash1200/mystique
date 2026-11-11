@@ -3,15 +3,18 @@
 	import type { Snippet } from 'svelte'
 	import type { HTMLButtonAttributes } from 'svelte/elements'
 
+	/**
+	 * quiet: bare glyph (toolbars, list headers). default: a neutral button.
+	 * ghost: hairline border. accent: soft accent, solid on hover (the one
+	 * "new" or "send" action in a toolbar).
+	 */
 	type Variant = 'default' | 'accent' | 'ghost' | 'quiet'
-	/** Matches Input/Button control scale from the design language. */
 	type ControlSize = 'sm' | 'md' | 'lg'
 
 	interface Props extends HTMLButtonAttributes {
 		label: string
 		variant?: Variant
 		active?: boolean
-		/** Design-language size; aligns with Input `inputSize`. */
 		size?: ControlSize
 		children?: Snippet
 	}
@@ -28,30 +31,32 @@
 	}: Props = $props()
 
 	const sizes: Record<ControlSize, string> = {
-		sm: 'size-control-sm text-label [&_svg]:size-4',
-		md: 'size-control text-body [&_svg]:size-5',
-		lg: 'size-control-lg text-body-lg [&_svg]:size-5',
+		sm: 'size-control-sm rounded-[7px] [&_svg]:size-4',
+		md: 'size-control rounded-md [&_svg]:size-4',
+		lg: 'size-control-lg rounded-lg [&_svg]:size-5',
+	}
+
+	const variants: Record<Variant, string> = {
+		quiet:
+			'border-transparent bg-transparent text-fg-muted enabled:hover:bg-hover enabled:hover:text-fg',
+		default:
+			'border-line-strong bg-hover text-fg enabled:hover:bg-pressed',
+		ghost:
+			'border-line bg-transparent text-fg-secondary enabled:hover:bg-hover enabled:hover:text-fg',
+		accent:
+			'border-transparent bg-accent-soft text-accent-text enabled:hover:bg-accent enabled:hover:text-on-accent',
 	}
 </script>
 
 <button
 	{type}
 	class={cn(
-		'inline-grid shrink-0 place-items-center rounded-md border p-0 leading-none transition-[color,background-color,border-color,transform] duration-150 ease-out enabled:active:scale-[0.97]',
+		'inline-grid shrink-0 place-items-center border p-0 leading-none',
+		'transition-[color,background-color,border-color,transform] duration-150 ease-standard enabled:active:scale-[0.92]',
 		sizes[size],
-		variant === 'ghost' && 'border-line bg-transparent text-fg',
-		variant === 'quiet' &&
-			'border-transparent bg-transparent text-fg-secondary',
-		variant === 'default' && 'border-line bg-elevated text-fg',
-		variant === 'accent' &&
-			!active &&
-			'border-transparent bg-accent text-fg-inverse hover:bg-accent-hover',
-		variant === 'quiet' && !active && 'hover:bg-hover hover:text-fg',
-		variant !== 'accent' &&
-			variant !== 'quiet' &&
-			!active &&
-			'hover:border-line-strong hover:bg-hover',
-		active && 'border-accent bg-accent-muted text-accent',
+		active
+			? 'border-transparent bg-accent-soft text-accent-text'
+			: variants[variant],
 		className,
 	)}
 	title={label}

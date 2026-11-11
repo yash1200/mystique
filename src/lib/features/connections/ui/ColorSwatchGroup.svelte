@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { Icon } from '#core/ui'
 	import { cn } from '#core/util'
+
 	export interface ColorOption {
 		id: string
 		name: string
@@ -26,20 +28,26 @@
 	}
 </script>
 
-<div class="flex flex-wrap gap-2" role="group" aria-label={label}>
+<div class="flex flex-wrap gap-2.5 px-0.5 py-1" role="group" aria-label={label}>
 	{#each colors as c (c.id)}
+		{@const on = value === c.id}
 		<button
 			type="button"
 			class={cn(
-				'size-swatch rounded-full border-2 border-transparent p-0 motion-safe:hover:scale-105',
-				value === c.id &&
-					'shadow-[0_0_0_2px_var(--bg-app),0_0_0_4px_var(--border-focus)]',
+				'grid size-swatch place-items-center rounded-full border-none p-0 text-white',
+				'transition-[transform,box-shadow] duration-(--duration-spring) ease-spring motion-safe:hover:scale-[1.14]',
+				on && 'shadow-[0_0_0_2px_var(--surface),0_0_0_4px_var(--swatch)]',
 			)}
-			style="background: {c.hex}"
+			style:--swatch={c.hex}
+			style:background={c.hex}
 			title={c.name}
 			aria-label={c.name}
-			aria-pressed={value === c.id}
+			aria-pressed={on}
 			onclick={() => select(c.id)}
-		></button>
+		>
+			{#if on}
+				<span class="flex animate-rise [&_svg]:size-3.5"><Icon name="check" /></span>
+			{/if}
+		</button>
 	{/each}
 </div>

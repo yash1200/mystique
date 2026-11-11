@@ -1,12 +1,20 @@
 # Mystique — Design Language (Code)
 
-> **Status:** Canonical implementation design system  
+> **Status:** Canonical implementation design system — **v1, "Quiet surfaces, loud data"**  
 > **Stack:** Tailwind CSS v4 · semantic tokens · Svelte 5  
 > **Product UX:** [`UI_UX_GUIDELINES.md`](./UI_UX_GUIDELINES.md)  
 > **Components:** [`COMPONENT_STRUCTURE.md`](./COMPONENT_STRUCTURE.md)
 
 This document is the **code contract**. Every UI class must come from this language.  
 **Do not invent** random `text-[13px]`, `text-[#abc]`, or one-off spacing.
+
+Chrome stays neutral and recessive so connection colours, environment badges and
+query results carry the signal. Every theme is a neutral ramp crossed with one
+accent ramp, mapped onto the same semantic tokens.
+
+> **Migration:** the home screen (connection list, detail, its dialogs) is on v1.
+> Other screens still use the older class names in §3, which now alias the v1
+> tokens, so they already follow the new themes. Move them screen by screen.
 
 ---
 
@@ -17,7 +25,8 @@ This document is the **code contract**. Every UI class must come from this langu
 3. **One theme map** — Light/dark swap CSS variables; components never pair `dark:` / `light:` colors.
 4. **Dense by default** — Body UI is 13px (`text-body`); use larger steps sparingly.
 5. **Primitives first** — Build screens from `#core/ui`; don’t restyle buttons per screen.
-6. **No magic numbers** — If a value isn’t in this doc, add it to the language first, then use it.
+6. **Amber means production.** Never use `warning` for decoration.
+7. **Data is mono.** Hosts, ports, keys, SQL and times are `font-mono` (tabular numbers).
 
 ### Forbidden
 
@@ -25,13 +34,13 @@ This document is the **code contract**. Every UI class must come from this langu
 | ------- | --- | ----------- |
 | `text-[11px]`, `text-[13px]`, `text-[22px]` | Random type | `text-caption`, `text-body`, `text-display` |
 | `text-xs` / `text-sm` / `text-base` (default Tailwind names) | Ambiguous vs our scale | Semantic steps below |
-| `text-[#…]`, `bg-[#…]`, `border-[#…]` | Breaks theme | `text-fg`, `bg-panel`, … |
+| `text-[#…]`, `bg-[#…]`, `border-[#…]` | Breaks theme | `text-fg`, `bg-surface`, … |
 | `dark:bg-…` for theme surfaces | Duplicates CSS | Semantic `bg-*` tokens |
-| Ad-hoc `h-[34px]` outside controls | Inconsistent density | `h-control`, `h-control-sm`, `h-control-lg` |
+| Two classes for one property (`rounded-md` + `rounded-lg`) | `cn` does not merge; the winner is CSS order | A variant/size prop on the primitive |
 | Inline hex for chrome | Not theme-aware | Tokens only |
 | New font families in components | Brand drift | `font-sans` / `font-mono` |
 
-**Allowed exception:** dynamic connection identity via `--connection-color` + `conn-tint` / `bg-conn` utilities (never for general chrome).
+**Allowed exception:** dynamic connection identity via `--connection-color` + `conn-tile` / `conn-tint` / `bg-conn` (never for general chrome).
 
 ---
 
@@ -41,24 +50,31 @@ This document is the **code contract**. Every UI class must come from this langu
 <html data-theme="dark|light" data-density="compact|comfortable">
         │
         ▼
-tokens.css          ← variable values only
+tokens.css          ← semantic values per theme (the only layer themes touch)
         │
         ▼
-app.css @theme      ← exposes Tailwind utilities (once)
+app.css @theme      ← exposes Tailwind utilities (once) + design utilities
         │
         ▼
 Components          ← semantic classes only
 ```
 
-| Layer | File | Responsibility |
-| ----- | ---- | -------------- |
-| Values | `src/lib/styles/tokens.css` | Hex / rgba for light & dark |
-| Bridge | `src/app.css` (`@theme inline`) | Map tokens → utilities |
-| Primitives | `src/lib/components/core/*` | Encode variants with language classes |
-| Features | `src/lib/components/{home,workspace}/*` | Compose primitives + page chrome |
+| Theme | Scheme (`data-theme`) | `data-palette` | Ramps |
+| ----- | --------------------- | -------------- | ----- |
+| **Night** | `dark` | — | Graphite × Mint |
+| **Abyss** | `dark` | `abyss` | Navy × Iris |
+| **Day** | `light` | — | Graphite × Mint (accent step 700 so white text passes 4.5:1) |
+| **Linen** | `light` | `linen` | Warm paper × Ember |
 
-Theme switch = change `data-theme`. **No component rewrites.**  
-Density switch = change `data-density`. Appearance prefs live in `src/lib/stores/app-prefs.svelte.ts` and apply at boot (`appPrefs.apply()`).
+Settings › Appearance picks the **mode** (Light · Dark · System) and one theme
+of each scheme (`appPrefs.darkTheme`, `appPrefs.lightTheme`); System swaps
+between the two picks with the OS. `data-theme` stays `dark | light`, so the
+`dark:` variant, the editor and syntax inks follow the scheme. `app.html`
+applies the saved theme before first paint.
+
+Adding a theme: a `[data-palette='…']` block in `tokens.css`, an entry in
+`app/themes.ts`, and its id in that scheme's type. Keep `--warn` on amber in
+every theme so PROD always reads as PROD.
 
 ---
 
@@ -66,96 +82,73 @@ Density switch = change `data-density`. Appearance prefs live in `src/lib/stores
 
 ### 3.1 Surfaces
 
-| Token class | Role | Example use |
-| ----------- | ---- | ----------- |
-| `bg-app` | Deepest app canvas | Window background |
-| `bg-panel` | Sidebars, cards | Connection rail, card body |
-| `bg-elevated` | Cards, tabs, menus, toasts | Must sit above `bg-panel` (light: warm paper white) |
-| `bg-input` | Fields, chips | Input, select, badge neutral |
-| `bg-hover` | Hover wash | List row hover |
-| `bg-active` | Active chrome | (reserved) |
-| `bg-selected` | Selection wash | Grid selection (later) |
-| `bg-accent` | Primary solid CTA | Primary button |
-| `bg-accent-hover` | Primary hover | Primary button hover |
-| `bg-accent-muted` | Soft accent fill | Selected engine, icon active |
+| Class | Token | Role |
+| ----- | ----- | ---- |
+| `bg-app` | `--bg` | App canvas, behind everything |
+| `bg-side` | `--side` | Sidebars |
+| `bg-surface` | `--surface` | Cards, panels |
+| `bg-raised` | `--raised` | Popovers, menus, modals, toasts |
+| `bg-field` | `--field` | Input wells |
+| `bg-hover` | `--s2` | Hover, subtle fill, selected row |
+| `bg-pressed` | `--s3` | Pressed, switch track |
+| `bg-scrim` | `--scrim` | Modal backdrop |
+| `bg-accent` / `bg-accent-hover` | `--accent` | Primary action |
+| `bg-accent-soft` | `--accent-soft` | Selected fills, focus halo, ok state |
+
+Older names (alias the above): `bg-panel` = surface, `bg-elevated` = raised,
+`bg-input` = field, `bg-accent-muted` = accent-soft, `bg-active` / `bg-selected`.
 
 ### 3.2 Text
 
-| Token class | Role |
-| ----------- | ---- |
-| `text-fg` | Primary labels, titles, body |
-| `text-fg-secondary` | Supporting copy, meta |
-| `text-fg-muted` | Placeholders, hints, disabled-adjacent |
-| `text-fg-inverse` | Text on solid accent / logo mark |
-| `text-accent` | Links, text buttons |
-| `text-success` | Connected, success |
-| `text-warning` | PROD, caution |
-| `text-danger` | Errors, delete |
-| `text-info` | Informational status (cerulean — **not** jade accent) |
+| Class | Token | Role |
+| ----- | ----- | ---- |
+| `text-fg` | `--text` | Primary text |
+| `text-fg-secondary` | `--text-2` | Secondary text, labels |
+| `text-fg-muted` | `--text-3` | Tertiary, placeholders. **The 4.5:1 floor** — never lighter |
+| `text-on-accent` | `--on-accent` | Text on solid accent (`text-fg-inverse` is the old name) |
+| `text-on-danger` | `--on-danger` | Text on solid danger |
+| `text-accent-text` | `--accent-text` | Accent as text, links, ok messages |
 
 ### 3.3 Borders & focus
 
-| Token class | Role |
-| ----------- | ---- |
-| `border-line` | Default dividers, control borders |
-| `border-line-strong` | Emphasized / hover borders |
-| `border-focus` | Focus ring color |
-| `outline-focus` | `:focus-visible` outline |
-| `ring-accent-muted` | Soft focus ring on inputs |
+| Class | Token | Role |
+| ----- | ----- | ---- |
+| `border-line` | `--line` | Hairline dividers, card borders |
+| `border-line-strong` | `--line-2` | Control borders |
+| `border-focus` | `--accent` | Focused field border |
+| `outline-ring` | `--ring` | `:focus-visible` outline (2px, offset 2) |
+| `focus-field` | — | Field focus: accent border + 3px `accent-soft` halo |
 
-### 3.4 Status (use with text/bg/border)
+### 3.4 Status
 
-| Token | Meaning |
-| ----- | ------- |
-| `success` | Connected, ok |
-| `warning` | Production, slow, caution |
-| `danger` | Error, destructive |
-| `info` | Neutral running / info (`--status-info`, cyan — **not** accent) |
+| Tone | Text | Soft fill | Meaning |
+| ---- | ---- | --------- | ------- |
+| accent | `text-accent-text` (`text-success`) | `bg-accent-soft` | Connected, ok |
+| warning | `text-warning` | `bg-warn-soft` | **Production only**, caution |
+| danger | `text-danger` | `bg-danger-soft` | Delete, errors |
+| info | `text-info` | `bg-info-soft` | Read-only, info |
+| violet | `text-violet` | `bg-violet-soft` | Staging |
 
-Patterns:
+Badges (`Pill uppercase`) and banners (`Alert`) pair the soft fill with a 1px
+ring in the tone (`badge`, `ring-tint`; set `--tint` to override the ring).
 
-```txt
-text-danger border-danger/40 bg-danger/15   ← error chip / alert
-text-warning border-warning/45 bg-warning/15 ← PROD pill
-```
+### 3.5 Connection colours (identity only)
 
-Opacity steps **allowed:** `/10` `/12` `/15` `/25` `/35` `/40` `/45` `/50` only with status or accent tokens.
-
-### 3.5 Connection colors (identity only)
-
-| Class | Role |
-| ----- | ---- |
-| `bg-conn-rose` … `bg-conn-slate` | Swatches, static markers |
-| `--connection-color` + `conn-tint` | Scoped active connection |
+Twelve hues tuned to the same lightness (`model.ts` `CONNECTION_COLORS`, ids are
+stored): Rose, Coral, Amber, Lime, Green, Teal, Sky, Blue, Indigo, Violet,
+Magenta, Slate. Tints are mixed at runtime: `conn-tile` is 16% fill, 30% ring,
+text 72% toward `--text`, so it reads on every theme.
 
 **Never** use connection hues for primary buttons or general chrome.
 
 ### 3.6 Syntax highlighting (`syntax.*`)
 
-CodeMirror and any code chrome must use these tokens (light + dark in `tokens.css`):
+CodeMirror and any code chrome use `--syntax-*` (both themes in `tokens.css`).
+Do not reuse `--accent` or connection hues for syntax.
 
-| Token | Role |
-| ----- | ---- |
-| `--syntax-keyword` | SQL/MQL keywords |
-| `--syntax-string` | Strings |
-| `--syntax-number` | Numbers |
-| `--syntax-comment` | Comments |
-| `--syntax-operator` | Operators (`=`, `>`, `AND`) |
-| `--syntax-punct` | Punctuation / brackets |
-| `--syntax-name` | Identifiers |
-| `--syntax-property` | Properties / fields |
-| `--syntax-type` | Types |
-| `--syntax-func` | Functions / builtins |
-| `--syntax-atom` | Bool / null / atoms |
-| `--syntax-invalid` | Errors |
+### 3.7 Mascot
 
-Do not reuse `--accent` or connection hues for syntax. Reconfigure the editor theme when `data-theme` changes (`createMystiqueEditorTheme`).
-
-### 3.7 Color checklist
-
-- [ ] No hex in `.svelte` files (except data models for connection palette in `types/`)
-- [ ] No `text-black` / `text-white` / `bg-gray-*` for product chrome
-- [ ] Status color always paired with text or icon, not color alone
+`--fur`, `--ear`, `--muzzle`, `--ink`, `--mascot-tag`, `--mascot-tongue`, read by `Mascot` only.
 
 ---
 
@@ -165,87 +158,59 @@ Do not reuse `--accent` or connection hues for syntax. Reconfigure the editor th
 
 | Class | Use |
 | ----- | --- |
-| `font-sans` | **Instrument Sans** — UI chrome (default) |
-| `font-mono` | **IBM Plex Mono** — hosts, ports, SQL, JSON, grid cells, badges |
+| `font-sans` | **Geist** — UI chrome (default, `-0.006em`) |
+| `font-mono` | **Geist Mono** — data: hosts, ports, SQL, JSON, grid cells, marks (`-0.01em`, tabular numbers) |
 
 ### 4.2 Size scale (closed set)
 
-| Class | Size | Line height | Use **only** for |
-| ----- | ---- | ----------- | ---------------- |
-| `text-micro` | 10px | 1.2 | Badge mono marks, tiny uppercase chips |
-| `text-caption` | 11px | 1.35 | Meta, hints, shortcuts, status bar, footers |
-| `text-label` | 12px | 1.4 | Field labels, card section titles, secondary UI |
-| `text-body` | 13px | 1.4 | **Default UI body**, inputs, buttons, list titles |
-| `text-body-lg` | 14px | 1.45 | Emphasized body, brand name in sidebar |
-| `text-title` | 18px | 1.3 | Empty states, minor headings |
-| `text-display` | 22px | 1.25 | Page / connection titles |
-
-**Default:** `body` uses `text-body`. Do not use Tailwind’s default `text-xs`…`text-xl` for product UI.  
-**Density:** `data-density="compact"` is default; `comfortable` loosens `--row-height`, `--sidebar-width`, and `--grid-row-height` (28px → 32px grid rows). Toggle lives in **Settings** (`AppearanceSettings` / `SettingsModal`).
+| Class | Size / line | Use |
+| ----- | ----------- | --- |
+| `text-micro` | 10 / 12 | Tiny mono marks |
+| `text-caption` | 11 / 14 | Meta, mono sublines, shortcuts |
+| `label-caps` | 11 / 14 · 600 · +8% caps | Section titles, fact labels (utility, includes colour) |
+| `text-label` | 12 / 16 · 500 | Field labels, hints, secondary UI |
+| `text-data` | 12.5 / 20 | Mono data values |
+| `text-body` | 13 / 20 | **Default UI body**, inputs, buttons, list names |
+| `text-body-lg` | 14 / 21 | Card titles, sidebar brand, page descriptions |
+| `text-heading` | 15 / 22 · 600 | Dialog titles, section headings |
+| `text-title` | 20 / 28 · 600 | Minor page headings, empty states |
+| `text-display` | 28 / 32 · 600 · −2.5% | Page / connection titles |
 
 ### 4.3 Weight scale (closed set)
 
-| Class | Use |
-| ----- | --- |
-| `font-normal` (400) | Body, meta |
-| `font-medium` (500) | List names, buttons, labels |
-| `font-semibold` (600) | Titles, card headers, brand |
-| `font-bold` (700) | Logo mark only |
+`font-normal` (400) body · `font-medium` (500) names, buttons, labels ·
+`font-semibold` (600) titles, badges · `font-bold` (700) rare.
 
-Avoid `font-extrabold` / `font-black`.
-
-### 4.4 Tracking
-
-| Class | Use |
-| ----- | --- |
-| `tracking-tight` | Display / page titles |
-| `tracking-normal` | Default |
-| `tracking-wide` | Optional labels |
-| `tracking-wider` | Uppercase section headers (`text-label`) |
-
-### 4.5 Typography recipes
+### 4.4 Recipes
 
 | Recipe | Classes |
 | ------ | ------- |
 | Page title | `text-display font-semibold tracking-tight text-fg` |
-| Section header | `text-label font-semibold uppercase tracking-wider text-fg-muted` |
+| Section title | `label-caps` |
 | Field label | `text-label font-medium text-fg-secondary` |
 | Body | `text-body text-fg` |
-| Meta / hint | `text-caption text-fg-muted` |
-| Mono host | `font-mono text-caption text-fg-muted` |
-| Link text | `text-body` or `text-caption` + `text-accent` |
+| Hint | `text-label text-fg-muted` |
+| Mono subline | `font-mono text-caption text-fg-muted` |
+| Mono value | `font-mono text-data text-fg` |
 
 ---
 
 ## 5. Spacing language
 
-Use **Tailwind spacing scale only** (rem-based). Preferred steps for this product:
-
-| Class | px (approx) | Use |
-| ----- | ----------- | --- |
-| `gap-0.5` / `p-0.5` | 2 | Dense chip gaps |
-| `gap-1` / `p-1` | 4 | Inline icon gaps |
-| `gap-1.5` / `p-1.5` | 6 | Field label gap |
-| `gap-2` / `p-2` | 8 | Default compact gap |
-| `gap-3` / `p-3` | 12 | Form grids, toolbars |
-| `gap-4` / `p-4` | 16 | Card padding-x, section gaps |
-| `gap-5` / `p-5` | 20 | Stack form sections, hero |
-| `gap-6` / `p-6` | 24 | Page panel padding-x |
-| `gap-8` / `p-8` | 32 | Page panel padding-y |
-
-**Avoid:** `p-[13px]`, `gap-[7px]`, `mt-[18px]`.
+4px rhythm, Tailwind spacing scale only: `0.5` 2 · `1` 4 · `1.5` 6 · `2` 8 · `3` 12 ·
+`4` 16 · `5` 20 · `6` 24 · `8` 32 · `10` 40 · `12` 48 · `16` 64.
 
 Layout widths:
 
-| Token / class | Use |
-| ------------- | --- |
-| `w-sidebar` | Left connection rail (`var(--sidebar-width)`) |
+| Class | Use |
+| ----- | --- |
+| `w-sidebar` | Left rail (`var(--sidebar-width)`) |
 | `max-w-panel-sm` | Empty states (~420px) |
 | `max-w-panel-md` | Forms (~720px) |
 | `max-w-panel-lg` | Detail (~880px) |
+| `max-w-panel-xl` | Home connection detail (980px) |
 | `max-w-prose-ui` | Descriptions (~52ch) |
-| `h-modal` | Tall dialog fill (`min(36rem, 100vh − 2rem)`) |
-| `max-h-modal-sm` · `md` · `lg` | Dialog max heights (32 / 40 / 44rem) |
+| `h-modal`, `max-h-modal-sm · md · lg` | Dialog heights |
 
 ---
 
@@ -253,78 +218,65 @@ Layout widths:
 
 | Class | Value | Use |
 | ----- | ----- | --- |
-| `rounded-sm` | 3px | Badges, kbd, micro chips |
-| `rounded-md` | 5px | Buttons, inputs, list rows |
-| `rounded-lg` | 8px | Icon buttons, toasts, brand mark |
-| `rounded-xl` | 10px | Cards, heroes |
-| `rounded-full` | pill | Pills, status dots |
-
-Do not invent `rounded-[5px]`.
+| `rounded-xs` | 4px | kbd, badges, marks |
+| `rounded-sm` | 6px | Small chips |
+| `rounded-md` | 8px | Buttons, inputs, menu items |
+| `rounded-lg` | 12px | Cards, banners, toasts, menus |
+| `rounded-xl` | 16px | Modals, the hero connection tile |
+| `rounded-full` | pill | Switches, swatches, status dots |
 
 ---
 
-## 7. Elevation / shadow
+## 7. Elevation
 
-| Class | Use |
-| ----- | --- |
-| `shadow-none` | Flat chrome |
-| `shadow-sm` | Theme toggle active, light elevation |
-| `shadow-md` | Toasts, floating panels |
+Depth by light, not by colour.
+
+| Level | Classes | Use |
+| ----- | ------- | --- |
+| e0 flat | `bg-surface border border-line` | Panels, cards, rows |
+| e1 raised | `shadow-sm` (`--shadow-1`) | Buttons |
+| e2 popover | `bg-raised shadow-md` (`--shadow-2`) | Menus, selects, bubbles |
+| e3 modal | `bg-raised shadow-lg` (`--shadow-3`) + `bg-scrim` | Dialogs, toasts |
 
 ---
 
 ## 8. Control sizes
 
-Closed set for interactive controls:
-
 | Class | Height | Use |
 | ----- | ------ | --- |
-| `h-control-sm` | 28px | Compact buttons, dense toolbars |
-| `h-control` | 34px | **Default** buttons, inputs, selects |
-| `h-control-lg` | 40px | Rare emphasis |
-| `h-topbar` | 44px | App top bar |
-| `min-h-row` | `var(--row-height)` | Connection list rows |
-| `min-h-grid-row` | `var(--grid-row-height)` | Data grid cells (28 / 32px) |
-| `h-statusbar` / `min-h-statusbar` | 34px min | Status footers (may wrap) |
+| `h-control-sm` / `size-control-sm` | 28px | Small buttons, icon buttons |
+| `h-control` / `size-control` | 32px | **Default** buttons |
+| `h-field` | 36px | **Default** inputs, selects, password fields |
+| `h-control-lg` / `size-control-lg` | 40px | The one hero action (Connect) |
+| `h-topbar` | 52px | Sidebar header, page bar |
+| `h-statusbar` | 34px | Workspace status footers |
+| `min-h-row`, `min-h-grid-row` | density | Lists, grid cells |
 
-Square controls (icon buttons) use matching edge length:
-
-| Class | Size | Use |
-| ----- | ---- | --- |
-| `size-control-sm` | 28×28 | Compact icon buttons |
-| `size-control` | 34×34 | **Default** icon buttons (aligns with `h-control`) |
-| `size-control-lg` | 40×40 | Rare emphasis |
-
-Pair toolbar fields with icon actions at the **same step** (`md` / `h-control` + `size-control`). Never mix `inputSize="sm"` with a default 32px pixel button.
-
-Input padding: `px-2.5` horizontal; textareas `px-2.5 py-2`.
+Hit targets ≥ 28px. Input padding `px-3`; icon insets via `Input inset`.
 
 ---
 
 ## 9. Motion
 
-Tokens live on `:root` in `tokens.css`. Helpers in `#core/util/motion`.
-
 | Token | Value | Use |
 | ----- | ----- | --- |
-| `--ease-out` | `cubic-bezier(0.23, 1, 0.32, 1)` | Enter / exit |
-| `--ease-in-out` | `cubic-bezier(0.77, 0, 0.175, 1)` | On-screen movement |
-| `--ease-drawer` | `cubic-bezier(0.32, 0.72, 0, 1)` | Sheets (if added) |
-| `--duration-press` | `160ms` | `:active` scale |
-| `--duration-popover` | `200ms` | Menus, selects |
-| `--duration-modal` | `250ms` | Dialogs + backdrops |
-| `--duration-toast` | `400ms` | Toasts |
+| `--duration-fast` | 120ms | Hover, press |
+| `--duration-base` | 180ms | Tabs, fades |
+| `--duration-slow` | 280ms | Modals, panels |
+| `--duration-spring` | 420ms | Switches, swatches, the dog |
+| `ease-standard` | `cubic-bezier(.2,0,0,1)` | Default |
+| `ease-emphasized` | `cubic-bezier(.05,.7,.1,1)` | Large surfaces |
+| `ease-spring` | `cubic-bezier(.34,1.56,.64,1)` | **Only** things the user flips |
 
-| Class / helper | Use |
-| ----- | --- |
-| `transition-colors` | Default interactive |
-| `duration-100` / `duration-150` | Hovers, theme-adjacent |
-| `ease-[var(--ease-out)]` | Transform / opacity transitions |
-| `motion-safe:hover:scale-105` | Color swatches only |
-| `overlayFade` / `modalPanel` / `popover` / `toastSlide` / `fadeRise` | Enter + exit (Svelte `transition:`) |
-| `motion-reduce:…` | Always respect reduced motion |
+| Utility / helper | Use |
+| ---------------- | --- |
+| `animate-rise` | Enter: 6px rise + fade |
+| `stagger` | Children rise 40ms apart (page sections) |
+| `dot-live` | Live connection halo |
+| `overlayFade` / `modalPanel` / `popover` / `toastSlide` / `fadeRise` | Svelte `transition:` enter/exit |
 
-Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.97`. No continuous animation in chrome.
+Animate `transform` and `opacity`. Press = `scale(.97)` (icon buttons `.92`).
+All motion respects `prefers-reduced-motion`.
 
 ---
 
@@ -332,22 +284,20 @@ Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.
 
 | Need | Primitive | Notes |
 | ---- | --------- | ----- |
-| Button | `Button` | `variant`: primary \| secondary \| ghost \| danger \| danger-ghost |
-| Icon button | `IconButton` | `variant`: default \| accent \| ghost \| quiet. `quiet` is borderless toolbar chrome (explorer, clustered actions) |
-| Text field | `Field` + `Input`/`Select`/`Textarea` | Label = `text-label`. `Input inset`: none \| start \| end \| both (icon padding) |
-| Card | `Card` | Title recipe = section header |
-| Status | `StatusDot` + `Pill` | PROD = `tone="warning"` |
-| Engine mark | `EngineBadge` | Uses `text-micro` mono |
-| Toast | `Toast` | `tone` only |
-| Empty | `EmptyState` | `text-title` + `text-body` + next action; parent centers it |
-| Status footer | `StatusBar` | Three zones: left meta · center pager · right actions; may wrap (`min-h-statusbar`) |
-| Resize | `Resizable` | Panel wrapper or handle-only sash. `axis` x/y, `edge` start/end, `variant` overlay/split |
-| Pager | `Pager` | ‹ n/m › — used inside `StatusBar` center |
-| Settings | `SettingsModal` | Gear + modal; panes in `home/settings` |
-| Brand | `BrandMark` | Ink-tile dog mark — identity in the home sidebar and workspace rail |
-| Shortcut | `Kbd` | Keyboard chips (`⌘T`) |
-| Alert | `Alert` | `info` uses `--status-info`, not accent |
-| Modal | `Modal` | Overlay + panel. `layout`: inset (confirm/form) · chrome (header/body/footer) · bare (custom shell). `size`: sm · md · lg · xl. `height`: auto · fill · sm · md · lg |
+| Button | `Button` | `variant`: primary · secondary · ghost (no border) · danger (solid, dialog confirm) · danger-ghost (red text). `size`: sm 28 · md 32 · lg 40 |
+| Icon button | `IconButton` | `variant`: quiet (bare glyph) · default · ghost · accent (soft, solid on hover) |
+| Field | `Field` + `Input` / `PasswordInput` / `Select` / `Textarea` | `Input invalid` for errors |
+| Card | `Card` | e0 surface, `label-caps` title |
+| Status | `StatusDot` + `Pill` | `Pill uppercase` tones: warning PROD · violet Staging · neutral Local · info RO; `compact` in list rows |
+| Banner | `Alert` | Soft tone + ring + glyph; `banner` for page-level notices |
+| Busy | `Spinner` | `size`: xs (inline text) · sm · md |
+| Engine mark | `EngineBadge` | Mono mark |
+| Connection identity | `ConnectionTile` (connections) | Engine mark in the connection colour; sm 28 · lg 56 |
+| Mascot | `Mascot` | `mood`: idle · alert (PROD in view) · happy (test passed, petted) · sleep · tilt; `zoom`, `playful` |
+| Toast | `Toast` | `bg-raised shadow-lg`, tone glyph |
+| Empty | `EmptyState` | `text-title` + body + next action |
+| Modal | `Modal` | `layout`: inset · chrome · bare. Custom headers pass `labelledby` |
+| Shortcut | `kbd` / `Kbd` | 20px mono chip with a 2px bottom border |
 
 **Variants customize look; `class` only for layout** (`w-full`, `col-span-full`, `mt-3`).
 
@@ -355,14 +305,7 @@ Animate `transform` and `opacity` only. Never `scale(0)` — start at `0.95–0.
 
 ## 11. Z-index scale
 
-| Class | Use |
-| ----- | --- |
-| `z-0` / auto | Normal flow |
-| `z-10` | Sticky headers (later) |
-| `z-40` | Popovers / menus |
-| `z-50` | Toasts / modal dialogs |
-
-Do not use `z-[9999]`.
+`z-10` sticky bars and corner decor · `z-20` the page bar · `z-50` menus, toasts, dialogs.
 
 ---
 
@@ -371,77 +314,64 @@ Do not use `z-[9999]`.
 | Region | Classes (reference) |
 | ------ | ------------------- |
 | App root | `flex h-screen w-screen overflow-hidden bg-app` |
-| Sidebar | `flex h-full w-sidebar flex-col border-r border-line bg-panel` |
-| Top bar | `flex h-topbar shrink-0 items-center … border-b border-line bg-panel` |
-| Main | `flex min-w-0 flex-1 flex-col` |
-| Content scroll | `flex-1 overflow-auto bg-app` (+ optional subtle accent wash utility) |
-| Centered panel | `ContentPanel` → `max-w-panel-*` |
+| Sidebar | `flex h-full flex-col border-r border-line bg-side` |
+| Page bar | `sticky top-0 h-topbar border-b border-line bg-app-blur` (breadcrumb) |
+| Content | centered column, `max-w-panel-*`, sections in `stagger` |
 
 ---
 
 ## 13. Atmosphere
 
-**Grain:** `body::after` uses `--grain-opacity` (dark 0.045 / light 0.055). Do not add extra noise in features.
-
-**Wash:** use the utility (not raw gradient strings):
-
-```html
-<div class="bg-app-wash flex-1 overflow-auto">…</div>
-```
-
-Washes use `--connection-color` when scoped, otherwise `--accent`. Defined once in `app.css`.
+Quiet surfaces: no grain, no gradient washes (`bg-app-wash` is now the plain
+canvas). Personality lives in the mascot and its small, skippable easter eggs
+(logo zoomies, treat search, the corner peek), never in the way of work.
 
 ---
 
-## 14. Accessibility (design-language aligned)
+## 14. Accessibility
 
-- Focus: never remove outline without `focus-visible:outline-focus`
-- Contrast: `text-fg-muted` only for non-essential meta
-- Hit targets: controls ≥ `h-control-sm` (28px); prefer `h-control` / `size-control`
-- Toolbar row: Input + IconButton share one size step (`md` = 34px)
-- Status: always text/icon + color
-- Selection: app chrome is `user-select: none`. Allow text in inputs, the query editor, and data cells (`[data-grid-cell]`, `[data-result-cell]`).
+- Focus: `:focus-visible` draws a 2px `--ring` outline; fields use `focus-field`
+- Contrast: body text ≥ 4.5:1 on every theme; `text-fg-muted` is the floor
+- Hit targets ≥ 28px
+- Status is always text or a glyph plus colour
+- Icon-only buttons carry `aria-label` (`IconButton label`)
+- Selection: chrome is `user-select: none`; data values opt back in with `select-text`
 
 ---
 
 ## 15. PR / review checklist
 
-Before merging UI:
-
-- [ ] No `text-[…px]` or arbitrary font sizes  
-- [ ] No hex colors in components  
-- [ ] Type uses only: micro · caption · label · body · body-lg · title · display  
-- [ ] Colors only from §3  
-- [ ] Spacing from §5 scale  
-- [ ] Controls use `h-control*`  
-- [ ] Light **and** dark checked  
-- [ ] New patterns added to this doc if needed  
+- [ ] No arbitrary font sizes or hex colours in components
+- [ ] Type uses the §4.2 scale only
+- [ ] Colours from §3; amber only for production
+- [ ] Controls use `h-control*` / `h-field`
+- [ ] Night **and** Day checked
+- [ ] New patterns added to this doc
 
 ---
 
 ## 16. Extending the language
 
-1. Propose token in this doc (name, value, usage).  
-2. Add value to `tokens.css` if theme-dependent.  
-3. Map in `app.css` `@theme inline`.  
-4. Use the new class in primitives first.  
-5. Never skip straight to arbitrary utilities in a feature.
+1. Propose the token here (name, value, use).
+2. Add its value to every theme block in `tokens.css`.
+3. Map it in `app.css` `@theme inline`.
+4. Use it in primitives first.
 
 ---
 
 ## 17. Quick reference card
 
 ```txt
-Type:     text-micro | text-caption | text-label | text-body | text-body-lg | text-title | text-display
-Weight:   font-normal | font-medium | font-semibold | font-bold
-Color fg: text-fg | text-fg-secondary | text-fg-muted | text-fg-inverse | text-accent | text-success|warning|danger|info
-Surface:  bg-app | bg-panel | bg-elevated | bg-input | bg-hover | bg-accent | bg-accent-muted
-Border:   border-line | border-line-strong | border-focus
-Control:  h-control-sm | h-control | h-control-lg
-Radius:   rounded-sm | rounded-md | rounded-lg | rounded-xl | rounded-full
-Shadow:   shadow-sm | shadow-md
-Font:     font-sans (Instrument Sans) | font-mono (IBM Plex Mono)
-Accent:   jade #2fbf96 / #0e7a60 — never connection hue
+Type:     text-micro | text-caption | label-caps | text-label | text-data | text-body | text-body-lg | text-heading | text-title | text-display
+Surface:  bg-app | bg-side | bg-surface | bg-raised | bg-field | bg-hover | bg-pressed | bg-scrim
+Text:     text-fg | text-fg-secondary | text-fg-muted | text-on-accent | text-accent-text
+Status:   accent (ok) | warning (PROD) | danger | info (RO) | violet (staging) — each with a *-soft fill
+Border:   border-line | border-line-strong | focus-field | outline-ring
+Control:  h-control-sm 28 | h-control 32 | h-field 36 | h-control-lg 40
+Radius:   rounded-xs 4 | sm 6 | md 8 | lg 12 | xl 16 | full
+Shadow:   shadow-sm (e1) | shadow-md (e2) | shadow-lg (e3)
+Font:     font-sans (Geist) | font-mono (Geist Mono)
+Accent:   mint #3ecf9b (Night) / #087f56 (Day) — never a connection hue
 ```
 
 ---

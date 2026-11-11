@@ -49,10 +49,10 @@
 			aria-label={ariaLabel ?? label}
 			{disabled}
 			class={cn(
-				'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150',
+				'relative inline-flex h-5 w-[34px] shrink-0 items-center rounded-full border-none p-0 transition-colors duration-200',
 				checked
-					? 'border-transparent bg-accent'
-					: 'border-line bg-input hover:border-line-strong',
+					? 'bg-accent'
+					: 'bg-pressed shadow-[inset_0_0_0_1px_var(--line-2)]',
 			)}
 			onclick={() => {
 				if (disabled) return
@@ -61,8 +61,8 @@
 		>
 			<span
 				class={cn(
-					'pointer-events-none size-3.5 rounded-full bg-elevated shadow-sm transition-transform duration-150',
-					checked ? 'translate-x-4' : 'translate-x-0.5',
+					'pointer-events-none size-4 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3)] transition-transform duration-(--duration-spring) ease-spring',
+					checked ? 'translate-x-[16px]' : 'translate-x-0.5',
 				)}
 				aria-hidden="true"
 			></span>

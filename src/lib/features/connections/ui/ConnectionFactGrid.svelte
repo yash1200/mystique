@@ -4,35 +4,47 @@
 
 	interface Props {
 		facts: ConnectionFact[]
-		/** One column below the `sm` breakpoint (the home detail panel). */
-		stack?: boolean
+		/**
+		 * pairs: two columns, `wide` facts span the row (dialogs).
+		 * fluid: as many 200px columns as fit (the home detail).
+		 */
+		layout?: 'pairs' | 'fluid'
 	}
 
-	let { facts, stack = false }: Props = $props()
+	let { facts, layout = 'pairs' }: Props = $props()
 </script>
 
-<div
+<dl
 	class={cn(
-		'grid gap-px overflow-hidden rounded-lg border border-line bg-line',
-		stack ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2',
+		'm-0 grid overflow-hidden rounded-lg border border-line bg-surface',
+		layout === 'fluid'
+			? 'grid-cols-[repeat(auto-fit,minmax(min(12.5rem,100%),1fr))]'
+			: 'grid-cols-2',
 	)}
 >
 	{#each facts as item (item.label)}
 		<div
 			class={cn(
-				'bg-elevated px-3 py-2.5',
-				item.wide && (stack ? 'sm:col-span-2' : 'col-span-2'),
+				'flex min-w-0 flex-col gap-1 shadow-[1px_0_0_var(--line),0_1px_0_var(--line)]',
+				layout === 'fluid' ? 'px-4 py-3.5' : 'px-3 py-2.5',
+				layout === 'pairs' && item.wide && 'col-span-2',
 			)}
 		>
-			<div class="text-micro font-semibold tracking-wider text-fg-muted uppercase">
-				{item.label}
-			</div>
-			<div
-				class="mt-1 min-w-0 truncate font-mono text-label text-fg"
-				title={item.value}
-			>
-				{item.value}
-			</div>
+			<dt class="label-caps">{item.label}</dt>
+			<dd class="m-0 flex min-w-0 items-baseline gap-2">
+				<span
+					class={cn(
+						'min-w-0 truncate text-fg',
+						item.mono === false ? 'text-body' : 'font-mono text-data',
+					)}
+					title={item.value}
+				>
+					{item.value}
+				</span>
+				{#if item.warn}
+					<span class="shrink-0 text-label text-warning">{item.warn}</span>
+				{/if}
+			</dd>
 		</div>
 	{/each}
-</div>
+</dl>

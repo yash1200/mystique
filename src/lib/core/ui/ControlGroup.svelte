@@ -10,7 +10,7 @@
 </script>
 
 <div
-	class="divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel"
+	class="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface"
 	role="group"
 	aria-labelledby={labelledby}
 >

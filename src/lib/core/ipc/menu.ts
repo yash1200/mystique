@@ -9,6 +9,8 @@ export type NativeMenuState = {
 	hasSession?: boolean
 	hasTab?: boolean
 	hasClosedTab?: boolean
+	/** Home: the new / edit connection form is on screen (enables Save). */
+	hasForm?: boolean
 }
 
 export function setNativeMenu(state: NativeMenuState): void {

@@ -20,8 +20,8 @@
 	>
 	{@render children?.()}
 	{#if error}
-		<span class="text-caption text-danger" role="alert">{error}</span>
+		<span class="text-label text-danger" role="alert">{error}</span>
 	{:else if hint}
-		<span class="text-caption text-fg-muted">{hint}</span>
+		<span class="text-label text-fg-muted">{hint}</span>
 	{/if}
 </div>

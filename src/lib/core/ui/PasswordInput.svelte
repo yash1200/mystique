@@ -26,11 +26,10 @@
 <div class={cn('relative w-full', className)}>
 	<input
 		class={cn(
-			'w-full rounded-md border border-line bg-input pl-2.5 text-fg placeholder:text-fg-muted',
-			'focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted',
-			'disabled:opacity-55',
-			hasValue ? 'pr-16' : 'pr-2.5',
-			inputSize === 'sm' ? 'h-control-sm text-label' : 'h-control text-body',
+			'w-full rounded-md border border-line-strong bg-field pl-3 font-mono text-fg placeholder:font-sans placeholder:text-fg-muted',
+			'transition-[border-color,box-shadow] duration-150 ease-standard focus-field disabled:opacity-55',
+			hasValue ? 'pr-16' : 'pr-3',
+			inputSize === 'sm' ? 'h-control-sm text-label' : 'h-field text-body',
 		)}
 		type={inputType}
 		bind:value
@@ -42,11 +41,9 @@
 		<button
 			type="button"
 			class={cn(
-				'absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm border-none bg-transparent',
-				'px-1.5 py-0.5 text-caption font-medium text-accent',
-				'hover:bg-hover hover:underline',
-				'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus',
-				'disabled:pointer-events-none disabled:opacity-55',
+				'absolute top-1/2 right-1 h-control-sm -translate-y-1/2 rounded-[7px] border-none bg-transparent px-2.5',
+				'text-label font-medium text-fg-secondary transition-colors duration-150',
+				'hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-55',
 			)}
 			aria-label={toggleLabel}
 			title={toggleLabel}

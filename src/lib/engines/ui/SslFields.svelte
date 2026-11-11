@@ -1,13 +1,12 @@
 <script lang="ts">
 	import {
 		Button,
-		Card,
-		Checkbox,
+		ControlRow,
 		Field,
-		FormGrid,
 		Input,
 		PasswordInput,
 		Select,
+		Switch,
 	} from '#core/ui'
 	import type { EngineFieldsProps } from '../types'
 	import { runtimeFor } from '../products'
@@ -80,96 +79,62 @@
 	}
 </script>
 
-<Card title="SSL / TLS">
-	<Checkbox
-		bind:checked={draft.ssl}
-		label="Require SSL"
+<ControlRow
+	label="Require SSL / TLS"
+	description="Fail instead of falling back to an unencrypted connection."
+	icon="lock"
+	inset={false}
+>
+	<Switch
+		checked={draft.ssl}
+		ariaLabel="Require SSL / TLS"
 		{disabled}
-		onchange={() => {
-			if (draft.ssl && (!draft.sslMode || draft.sslMode === 'disable')) {
-				draft.sslMode = 'require'
-			}
+		onchange={(on) => {
+			draft.ssl = on
+			if (on && (!draft.sslMode || draft.sslMode === 'disable')) draft.sslMode = 'require'
 		}}
 	/>
-	{#if extrasOpen}
-		<p class="mt-2 text-caption text-fg-muted">{verifyHint}</p>
-		<div class="mt-3">
-			<FormGrid>
-				<Field label="SSL mode" full>
-					<Select
-						value={mode === 'disable' ? 'require' : mode}
-						options={modeOptions}
-						{disabled}
-						onchange={onMode}
-					/>
-				</Field>
-				{#if modeError}
-					<p class="text-caption text-danger" role="alert">{modeError}</p>
-				{/if}
-				<Field label="CA certificate" full>
-					<div class="flex gap-2">
-						<Input
-							bind:value={draft.caCertPath}
-							autocomplete="off"
-							placeholder="Optional · RDS / private CA"
-							class="flex-1 font-mono"
-							{disabled}
-						/>
-						<Button
-							type="button"
-							variant="secondary"
-							{disabled}
-							onclick={() => pickPath('caCertPath', 'Select CA certificate')}
-							>Browse</Button
-						>
-					</div>
-				</Field>
-				<Field label="Client certificate" full>
-					<div class="flex gap-2">
-						<Input
-							bind:value={draft.clientCertPath}
-							autocomplete="off"
-							placeholder={clientCertPlaceholder}
-							class="flex-1 font-mono"
-							{disabled}
-						/>
-						<Button
-							type="button"
-							variant="secondary"
-							{disabled}
-							onclick={() =>
-								pickPath('clientCertPath', 'Select client certificate')}
-							>Browse</Button
-						>
-					</div>
-				</Field>
-				<Field label="Client key" full>
-					<div class="flex gap-2">
-						<Input
-							bind:value={draft.clientKeyPath}
-							autocomplete="off"
-							placeholder={clientKeyPlaceholder}
-							class="flex-1 font-mono"
-							{disabled}
-						/>
-						<Button
-							type="button"
-							variant="secondary"
-							{disabled}
-							onclick={() => pickPath('clientKeyPath', 'Select client key')}
-							>Browse</Button
-						>
-					</div>
-				</Field>
-				<Field label="Key passphrase" full>
-					<PasswordInput
-						bind:value={draft.sslClientKeyPassphrase}
-						autocomplete="new-password"
-						placeholder="Optional"
+</ControlRow>
+
+{#if extrasOpen}
+	<div class="flex animate-rise flex-col gap-3.5 rounded-[10px] bg-hover p-4">
+		<p class="m-0 text-label text-fg-muted">{verifyHint}</p>
+		<Field label="SSL mode" error={modeError ?? undefined}>
+			<Select
+				value={mode === 'disable' ? 'require' : mode}
+				options={modeOptions}
+				{disabled}
+				onchange={onMode}
+			/>
+		</Field>
+		{#each [
+			{ key: 'caCertPath', label: 'CA certificate', placeholder: 'Optional · RDS / private CA', title: 'Select CA certificate' },
+			{ key: 'clientCertPath', label: 'Client certificate', placeholder: clientCertPlaceholder, title: 'Select client certificate' },
+			{ key: 'clientKeyPath', label: 'Client key', placeholder: clientKeyPlaceholder, title: 'Select client key' },
+		] as const as file (file.key)}
+			<Field label={file.label} htmlFor="ssl-{file.key}">
+				<div class="flex min-w-0 gap-2">
+					<Input
+						id="ssl-{file.key}"
+						class="min-w-0 flex-1 font-mono"
+						bind:value={draft[file.key]}
+						placeholder={file.placeholder}
 						{disabled}
 					/>
-				</Field>
-			</FormGrid>
-		</div>
-	{/if}
-</Card>
+					<Button class="shrink-0" {disabled} onclick={() => pickPath(file.key, file.title)}>
+						Browse…
+					</Button>
+				</div>
+			</Field>
+		{/each}
+		<Field label="Key passphrase" htmlFor="ssl-passphrase">
+			<PasswordInput
+				id="ssl-passphrase"
+				bind:value={draft.sslClientKeyPassphrase}
+				autocomplete="new-password"
+				placeholder="Optional"
+				{disabled}
+			/>
+		</Field>
+	</div>
+{/if}

@@ -103,7 +103,7 @@
 	>
 		<button
 			type="button"
-			class="absolute inset-0 border-none bg-black/45"
+			class="absolute inset-0 border-none bg-scrim"
 			aria-label="Dismiss"
 			transition:overlayFade|global
 			onclick={onBackdrop}
@@ -111,10 +111,10 @@
 		></button>
 		<div
 			class={cn(
-				'relative z-10 w-full rounded-lg border border-line bg-elevated shadow-lg',
+				'relative z-10 w-full rounded-xl border border-line bg-raised shadow-lg',
 				sizes[size],
 				heights[height],
-				layout === 'inset' && 'p-4',
+				layout === 'inset' && 'p-5',
 				layout === 'chrome' && 'flex flex-col overflow-hidden',
 				layout === 'bare' && 'overflow-hidden',
 				layout === 'bare' && height !== 'auto' && 'flex',
@@ -134,17 +134,17 @@
 			{:else if layout === 'chrome'}
 				{#if showHeader}
 					<header
-						class="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3"
+						class="flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-4"
 					>
 						<div class="min-w-0 flex-1">
 							{#if header}
 								{@render header()}
 							{:else if title}
-								<h2 id={titleId} class="m-0 text-body font-semibold text-fg">
+								<h2 id={titleId} class="m-0 text-heading font-semibold tracking-tight text-fg">
 									{title}
 								</h2>
 								{#if description}
-									<p class="mt-1 mb-0 text-label leading-relaxed text-fg-muted">
+									<p class="mt-1 mb-0 text-body text-fg-secondary">
 										{description}
 									</p>
 								{/if}
@@ -153,7 +153,7 @@
 						{#if showClose}
 							<IconButton
 								label="Close"
-								variant="ghost"
+								variant="quiet"
 								size="sm"
 								onclick={onclose}
 							>
@@ -172,21 +172,21 @@
 				</div>
 				{#if footer}
 					<footer
-						class="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-2.5"
+						class="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3"
 					>
 						{@render footer()}
 					</footer>
 				{/if}
 			{:else}
 				{#if title}
-					<h2 id={titleId} class="m-0 text-body font-semibold text-fg">
+					<h2 id={titleId} class="m-0 text-heading font-semibold tracking-tight text-fg">
 						{title}
 					</h2>
 				{/if}
 				{#if description}
 					<p
 						class={cn(
-							'mb-0 text-label leading-relaxed text-fg-secondary',
+							'mb-0 text-body text-fg-secondary',
 							title ? 'mt-2' : 'mt-0',
 						)}
 					>
@@ -195,7 +195,7 @@
 				{/if}
 				{@render children?.()}
 				{#if footer}
-					<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
+					<div class="mt-5 flex flex-wrap items-center justify-end gap-2">
 						{@render footer()}
 					</div>
 				{/if}

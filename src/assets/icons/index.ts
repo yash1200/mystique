@@ -47,6 +47,16 @@ import structure from './structure.svg?raw'
 import table from './table.svg?raw'
 import trash from './trash.svg?raw'
 import view from './view.svg?raw'
+import bolt from './bolt.svg?raw'
+import contrast from './contrast.svg?raw'
+import heart from './heart.svg?raw'
+import keyboard from './keyboard.svg?raw'
+import link from './link.svg?raw'
+import pencil from './pencil.svg?raw'
+import shieldAlert from './shield-alert.svg?raw'
+import sidebar from './sidebar.svg?raw'
+import sliders from './sliders.svg?raw'
+import terminal from './terminal.svg?raw'
 
 const files = {
 	plus,
@@ -99,6 +109,16 @@ const files = {
 	shield,
 	lock,
 	'lock-open': lockOpen,
+	bolt,
+	contrast,
+	heart,
+	keyboard,
+	link,
+	pencil,
+	'shield-alert': shieldAlert,
+	sidebar,
+	sliders,
+	terminal,
 } as const
 
 export type IconName = keyof typeof files
@@ -108,9 +128,17 @@ function svgInner(raw: string): string {
 	return (match?.[1] ?? raw).trim()
 }
 
-export const iconInner: Record<IconName, string> = Object.fromEntries(
-	(Object.keys(files) as IconName[]).map((name) => [
-		name,
-		svgInner(files[name]),
-	]),
+/** The drawing grid. Older glyphs are 16px; design-system v1 glyphs are 24px. */
+function svgViewBox(raw: string): string {
+	return raw.match(/<svg[^>]*\sviewBox="([^"]+)"/i)?.[1] ?? '0 0 16 16'
+}
+
+const names = Object.keys(files) as IconName[]
+
+export const iconInner = Object.fromEntries(
+	names.map((name) => [name, svgInner(files[name])]),
+) as Record<IconName, string>
+
+export const iconViewBox = Object.fromEntries(
+	names.map((name) => [name, svgViewBox(files[name])]),
 ) as Record<IconName, string>

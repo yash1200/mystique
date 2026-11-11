@@ -4,15 +4,19 @@
 
 	interface Props extends Omit<HTMLInputAttributes, 'size'> {
 		value?: string | number | null
-		inputSize?: 'sm' | 'md'
+		/** sm 28 · md 36 · lg 40 (a dialog's search). */
+		inputSize?: 'sm' | 'md' | 'lg'
 		/** Extra inset for a leading / trailing icon inside the field. */
 		inset?: 'none' | 'start' | 'end' | 'both'
+		/** Show the field as invalid (danger border and halo). */
+		invalid?: boolean
 	}
 
 	let {
 		value = $bindable(''),
 		inputSize = 'md',
 		inset = 'none',
+		invalid = false,
 		class: className = '',
 		type = 'text',
 		spellcheck = false,
@@ -20,28 +24,35 @@
 		...rest
 	}: Props = $props()
 
-	const pad = $derived(
-		inset === 'start'
-			? 'pl-7 pr-2.5'
-			: inset === 'end'
-				? 'pl-2.5 pr-7'
-				: inset === 'both'
-					? 'px-7'
-					: 'px-2.5',
-	)
+	const sizes = {
+		sm: 'h-control-sm rounded-md text-label',
+		md: 'h-field rounded-md text-body',
+		lg: 'h-control-lg rounded-[10px] text-[0.84375rem]',
+	}
+
+	/** Room for a leading 16px glyph; the 40px field sets it further in. */
+	const lead = $derived(inputSize === 'lg' ? 'pl-[2.375rem]' : 'pl-8')
+	const pad = $derived({
+		none: 'px-3',
+		start: `pr-3 ${lead}`,
+		end: 'pr-8 pl-3',
+		both: `pr-8 ${lead}`,
+	})
 </script>
 
 <input
 	class={cn(
-		'w-full cursor-text rounded-md border border-line bg-input text-fg placeholder:text-fg-muted',
-		pad,
-		'focus:outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted',
-		'disabled:opacity-55',
-		inputSize === 'sm' ? 'h-control-sm text-label' : 'h-control text-body',
+		'w-full cursor-text border border-line-strong bg-field text-fg placeholder:text-fg-muted',
+		'transition-[border-color,box-shadow] duration-150 ease-standard focus-field disabled:opacity-55',
+		pad[inset],
+		sizes[inputSize],
+		invalid &&
+			'border-danger shadow-[0_0_0_3px_var(--danger-soft)] focus-visible:border-danger focus-visible:shadow-[0_0_0_3px_var(--danger-soft)]',
 		type === 'number' &&
 			'[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
 		className,
 	)}
+	aria-invalid={invalid || undefined}
 	{type}
 	{spellcheck}
 	{autocomplete}

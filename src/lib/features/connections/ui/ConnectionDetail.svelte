@@ -1,159 +1,223 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '#core/contracts'
-	import { Button, ContentPanel, Pill, StatusDot } from '#core/ui'
-	import { cn } from '#core/util'
+	import { Alert, Button, Icon, Pill, Spinner, StatusDot } from '#core/ui'
+	import { cn, copyTextToClipboard } from '#core/util'
+	import { showToast } from '#features/toast'
 	import { engineLabel } from '#engines'
-	import { connectionFacts } from '../facts'
-	import { colorHex, connectionEndpoint } from '../model'
+	import { connectionFacts, connectionTarget } from '../facts'
+	import { getHome, type HomeConnection } from '../home.svelte'
+	import { colorHex } from '../model'
 	import ConnectionFactGrid from './ConnectionFactGrid.svelte'
-	import EngineBadge from './EngineBadge.svelte'
+	import ConnectionTile from './ConnectionTile.svelte'
 
 	interface Props {
-		connection: ConnectionProfile
-		testing?: boolean
-		onedit?: () => void
-		onconnect?: () => void
-		ontest?: () => void | Promise<void>
-		onduplicate?: () => void
-		ondelete?: () => void
+		connection: HomeConnection
 	}
 
-	let {
-		connection,
-		testing = false,
-		onedit,
-		onconnect,
-		ontest,
-		onduplicate,
-		ondelete,
-	}: Props = $props()
+	let { connection }: Props = $props()
 
-	const hex = $derived(colorHex(connection.colorId))
-	const status = $derived(connection.status ?? 'disconnected')
-	const endpoint = $derived(connectionEndpoint(connection))
+	const home = getHome()
 
-	const statusText = $derived(
-		status === 'connected'
-			? 'Connected'
-			: status === 'error'
-				? 'Last attempt failed'
-				: 'Disconnected',
-	)
+	const ENV = {
+		production: { label: 'Prod', tone: 'warning' },
+		staging: { label: 'Staging', tone: 'violet' },
+		local: { label: 'Local', tone: 'neutral' },
+	} as const
 
+	let copied = $state(false)
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined
+
+	const env = $derived(ENV[connection.environment] ?? ENV.local)
+	const isProd = $derived(connection.environment === 'production')
+	const target = $derived(connectionTarget(connection))
 	const facts = $derived(connectionFacts(connection, 'full'))
+	const notes = $derived(connection.notes?.trim() ?? '')
 
-	const notes = $derived(connection.notes?.trim() || '')
+	const busy = $derived(home.busy)
+	const connecting = $derived(busy?.kind === 'connect' && busy.id === connection.id)
+	const testing = $derived(busy?.kind === 'test' && busy.id === connection.id)
+	const health = $derived(home.health?.id === connection.id ? home.health : null)
+
+	/** The host's first label, for "Reaching prod-cluster…". */
+	const shortHost = $derived(target.replace(/^[a-z+]+:\/\//i, '').split(/[.:/]/)[0] || target)
+
+	async function copyTarget() {
+		const result = await copyTextToClipboard(target)
+		if (!result.ok) {
+			if (!result.cancelled) showToast('danger', result.error || 'Could not copy the target.')
+			return
+		}
+		copied = true
+		clearTimeout(copiedTimer)
+		copiedTimer = setTimeout(() => (copied = false), 1500)
+	}
+
+	$effect(() => () => clearTimeout(copiedTimer))
 </script>
 
-<ContentPanel size="lg" center ariaLabel="Connection details">
-	<article
-		style="--connection-color: {hex}"
-		class="overflow-hidden rounded-xl border border-line bg-elevated shadow-md"
-	>
-		<div class="grid md:grid-cols-[15.5rem_minmax(0,1fr)]">
-			<!-- Identity -->
-			<div
-				class="flex flex-col justify-between gap-6 border-b border-line conn-tint-soft px-5 py-6 md:border-r md:border-b-0"
+<section
+	class="stagger mx-auto flex w-full max-w-panel-xl flex-col gap-5 px-10 pt-10 pb-36"
+	aria-label="Connection details"
+>
+	<header class="flex flex-wrap items-start gap-5">
+		<ConnectionTile engine={connection.engine} color={colorHex(connection.colorId)} size="lg" />
+		<div class="flex min-w-0 flex-[1_1_18rem] flex-col gap-2">
+			<div class="flex flex-wrap items-center gap-2.5">
+				<h1 class="m-0 min-w-0 text-display font-semibold tracking-[-0.025em] break-words">
+					{connection.name}
+				</h1>
+				<Pill tone={env.tone} uppercase>{env.label}</Pill>
+				{#if connection.readOnly}
+					<Pill tone="info" uppercase>
+						<Icon name="lock" />Read-only
+					</Pill>
+				{/if}
+			</div>
+			<p class="m-0 flex flex-wrap items-center gap-2 text-fg-secondary">
+				<span>{engineLabel(connection.engine)}</span>
+				<span class="text-fg-muted" aria-hidden="true">·</span>
+				{#if connecting}
+					<span class="inline-flex items-center gap-1.5">
+						<Spinner size="xs" />Connecting…
+					</span>
+				{:else if connection.status === 'connected'}
+					<span class="inline-flex items-center gap-2 text-accent-text">
+						<StatusDot status="connected" />Connected
+					</span>
+				{:else if connection.status === 'error'}
+					<span class="inline-flex items-center gap-2 text-danger">
+						<StatusDot status="error" />Last attempt failed
+					</span>
+				{:else}
+					<span class="inline-flex items-center gap-2">
+						<StatusDot status="disconnected" />Disconnected
+					</span>
+				{/if}
+			</p>
+		</div>
+		<div class="flex items-center gap-1.5">
+			<Button variant="ghost" disabled={!!busy} onclick={() => home.edit(connection.id)}>
+				<Icon name="pencil" />Edit
+			</Button>
+			<Button
+				variant="ghost"
+				disabled={!!busy || home.saving}
+				onclick={() => void home.duplicate(connection.id)}
 			>
-				<div>
-					<div
-						class="mb-4 size-10 rounded-lg border border-line bg-conn shadow-sm"
-						aria-hidden="true"
-					></div>
-					<h1
-						class="m-0 text-pretty text-title font-semibold tracking-tight text-fg"
-					>
-						{connection.name}
-					</h1>
-					<div class="mt-2 flex flex-wrap items-center gap-1.5">
-						<EngineBadge engine={connection.engine} size="md" />
-						{#if connection.readOnly}
-							<Pill uppercase>RO</Pill>
-						{/if}
-					</div>
-					<p class="mt-3 text-label text-fg-secondary">
-						{engineLabel(connection.engine)}
-					</p>
-					<p class="mt-3 flex items-center gap-2 text-label">
-						<StatusDot {status} />
-						<span
-							class={cn(
-								status === 'connected' && 'text-success',
-								status === 'error' && 'text-danger',
-								status === 'disconnected' && 'text-fg-muted',
-							)}
-						>
-							{statusText}
-						</span>
-					</p>
-				</div>
-				<Button
-					variant="primary"
-					fullWidth
-					onclick={onconnect}
-					disabled={testing}
-				>
+				<Icon name="copy" />Duplicate
+			</Button>
+			<Button
+				variant="primary"
+				size="lg"
+				class="min-w-[9.5rem]"
+				disabled={!!busy}
+				aria-busy={connecting}
+				onclick={() => void home.connect(connection.id)}
+			>
+				{#if connecting}
+					<Spinner />Connecting…
+				{:else if connection.status === 'connected'}
+					Reconnect
+				{:else}
+					Connect
+				{/if}
+			</Button>
+		</div>
+	</header>
+
+	{#if isProd}
+		<Alert tone="warning" banner>
+			Production with <strong class="font-semibold">{connection.readOnly ? 'read-only' : 'read / write'}</strong>
+			access. Double-check the target before running anything that changes data.
+		</Alert>
+	{/if}
+
+	<div class="flex items-center gap-4 rounded-lg border border-line bg-surface py-4 pr-4 pl-5">
+		<div class="flex min-w-0 flex-1 flex-col gap-1">
+			<span class="label-caps">Target</span>
+			<span class="truncate font-mono text-[0.84375rem] select-text" title={target}>{target}</span>
+		</div>
+		<Button size="sm" aria-label="Copy target" onclick={copyTarget}>
+			{#if copied}
+				<Icon name="check" class="animate-rise text-accent-text" />Copied
+			{:else}
+				<Icon name="copy" />Copy
+			{/if}
+		</Button>
+	</div>
+
+	<ConnectionFactGrid {facts} layout="fluid" />
+
+	<div class="grid grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))] gap-5">
+		<section
+			class="flex flex-col gap-3.5 rounded-lg border border-line bg-surface px-5 py-[1.125rem]"
+			aria-labelledby="health-title"
+		>
+			<div class="flex items-center justify-between gap-3">
+				<h2 id="health-title" class="m-0 text-body-lg font-semibold">Health check</h2>
+				<Button size="sm" disabled={!!busy} onclick={() => void home.testSaved(connection.id)}>
 					{#if testing}
-						Connecting…
-					{:else if status === 'connected'}
-						Reconnect
+						<Spinner size="sm" />
 					{:else}
-						Connect
+						<Icon name="bolt" />
 					{/if}
+					Test connection
 				</Button>
 			</div>
-
-			<!-- Facts -->
-			<div class="flex min-w-0 flex-col px-5 py-5">
-				<p
-					class="m-0 mb-1.5 text-micro font-semibold tracking-wider text-fg-muted uppercase"
-				>
-					Target
-				</p>
-				<p
-					class="m-0 mb-4 font-mono text-body leading-relaxed break-all text-fg"
-				>
-					{endpoint}
-				</p>
-
-				<ConnectionFactGrid {facts} stack />
-
-				{#if notes}
-					<p class="mt-4 mb-0 text-body leading-relaxed text-fg-secondary">
-						{notes}
-					</p>
+			<p class="m-0" aria-live="polite">
+				{#if testing}
+					<span class="animate-rise text-fg-secondary">Reaching {shortHost}…</span>
+				{:else if health?.ok}
+					<span class="inline-flex animate-rise flex-wrap items-center gap-2 text-accent-text">
+						<Icon name="check" />Reachable · auth ok · {health.latencyMs} ms
+						{#if health.version}
+							<span class="font-mono text-label text-fg-muted">{health.version}</span>
+						{/if}
+					</span>
+				{:else if health}
+					<span class="flex animate-rise items-start gap-2 text-danger">
+						<Icon name="alert-circle" class="mt-0.5" />
+						<span class="min-w-0 break-words select-text">{health.message}</span>
+					</span>
+				{:else}
+					<span class="text-fg-muted">Not tested yet.</span>
 				{/if}
+			</p>
+		</section>
 
-				<div class="mt-auto flex flex-wrap gap-2 pt-5">
-					<Button variant="ghost" size="sm" onclick={onedit} disabled={testing}
-						>Edit</Button
-					>
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={onduplicate}
-						disabled={testing}>Duplicate</Button
-					>
-					{#if ontest}
-						<Button
-							variant="secondary"
-							size="sm"
-							onclick={ontest}
-							disabled={testing}
-						>
-							{testing ? 'Testing…' : 'Test'}
-						</Button>
-					{/if}
-					<Button
-						variant="danger-ghost"
-						size="sm"
-						disabled={testing}
-						onclick={() => ondelete?.()}
-					>
-						Delete
-					</Button>
-				</div>
+		<section
+			class="flex flex-col gap-3.5 rounded-lg border border-line bg-surface px-5 py-[1.125rem]"
+			aria-labelledby="notes-title"
+		>
+			<div class="flex items-center justify-between gap-3">
+				<h2 id="notes-title" class="m-0 text-body-lg font-semibold">Notes</h2>
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={!!busy}
+					onclick={() => home.edit(connection.id)}
+				>
+					<Icon name={notes ? 'pencil' : 'plus'} />{notes ? 'Edit note' : 'Add note'}
+				</Button>
 			</div>
-		</div>
-	</article>
-</ContentPanel>
+			<p
+				class={cn(
+					'm-0 whitespace-pre-line',
+					notes ? 'text-fg-secondary select-text' : 'text-fg-muted',
+				)}
+			>
+				{notes || 'No notes yet. Leave context for your team, like who owns this database.'}
+			</p>
+		</section>
+	</div>
+
+	<div class="flex justify-end pt-1">
+		<Button
+			variant="danger-ghost"
+			size="sm"
+			disabled={!!busy}
+			onclick={() => home.requestDelete(connection.id)}
+		>
+			<Icon name="trash" />Delete connection
+		</Button>
+	</div>
+</section>

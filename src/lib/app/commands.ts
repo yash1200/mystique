@@ -79,6 +79,12 @@ export const cmd = {
 		// Toggles: closes Quick Open (itself a dialog) too.
 		scope: { dialog: true },
 	}),
+	/** Hidden (no group): the shortcuts dialog reveals it to people who search for the dog. */
+	petMystique: defineCommand({
+		id: 'app.pet-mystique',
+		title: 'Pet Mystique',
+		keys: 'Mod+Shift+D',
+	}),
 	toggleSidebar: defineCommand({
 		id: 'app.toggle-sidebar',
 		title: 'Toggle session rail',
@@ -89,7 +95,7 @@ export const cmd = {
 	// Home
 	homeBack: defineCommand({
 		id: 'home.back-to-new',
-		title: 'Back to new connection',
+		title: 'Back (leave the edit form, or the connection)',
 		group: 'home',
 		keys: 'Escape',
 		scope: NOT_TYPING,
@@ -141,6 +147,20 @@ export const cmd = {
 		title: 'Refresh connections',
 		group: 'home',
 		menu: 'home_refresh',
+	}),
+	homeSave: defineCommand({
+		id: 'home.save',
+		title: 'Save connection',
+		group: 'home',
+		keys: 'Mod+S',
+		menu: 'home_save',
+	}),
+	homeFocusFilter: defineCommand({
+		id: 'home.focus-filter',
+		title: 'Filter connections',
+		group: 'home',
+		keys: '/',
+		scope: NOT_TYPING,
 	}),
 	/** Open (or switch to) a saved connection. Home and the workspace both handle it. */
 	openConnectionById: defineCommand<{ id: string }>({

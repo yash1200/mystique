@@ -33,6 +33,9 @@ pub struct NativeMenuState {
     pub has_tab: bool,
     #[serde(default)]
     pub has_closed_tab: bool,
+    /// Home: the new / edit connection form is on screen.
+    #[serde(default)]
+    pub has_form: bool,
 }
 
 pub fn apply_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<()> {
@@ -42,20 +45,6 @@ pub fn apply_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<()>
 }
 
 pub fn build_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu<Wry>> {
-    assemble_menu(app, state)
-}
-
-fn item(
-    app: &AppHandle,
-    id: &str,
-    title: &str,
-    enabled: bool,
-    accelerator: Option<&str>,
-) -> tauri::Result<MenuItem<Wry>> {
-    MenuItem::with_id(app, id, title, enabled, accelerator)
-}
-
-fn assemble_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu<Wry>> {
     let file_menu = match state.page {
         MenuPage::Home => file_menu_home(app)?,
         MenuPage::Workspace => file_menu_workspace(app, state)?,
@@ -101,6 +90,16 @@ fn assemble_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Menu
             ],
         )
     }
+}
+
+fn item(
+    app: &AppHandle,
+    id: &str,
+    title: &str,
+    enabled: bool,
+    accelerator: Option<&str>,
+) -> tauri::Result<MenuItem<Wry>> {
+    MenuItem::with_id(app, id, title, enabled, accelerator)
 }
 
 fn close_window_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
@@ -216,6 +215,7 @@ fn connections_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Res
     let sel = state.has_selection;
     let new_conn = item(app, "home_new_connection", "New Connection", true, None)?;
     let import_url = item(app, "home_import_url", "Import Connection URL…", true, None)?;
+    let save = item(app, "home_save", "Save Connection", state.has_form, Some("CmdOrCtrl+S"))?;
     let connect = item(app, "home_connect", "Connect", sel, None)?;
     let edit = item(app, "home_edit", "Edit Connection", sel, None)?;
     let duplicate = item(app, "home_duplicate", "Duplicate Connection", sel, None)?;
@@ -229,6 +229,7 @@ fn connections_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Res
         &[
             &new_conn,
             &import_url,
+            &save,
             &PredefinedMenuItem::separator(app)?,
             &connect,
             &edit,
@@ -461,6 +462,7 @@ fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let about = about_item(app)?;
     let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
+
     Submenu::with_items(
         app,
         APP_DISPLAY_NAME,

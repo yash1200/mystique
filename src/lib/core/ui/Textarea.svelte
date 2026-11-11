@@ -21,9 +21,9 @@
 
 <textarea
 	class={cn(
-		'min-h-14 w-full px-2.5 py-2 text-body text-fg',
+		'min-h-14 w-full px-3 py-2.5 text-body text-fg',
 		chrome &&
-			'rounded-md border border-line bg-input focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-accent-muted',
+			'rounded-md border border-line-strong bg-field transition-[border-color,box-shadow] duration-150 ease-standard focus-field',
 		!chrome && 'border-0 bg-transparent',
 		resize === 'none' && 'resize-none',
 		resize === 'y' && 'resize-y',

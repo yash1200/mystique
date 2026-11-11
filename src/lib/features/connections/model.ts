@@ -14,31 +14,33 @@ import {
 	adapterFor,
 	connectionKindFromCaps,
 	defaultCapabilitiesForEngine,
+	runtimeFor,
 	sslModeFromConfig,
 } from '#engines'
 import { timeoutFromText, timeoutText } from './profile-fields'
 
+/** Ids are stored on profiles; names and hex follow design system v1. */
 export const CONNECTION_COLORS: {
 	id: ConnectionColorId
 	name: string
 	hex: string
 }[] = [
-	{ id: 'rose', name: 'Rose', hex: '#e56b78' },
-	{ id: 'orange', name: 'Orange', hex: '#e8945c' },
-	{ id: 'amber', name: 'Amber', hex: '#e0b04a' },
-	{ id: 'lime', name: 'Lime', hex: '#9dce5c' },
-	{ id: 'green', name: 'Green', hex: '#4ecb88' },
-	{ id: 'teal', name: 'Teal', hex: '#3ec9c0' },
-	{ id: 'cyan', name: 'Cyan', hex: '#45b4e0' },
-	{ id: 'blue', name: 'Blue', hex: '#5a8ee8' },
-	{ id: 'indigo', name: 'Indigo', hex: '#7a7aef' },
-	{ id: 'violet', name: 'Violet', hex: '#9b6de8' },
-	{ id: 'magenta', name: 'Magenta', hex: '#d46ad0' },
-	{ id: 'slate', name: 'Slate', hex: '#9a9388' },
+	{ id: 'rose', name: 'Rose', hex: '#f87189' },
+	{ id: 'orange', name: 'Coral', hex: '#fb8a5c' },
+	{ id: 'amber', name: 'Amber', hex: '#f5b041' },
+	{ id: 'lime', name: 'Lime', hex: '#a3d955' },
+	{ id: 'green', name: 'Green', hex: '#4ccb84' },
+	{ id: 'teal', name: 'Teal', hex: '#3ecfb8' },
+	{ id: 'cyan', name: 'Sky', hex: '#4fb8f0' },
+	{ id: 'blue', name: 'Blue', hex: '#5b8cff' },
+	{ id: 'indigo', name: 'Indigo', hex: '#7c7cff' },
+	{ id: 'violet', name: 'Violet', hex: '#a77bf5' },
+	{ id: 'magenta', name: 'Magenta', hex: '#e06bd3' },
+	{ id: 'slate', name: 'Slate', hex: '#9aa3ae' },
 ]
 
 export function colorHex(id: string): string {
-	return CONNECTION_COLORS.find((c) => c.id === id)?.hex ?? '#9a9388'
+	return CONNECTION_COLORS.find((c) => c.id === id)?.hex ?? '#9aa3ae'
 }
 
 /** First letter/digit of a connection name for rail and picker marks. */
@@ -259,6 +261,48 @@ export function saveInputFromDraft(
 	}
 
 	return input
+}
+
+/** A URL with its password replaced by dots. */
+export function redactUrl(uri: string): string {
+	try {
+		const parsed = new URL(uri)
+		if (parsed.password) parsed.password = '••••'
+		return parsed.toString()
+	} catch {
+		return uri.replace(/:([^:@/]+)@/, ':••••@')
+	}
+}
+
+/**
+ * How an unsaved draft will read: the sidebar subline target and the
+ * connection string, password hidden. For the form's live preview.
+ */
+export function draftPreview(draft: ConnectionFormDraft): { target: string; url: string } {
+	const kind = connectionKindFromCaps(adapterFor(draft.engine).defaultCapabilities)
+	if (kind === 'file') {
+		const path = draft.path.trim()
+		return { target: path || 'no file yet', url: `sqlite://${path || '/path/to/database.db'}` }
+	}
+	if (kind === 'uri') {
+		const uri = redactUrl(draft.uri.trim())
+		return { target: uri || 'no URI yet', url: uri || '—' }
+	}
+	const runtime = runtimeFor(draft.engine) ?? String(draft.engine)
+	const host = draft.host.trim() || 'host'
+	const port = Number(draft.port) || adapterFor(draft.engine).defaultPort || 0
+	const hostPort = port ? `${host}:${port}` : host
+	const user = draft.username.trim()
+	const auth = user ? `${user}${draft.password ? ':••••' : ''}@` : ''
+	const tls = !draft.ssl
+		? ''
+		: runtime === 'postgres'
+			? `?sslmode=${draft.sslMode || 'require'}`
+			: '?ssl=true'
+	return {
+		target: hostPort,
+		url: `${runtime}://${auth}${hostPort}/${draft.database.trim()}${tls}`,
+	}
 }
 
 /** Connection-name placeholder comes from the engine's capabilities. */

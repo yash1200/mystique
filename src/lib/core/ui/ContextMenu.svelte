@@ -95,7 +95,7 @@
 
 <div
 	bind:this={root}
-	class="fixed z-50 min-w-52 rounded-md border border-line bg-elevated py-1 shadow-md"
+	class="fixed z-50 min-w-52 rounded-lg border border-line bg-raised p-1 shadow-md"
 	style="left:{left}px; top:{top}px"
 	transition:popover|global={{
 		origin: placement === 'above-end' ? 'bottom right' : 'top left',
@@ -108,11 +108,11 @@
 >
 	{#each items as item (item.id)}
 		{#if item.separatorBefore}
-			<div class="my-1 border-t border-line" role="separator"></div>
+			<div class="mx-1 my-1 border-t border-line" role="separator"></div>
 		{/if}
 		{#if item.heading}
 			<p
-				class="m-0 px-2.5 py-1 text-micro font-semibold tracking-wide text-fg-muted uppercase"
+				class="m-0 px-2.5 pt-1.5 pb-1 label-caps"
 			>
 				{item.label}
 			</p>
@@ -122,11 +122,11 @@
 				role="menuitem"
 				disabled={item.disabled}
 				class={cn(
-					'flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-2.5 py-1.5 text-left text-label',
+					'flex h-8 w-full cursor-pointer items-center gap-2 rounded-md border-none bg-transparent px-2.5 text-left text-body',
 					item.danger
-						? 'text-danger hover:bg-danger/10'
+						? 'text-danger hover:bg-danger-soft'
 						: item.checked
-							? 'bg-accent-muted text-accent'
+							? 'text-accent-text hover:bg-hover'
 							: 'text-fg hover:bg-hover',
 					item.disabled && 'cursor-not-allowed opacity-45 hover:bg-transparent',
 				)}

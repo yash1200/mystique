@@ -9,6 +9,22 @@ import {
 	touchProfileConnected,
 } from './api'
 
+/** A profile as a save: update saves every field, so carry the ones the form owns. */
+function saveInputFrom(profile: ConnectionProfile): SaveConnectionInput {
+	return {
+		id: profile.id,
+		name: profile.name,
+		engine: String(profile.engine),
+		colorId: profile.colorId,
+		environment: profile.environment,
+		readOnly: profile.readOnly,
+		notes: profile.notes ?? null,
+		pluginConfig: { ...(profile.pluginConfig ?? {}) },
+		sshConfig: profile.ssh,
+		queryTimeoutSecs: profile.queryTimeoutSecs ?? null,
+	}
+}
+
 class ConnectionProfilesStore {
 	items = $state<ConnectionProfile[]>([])
 	loading = $state(false)
@@ -65,22 +81,27 @@ class ConnectionProfilesStore {
 	}
 
 	toggleFavorite = async (id: string) => {
+		const profile = this.#require(id)
+		return this.save({ ...saveInputFrom(profile), favorite: !profile.favorite })
+	}
+
+	/** A new profile with the same settings, named `<name>-copy`; saved secrets come along. */
+	duplicate = async (id: string) => {
+		const profile = this.#require(id)
+		return this.save({
+			...saveInputFrom(profile),
+			id: null,
+			name: `${profile.name}-copy`,
+			copySecretFrom:
+				profile.passwordSet || profile.sshPasswordSet ? profile.id : null,
+			savePassword: profile.savePassword !== false,
+		})
+	}
+
+	#require(id: string): ConnectionProfile {
 		const profile = this.profile(id)
 		if (!profile) throw new Error(`Profile not found: ${id}`)
-		return this.save({
-			id: profile.id,
-			name: profile.name,
-			engine: String(profile.engine),
-			colorId: profile.colorId,
-			environment: profile.environment,
-			readOnly: profile.readOnly,
-			notes: profile.notes ?? null,
-			pluginConfig: profile.pluginConfig ?? {},
-			// Update saves every field, so carry the ones the form owns.
-			sshConfig: profile.ssh,
-			queryTimeoutSecs: profile.queryTimeoutSecs ?? null,
-			favorite: !profile.favorite,
-		})
+		return profile
 	}
 
 	upsert = (row: ConnectionProfile) => {

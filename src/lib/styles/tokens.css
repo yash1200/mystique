@@ -1,78 +1,62 @@
 /*
-  Mystique design tokens — Laboratory notebook
-  Warm ink (dark) / warm paper (light). Jade is the app signal.
-  Connection hues stay separate identity; never reuse them for CTAs.
+  Mystique design tokens — design system v1, "Quiet surfaces, loud data".
+
+  Chrome stays neutral and recessive so connection colours, environment
+  badges and query results carry the signal. A theme is a neutral ramp
+  crossed with one accent ramp, mapped onto the same semantic tokens below.
+  Themes redefine this layer only; components never read a hex.
+
+  `[data-theme='dark']` is Night (Graphite × Mint), `[data-theme='light']`
+  is Day; `[data-palette]` swaps in Abyss or Linen (`app/themes.ts`).
+  Docs: docs/DESIGN_LANGUAGE.md.
 */
 
 :root {
-	color-scheme: dark;
-
-	--mds-font-ui: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+	--mds-font-ui:
+		'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+		sans-serif;
 	--mds-font-mono:
-		'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+		'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
-	--mds-radius-sm: 0.1875rem; /* 3px */
-	--mds-radius-md: 0.3125rem; /* 5px */
-	--mds-radius-lg: 0.5rem; /* 8px */
-	--mds-radius-xl: 0.625rem; /* 10px */
+	/* Shape — 4 px rhythm */
+	--mds-radius-xs: 0.25rem; /* 4px — kbd, badges */
+	--mds-radius-sm: 0.375rem; /* 6px */
+	--mds-radius-md: 0.5rem; /* 8px — controls */
+	--mds-radius-lg: 0.75rem; /* 12px — cards */
+	--mds-radius-xl: 1rem; /* 16px — modals, hero tiles */
 
 	--sidebar-width: 17.5rem;
 	--row-height: 2.5rem;
 	--grid-row-height: 1.75rem;
-	--grain-opacity: 0.045;
 
-	--conn-rose: #e56b78;
-	--conn-orange: #e8945c;
-	--conn-amber: #e0b04a;
-	--conn-lime: #9dce5c;
-	--conn-green: #4ecb88;
-	--conn-teal: #3ec9c0;
-	--conn-cyan: #45b4e0;
-	--conn-blue: #5a8ee8;
-	--conn-indigo: #7a7aef;
-	--conn-violet: #9b6de8;
-	--conn-magenta: #d46ad0;
-	--conn-slate: #9a9388;
+	/*
+	  Connection colours: 12 user-pickable hues at the same lightness so none
+	  shouts. Tints are mixed at runtime (16% fill, 30% ring, text 72% toward
+	  --text) so they pass contrast on every theme.
+	*/
+	--conn-rose: #f87189;
+	--conn-orange: #fb8a5c;
+	--conn-amber: #f5b041;
+	--conn-lime: #a3d955;
+	--conn-green: #4ccb84;
+	--conn-teal: #3ecfb8;
+	--conn-cyan: #4fb8f0;
+	--conn-blue: #5b8cff;
+	--conn-indigo: #7c7cff;
+	--conn-violet: #a77bf5;
+	--conn-magenta: #e06bd3;
+	--conn-slate: #9aa3ae;
 
-	/* Dark first paint */
-	--bg-app: #131210;
-	--bg-panel: #1b1a17;
-	--bg-elevated: #24221e;
-	--bg-input: #151410;
-	--bg-hover: rgb(255 248 235 / 0.05);
-	--bg-active: rgb(47 191 150 / 0.14);
-	--bg-selected: rgb(47 191 150 / 0.2);
-	--border-subtle: #34312b;
-	--border-strong: #4a453c;
-	--border-focus: #2fbf96;
-	--text-primary: #f0ebe3;
-	--text-secondary: #b4ab9d;
-	--text-muted: #7d766a;
-	--text-inverse: #12110e;
-	--accent: #2fbf96;
-	--accent-hover: #4ad4ac;
-	--accent-muted: rgb(47 191 150 / 0.16);
-	--status-success: #5ecf8a;
-	--status-warning: #e0b04a;
-	--status-danger: #e35d5d;
-	--status-info: #4aa8d8;
-	/* Syntax inks — distinct from --accent and --conn-* swatches */
-	--syntax-keyword: #ffc14a;
-	--syntax-string: #6fdd8f;
-	--syntax-number: #ff7b52;
-	--syntax-comment: #93897c;
-	--syntax-operator: #e8d09a;
-	--syntax-punct: #a89f90;
-	--syntax-name: #7ecfff;
-	--syntax-property: #4ad4c8;
-	--syntax-type: #6eb4ef;
-	--syntax-func: #c9a8ff;
-	--syntax-atom: #f09ab0;
-	--syntax-invalid: #ff6b6b;
-	--mds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-	--mds-shadow-md: 0 10px 28px rgb(0 0 0 / 0.45);
+	/* Motion — 120 / 180 / 280 ms; spring only for things the user flips. */
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+	--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+	--duration-fast: 120ms; /* hover, press */
+	--duration-base: 180ms; /* tabs, fades */
+	--duration-slow: 280ms; /* modals, panels */
+	--duration-spring: 420ms; /* switches, the dog */
 
-	/* Motion — enter/exit use ease-out; on-screen moves use ease-in-out */
+	/* Older motion names, still read by `core/util/motion.ts`. */
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 	--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 	--ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -82,84 +66,259 @@
 	--duration-toast: 400ms;
 }
 
+/* —— Night: Graphite × Mint (default dark) —— */
+:root,
 [data-theme='dark'] {
 	color-scheme: dark;
-	--grain-opacity: 0.045;
-	--bg-app: #131210;
-	--bg-panel: #1b1a17;
-	--bg-elevated: #24221e;
-	--bg-input: #151410;
-	--bg-hover: rgb(255 248 235 / 0.05);
-	--bg-active: rgb(47 191 150 / 0.14);
-	--bg-selected: rgb(47 191 150 / 0.2);
-	--border-subtle: #34312b;
-	--border-strong: #4a453c;
-	--border-focus: #2fbf96;
-	--text-primary: #f0ebe3;
-	--text-secondary: #b4ab9d;
-	--text-muted: #7d766a;
-	--text-inverse: #12110e;
-	--accent: #2fbf96;
-	--accent-hover: #4ad4ac;
-	--accent-muted: rgb(47 191 150 / 0.16);
-	--status-success: #5ecf8a;
-	--status-warning: #e0b04a;
-	--status-danger: #e35d5d;
-	--status-info: #4aa8d8;
+
+	--bg: #0b0c0e;
+	--side: #0e0f11;
+	--surface: #131417;
+	--raised: #17181c;
+	--field: #0f1013;
+	--s2: #1b1d21;
+	--s3: #24272c;
+	--line: #212328;
+	--line-2: #2e3137;
+
+	--text: #eceef1;
+	--text-2: #a5aab3;
+	--text-3: #7f848e;
+
+	--accent: #3ecf9b;
+	--accent-hover: #62dcae;
+	--on-accent: #03140d;
+	--accent-text: #62dcae;
+	--accent-soft: rgb(62 207 155 / 0.12);
+	--ring: rgb(62 207 155 / 0.42);
+
+	--warn: #f5b041;
+	--warn-soft: rgb(245 176 65 / 0.12);
+	--danger: #f87171;
+	--danger-soft: rgb(248 113 113 / 0.12);
+	--on-danger: #1f0606;
+	--info: #6ea8fe;
+	--info-soft: rgb(110 168 254 / 0.12);
+	--violet: #b49cff;
+	--violet-soft: rgb(180 156 255 / 0.13);
+
+	--scrim: rgb(4 5 7 / 0.66);
+	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+	--shadow-2:
+		0 8px 24px -6px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.04);
+	--shadow-3:
+		0 32px 80px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.06);
+
+	/* Mascot */
+	--fur: #d9b68c;
+	--ear: #a7805a;
+	--muzzle: #f1e0c6;
+	--ink: #1d1611;
+	--mascot-tag: #f5b041;
+	--mascot-tongue: #ef7d8d;
+
+	/* Syntax inks — distinct from --accent and the connection hues */
 	--syntax-keyword: #ffc14a;
 	--syntax-string: #6fdd8f;
 	--syntax-number: #ff7b52;
-	--syntax-comment: #93897c;
+	--syntax-comment: #8a8f99;
 	--syntax-operator: #e8d09a;
-	--syntax-punct: #a89f90;
+	--syntax-punct: #a5aab3;
 	--syntax-name: #7ecfff;
 	--syntax-property: #4ad4c8;
 	--syntax-type: #6eb4ef;
 	--syntax-func: #c9a8ff;
 	--syntax-atom: #f09ab0;
 	--syntax-invalid: #ff6b6b;
-	--mds-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-	--mds-shadow-md: 0 10px 28px rgb(0 0 0 / 0.45);
 }
 
+/* —— Day: Graphite × Mint (default light) —— */
 [data-theme='light'] {
 	color-scheme: light;
-	--grain-opacity: 0.055;
-	--bg-app: #efeae1;
-	--bg-panel: #f7f3eb;
-	--bg-elevated: #fffdf8;
-	--bg-input: #ebe6dc;
-	--bg-hover: rgb(28 24 18 / 0.045);
-	--bg-active: rgb(14 122 96 / 0.1);
-	--bg-selected: rgb(14 122 96 / 0.15);
-	--border-subtle: #d8d0c2;
-	--border-strong: #bdb4a4;
-	--border-focus: #0e7a60;
-	--text-primary: #1c1914;
-	--text-secondary: #534c42;
-	--text-muted: #6f685c;
-	--text-inverse: #fffdf8;
-	--accent: #0e7a60;
-	--accent-hover: #0a614c;
-	--accent-muted: rgb(14 122 96 / 0.12);
-	--status-success: #1e8a4c;
-	--status-warning: #9a7208;
-	--status-danger: #c4333a;
-	--status-info: #176a96;
+
+	--bg: #f5f6f8;
+	--side: #eef0f3;
+	--surface: #ffffff;
+	--raised: #ffffff;
+	--field: #ffffff;
+	--s2: #f2f3f5;
+	--s3: #e7e9ed;
+	--line: #e4e6ea;
+	--line-2: #d2d6dc;
+
+	--text: #0e1013;
+	--text-2: #4a5059;
+	--text-3: #636973;
+
+	--accent: #087f56;
+	--accent-hover: #066b48;
+	--on-accent: #ffffff;
+	--accent-text: #067049;
+	--accent-soft: rgb(8 127 86 / 0.1);
+	--ring: rgb(8 127 86 / 0.35);
+
+	--warn: #9a5800;
+	--warn-soft: rgb(224 149 26 / 0.14);
+	--danger: #c62828;
+	--danger-soft: rgb(198 40 40 / 0.09);
+	--on-danger: #ffffff;
+	--info: #1d5fd1;
+	--info-soft: rgb(29 95 209 / 0.09);
+	--violet: #6d4bd8;
+	--violet-soft: rgb(109 75 216 / 0.1);
+
+	--scrim: rgb(20 24 30 / 0.28);
+	--shadow-1: 0 1px 2px rgb(16 24 40 / 0.06);
+	--shadow-2:
+		0 8px 24px -8px rgb(16 24 40 / 0.16), 0 0 0 1px rgb(16 24 40 / 0.05);
+	--shadow-3:
+		0 32px 80px -16px rgb(16 24 40 / 0.28), 0 0 0 1px rgb(16 24 40 / 0.06);
+
+	--fur: #d9b68c;
+	--ear: #a7805a;
+	--muzzle: #f1e0c6;
+	--ink: #1d1611;
+	--mascot-tag: #f5b041;
+	--mascot-tongue: #ef7d8d;
+
 	--syntax-keyword: #9a3f00;
 	--syntax-string: #0b6b36;
 	--syntax-number: #b33a14;
-	--syntax-comment: #6a6358;
+	--syntax-comment: #636973;
 	--syntax-operator: #5c4630;
-	--syntax-punct: #6e675c;
+	--syntax-punct: #4a5059;
 	--syntax-name: #0b5f99;
 	--syntax-property: #0a5e58;
 	--syntax-type: #0b4f86;
 	--syntax-func: #6a2ea8;
 	--syntax-atom: #9c2458;
 	--syntax-invalid: #b4232a;
-	--mds-shadow-sm: 0 1px 2px rgb(28 24 18 / 0.06);
-	--mds-shadow-md: 0 12px 32px rgb(28 24 18 / 0.1);
+}
+
+/*
+  Alternate themes. `data-palette` sits beside `data-theme` (which stays
+  dark | light for the scheme), so syntax inks and anything else a palette
+  leaves out come from its scheme.
+*/
+
+/* —— Abyss: Navy × Iris (dark) —— */
+[data-palette='abyss'] {
+	--bg: #080a12;
+	--side: #0b0d17;
+	--surface: #0f1220;
+	--raised: #131729;
+	--field: #0b0e19;
+	--s2: #161b2d;
+	--s3: #1f2540;
+	--line: #1b2033;
+	--line-2: #283050;
+
+	--text: #e8eaf6;
+	--text-2: #a6acca;
+	--text-3: #7e86a9;
+
+	--accent: #9d8cff;
+	--accent-hover: #b3a6ff;
+	--on-accent: #0c0727;
+	--accent-text: #b3a6ff;
+	--accent-soft: rgb(157 140 255 / 0.14);
+	--ring: rgb(157 140 255 / 0.45);
+
+	--warn: #f5b041;
+	--warn-soft: rgb(245 176 65 / 0.12);
+	--danger: #ff7b8a;
+	--danger-soft: rgb(255 123 138 / 0.12);
+	--on-danger: #22060b;
+	--info: #6fc3ff;
+	--info-soft: rgb(111 195 255 / 0.12);
+	--violet: #e08cff;
+	--violet-soft: rgb(224 140 255 / 0.12);
+
+	--scrim: rgb(3 4 10 / 0.7);
+	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.45);
+	--shadow-2:
+		0 8px 24px -6px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.04);
+	--shadow-3:
+		0 32px 80px -12px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.06);
+
+	--fur: #cfd3e6;
+	--ear: #8e93b0;
+	--muzzle: #eef0fa;
+	--ink: #151829;
+}
+
+/* —— Linen: Warm paper × Ember (light) —— */
+[data-palette='linen'] {
+	--bg: #f4f0e8;
+	--side: #ede8de;
+	--surface: #fffdf9;
+	--raised: #fffdf9;
+	--field: #fffdf9;
+	--s2: #f3eee5;
+	--s3: #e9e2d5;
+	--line: #e5ddcf;
+	--line-2: #d4cab8;
+
+	--text: #1d1a15;
+	--text-2: #575045;
+	--text-3: #6b6357;
+
+	--accent: #c2410c;
+	--accent-hover: #a8380a;
+	--on-accent: #ffffff;
+	--accent-text: #b13c0b;
+	--accent-soft: rgb(194 65 12 / 0.1);
+	--ring: rgb(194 65 12 / 0.32);
+
+	--warn: #8f5a00;
+	--warn-soft: rgb(224 149 26 / 0.16);
+	--danger: #b42318;
+	--danger-soft: rgb(180 35 24 / 0.09);
+	--on-danger: #ffffff;
+	--info: #2756b8;
+	--info-soft: rgb(39 86 184 / 0.09);
+	--violet: #7a45c9;
+	--violet-soft: rgb(122 69 201 / 0.1);
+
+	--scrim: rgb(40 30 15 / 0.25);
+	--shadow-1: 0 1px 2px rgb(60 40 10 / 0.07);
+	--shadow-2:
+		0 8px 24px -8px rgb(60 40 10 / 0.18), 0 0 0 1px rgb(60 40 10 / 0.05);
+	--shadow-3:
+		0 32px 80px -16px rgb(60 40 10 / 0.3), 0 0 0 1px rgb(60 40 10 / 0.06);
+
+	--fur: #c9925c;
+	--ear: #8f5f36;
+	--muzzle: #f6e6cf;
+	--ink: #2a1c10;
+}
+
+/*
+  Older token names, kept as aliases so screens that have not moved to the
+  vocabulary above follow the new themes. New code reads the names above.
+*/
+:root {
+	--bg-app: var(--bg);
+	--bg-panel: var(--surface);
+	--bg-elevated: var(--raised);
+	--bg-input: var(--field);
+	--bg-hover: var(--s2);
+	--bg-active: var(--accent-soft);
+	--bg-selected: color-mix(in oklab, var(--accent) 18%, transparent);
+	--border-subtle: var(--line);
+	--border-strong: var(--line-2);
+	--border-focus: var(--accent);
+	--text-primary: var(--text);
+	--text-secondary: var(--text-2);
+	--text-muted: var(--text-3);
+	--text-inverse: var(--on-accent);
+	--accent-muted: var(--accent-soft);
+	--status-success: var(--accent-text);
+	--status-warning: var(--warn);
+	--status-danger: var(--danger);
+	--status-info: var(--info);
+	--mds-shadow-sm: var(--shadow-1);
+	--mds-shadow-md: var(--shadow-2);
 }
 
 [data-density='compact'] {

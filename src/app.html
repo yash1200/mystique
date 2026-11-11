@@ -5,12 +5,23 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" sizes="32x32" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#131210" />
+    <meta name="theme-color" content="#0b0c0e" />
+    <script>
+      // Theme before first paint, so a window never flashes the default (app/prefs.svelte.ts owns it after).
+      try {
+        var mode = localStorage.getItem('mystique-theme') || 'dark'
+        var dark = mode === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : mode !== 'light'
+        var pick = localStorage.getItem(dark ? 'mystique-dark-theme' : 'mystique-light-theme')
+        var root = document.documentElement
+        root.dataset.theme = dark ? 'dark' : 'light'
+        if (pick === 'abyss' || pick === 'linen') root.dataset.palette = pick
+      } catch (e) {}
+    </script>
     <title>Mystique</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     %sveltekit.head%

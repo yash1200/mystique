@@ -4,12 +4,16 @@
 		value: string
 		label: string
 		icon?: string
+		/** A 7px status dot before the label (a CSS colour). */
+		dot?: string
 	}
 
 	interface Props {
 		value?: string
 		options?: SegmentedOption[]
 		label?: string
+		/** sm: 24px items for dialog headers. */
+		size?: 'sm' | 'md'
 		disabled?: boolean
 		class?: string
 		onchange?: (value: string) => void
@@ -19,6 +23,7 @@
 		value = '',
 		options = [],
 		label,
+		size = 'md',
 		disabled = false,
 		class: className = '',
 		onchange,
@@ -27,7 +32,8 @@
 
 <div
 	class={cn(
-		'flex gap-0.5 rounded-md border border-line bg-input p-0.5',
+		'inline-flex shrink-0 gap-0.5 bg-hover p-0.5 shadow-[inset_0_0_0_1px_var(--line)]',
+		size === 'sm' ? 'rounded-md' : 'rounded-[9px]',
 		disabled && 'opacity-60',
 		className,
 	)}
@@ -38,11 +44,11 @@
 		<button
 			type="button"
 			class={cn(
-				'inline-flex items-center justify-center gap-1 rounded-sm border-none px-2 py-1 text-caption font-medium transition-colors duration-150',
-				'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+				'inline-flex items-center justify-center gap-1.5 border-none text-label font-medium transition-[color,background-color,box-shadow] duration-(--duration-base)',
+				size === 'sm' ? 'h-6 rounded-sm px-2.5' : 'h-7 rounded-[7px] px-3',
 				value === opt.value
-					? 'bg-elevated text-fg shadow-sm'
-					: 'bg-transparent text-fg-muted hover:bg-hover hover:text-fg-secondary',
+					? 'bg-surface text-fg shadow-[var(--shadow-1),0_0_0_1px_var(--line-2)]'
+					: 'bg-transparent text-fg-secondary hover:text-fg',
 			)}
 			aria-pressed={value === opt.value}
 			{disabled}
@@ -51,7 +57,9 @@
 				onchange?.(opt.value)
 			}}
 		>
-			{#if opt.icon}
+			{#if opt.dot}
+				<span class="size-[7px] rounded-full" style:background={opt.dot} aria-hidden="true"></span>
+			{:else if opt.icon}
 				<span aria-hidden="true">{opt.icon}</span>
 			{/if}
 			{opt.label}

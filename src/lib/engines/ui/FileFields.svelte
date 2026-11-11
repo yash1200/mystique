@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Card, Checkbox, Field, Input } from '#core/ui'
+	import { Button, Field, Input } from '#core/ui'
 	import type { EngineFieldsProps } from '../types'
 	import { pickDatabaseFilePath } from './pick-database-file'
 
@@ -16,49 +16,31 @@
 				defaultPath: draft.path,
 				title: 'Select database file',
 			})
-			if (result.ok) {
-				draft.path = result.path
-				return
-			}
-			if (!result.cancelled) {
-				pickError = result.error
-			}
+			if (result.ok) draft.path = result.path
+			else if (!result.cancelled) pickError = result.error
 		} finally {
 			picking = false
 		}
 	}
 </script>
 
-<Card title="Database file">
-	<Field label="File path" error={pickError ?? undefined} full>
-		<div class="flex min-w-0 items-center gap-2">
-			<Input
-				bind:value={draft.path}
-				placeholder="/path/to/database.sqlite"
-				autocomplete="off"
-				class="min-w-0 flex-1 font-mono"
-				aria-label="Database file path"
-				{disabled}
-				oninput={() => {
-					pickError = null
-				}}
-			/>
-			<Button
-				type="button"
-				variant="secondary"
-				disabled={picking || disabled}
-				onclick={onBrowse}
-				class="shrink-0"
-				aria-label="Browse for database file"
-			>
-				{picking ? 'Opening…' : 'Browse…'}
-			</Button>
-		</div>
-	</Field>
-	<p class="text-caption text-fg-muted mt-2">
-		If the file does not exist, Mystique creates it on first connect.
-	</p>
-	<div class="mt-3">
-		<Checkbox bind:checked={draft.readOnly} label="Read-only" {disabled} />
+<Field
+	label="Database file"
+	htmlFor="conn-path"
+	error={pickError ?? undefined}
+	hint="Mystique opens the file in place and creates it on first connect if it is missing."
+>
+	<div class="flex min-w-0 gap-2">
+		<Input
+			id="conn-path"
+			class="min-w-0 flex-1 font-mono"
+			bind:value={draft.path}
+			placeholder="/path/to/database.db"
+			{disabled}
+			oninput={() => (pickError = null)}
+		/>
+		<Button class="shrink-0" disabled={picking || disabled} onclick={onBrowse}>
+			{picking ? 'Opening…' : 'Browse…'}
+		</Button>
 	</div>
-</Card>
+</Field>

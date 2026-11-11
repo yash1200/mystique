@@ -2,6 +2,14 @@ import { isMacPlatform } from '#core/util'
 import { INSPECT_ON_ROW_CLICK_DEFAULT, parseBoolPref } from './prefs-defaults'
 import { parseTimeoutSecs, QUERY_TIMEOUT_DEFAULT_SECS } from './query-timeout'
 import {
+	paletteAttr,
+	parseDarkTheme,
+	parseLightTheme,
+	type DarkTheme,
+	type LightTheme,
+	type ThemeId,
+} from './themes'
+import {
 	parseReviewBeforeSaving,
 	type ConnectionListSort,
 	type DensityPref,
@@ -23,6 +31,8 @@ export type {
  */
 
 const THEME_KEY = 'mystique-theme'
+const DARK_THEME_KEY = 'mystique-dark-theme'
+const LIGHT_THEME_KEY = 'mystique-light-theme'
 const DENSITY_KEY = 'mystique-density'
 const INSPECT_ON_CLICK_KEY = 'mystique-inspect-on-row-click'
 const OPEN_TABLE_SINGLE_CLICK_KEY = 'mystique-open-table-on-single-click'
@@ -158,7 +168,10 @@ function systemPrefersDark(): boolean {
 }
 
 class AppPrefsStore {
+	/** Light, Dark, or System (follow the OS between the two picks below). */
 	theme = $state<ThemePref>(readTheme())
+	darkTheme = $state<DarkTheme>(parseDarkTheme(lsGet(DARK_THEME_KEY)))
+	lightTheme = $state<LightTheme>(parseLightTheme(lsGet(LIGHT_THEME_KEY)))
 	density = $state<DensityPref>(readDensity())
 	inspectOnRowClick = $state(readBool(INSPECT_ON_CLICK_KEY, INSPECT_ON_ROW_CLICK_DEFAULT))
 	/** macOS defaults to single-click; other platforms default to double-click. */
@@ -186,6 +199,11 @@ class AppPrefsStore {
 		return this.theme
 	}
 
+	/** The theme on screen: the dark or light pick, whichever the mode resolves to. */
+	get activeTheme(): ThemeId {
+		return this.resolvedTheme === 'dark' ? this.darkTheme : this.lightTheme
+	}
+
 	/** Compact 28px / comfortable 32px — keep in sync with `--grid-row-height`. */
 	get gridRowHeightPx(): number {
 		return this.density === 'comfortable' ? 32 : 28
@@ -193,7 +211,11 @@ class AppPrefsStore {
 
 	apply() {
 		if (typeof document === 'undefined') return
-		document.documentElement.dataset.theme = this.resolvedTheme
+		const root = document.documentElement
+		root.dataset.theme = this.resolvedTheme
+		const palette = paletteAttr(this.activeTheme)
+		if (palette) root.dataset.palette = palette
+		else delete root.dataset.palette
 		document.documentElement.dataset.density = this.density
 		const bg = getComputedStyle(document.documentElement)
 			.getPropertyValue('--bg-app')
@@ -205,6 +227,18 @@ class AppPrefsStore {
 	setTheme(pref: ThemePref) {
 		this.theme = pref
 		lsSet(THEME_KEY, pref)
+		this.apply()
+	}
+
+	setDarkTheme(theme: DarkTheme) {
+		this.darkTheme = theme
+		lsSet(DARK_THEME_KEY, theme)
+		this.apply()
+	}
+
+	setLightTheme(theme: LightTheme) {
+		this.lightTheme = theme
+		lsSet(LIGHT_THEME_KEY, theme)
 		this.apply()
 	}
 

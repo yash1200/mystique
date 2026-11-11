@@ -1,596 +1,140 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
-	import type {
-		ConnectionFormDraft,
-		ConnectionProfile,
-	} from '#core/contracts'
-	import { commands } from '#core/commands'
-	import {
-		errorMessage,
-		setNativeMenu,
-		testEngineConnection,
-	} from '#core/ipc'
-	import { Button, EmptyState, Icon, Modal } from '#core/ui'
-	import { setAppTitle } from '#core/util'
-	import { showToast } from '#features/toast'
-	import { workspaceSession } from '#features/workspace/session'
-	import { OPEN_URL_IMPORT } from '#engines'
-	import { appChrome, cmd } from '#lib/app'
+	import { setNativeMenu } from '#core/ipc'
+	import { Button, EmptyState, Icon, IconButton, Modal, Spinner } from '#core/ui'
+	import { isMacPlatform } from '#core/util'
+	import { appChrome } from '#lib/app'
 	import { onMount } from 'svelte'
-	import {
-		draftFromProfile,
-		pluginConfigForSession,
-		pluginConfigFromDraft,
-		saveInputFromDraft,
-	} from '../model'
-	import {
-		ensureSessionWithPassword,
-		testSessionWithPassword,
-	} from '../password-prompt.svelte'
-	import { isConnectCancelled } from '../password-prompt'
-	import { copyConnectionUrl as copyProfileUrl } from '../facts'
-	import { connectionProfiles } from '../profiles.svelte'
-	import { sshHostKeys } from '../ssh-host-key.svelte'
+	import { HomeController, setHome } from '../home.svelte'
 	import ConnectionDetail from './ConnectionDetail.svelte'
-	import type { ConnectionMenuAction } from './ConnectionSidebar.svelte'
 	import ConnectionSidebar from './ConnectionSidebar.svelte'
-	import HomeIllustration from './HomeIllustration.svelte'
-	import NewConnectionPanel from './NewConnectionPanel.svelte'
-	import {
-		connectErrorMessage,
-		prettifyConnectError,
-		sshTunnelFromDraft,
-	} from '../ssh'
+	import HomePeek from './HomePeek.svelte'
+	import NewConnectionPanel, { FORM_ID } from './NewConnectionPanel.svelte'
 
-	let selectedId = $state<string | null>(null)
-	/** Transient connect-failure overlay; live connected comes from the session store. */
-	let statusOverride = $state<Record<string, 'error'>>({})
-	const connections = $derived(
-		connectionProfiles.items.map((p) => ({
-			...p,
-			status:
-				statusOverride[p.id] === 'error'
-					? ('error' as const)
-					: workspaceSession.sessions.some((s) => s.profile.id === p.id)
-						? ('connected' as const)
-						: ('disconnected' as const),
-		})),
+	const home = new HomeController()
+	setHome(home)
+
+	const SAVE_KEYS = isMacPlatform() ? '⌘S' : 'Ctrl S'
+
+	const ready = $derived(home.load.state === 'ready')
+	/** The create or edit form is on screen (it owns Cancel / Save in the bar). */
+	const formShown = $derived(ready && (home.editing || !home.selected))
+	const createKey = $derived(home.view.kind === 'create' ? home.view.key : 0)
+	const crumb = $derived(
+		home.editing
+			? `Edit ${home.selected?.name}`
+			: (home.selected?.name ?? 'New connection'),
 	)
-	/** Create form is the home landing (no selection). */
-	let creating = $state(true)
-	/** Edit form for the currently selected profile. */
-	let editing = $state(false)
-	/** Remount the create form to reset fields (Home / New / Cancel). */
-	let createFormKey = $state(0)
-	let loading = $state(true)
-	let listRefreshing = $state(false)
-	let saving = $state(false)
-	let testing = $state(false)
-	let connectingId = $state<string | null>(null)
-	/** Last live connectivity result from BE (shown on the form). */
-	let testResult = $state<{ ok: boolean; message: string } | null>(null)
-	let loadError = $state<string | null>(null)
-
-	const selected = $derived(
-		connections.find((c) => c.id === selectedId) ?? null,
-	)
-	/** The form shows `testResult` inline; the detail view does not. */
-	const formShown = $derived(editing || !selected)
-
-	/** Set the result banner; toast only when no banner is on screen. */
-	function reportTestResult(ok: boolean, message: string, toast = message) {
-		testResult = { ok, message }
-		if (!formShown) showToast(ok ? 'success' : 'danger', toast)
-	}
-
-	/** Landing: create-connection form. Connections live in the sidebar. */
-	function enterCreateMode() {
-		selectedId = null
-		creating = true
-		editing = false
-		testResult = null
-		createFormKey += 1
-	}
-
-	function afterProfilesChange(preferSelectId?: string | null) {
-		const rows = connectionProfiles.items
-		if (preferSelectId && rows.some((c) => c.id === preferSelectId)) {
-			selectedId = preferSelectId
-			creating = false
-			editing = false
-		} else if (!selectedId || !rows.some((c) => c.id === selectedId)) {
-			if (!creating && !editing) {
-				enterCreateMode()
-			}
-		}
-	}
-
-	async function refreshList(preferSelectId?: string | null) {
-		await connectionProfiles.refresh()
-		afterProfilesChange(preferSelectId)
-	}
-
-	async function refreshConnections() {
-		if (listRefreshing) return
-		listRefreshing = true
-		try {
-			await refreshList()
-		} catch (err) {
-			showToast('danger', errorMessage(err))
-		} finally {
-			listRefreshing = false
-		}
-	}
-
-	function selectConnection(id: string) {
-		creating = false
-		editing = false
-		testResult = null
-		selectedId = id
-	}
-
-	function startCreate() {
-		enterCreateMode()
-	}
-
-	function openImportUrl() {
-		if (!creating || editing) enterCreateMode()
-		window.setTimeout(() => {
-			commands.run(OPEN_URL_IMPORT)
-		}, 0)
-	}
 
 	$effect(() => {
 		setNativeMenu({
 			page: 'home',
-			hasSelection: selected != null,
+			hasSelection: home.selected != null,
+			hasForm: formShown,
 		})
 	})
 
-	function overlayBlocksEscape(): boolean {
-		return !!document.querySelector('[role="dialog"], [role="menu"]')
-	}
-
-	/** Esc on a selected connection returns to the new-connection landing. */
-	function canGoBackToNew(): boolean {
-		if (creating || editing || !selected) return false
-		return !pendingDelete && !overlayBlocksEscape()
-	}
-
-	function startEdit() {
-		if (!selected) return
-		editConnection(selected.id)
-	}
-
-	function editConnection(id: string) {
-		const profile = connections.find((c) => c.id === id)
-		if (!profile) return
-		selectedId = id
-		creating = false
-		editing = true
-		testResult = null
-	}
-
-	/** Live connectivity check via backend engine plugins. */
-	async function handleTestConnection(draft: ConnectionFormDraft) {
-		testResult = null
-
-		testing = true
-		try {
-			const pluginConfig = pluginConfigFromDraft(draft)
-			const typed = draft.password.trim()
-			const password = typed.length > 0 ? typed : null
-
-			const tlsPass = (draft.sslClientKeyPassphrase ?? '').trim()
-			const result = await testEngineConnection({
-				engine: String(draft.engine),
-				pluginConfig,
-				password,
-				profileId:
-					editing && selectedId ? selectedId : undefined,
-				ssh: sshTunnelFromDraft(draft),
-				useSavedSsh: false,
-				tlsKeyPassphrase: tlsPass || null,
-				pool: {
-					maxSize: 2,
-					minIdle: 0,
-					acquireTimeoutMs: 8000,
-					idleTimeoutSecs: 30,
-				},
-			})
-
-			if (sshHostKeys.offer(result, () => handleTestConnection(draft))) return
-
-			if (result.ok) {
-				const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
-				reportTestResult(
-					true,
-					`Connection established to ${result.engine} (${result.latencyMs}ms)${version}. ${result.message}`,
-					`Connected to ${result.engine} (${result.latencyMs}ms)`,
-				)
-			} else {
-				reportTestResult(
-					false,
-					`Connection failed: ${prettifyConnectError(result.message)}`,
-				)
-			}
-		} catch (err) {
-			if (sshHostKeys.offer(err, () => handleTestConnection(draft))) return
-			reportTestResult(
-				false,
-				`Connection failed: ${connectErrorMessage(err)}`,
-			)
-		} finally {
-			testing = false
-		}
-	}
-
-	function cancelForm() {
-		// Leave edit → back to that connection's detail.
-		if (editing && selectedId) {
-			editing = false
-			creating = false
-			testResult = null
-			return
-		}
-		// Cancel create → reset the form.
-		enterCreateMode()
-	}
-
-	/** Errors propagate to NewConnectionPanel, which shows them inline. */
-	async function saveConnection(draft: ConnectionFormDraft) {
-		saving = true
-		try {
-			const isUpdate = editing && !!selectedId
-			const input = saveInputFromDraft(draft, {
-				id: isUpdate ? selectedId! : undefined,
-				existingPasswordSet: selected?.passwordSet,
-			})
-
-			const saved = await connectionProfiles.save(input)
-
-			// The detail view of the saved profile is the confirmation.
-			afterProfilesChange(saved.id)
-		} finally {
-			saving = false
-		}
-	}
-
-	let deleting = $state(false)
-	/** In-app confirm — `window.confirm` often opens *behind* the Tauri window on macOS. */
-	let pendingDelete = $state<{ id: string; name: string } | null>(null)
-
-	function requestDeleteConnection(id: string) {
-		if (deleting) return
-		const profile = connections.find((c) => c.id === id)
-		if (!profile) return
-		pendingDelete = { id: profile.id, name: profile.name }
-	}
-
-	function requestDeleteSelected() {
-		if (!selected || deleting) return
-		requestDeleteConnection(selected.id)
-	}
-
-	async function duplicateConnection(id: string) {
-		const profile = connections.find((c) => c.id === id)
-		if (!profile) return
-		try {
-			saving = true
-			const cfg = { ...(profile.pluginConfig ?? {}) }
-			const saved = await connectionProfiles.save({
-				id: null,
-				name: `${profile.name}-copy`,
-				engine: String(profile.engine),
-				colorId: profile.colorId,
-				environment: profile.environment,
-				readOnly: profile.readOnly,
-				notes: profile.notes ?? null,
-				pluginConfig: cfg,
-				copySecretFrom:
-					profile.passwordSet || profile.sshPasswordSet
-						? profile.id
-						: null,
-				sshConfig: profile.ssh,
-				queryTimeoutSecs: profile.queryTimeoutSecs ?? null,
-				savePassword: profile.savePassword !== false,
-			})
-			afterProfilesChange(saved.id)
-		} catch (err) {
-			showToast('danger', errorMessage(err))
-		} finally {
-			saving = false
-		}
-	}
-
-	function copyConnectionUrl(id: string) {
-		const profile = connections.find((c) => c.id === id)
-		if (profile) void copyProfileUrl(profile)
-	}
-
-	function handleConnectionAction(action: ConnectionMenuAction, id: string) {
-		if (action === 'view') {
-			selectConnection(id)
-			return
-		}
-		if (action === 'connect') {
-			void connectById(id)
-			return
-		}
-		if (action === 'edit') {
-			editConnection(id)
-			return
-		}
-		if (action === 'duplicate') {
-			void duplicateConnection(id)
-			return
-		}
-		if (action === 'delete') {
-			requestDeleteConnection(id)
-			return
-		}
-		if (action === 'copy-url') {
-			void copyConnectionUrl(id)
-			return
-		}
-		if (action === 'favorite') {
-			void toggleFavorite(id)
-		}
-	}
-
-	async function toggleFavorite(id: string) {
-		try {
-			await connectionProfiles.toggleFavorite(id)
-		} catch (err) {
-			showToast('danger', errorMessage(err))
-		}
-	}
-
-	function cancelPendingDelete() {
-		if (deleting) return
-		pendingDelete = null
-	}
-
-	async function confirmDeleteSelected() {
-		if (!pendingDelete) return
-		const { id } = pendingDelete
-		deleting = true
-		try {
-			await connectionProfiles.remove(id)
-			afterProfilesChange()
-			// refreshList clears invalid selection → create mode.
-			pendingDelete = null
-		} catch (err) {
-			showToast('danger', errorMessage(err))
-		} finally {
-			deleting = false
-		}
-	}
-
-	async function duplicateSelected() {
-		if (!selected) return
-		await duplicateConnection(selected.id)
-	}
-
-	async function openWorkspace(
-		profile: ConnectionProfile,
-		engineSessionId?: string | null,
-		capabilities?: import('#core/contracts').EngineCapabilities | null,
-	) {
-		workspaceSession.connect(
-			{ ...profile, status: 'connected' },
-			engineSessionId,
-			capabilities,
-		)
-		await goto(`/workspace?c=${encodeURIComponent(profile.id)}`)
-	}
-
-	async function connectSelected() {
-		if (!selected) return
-		await connectProfile(selected)
-	}
-
-	async function connectById(id: string) {
-		const profile = connections.find((c) => c.id === id)
-		if (!profile || testing) return
-		selectConnection(id)
-		await connectProfile(profile)
-	}
-
-	async function connectProfile(profile: ConnectionProfile) {
-		connectingId = profile.id
-		testing = true
-		testResult = null
-		try {
-			const pluginConfig = pluginConfigForSession(profile)
-
-			// Asks once for a password the profile does not save.
-			const result = await testSessionWithPassword({
-				engine: String(profile.engine),
-				pluginConfig,
-				profileId: profile.id,
-				pool: { maxSize: 2, minIdle: 0, acquireTimeoutMs: 8000 },
-			}, profile.name)
-
-			if (sshHostKeys.offer(result, () => connectProfile(profile))) return
-
-			if (!result.ok) {
-				statusOverride = { ...statusOverride, [profile.id]: 'error' }
-				reportTestResult(
-					false,
-					`Could not establish connection: ${prettifyConnectError(result.message)}`,
-				)
-				return
-			}
-
-			const updated = await connectionProfiles.touchConnected(profile.id)
-			const { [profile.id]: _ok, ...rest } = statusOverride
-			statusOverride = rest
-
-			const session = await ensureSessionWithPassword({
-				engine: String(profile.engine),
-				pluginConfig,
-				profileId: profile.id,
-				pool: { maxSize: 5, minIdle: 0, acquireTimeoutMs: 10000 },
-				sessionId: profile.id,
-			}, profile.name)
-
-			const version = result.serverVersion ? ` · ${result.serverVersion}` : ''
-			testResult = {
-				ok: true,
-				message: `Connection established (${result.latencyMs}ms)${version}`,
-			}
-			await openWorkspace(
-				{ ...updated, status: 'connected' },
-				session.sessionId,
-				session.capabilities,
-			)
-		} catch (err) {
-			if (isConnectCancelled(err)) return
-			if (sshHostKeys.offer(err, () => connectProfile(profile))) return
-			statusOverride = { ...statusOverride, [profile.id]: 'error' }
-			showToast(
-				'danger',
-				connectErrorMessage(err),
-			)
-		} finally {
-			testing = false
-			connectingId = null
-		}
-	}
-
-	onMount(() => {
-		void setAppTitle()
-		const unregister = commands.register([
-			{ ...cmd.homeBack, when: canGoBackToNew, run: enterCreateMode },
-			{ ...cmd.homeNewConnection, run: startCreate },
-			{ ...cmd.homeImportUrl, run: openImportUrl },
-			{ ...cmd.homeConnect, run: () => void connectSelected() },
-			{ ...cmd.homeEdit, run: startEdit },
-			{ ...cmd.homeDuplicate, run: () => void duplicateSelected() },
-			{
-				...cmd.homeCopyUrl,
-				run: () => {
-					if (selected) void copyConnectionUrl(selected.id)
-				},
-			},
-			{ ...cmd.homeDelete, run: requestDeleteSelected },
-			{ ...cmd.homeRefresh, run: () => void refreshConnections() },
-			{
-				...cmd.openConnectionById,
-				run: ({ args }) => {
-					if (args?.id) void connectById(args.id)
-				},
-			},
-		])
-		;(async () => {
-			loading = true
-			loadError = null
-			try {
-				await refreshList()
-				enterCreateMode()
-			} catch (err) {
-				loadError = errorMessage(err)
-			} finally {
-				loading = false
-			}
-		})()
-		return unregister
-	})
+	onMount(home.mount)
 </script>
 
 <div class="flex h-screen w-screen overflow-hidden bg-app">
 	{#if appChrome.homeSidebarOpen}
-		<ConnectionSidebar
-			{connections}
-			{selectedId}
-			creating={creating || editing}
-			{connectingId}
-			onselect={selectConnection}
-			onnew={startCreate}
-			onconnect={connectById}
-			onaction={handleConnectionAction}
-			onrefresh={refreshConnections}
-			refreshing={listRefreshing}
-		/>
+		<ConnectionSidebar />
 	{/if}
 
-	<main class="relative h-full min-w-0 flex-1 overflow-hidden bg-app-wash">
-		<div class="relative z-10 h-full overflow-auto">
-			{#if loading}
-				<div
-					class="flex h-full flex-col items-center justify-center gap-3 p-8"
-					aria-busy="true"
-				>
-					<Icon name="refresh" class="size-5 animate-spin text-fg-muted" />
+	<main class="relative h-full min-w-0 flex-1 overflow-hidden">
+		<div class="absolute inset-0 overflow-auto">
+			<div
+				class="sticky top-0 z-20 flex h-topbar items-center gap-2 border-b border-line bg-app-blur px-6"
+			>
+				{#if !appChrome.homeSidebarOpen}
+					<IconButton
+						label="Show sidebar"
+						variant="quiet"
+						size="sm"
+						class="-ml-2"
+						onclick={() => (appChrome.homeSidebarOpen = true)}
+					>
+						<Icon name="sidebar" />
+					</IconButton>
+				{/if}
+				<nav class="flex min-w-0 items-center gap-2" aria-label="Breadcrumb">
+					<span class="shrink-0 text-fg-muted">Connections</span>
+					<Icon name="chevron-right" class="text-fg-muted" />
+					<span class="min-w-0 truncate font-medium" aria-current="page">{crumb}</span>
+				</nav>
+				{#if formShown}
+					<div class="ml-auto flex shrink-0 items-center gap-2">
+						<Button
+							variant="ghost"
+							disabled={home.saving}
+							onclick={home.editing ? home.cancelForm : home.create}
+						>
+							{home.editing ? 'Cancel' : 'Clear'}
+							{#if home.editing}<kbd>esc</kbd>{/if}
+						</Button>
+						<Button
+							type="submit"
+							form={FORM_ID}
+							variant="primary"
+							disabled={home.saving || home.busy != null}
+						>
+							{#if home.saving}
+								<Spinner size="sm" />Saving…
+							{:else}
+								{home.editing ? 'Update' : 'Save'}
+								<kbd class="border-black/15 bg-black/10 text-current">{SAVE_KEYS}</kbd>
+							{/if}
+						</Button>
+					</div>
+				{/if}
+			</div>
+
+			{#if home.load.state === 'loading'}
+				<div class="flex h-[70%] flex-col items-center justify-center gap-3 p-8" aria-busy="true">
+					<Spinner class="text-fg-muted" />
 					<EmptyState title="Loading connections…" />
 				</div>
-			{:else if loadError}
-				<div class="flex h-full items-center justify-center p-8">
-					<EmptyState
-						title="Could not load connections"
-						description={loadError}
-					/>
+			{:else if home.load.state === 'error'}
+				<div class="flex h-[70%] items-center justify-center p-8">
+					<EmptyState title="Could not load connections" description={home.load.message} />
 				</div>
-			{:else if editing && selected}
-				<NewConnectionPanel
-					initial={selected}
-					{saving}
-					{testing}
-					{testResult}
-					oncancel={cancelForm}
-					onsave={saveConnection}
-					ontest={handleTestConnection}
-				/>
-			{:else if selected}
-				<ConnectionDetail
-					connection={selected}
-					{testing}
-					onconnect={connectSelected}
-					ontest={async () => {
-						await handleTestConnection(draftFromProfile(selected))
-					}}
-					onduplicate={duplicateSelected}
-					ondelete={requestDeleteSelected}
-					onedit={startEdit}
-				/>
+			{:else if home.editing && home.selected}
+				{#key home.selected.id}
+					<NewConnectionPanel initial={home.selected} />
+				{/key}
+			{:else if home.selected}
+				<ConnectionDetail connection={home.selected} />
 			{:else}
-				{#key createFormKey}
-					<NewConnectionPanel
-						initial={null}
-						{saving}
-						{testing}
-						{testResult}
-						onsave={saveConnection}
-						ontest={handleTestConnection}
-					/>
+				{#key createKey}
+					<NewConnectionPanel />
 				{/key}
 			{/if}
 		</div>
-		{#if !loading && !loadError}
-			<HomeIllustration />
+
+		{#if ready}
+			<HomePeek />
 		{/if}
 	</main>
 
 	<Modal
-		open={!!pendingDelete}
-		onclose={cancelPendingDelete}
+		open={!!home.pendingDelete}
+		onclose={home.cancelDelete}
 		title="Delete connection?"
-		description={pendingDelete
-			? `Delete “${pendingDelete.name}”? Saved queries for this connection will also be removed. This cannot be undone.`
+		description={home.pendingDelete
+			? `“${home.pendingDelete.name}” and its saved queries will be removed from this machine. This cannot be undone.`
 			: undefined}
-		dismissible={!deleting}
+		dismissible={!home.deleting}
 	>
 		{#snippet footer()}
-			<Button variant="ghost" onclick={cancelPendingDelete} disabled={deleting}>
+			<Button variant="ghost" onclick={home.cancelDelete} disabled={home.deleting}>
 				Cancel
 			</Button>
-			<Button
-				variant="danger"
-				onclick={confirmDeleteSelected}
-				disabled={deleting}
-			>
-				{deleting ? 'Deleting…' : 'Delete'}
+			<Button variant="danger" onclick={home.confirmDelete} disabled={home.deleting}>
+				{#if home.deleting}
+					<Spinner size="sm" />Deleting…
+				{:else}
+					<Icon name="trash" />Delete connection
+				{/if}
 			</Button>
 		{/snippet}
 	</Modal>
