@@ -199,6 +199,17 @@ pub(super) async fn list_catalog_columns(
         .collect())
 }
 
+/// Functions, procedures and triggers as `(schema, name, kind)`.
+const OTHER_OBJECTS_SQL: &str = "\
+    SELECT routine_schema, routine_name, LOWER(routine_type) \
+    FROM information_schema.routines \
+    WHERE routine_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+    UNION ALL \
+    SELECT trigger_schema, trigger_name, 'trigger' \
+    FROM information_schema.triggers \
+    WHERE trigger_schema NOT IN ('mysql','information_schema','performance_schema','sys') \
+    ORDER BY 1, 3, 2";
+
 pub(super) async fn list_catalog(
     session: &MysqlSession,
     preferred_database: Option<&str>,
@@ -248,6 +259,27 @@ pub(super) async fn list_catalog(
                 row_count: approx.max(0) as u64,
             });
     }
+    if include_objects {
+        // Routines and triggers. A server without the privilege to read
+        // them still lists its tables.
+        if let Ok(other) =
+            crate::rows::collect_query::<(String, String, String)>(&mut conn, OTHER_OBJECTS_SQL)
+                .await
+        {
+            for (schema, name, kind) in other {
+                by_db
+                    .entry(schema.clone())
+                    .or_default()
+                    .push(CatalogObject {
+                        name,
+                        schema: Some(schema.clone()),
+                        database: Some(schema),
+                        kind,
+                        row_count: 0,
+                    });
+            }
+        }
+    }
     if let Some(pref) = preferred_database.map(str::trim).filter(|s| !s.is_empty()) {
         by_db.entry(pref.to_string()).or_default();
     }
@@ -275,7 +307,11 @@ pub(super) async fn list_catalog(
             let meta = if objects.is_empty() {
                 Some("empty".into())
             } else {
-                Some(format!("{} tables", objects.len()))
+                let tables = objects
+                    .iter()
+                    .filter(|o| o.kind == "table" || o.kind == "view")
+                    .count();
+                Some(format!("{tables} tables"))
             };
             CatalogDatabase {
                 name,

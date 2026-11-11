@@ -20,6 +20,7 @@ pub(super) async fn apply_table_admin(
     let name = input.name.clone();
     let new_name = input.new_name.clone();
     let is_view = input.kind == TableObjectKind::View;
+    let is_trigger = input.object_kind == "trigger";
     session
         .blocking(move || -> ConnectorResult<TableAdminResult> {
             let conn = pool
@@ -28,7 +29,13 @@ pub(super) async fn apply_table_admin(
             let qname = quote_ident(SqlDialect::Sqlite, &name);
             match op {
                 TableAdminOp::CreateStatement => {
-                    let typ = if is_view { "view" } else { "table" };
+                    let typ = if is_trigger {
+                        "trigger"
+                    } else if is_view {
+                        "view"
+                    } else {
+                        "table"
+                    };
                     let sql: Option<String> = conn
                         .query_row(
                             "SELECT sql FROM sqlite_master WHERE type = ?1 AND name = ?2",

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { DatabaseMeta, TableMeta } from '#core/contracts'
+	import type { DatabaseMeta, ObjectKindSpec, TableMeta } from '#core/contracts'
 	import { Icon } from '#core/ui'
 	import { cn } from '#core/util'
 	import {
@@ -20,6 +20,8 @@
 		groups: { key: string; items: TableMeta[] }[]
 		flatItems: TableMeta[]
 		isExpanded: (key: string) => boolean
+		/** Plugin spec for a catalog kind (heading, primary or grouped). */
+		kindOf: (kind: string) => ObjectKindSpec
 		busy?: boolean
 		onToggleGroup: (key: string) => void
 		onopen: (table: TableMeta) => void
@@ -38,6 +40,7 @@
 		groups,
 		flatItems,
 		isExpanded,
+		kindOf,
 		busy = false,
 		onToggleGroup,
 		onopen,
@@ -50,6 +53,46 @@
 		if (kind === 'view') return 'bg-info/15'
 		if (kind === 'table' || kind === 'collection') return 'bg-success/15'
 		return 'bg-input'
+	}
+
+	type KindSection = { spec: ObjectKindSpec; items: TableMeta[] }
+
+	/**
+	 * Tables, views and collections stay in the list; every other kind
+	 * (functions, sequences, types…) goes under its own collapsed heading.
+	 * `items` is already in the plugin's kind order.
+	 */
+	function splitByKind(items: TableMeta[]): {
+		primary: TableMeta[]
+		sections: KindSection[]
+	} {
+		const primary: TableMeta[] = []
+		const sections: KindSection[] = []
+		for (const t of items) {
+			const spec = kindOf(t.kind)
+			if (spec.primary) {
+				primary.push(t)
+				continue
+			}
+			const last = sections.at(-1)
+			if (last && last.spec.id === spec.id) last.items.push(t)
+			else sections.push({ spec, items: [t] })
+		}
+		return { primary, sections }
+	}
+
+	/** Open kind sections, keyed `group::kind`. Closed by default. */
+	let openSections = $state<Set<string>>(new Set())
+
+	function sectionOpen(key: string): boolean {
+		return query.trim().length > 0 || openSections.has(key)
+	}
+
+	function toggleSection(key: string) {
+		const next = new Set(openSections)
+		if (next.has(key)) next.delete(key)
+		else next.add(key)
+		openSections = next
 	}
 
 	function matchParts(
@@ -162,6 +205,56 @@
 	</li>
 {/snippet}
 
+{#snippet objectList(items: TableMeta[], groupKey: string)}
+	{@const split = splitByKind(items)}
+	{#each split.primary as t (t.id)}
+		{@render objectRow(t)}
+	{/each}
+	{#each split.sections as section (section.spec.id)}
+		{@const key = `${groupKey}::${section.spec.id}`}
+		{@const open = sectionOpen(key)}
+		<li role="none">
+			<button
+				type="button"
+				class={cn(
+					'flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-transparent px-1.5 text-left transition-colors duration-150',
+					'text-fg-muted hover:bg-hover hover:text-fg',
+					'focus-visible:outline-focus focus-visible:outline-2 focus-visible:outline-offset-1',
+				)}
+				aria-expanded={open}
+				onclick={() => toggleSection(key)}
+			>
+				<CatalogIcon
+					name="chevron"
+					class={cn(
+						'size-3 transition-transform duration-150',
+						open ? 'rotate-90' : 'rotate-0',
+					)}
+				/>
+				<span class="min-w-0 flex-1 truncate text-caption">
+					{section.spec.plural}
+				</span>
+				<span
+					class="shrink-0 rounded-sm bg-input px-1 font-mono text-micro text-fg-muted tabular-nums"
+				>
+					{section.items.length}
+				</span>
+			</button>
+			{#if open}
+				<ul
+					class="m-0 ml-2.5 list-none border-l border-line py-0.5 pl-1.5"
+					role="group"
+					aria-label={section.spec.plural}
+				>
+					{#each section.items as t (t.id)}
+						{@render objectRow(t)}
+					{/each}
+				</ul>
+			{/if}
+		</li>
+	{/each}
+{/snippet}
+
 <div
 	class={cn(
 		'flex-1 overflow-auto px-1.5 py-1 transition-opacity duration-150',
@@ -264,9 +357,7 @@
 						class="m-0 ml-2.5 list-none border-l border-line py-0.5 pl-1.5"
 						role="group"
 					>
-						{#each group.items as t (t.id)}
-							{@render objectRow(t)}
-						{/each}
+						{@render objectList(group.items, group.key)}
 						{#if group.items.length === 0}
 							<li class="px-1.5 py-1 text-caption text-fg-muted">
 								No {objectLabel}
@@ -278,9 +369,7 @@
 		{/each}
 	{:else}
 		<ul class="m-0 flex list-none flex-col gap-px p-0" role="group">
-			{#each flatItems as t (t.id)}
-				{@render objectRow(t)}
-			{/each}
+			{@render objectList(flatItems, selectedDatabase)}
 		</ul>
 	{/if}
 </div>

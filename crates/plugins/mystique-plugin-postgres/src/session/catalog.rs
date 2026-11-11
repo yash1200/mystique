@@ -283,6 +283,58 @@ pub(super) async fn list_catalog_columns(
     Ok(out)
 }
 
+/// Kinds beyond tables and views, as `(schema, name, kind)`. Routines are
+/// named with their identity arguments (`f(integer, text)`) so overloads stay
+/// distinct; [`super::admin`] matches the same spelling. Objects that belong
+/// to an extension are left out.
+const OTHER_OBJECTS_SQL: &str = r#"
+    SELECT schemaname::text, matviewname::text, 'matview'
+    FROM pg_catalog.pg_matviews
+    WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+    UNION ALL
+    SELECT n.nspname::text, c.relname::text, 'sequence'
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind = 'S'
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg\_%'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::regclass
+          AND d.objid = c.oid AND d.deptype IN ('e', 'i', 'a')
+      )
+    UNION ALL
+    SELECT n.nspname::text,
+           p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')',
+           CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE p.prokind IN ('f', 'p')
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg\_%'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_proc'::regclass
+          AND d.objid = p.oid AND d.deptype = 'e'
+      )
+    UNION ALL
+    SELECT n.nspname::text, t.typname::text, 'type'
+    FROM pg_catalog.pg_type t
+    JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+    WHERE (t.typtype IN ('e', 'd')
+           OR (t.typtype = 'c' AND EXISTS (
+                SELECT 1 FROM pg_catalog.pg_class c
+                WHERE c.oid = t.typrelid AND c.relkind = 'c')))
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg\_%'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_type'::regclass
+          AND d.objid = t.oid AND d.deptype = 'e'
+      )
+    ORDER BY 1, 3, 2
+"#;
+
 pub(super) async fn list_catalog(
     session: &PostgresSession,
     preferred_database: Option<&str>,
@@ -356,6 +408,23 @@ pub(super) async fn list_catalog(
                 row_count: 0,
             });
         }
+        // Matviews, sequences, routines and types. Postgres-compatible
+        // servers (CockroachDB) lack some of these catalogs, so a failure
+        // leaves the explorer with tables and views rather than nothing.
+        if let Ok(rows) = client.query(OTHER_OBJECTS_SQL, &[]).await {
+            for row in rows {
+                let schema: String = pg_col(&row, 0)?;
+                let name: String = pg_col(&row, 1)?;
+                let kind: String = pg_col(&row, 2)?;
+                current_objects.push(CatalogObject {
+                    name,
+                    schema: Some(schema),
+                    database: Some(current.clone()),
+                    kind,
+                    row_count: 0,
+                });
+            }
+        }
     }
 
     let pref = preferred_database.map(str::trim).unwrap_or("");
@@ -388,7 +457,11 @@ pub(super) async fn list_catalog(
                 if objects.is_empty() {
                     Some("empty".into())
                 } else {
-                    Some(format!("{} tables", objects.len()))
+                    let tables = objects
+                        .iter()
+                        .filter(|o| o.kind == "table" || o.kind == "view")
+                        .count();
+                    Some(format!("{tables} tables"))
                 }
             } else {
                 None

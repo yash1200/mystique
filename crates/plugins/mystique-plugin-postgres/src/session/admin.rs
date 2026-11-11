@@ -26,7 +26,14 @@ pub(super) async fn apply_table_admin(
 
     match input.op {
         TableAdminOp::CreateStatement => {
-            let sql = pg_create_statement(&client, schema, &input.name, is_view).await?;
+            let sql = match input.object_kind.as_str() {
+                "function" | "procedure" => {
+                    routine_definition(&client, schema, &input.name).await?
+                }
+                "sequence" => sequence_definition(&client, schema, &input.name).await?,
+                "type" => type_definition(&client, schema, &input.name).await?,
+                _ => pg_create_statement(&client, schema, &input.name, is_view).await?,
+            };
             Ok(TableAdminResult::statement(input.op, sql))
         }
         TableAdminOp::CreateGroup => {
@@ -185,4 +192,174 @@ async fn pg_create_statement(
         "CREATE TABLE {qname} (\n{}\n);\n",
         lines.join(",\n")
     ))
+}
+
+/// `CREATE OR REPLACE FUNCTION …` for a routine listed as `name(identity args)`.
+async fn routine_definition(
+    client: &deadpool_postgres::Object,
+    schema: &str,
+    listed: &str,
+) -> ConnectorResult<String> {
+    let row = client
+        .query_opt(
+            r#"
+        SELECT pg_catalog.pg_get_functiondef(p.oid)
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = $1
+          AND p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' = $2
+        "#,
+            &[&schema, &listed],
+        )
+        .await
+        .map_err(query_failed)?;
+    let Some(row) = row else {
+        return Err(not_found(schema, listed));
+    };
+    let def: String = pg_col(&row, 0)?;
+    Ok(format!("{};\n", def.trim_end()))
+}
+
+async fn sequence_definition(
+    client: &deadpool_postgres::Object,
+    schema: &str,
+    name: &str,
+) -> ConnectorResult<String> {
+    let row = client
+        .query_opt(
+            r#"
+        SELECT pg_catalog.format_type(s.seqtypid, NULL),
+               s.seqincrement, s.seqmin, s.seqmax, s.seqstart, s.seqcache, s.seqcycle
+        FROM pg_catalog.pg_sequence s
+        JOIN pg_catalog.pg_class c ON c.oid = s.seqrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relname = $2
+        "#,
+            &[&schema, &name],
+        )
+        .await
+        .map_err(query_failed)?;
+    let Some(row) = row else {
+        return Err(not_found(schema, name));
+    };
+    let typ: String = pg_col(&row, 0)?;
+    let increment: i64 = pg_col(&row, 1)?;
+    let min: i64 = pg_col(&row, 2)?;
+    let max: i64 = pg_col(&row, 3)?;
+    let start: i64 = pg_col(&row, 4)?;
+    let cache: i64 = pg_col(&row, 5)?;
+    let cycle: bool = pg_col(&row, 6)?;
+    let qname = qualify_table(SqlDialect::Postgres, None, Some(schema), name);
+    let cycle = if cycle { "CYCLE" } else { "NO CYCLE" };
+    Ok(format!(
+        "CREATE SEQUENCE {qname}\n  AS {typ}\n  INCREMENT BY {increment}\n  MINVALUE {min}\n  MAXVALUE {max}\n  START WITH {start}\n  CACHE {cache}\n  {cycle};\n"
+    ))
+}
+
+/// Enum, composite or domain.
+async fn type_definition(
+    client: &deadpool_postgres::Object,
+    schema: &str,
+    name: &str,
+) -> ConnectorResult<String> {
+    let row = client
+        .query_opt(
+            r#"
+        SELECT t.oid, t.typtype::text, t.typrelid,
+               pg_catalog.format_type(t.typbasetype, t.typtypmod),
+               t.typnotnull, t.typdefault
+        FROM pg_catalog.pg_type t
+        JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = $1 AND t.typname = $2
+        "#,
+            &[&schema, &name],
+        )
+        .await
+        .map_err(query_failed)?;
+    let Some(row) = row else {
+        return Err(not_found(schema, name));
+    };
+    let oid = pg_u32_col(&row, 0)?;
+    let typtype: String = pg_col(&row, 1)?;
+    let relid = pg_u32_col(&row, 2)?;
+    let qname = qualify_table(SqlDialect::Postgres, None, Some(schema), name);
+    match typtype.as_str() {
+        "e" => {
+            let labels = client
+                .query(
+                    "SELECT enumlabel FROM pg_catalog.pg_enum WHERE enumtypid = $1 ORDER BY enumsortorder",
+                    &[&oid],
+                )
+                .await
+                .map_err(query_failed)?;
+            let mut out = Vec::with_capacity(labels.len());
+            for l in &labels {
+                let label: String = pg_col(l, 0)?;
+                out.push(format!("  '{}'", label.replace('\'', "''")));
+            }
+            Ok(format!(
+                "CREATE TYPE {qname} AS ENUM (\n{}\n);\n",
+                out.join(",\n")
+            ))
+        }
+        "c" => {
+            let attrs = client
+                .query(
+                    r#"
+                SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod)
+                FROM pg_catalog.pg_attribute a
+                WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped
+                ORDER BY a.attnum
+                "#,
+                    &[&relid],
+                )
+                .await
+                .map_err(query_failed)?;
+            let mut out = Vec::with_capacity(attrs.len());
+            for a in &attrs {
+                let col: String = pg_col(a, 0)?;
+                let typ: String = pg_col(a, 1)?;
+                out.push(format!(
+                    "  {} {typ}",
+                    quote_ident(SqlDialect::Postgres, &col)
+                ));
+            }
+            Ok(format!(
+                "CREATE TYPE {qname} AS (\n{}\n);\n",
+                out.join(",\n")
+            ))
+        }
+        "d" => {
+            let base: String = pg_col(&row, 3)?;
+            let not_null: bool = pg_col(&row, 4)?;
+            let default: Option<String> = pg_col(&row, 5)?;
+            let checks = client
+                .query(
+                    "SELECT pg_catalog.pg_get_constraintdef(oid) FROM pg_catalog.pg_constraint WHERE contypid = $1 ORDER BY conname",
+                    &[&oid],
+                )
+                .await
+                .map_err(query_failed)?;
+            let mut sql = format!("CREATE DOMAIN {qname} AS {base}");
+            if let Some(d) = default {
+                sql.push_str(&format!("\n  DEFAULT {d}"));
+            }
+            if not_null {
+                sql.push_str("\n  NOT NULL");
+            }
+            for c in &checks {
+                let def: String = pg_col(c, 0)?;
+                sql.push_str(&format!("\n  {def}"));
+            }
+            sql.push_str(";\n");
+            Ok(sql)
+        }
+        other => Err(ConnectorError::NotSupported(format!(
+            "No definition for a type of kind `{other}`."
+        ))),
+    }
+}
+
+fn not_found(schema: &str, name: &str) -> ConnectorError {
+    ConnectorError::Query(format!("Object `{schema}.{name}` was not found."))
 }

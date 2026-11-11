@@ -1,9 +1,16 @@
 //! What the MySQL plugin supports (MariaDB and TiDB share it).
 
-use mystique_connector_api::EngineCapabilities;
+use mystique_connector_api::{EngineCapabilities, ObjectKindSpec};
 
 pub fn default_capabilities() -> EngineCapabilities {
     EngineCapabilities {
+        object_kinds: vec![
+            ObjectKindSpec::table(),
+            ObjectKindSpec::view(),
+            ObjectKindSpec::new("function", "function", "Functions"),
+            ObjectKindSpec::new("procedure", "procedure", "Procedures"),
+            ObjectKindSpec::new("trigger", "trigger", "Triggers"),
+        ],
         binds_session_to_database: true,
         name_example: "e.g. local-mysql".into(),
         ..EngineCapabilities::relational("mysql", "mysql")

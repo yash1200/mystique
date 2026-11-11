@@ -1,6 +1,7 @@
 /** Explorer context-menu actions. */
 import type { TableAdminOp, TableMeta } from '#core/contracts'
 import { errorMessage, applyEngineTableAdmin } from '#core/ipc'
+import { objectKindSpec } from '#engines'
 import {
 	catalogStore,
 	databaseNameFor,
@@ -36,6 +37,10 @@ export async function onTableExplorerAction(
 	const { id, session } = active
 
 	if (action === 'open') {
+		// Functions, types and other code objects have no rows: show the definition.
+		if (!objectKindSpec(session.capabilities, table.kind).browsable) {
+			return onTableExplorerAction('create', table)
+		}
 		void tablePreview.open(table)
 		return
 	}

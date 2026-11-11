@@ -21,8 +21,12 @@ export type ColumnDef = {
 	ref?: ColumnReference
 }
 
-/** Object kind for iconography / labels. */
-export type CatalogObjectKind = 'table' | 'collection' | 'view'
+/**
+ * Catalog object kind as the plugin lists it (`table`, `view`, `collection`,
+ * `matview`, `function`, …). Open: read its spec with `objectKindSpec(caps, kind)`
+ * rather than matching on the id.
+ */
+export type CatalogObjectKind = string
 
 export type TableMeta = {
 	/**

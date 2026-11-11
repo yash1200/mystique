@@ -529,7 +529,13 @@ supportsExplorer: boolean,
 /**
  * Product honesty: `operate` | `browse` | `connect`.
  */
-supportDepth: SupportDepth, };
+supportDepth: SupportDepth, 
+/**
+ * Kinds of catalog object this plugin lists, in display order. Each
+ * [`crate::CatalogObject::kind`] it returns is one of these ids. Empty
+ * (an older plugin): tables, views and collections only.
+ */
+objectKinds: Array<ObjectKindSpec>, };
 
 export type EngineFamily = "RELATIONAL" | "DOCUMENT" | "WIDE_COLUMN" | "KEY_VALUE" | "OTHER";
 
@@ -831,6 +837,39 @@ export type MetricValue = { key: string, label: string, kind: MetricKind, value:
 max: number | null, available: boolean, unavailableReason: string | null, };
 
 export type ModelViewKind = "ER" | "COLLECTION_MAP" | "KEY_MODEL" | "NONE";
+
+/**
+ * One kind of catalog object (`table`, `view`, `matview`, `sequence`,
+ * `function`, `type`, `collection`, `key`, `index`, …).
+ *
+ * The vocabulary is open: a plugin may declare a kind no other plugin has.
+ * The UI renders it from this spec and never matches on the id.
+ */
+export type ObjectKindSpec = { 
+/**
+ * Value of [`crate::CatalogObject::kind`].
+ */
+id: string, 
+/**
+ * Lower case, for sentences: `materialized view`.
+ */
+singular: string, 
+/**
+ * Heading: `Materialized views`.
+ */
+plural: string, 
+/**
+ * Opens a data grid: `fetch_table_preview` reads it.
+ */
+browsable: boolean, 
+/**
+ * Grid edits and import can write to it.
+ */
+editable: boolean, 
+/**
+ * Listed with the main objects. False: grouped under its own heading.
+ */
+primary: boolean, };
 
 export type ObjectLabels = { namespace: string, container: string, field: string, };
 

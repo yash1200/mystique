@@ -7,7 +7,7 @@
 
 use super::{
     default_export_formats, sql_export_formats, ConnectionKind, EngineCapabilities, EngineFamily,
-    ExplorerConfig, ModelViewKind, ObjectLabels, SupportDepth, TableAdminFeatures,
+    ExplorerConfig, ModelViewKind, ObjectKindSpec, ObjectLabels, SupportDepth, TableAdminFeatures,
 };
 
 impl EngineCapabilities {
@@ -51,6 +51,7 @@ impl EngineCapabilities {
             supports_terminate_session: true,
             supports_explorer: true,
             support_depth: SupportDepth::Operate,
+            object_kinds: ObjectKindSpec::relational(),
         }
     }
 
@@ -91,6 +92,7 @@ impl EngineCapabilities {
             supports_terminate_session: true,
             supports_explorer: true,
             support_depth: SupportDepth::Operate,
+            object_kinds: ObjectKindSpec::document(),
         }
     }
 }
@@ -113,13 +115,14 @@ mod tests {
     }
 
     #[test]
-    fn bases_default_to_operate() {
+    fn bases_default_to_operate_with_object_kinds() {
         for caps in [
             EngineCapabilities::relational("x", "sql"),
             EngineCapabilities::document("y", "MQL"),
         ] {
             assert_eq!(caps.support_depth, SupportDepth::Operate);
             assert!(caps.supports_explorer);
+            assert!(!caps.object_kinds.is_empty());
         }
     }
 
@@ -148,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_support_depth_deserializes_as_operate() {
+    fn missing_new_fields_deserialize_to_defaults() {
         let v = serde_json::json!({
             "engine": "postgres",
             "family": "RELATIONAL",
@@ -187,5 +190,6 @@ mod tests {
             serde_json::from_value(v).unwrap_or_else(|err| panic!("{err}"));
         assert_eq!(caps.support_depth, SupportDepth::Operate);
         assert!(caps.supports_explorer);
+        assert!(caps.object_kinds.is_empty());
     }
 }

@@ -1,9 +1,14 @@
 //! What the SQLite plugin supports.
 
-use mystique_connector_api::{ConnectionKind, EngineCapabilities, ExplorerConfig};
+use mystique_connector_api::{ConnectionKind, EngineCapabilities, ExplorerConfig, ObjectKindSpec};
 
 pub fn default_capabilities() -> EngineCapabilities {
     EngineCapabilities {
+        object_kinds: vec![
+            ObjectKindSpec::table(),
+            ObjectKindSpec::view(),
+            ObjectKindSpec::new("trigger", "trigger", "Triggers"),
+        ],
         connection_kind: ConnectionKind::File,
         name_example: "e.g. app-dev.sqlite".into(),
         explorer: ExplorerConfig::relational_flat(false, false),

@@ -1,3 +1,4 @@
+import { objectKindSpec } from '#engines'
 import { matchTerms, type MatchTier } from './score'
 
 export type QuickOpenKind =
@@ -360,7 +361,6 @@ function profileFor(source: QuickOpenSource, id: string | null) {
 }
 
 function kindWord(kind: string): string {
-	if (kind === 'collection') return 'Collection'
-	if (kind === 'view') return 'View'
-	return 'Table'
+	const word = objectKindSpec(null, kind).singular
+	return word.charAt(0).toUpperCase() + word.slice(1)
 }

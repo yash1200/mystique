@@ -28,9 +28,12 @@ export {
 export { runtimeFor } from './products'
 
 export {
+	adminOpsApply,
 	connectionKindFromCaps,
 	familyFromCaps,
 	modelTabTitle,
+	objectKindRank,
+	objectKindSpec,
 	presentationFromCaps,
 	queryLangFromCaps,
 } from './capabilities'

@@ -204,6 +204,90 @@ pub struct EngineCapabilities {
     /// Product honesty: `operate` | `browse` | `connect`.
     #[serde(default)]
     pub support_depth: SupportDepth,
+    /// Kinds of catalog object this plugin lists, in display order. Each
+    /// [`crate::CatalogObject::kind`] it returns is one of these ids. Empty
+    /// (an older plugin): tables, views and collections only.
+    #[serde(default)]
+    pub object_kinds: Vec<ObjectKindSpec>,
+}
+
+/// One kind of catalog object (`table`, `view`, `matview`, `sequence`,
+/// `function`, `type`, `collection`, `key`, `index`, …).
+///
+/// The vocabulary is open: a plugin may declare a kind no other plugin has.
+/// The UI renders it from this spec and never matches on the id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectKindSpec {
+    /// Value of [`crate::CatalogObject::kind`].
+    pub id: String,
+    /// Lower case, for sentences: `materialized view`.
+    pub singular: String,
+    /// Heading: `Materialized views`.
+    pub plural: String,
+    /// Opens a data grid: `fetch_table_preview` reads it.
+    pub browsable: bool,
+    /// Grid edits and import can write to it.
+    pub editable: bool,
+    /// Listed with the main objects. False: grouped under its own heading.
+    pub primary: bool,
+}
+
+impl ObjectKindSpec {
+    pub fn new(id: &str, singular: &str, plural: &str) -> Self {
+        Self {
+            id: id.into(),
+            singular: singular.into(),
+            plural: plural.into(),
+            browsable: false,
+            editable: false,
+            primary: false,
+        }
+    }
+
+    /// Opens a grid (read only unless [`ObjectKindSpec::editable`]).
+    pub fn browsable(mut self) -> Self {
+        self.browsable = true;
+        self
+    }
+
+    /// Grid edits and import write to it. Implies browsable.
+    pub fn editable(mut self) -> Self {
+        self.browsable = true;
+        self.editable = true;
+        self
+    }
+
+    /// Listed with the main objects rather than under its own heading.
+    pub fn primary(mut self) -> Self {
+        self.primary = true;
+        self
+    }
+
+    pub fn table() -> Self {
+        Self::new("table", "table", "Tables").editable().primary()
+    }
+
+    pub fn view() -> Self {
+        Self::new("view", "view", "Views").browsable().primary()
+    }
+
+    pub fn collection() -> Self {
+        Self::new("collection", "collection", "Collections")
+            .editable()
+            .primary()
+    }
+
+    /// Tables and views.
+    pub fn relational() -> Vec<Self> {
+        vec![Self::table(), Self::view()]
+    }
+
+    /// Collections.
+    pub fn document() -> Vec<Self> {
+        vec![Self::collection()]
+    }
 }
 
 impl EngineCapabilities {

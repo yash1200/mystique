@@ -14,7 +14,13 @@
 		type ContextMenuItem,
 	} from '#core/ui'
 	import { cn } from '#core/util'
-	import { defaultCapabilitiesForEngine, presentationFromCaps } from '#engines'
+	import {
+		adminOpsApply,
+		defaultCapabilitiesForEngine,
+		objectKindRank,
+		objectKindSpec,
+		presentationFromCaps,
+	} from '#engines'
 	import { CatalogIcon } from '#features/workspace/catalog'
 	import { SaveQueryModal } from '#features/workspace/query'
 	import CreateDatabaseForm from './CreateDatabaseForm.svelte'
@@ -127,6 +133,21 @@
 		)
 	})
 
+	/** Plugin-declared kind order (tables before views before functions…), then name. */
+	function byKindThenName(a: TableMeta, b: TableMeta): number {
+		const d = objectKindRank(caps, a.kind) - objectKindRank(caps, b.kind)
+		return d !== 0 ? d : a.name.localeCompare(b.name)
+	}
+
+	/** Grid for data; the definition for functions, types and other code objects. */
+	function openObject(table: TableMeta) {
+		if (objectKindSpec(caps, table.kind).browsable) {
+			onopen(table)
+			return
+		}
+		if (caps.tableAdmin.createStatement) ontableaction?.('create', table)
+	}
+
 	const groups = $derived.by(() => {
 		if (!isTree) return [] as { key: string; items: TableMeta[] }[]
 		const map = new Map<string, TableMeta[]>()
@@ -143,12 +164,7 @@
 			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([key, items]) => ({
 				key,
-				items: [...items].sort((a, b) => {
-					const rank = (k: string) =>
-						k === 'table' ? 0 : k === 'collection' ? 1 : 2
-					const d = rank(a.kind) - rank(b.kind)
-					return d !== 0 ? d : a.name.localeCompare(b.name)
-				}),
+				items: [...items].sort(byKindThenName),
 			}))
 	})
 
@@ -162,11 +178,7 @@
 
 	const flatItems = $derived.by(() => {
 		if (isTree) return [] as TableMeta[]
-		return [...filtered].sort((a, b) => {
-			const rank = (k: string) => (k === 'table' ? 0 : k === 'view' ? 1 : 2)
-			const d = rank(a.kind) - rank(b.kind)
-			return d !== 0 ? d : a.name.localeCompare(b.name)
-		})
+		return [...filtered].sort(byKindThenName)
 	})
 
 	const totalCount = $derived(filtered.length)
@@ -392,7 +404,15 @@
 	const tableMenuItems = $derived.by((): ContextMenuItem[] => {
 		const t = tableMenu?.table
 		if (!t) return []
-		const isView = t.kind === 'view'
+		const spec = objectKindSpec(caps, t.kind)
+		if (!spec.browsable) {
+			// Functions, types, triggers…: the definition is all the explorer offers.
+			return admin.createStatement
+				? [{ id: 'create', label: 'View definition' }]
+				: []
+		}
+		const isView = !spec.editable
+		const mutable = adminOpsApply(t.kind)
 		// Plugin config is the only feature gate. Do not grey out collection
 		// actions — read-only is enforced when the plugin runs the op.
 		const items: ContextMenuItem[] = [{ id: 'open', label: 'Open' }]
@@ -402,7 +422,7 @@
 				label: 'View structure',
 			})
 		}
-		if (showModel) {
+		if (showModel && spec.primary) {
 			items.push({
 				id: 'erd',
 				label: caps.supportsErDiagram ? 'View ERD' : 'View model',
@@ -419,18 +439,18 @@
 				label: 'Import data',
 			})
 		}
-		if (admin.rename) {
+		if (admin.rename && mutable) {
 			items.push({
 				id: 'rename',
 				label: 'Rename',
 				separatorBefore: true,
 			})
 		}
-		if (admin.duplicate && !isView) {
+		if (admin.duplicate && !isView && mutable) {
 			items.push({
 				id: 'duplicate',
 				label: 'Duplicate',
-				separatorBefore: !admin.rename,
+				separatorBefore: !(admin.rename && mutable),
 			})
 		}
 		if (admin.createStatement) {
@@ -440,14 +460,14 @@
 				separatorBefore: true,
 			})
 		}
-		if (admin.truncate && !isView) {
+		if (admin.truncate && !isView && mutable) {
 			items.push({
 				id: 'truncate',
 				label: 'Truncate',
 				separatorBefore: true,
 			})
 		}
-		if (admin.drop) {
+		if (admin.drop && mutable) {
 			items.push({
 				id: 'drop',
 				label: 'Drop',
@@ -655,9 +675,10 @@
 		{groups}
 		{flatItems}
 		{isExpanded}
+		kindOf={(kind) => objectKindSpec(caps, kind)}
 		busy={refreshingTables}
 		onToggleGroup={toggleGroup}
-		{onopen}
+		onopen={openObject}
 		onmenu={openTableMenu}
 	/>
 </aside>

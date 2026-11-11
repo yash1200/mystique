@@ -123,15 +123,16 @@ async function openConnection(id: string) {
 
 async function openCatalogObject(connectionId: string, tableId: string) {
 	// The shortcuts in `bind.ts` load with the app; the grid comes with the workspace.
-	const [{ catalogStore }, { tablePreview }] = await Promise.all([
+	const [{ catalogStore }, { onTableExplorerAction }] = await Promise.all([
 		import('#features/workspace/catalog'),
-		import('#features/workspace/table'),
+		import('#features/workspace/explorer'),
 	])
 	await focusConnection(connectionId)
 	workspaceStudio.sideMode = 'explorer'
 	const table = findCatalogTable(catalogStore.databases(connectionId), tableId)
 	if (!table) return
-	await tablePreview.open(table)
+	// Same as the explorer: a grid for data, the definition for code objects.
+	await onTableExplorerAction('open', table)
 }
 
 async function focusConnection(id: string) {

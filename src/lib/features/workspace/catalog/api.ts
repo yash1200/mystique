@@ -75,12 +75,7 @@ export async function loadLiveCatalog(
 		tables: (db.objects ?? []).map((o) => {
 			const database = o.database || db.name
 			const schema = o.schema || ''
-			const kind =
-				o.kind === 'view'
-					? 'view'
-					: o.kind === 'collection'
-						? 'collection'
-						: 'table'
+			const kind = (o.kind || 'table').toLowerCase()
 			return emptyLeaf(database, schema, o.name, kind, o.rowCount ?? 0)
 		}),
 	}))

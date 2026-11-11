@@ -71,7 +71,34 @@ pub struct TableAdminInput {
     pub schema: Option<String>,
     pub database: Option<String>,
     pub kind: TableObjectKind,
+    /// The catalog kind as listed (`table`, `matview`, `function`, …),
+    /// lower case. [`TableAdminInput::kind`] folds every open kind to `Table`;
+    /// plugins that list open kinds read this one.
+    pub object_kind: String,
     pub new_name: Option<String>,
+}
+
+/// Kinds every admin op applies to. Others (functions, sequences, types, …)
+/// only offer [`TableAdminOp::CreateStatement`] until a plugin says more.
+pub const ADMIN_KINDS: &[&str] = &["table", "view", "collection"];
+
+/// Lower-cased kind label; empty means `table`.
+pub fn normalize_object_kind(raw: Option<&str>) -> String {
+    let k = raw.unwrap_or("").trim().to_ascii_lowercase();
+    if k.is_empty() {
+        "table".into()
+    } else {
+        k
+    }
+}
+
+/// Whether `op` may run on an object of `kind`. Open kinds are read-only
+/// (their definition only); mutating them goes through the query editor.
+pub fn admin_op_allowed(kind: &str, op: TableAdminOp) -> bool {
+    matches!(
+        op,
+        TableAdminOp::CreateStatement | TableAdminOp::CreateGroup | TableAdminOp::CreateObject
+    ) || ADMIN_KINDS.contains(&kind)
 }
 
 impl TableAdminRequest {
@@ -82,6 +109,7 @@ impl TableAdminRequest {
             schema: self.schema,
             database: self.database,
             kind: TableObjectKind::from_label(self.kind.as_deref()),
+            object_kind: normalize_object_kind(self.kind.as_deref()),
             new_name: self.new_name,
         }
     }
@@ -117,5 +145,47 @@ impl TableAdminResult {
             executed: true,
             message: Some(message.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+
+    #[test]
+    fn open_kinds_only_offer_their_definition() {
+        for op in [
+            TableAdminOp::Rename,
+            TableAdminOp::Drop,
+            TableAdminOp::Truncate,
+            TableAdminOp::Duplicate,
+        ] {
+            assert!(!admin_op_allowed("function", op), "{op:?} on a function");
+            assert!(admin_op_allowed("table", op));
+            assert!(admin_op_allowed("view", op));
+            assert!(admin_op_allowed("collection", op));
+        }
+        assert!(admin_op_allowed("function", TableAdminOp::CreateStatement));
+        assert!(admin_op_allowed("sequence", TableAdminOp::CreateStatement));
+    }
+
+    #[test]
+    fn kind_label_is_lower_case_and_defaults_to_table() {
+        assert_eq!(normalize_object_kind(None), "table");
+        assert_eq!(normalize_object_kind(Some("  ")), "table");
+        assert_eq!(normalize_object_kind(Some("MatView")), "matview");
+        let input = TableAdminRequest {
+            session_id: "s".into(),
+            op: TableAdminOp::CreateStatement,
+            name: "f(integer)".into(),
+            schema: None,
+            database: None,
+            kind: Some("Function".into()),
+            new_name: None,
+            confirm_object_name: None,
+        }
+        .into_input();
+        assert_eq!(input.kind, TableObjectKind::Table);
+        assert_eq!(input.object_kind, "function");
     }
 }

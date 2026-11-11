@@ -8,6 +8,7 @@ import type {
 	DataFamily,
 	EngineCapabilities,
 	ExplorerConfig,
+	ObjectKindSpec,
 	ObjectLabels,
 	SupportDepth,
 	TableAdminFeatures,
@@ -33,6 +34,73 @@ const SQL_CODE_FILTER_PLACEHOLDER =
 	'{ "status": "active" } or status = \'active\''
 
 const SQL_EXPORT_FORMATS = ['csv', 'json', 'jsonl', 'sql']
+
+function kind(
+	id: string,
+	singular: string,
+	plural: string,
+	flags: Partial<Pick<ObjectKindSpec, 'browsable' | 'editable' | 'primary'>> = {},
+): ObjectKindSpec {
+	return {
+		id,
+		singular,
+		plural,
+		browsable: flags.browsable ?? false,
+		editable: flags.editable ?? false,
+		primary: flags.primary ?? false,
+	}
+}
+
+/** The kinds every older plugin lists. Mirrors `ObjectKindSpec::{table,view,collection}`. */
+const BUILT_IN_KINDS: ObjectKindSpec[] = [
+	kind('table', 'table', 'Tables', { browsable: true, editable: true, primary: true }),
+	kind('view', 'view', 'Views', { browsable: true, primary: true }),
+	kind('collection', 'collection', 'Collections', {
+		browsable: true,
+		editable: true,
+		primary: true,
+	}),
+]
+
+export const SQL_OBJECT_KINDS: ObjectKindSpec[] = BUILT_IN_KINDS.slice(0, 2)
+export const DOCUMENT_OBJECT_KINDS: ObjectKindSpec[] = BUILT_IN_KINDS.slice(2)
+
+/**
+ * How the explorer treats one catalog kind. Plugin-declared specs win; the
+ * three built-in kinds are known; anything else is listed under its own
+ * heading and only shows its definition.
+ */
+export function objectKindSpec(
+	caps: Pick<EngineCapabilities, 'objectKinds'> | null | undefined,
+	id: string,
+): ObjectKindSpec {
+	const k = (id || 'table').toLowerCase()
+	const declared = caps?.objectKinds?.find((s) => s.id === k)
+	if (declared) return declared
+	const builtIn = BUILT_IN_KINDS.find((s) => s.id === k)
+	if (builtIn) return builtIn
+	return kind(k, k, `${k.charAt(0).toUpperCase()}${k.slice(1)}s`)
+}
+
+/**
+ * Rename, drop, truncate and duplicate apply to these kinds only. Mirrors
+ * `ADMIN_KINDS` in connector-api, which refuses the rest.
+ */
+const ADMIN_KINDS = new Set(['table', 'view', 'collection'])
+
+export function adminOpsApply(id: string): boolean {
+	return ADMIN_KINDS.has((id || 'table').toLowerCase())
+}
+
+/** Position of `id` in the plugin's declared order (unknown kinds last). */
+export function objectKindRank(
+	caps: Pick<EngineCapabilities, 'objectKinds'> | null | undefined,
+	id: string,
+): number {
+	const list = caps?.objectKinds?.length ? caps.objectKinds : BUILT_IN_KINDS
+	const i = list.findIndex((s) => s.id === id)
+	return i < 0 ? list.length : i
+}
 
 /**
  * Baseline relational capabilities. Postgres / MySQL / SQLite override only the
@@ -85,6 +153,7 @@ export function relationalCapabilities(
 		supportsTerminateSession: true,
 		supportsExplorer: true,
 		supportDepth: 'operate',
+		objectKinds: [...SQL_OBJECT_KINDS],
 		...over,
 		explorer,
 	}
@@ -154,6 +223,29 @@ function asString(v: unknown, fallback: string): string {
 function asStringList(v: unknown, fallback: string[]): string[] {
 	if (!Array.isArray(v)) return fallback
 	return v.filter((x): x is string => typeof x === 'string')
+}
+
+function asKindList(v: unknown, fallback: ObjectKindSpec[]): ObjectKindSpec[] {
+	if (!Array.isArray(v)) return fallback
+	const list = v
+		.filter(
+			(x): x is Record<string, unknown> =>
+				!!x && typeof x === 'object' && typeof (x as { id?: unknown }).id === 'string',
+		)
+		.map((x) =>
+			kind(
+				String(x.id).toLowerCase(),
+				asString(x.singular, String(x.id)),
+				asString(x.plural, `${String(x.id)}s`),
+				{
+					browsable: asBool(x.browsable, false),
+					editable: asBool(x.editable, false),
+					primary: asBool(x.primary, false),
+				},
+			),
+		)
+	// An older plugin sends none: keep the adapter's list.
+	return list.length ? list : fallback
 }
 
 function asConnectionKind(
@@ -268,6 +360,10 @@ export function mergeCapabilities(
 		supportDepth: parseSupportDepth(
 			c.supportDepth ?? (c as { support_depth?: unknown }).support_depth,
 			fallback.supportDepth,
+		),
+		objectKinds: asKindList(
+			c.objectKinds ?? (c as { object_kinds?: unknown }).object_kinds,
+			fallback.objectKinds ?? [],
 		),
 	}
 	return applySupportDepth(merged)

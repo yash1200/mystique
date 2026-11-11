@@ -8,6 +8,7 @@ export type {
 	EngineFamily,
 	ExplorerConfig,
 	ModelViewKind,
+	ObjectKindSpec,
 	ObjectLabels,
 	SupportDepth,
 	TableAdminFeatures,

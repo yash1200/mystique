@@ -155,7 +155,7 @@ pub(super) async fn list_catalog(
                 let mut stmt = conn
                     .prepare(
                         "SELECT name, type FROM sqlite_master \
-                     WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' \
+                     WHERE type IN ('table','view','trigger') AND name NOT LIKE 'sqlite_%' \
                      ORDER BY name",
                     )
                     .map_err(query_failed)?;
@@ -163,10 +163,10 @@ pub(super) async fn list_catalog(
                 while let Some(row) = rows.next().map_err(query_failed)? {
                     let name: String = row.get(0).map_err(query_failed)?;
                     let raw_type: String = row.get(1).map_err(query_failed)?;
-                    let kind = if raw_type.to_ascii_lowercase().contains("view") {
-                        "view"
-                    } else {
-                        "table"
+                    let kind = match raw_type.to_ascii_lowercase().as_str() {
+                        "view" => "view",
+                        "trigger" => "trigger",
+                        _ => "table",
                     };
                     objects.push(CatalogObject {
                         name,

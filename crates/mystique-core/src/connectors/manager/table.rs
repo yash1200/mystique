@@ -123,6 +123,12 @@ impl ConnectionManager {
     ) -> ConnectorResult<TableAdminResult> {
         let meta = self.session_meta(&req.session_id).await?;
         reject_beyond_depth(&meta.caps, DepthFeature::TableAdmin(req.op))?;
+        let kind = mystique_connector_api::normalize_object_kind(req.kind.as_deref());
+        if !mystique_connector_api::admin_op_allowed(&kind, req.op) {
+            return Err(ConnectorError::NotSupported(format!(
+                "Only the definition is available for a {kind}. Change it in the query editor."
+            )));
+        }
         let risk = match req.op {
             TableAdminOp::CreateStatement => WriteRisk::Read,
             TableAdminOp::Drop | TableAdminOp::Truncate => WriteRisk::Destructive,

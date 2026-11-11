@@ -1,5 +1,6 @@
 /** MongoDB adapter — mirrors `crates/plugins/mystique-plugin-mongodb`. */
 import type { PluginConfig } from '#core/contracts'
+import { DOCUMENT_OBJECT_KINDS } from '../capabilities'
 import { emptySslDraft, sslPluginFields } from '../ssl'
 import type { EngineAdapter } from '../types'
 import { mongoCompletionSource } from './complete'
@@ -135,6 +136,7 @@ export const mongodb: EngineAdapter = {
 			filterPlaceholder: 'Filter collections…',
 		},
 		codeFilterPlaceholder: '{ "email": "user@example.com" }',
+		objectKinds: [...DOCUMENT_OBJECT_KINDS],
 		tableAdmin: {
 			createStatement: true,
 			rename: true,

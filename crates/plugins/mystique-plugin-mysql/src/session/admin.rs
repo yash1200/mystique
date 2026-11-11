@@ -26,12 +26,19 @@ pub(super) async fn apply_table_admin(
 
     match input.op {
         TableAdminOp::CreateStatement => {
-            let kw = if is_view { "VIEW" } else { "TABLE" };
+            // `SHOW CREATE FUNCTION` and friends put the text in column 2.
+            let (kw, column) = match input.object_kind.as_str() {
+                "function" => ("FUNCTION", 2),
+                "procedure" => ("PROCEDURE", 2),
+                "trigger" => ("TRIGGER", 2),
+                _ if is_view => ("VIEW", 1),
+                _ => ("TABLE", 1),
+            };
             let sql = format!("SHOW CREATE {kw} {qname}");
             let row = crate::rows::query_first_opt::<mysql_async::Row>(&mut conn, &sql).await?;
             let row =
                 row.ok_or_else(|| ConnectorError::Query(format!("Object {qname} was not found.")))?;
-            let create = match row.get_opt::<Option<String>, _>(1) {
+            let create = match row.get_opt::<Option<String>, _>(column) {
                 Some(Ok(value)) => value,
                 Some(Err(err)) => {
                     return Err(ConnectorError::Query(format!(
