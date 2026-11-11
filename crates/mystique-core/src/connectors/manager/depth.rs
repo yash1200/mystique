@@ -64,7 +64,7 @@ mod tests {
 
     /// Postgres stays operate. A product pinned to browse is rejected.
     fn caps_at(depth: SupportDepth) -> EngineCapabilities {
-        let mut caps = EngineCapabilities::postgres_defaults();
+        let mut caps = mystique_plugin_postgres::default_capabilities();
         caps.apply_support_depth(depth);
         caps
     }

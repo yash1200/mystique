@@ -37,7 +37,7 @@ impl DatabaseConnector for PostgresConnector {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::postgres_defaults()
+        crate::default_capabilities()
     }
 
     fn connection_form_schema(&self) -> ConnectionFormSchema {

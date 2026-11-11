@@ -2,11 +2,13 @@
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used)]
 
+mod capabilities;
 mod connector;
 mod preview_filter;
 mod session;
 mod shell;
 
+pub use capabilities::default_capabilities;
 pub use connector::MongoConnector;
 pub use shell::MongoQueryPolicy;
 

@@ -37,7 +37,7 @@ impl DatabaseConnector for MysqlConnector {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::mysql_defaults()
+        crate::default_capabilities()
     }
 
     fn connection_form_schema(&self) -> ConnectionFormSchema {

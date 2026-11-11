@@ -92,7 +92,7 @@ impl ConnectorSession for MongoSession {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        let mut caps = EngineCapabilities::mongodb_defaults();
+        let mut caps = crate::default_capabilities();
         caps.supports_transactions = self.transactions.load(Ordering::SeqCst);
         caps
     }

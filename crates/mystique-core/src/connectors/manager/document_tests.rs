@@ -62,7 +62,7 @@ impl ConnectorSession for Probe {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::mongodb_defaults()
+        mystique_plugin_mongodb::default_capabilities()
     }
 
     async fn ping(&self) -> ConnectorResult<()> {

@@ -143,7 +143,7 @@ mod tests {
         }
 
         fn capabilities(&self) -> EngineCapabilities {
-            EngineCapabilities::postgres_defaults()
+            mystique_plugin_postgres::default_capabilities()
         }
 
         async fn ping(&self) -> ConnectorResult<()> {

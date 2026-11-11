@@ -35,7 +35,7 @@ impl DatabaseConnector for SqliteConnector {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::sqlite_defaults()
+        crate::default_capabilities()
     }
 
     fn connection_form_schema(&self) -> ConnectionFormSchema {

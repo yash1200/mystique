@@ -277,7 +277,7 @@ mod tests {
         }
 
         fn capabilities(&self) -> EngineCapabilities {
-            EngineCapabilities::sqlite_defaults()
+            mystique_plugin_sqlite::default_capabilities()
         }
 
         async fn ping(&self) -> ConnectorResult<()> {

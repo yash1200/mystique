@@ -2,9 +2,11 @@
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used)]
 
+mod capabilities;
 mod connector;
 mod session;
 
+pub use capabilities::default_capabilities;
 pub use connector::SqliteConnector;
 
 use std::sync::Arc;

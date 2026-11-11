@@ -4,10 +4,12 @@
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used)]
 
+mod capabilities;
 mod connector;
 mod rows;
 mod session;
 
+pub use capabilities::default_capabilities;
 pub use connector::MysqlConnector;
 
 use std::sync::Arc;

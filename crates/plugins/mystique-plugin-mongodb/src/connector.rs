@@ -37,7 +37,7 @@ impl DatabaseConnector for MongoConnector {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::mongodb_defaults()
+        crate::default_capabilities()
     }
 
     fn connection_form_schema(&self) -> ConnectionFormSchema {

@@ -162,7 +162,7 @@ impl ConnectorSession for PostgresSession {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::postgres_defaults()
+        crate::default_capabilities()
     }
 
     async fn ping(&self) -> ConnectorResult<()> {

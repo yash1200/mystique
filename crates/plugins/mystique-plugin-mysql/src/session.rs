@@ -98,7 +98,7 @@ impl ConnectorSession for MysqlSession {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::mysql_defaults()
+        crate::default_capabilities()
     }
 
     async fn ping(&self) -> ConnectorResult<()> {

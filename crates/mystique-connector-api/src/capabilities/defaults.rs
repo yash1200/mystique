@@ -1,4 +1,9 @@
-//! Per-engine default [`EngineCapabilities`] used at plugin bootstrap.
+//! Shared starting points for a plugin's [`EngineCapabilities`].
+//!
+//! Each plugin owns its own defaults (`default_capabilities()` in the plugin
+//! crate). It starts from [`EngineCapabilities::relational`] or
+//! [`EngineCapabilities::document`] and overrides what differs, so adding an
+//! engine never edits this crate.
 
 use super::{
     default_export_formats, sql_export_formats, ConnectionKind, EngineCapabilities, EngineFamily,
@@ -6,50 +11,17 @@ use super::{
 };
 
 impl EngineCapabilities {
-    pub fn postgres_defaults() -> Self {
+    /// A pooled, host-based SQL engine at [`SupportDepth::Operate`]: schemas,
+    /// foreign keys, ER, transactions, explain, structure edit, metrics.
+    ///
+    /// `sql_dialect` is the sql-formatter dialect (`postgresql`, `mysql`,
+    /// `sqlite`, `transactsql`, `duckdb`, or `sql`).
+    pub fn relational(engine: &str, sql_dialect: &str) -> Self {
         Self {
-            engine: "postgres".into(),
+            engine: engine.into(),
             family: EngineFamily::Relational,
             query_language: "SQL".into(),
-            sql_dialect: "postgresql".into(),
-            supports_schema: true,
-            supports_foreign_keys: true,
-            supports_er_diagram: true,
-            supports_model_view: true,
-            model_view_kind: ModelViewKind::Er,
-            supports_pagination: true,
-            supports_write: false,
-            supports_cancel_query: true,
-            supports_transactions: true,
-            supports_explain_plan: true,
-            supports_structure_edit: true,
-            structure_edit_limited: false,
-            supports_distinct_values: true,
-            supports_query: true,
-            supports_pooling: true,
-            binds_session_to_database: true,
-            prefer_database_from_uri: false,
-            connection_kind: ConnectionKind::Host,
-            system_databases: vec![],
-            name_example: "e.g. local-pg".into(),
-            object_labels: ObjectLabels::relational(),
-            explorer: ExplorerConfig::relational_schema_tree(),
-            table_admin: TableAdminFeatures::sql_all(),
-            code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
-            export_formats: sql_export_formats(),
-            supports_server_metrics: true,
-            supports_terminate_session: true,
-            supports_explorer: true,
-            support_depth: SupportDepth::Operate,
-        }
-    }
-
-    pub fn sqlite_defaults() -> Self {
-        Self {
-            engine: "sqlite".into(),
-            family: EngineFamily::Relational,
-            query_language: "SQL".into(),
-            sql_dialect: "sqlite".into(),
+            sql_dialect: sql_dialect.into(),
             supports_schema: true,
             supports_foreign_keys: true,
             supports_er_diagram: true,
@@ -67,26 +39,28 @@ impl EngineCapabilities {
             supports_pooling: true,
             binds_session_to_database: false,
             prefer_database_from_uri: false,
-            connection_kind: ConnectionKind::File,
+            connection_kind: ConnectionKind::Host,
             system_databases: vec![],
-            name_example: "e.g. app-dev.sqlite".into(),
+            name_example: format!("e.g. local-{engine}"),
             object_labels: ObjectLabels::relational(),
-            explorer: ExplorerConfig::relational_flat(false, false),
+            explorer: ExplorerConfig::relational_flat(true, true),
             table_admin: TableAdminFeatures::sql_all(),
             code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
             export_formats: sql_export_formats(),
             supports_server_metrics: true,
-            supports_terminate_session: false,
+            supports_terminate_session: true,
             supports_explorer: true,
             support_depth: SupportDepth::Operate,
         }
     }
 
-    pub fn mongodb_defaults() -> Self {
+    /// A pooled document store at [`SupportDepth::Operate`]: databases of
+    /// collections, a collection map instead of ER, no SQL dialect.
+    pub fn document(engine: &str, query_language: &str) -> Self {
         Self {
-            engine: "mongodb".into(),
+            engine: engine.into(),
             family: EngineFamily::Document,
-            query_language: "MQL".into(),
+            query_language: query_language.into(),
             sql_dialect: String::new(),
             supports_schema: false,
             supports_foreign_keys: false,
@@ -104,10 +78,10 @@ impl EngineCapabilities {
             supports_query: true,
             supports_pooling: true,
             binds_session_to_database: false,
-            prefer_database_from_uri: true,
+            prefer_database_from_uri: false,
             connection_kind: ConnectionKind::Uri,
-            system_databases: vec!["admin".into(), "local".into(), "config".into()],
-            name_example: "e.g. local-mongo".into(),
+            system_databases: vec![],
+            name_example: format!("e.g. local-{engine}"),
             object_labels: ObjectLabels::document(),
             explorer: ExplorerConfig::document(),
             table_admin: TableAdminFeatures::mongodb(),
@@ -119,74 +93,15 @@ impl EngineCapabilities {
             support_depth: SupportDepth::Operate,
         }
     }
-
-    pub fn mysql_defaults() -> Self {
-        Self {
-            engine: "mysql".into(),
-            family: EngineFamily::Relational,
-            query_language: "SQL".into(),
-            sql_dialect: "mysql".into(),
-            supports_schema: true,
-            supports_foreign_keys: true,
-            supports_er_diagram: true,
-            supports_model_view: true,
-            model_view_kind: ModelViewKind::Er,
-            supports_pagination: true,
-            supports_write: false,
-            supports_cancel_query: true,
-            supports_transactions: true,
-            supports_explain_plan: true,
-            supports_structure_edit: true,
-            structure_edit_limited: false,
-            supports_distinct_values: true,
-            supports_query: true,
-            supports_pooling: true,
-            binds_session_to_database: true,
-            prefer_database_from_uri: false,
-            connection_kind: ConnectionKind::Host,
-            system_databases: vec![],
-            name_example: "e.g. local-mysql".into(),
-            object_labels: ObjectLabels::relational(),
-            explorer: ExplorerConfig::relational_flat(true, true),
-            table_admin: TableAdminFeatures::sql_all(),
-            code_filter_placeholder: r#"{ "status": "active" } or status = 'active'"#.into(),
-            export_formats: sql_export_formats(),
-            supports_server_metrics: true,
-            supports_terminate_session: true,
-            supports_explorer: true,
-            support_depth: SupportDepth::Operate,
-        }
-    }
 }
 
 #[cfg(test)]
-mod create_caps_tests {
+mod tests {
     use super::*;
 
     #[test]
-    fn cancel_is_on_for_the_four_runtimes() {
-        for caps in [
-            EngineCapabilities::postgres_defaults(),
-            EngineCapabilities::mysql_defaults(),
-            EngineCapabilities::sqlite_defaults(),
-            EngineCapabilities::mongodb_defaults(),
-        ] {
-            assert!(
-                caps.supports_cancel_query,
-                "{} does not advertise cancel",
-                caps.engine
-            );
-            assert!(
-                caps.supports_explain_plan,
-                "{} does not advertise explain",
-                caps.engine
-            );
-        }
-    }
-
-    #[test]
     fn a_plugin_that_does_not_declare_explain_has_none() {
-        let mut raw = serde_json::to_value(EngineCapabilities::postgres_defaults())
+        let mut raw = serde_json::to_value(EngineCapabilities::relational("x", "sql"))
             .unwrap_or_else(|err| panic!("{err}"));
         let Some(map) = raw.as_object_mut() else {
             panic!("capabilities are an object");
@@ -198,36 +113,10 @@ mod create_caps_tests {
     }
 
     #[test]
-    fn server_metrics_flags_per_engine() {
-        let pg = EngineCapabilities::postgres_defaults();
-        assert!(pg.supports_server_metrics);
-        assert!(pg.supports_terminate_session);
-        let my = EngineCapabilities::mysql_defaults();
-        assert!(my.supports_server_metrics);
-        assert!(my.supports_terminate_session);
-        let mo = EngineCapabilities::mongodb_defaults();
-        assert!(mo.supports_server_metrics);
-        assert!(mo.supports_terminate_session);
-        let sq = EngineCapabilities::sqlite_defaults();
-        assert!(sq.supports_server_metrics);
-        assert!(!sq.supports_terminate_session);
-    }
-
-    #[test]
-    fn no_engine_limits_structure_edits() {
-        assert!(!EngineCapabilities::sqlite_defaults().structure_edit_limited);
-        assert!(!EngineCapabilities::postgres_defaults().structure_edit_limited);
-        assert!(!EngineCapabilities::mysql_defaults().structure_edit_limited);
-        assert!(!EngineCapabilities::mongodb_defaults().structure_edit_limited);
-    }
-
-    #[test]
-    fn four_runtimes_default_to_operate() {
+    fn bases_default_to_operate() {
         for caps in [
-            EngineCapabilities::postgres_defaults(),
-            EngineCapabilities::mysql_defaults(),
-            EngineCapabilities::sqlite_defaults(),
-            EngineCapabilities::mongodb_defaults(),
+            EngineCapabilities::relational("x", "sql"),
+            EngineCapabilities::document("y", "MQL"),
         ] {
             assert_eq!(caps.support_depth, SupportDepth::Operate);
             assert!(caps.supports_explorer);
@@ -236,7 +125,7 @@ mod create_caps_tests {
 
     #[test]
     fn browse_hides_model_metrics_and_mutating_admin() {
-        let mut caps = EngineCapabilities::postgres_defaults();
+        let mut caps = EngineCapabilities::relational("x", "sql");
         caps.apply_support_depth(SupportDepth::Browse);
         assert_eq!(caps.support_depth, SupportDepth::Browse);
         assert!(caps.supports_explorer);
@@ -250,7 +139,7 @@ mod create_caps_tests {
 
     #[test]
     fn connect_hides_explorer() {
-        let mut caps = EngineCapabilities::postgres_defaults();
+        let mut caps = EngineCapabilities::relational("x", "sql");
         caps.apply_support_depth(SupportDepth::Connect);
         assert_eq!(caps.support_depth, SupportDepth::Connect);
         assert!(!caps.supports_explorer);
@@ -294,27 +183,9 @@ mod create_caps_tests {
                 "duplicate": true
             }
         });
-        let caps: EngineCapabilities = serde_json::from_value(v).unwrap();
+        let caps: EngineCapabilities =
+            serde_json::from_value(v).unwrap_or_else(|err| panic!("{err}"));
         assert_eq!(caps.support_depth, SupportDepth::Operate);
         assert!(caps.supports_explorer);
-    }
-
-    #[test]
-    fn mongodb_explorer_can_create_object() {
-        let caps = EngineCapabilities::mongodb_defaults();
-        assert!(caps.explorer.can_create_object);
-        assert!(!caps.explorer.can_create_group);
-        assert!(caps.explorer.can_create_database);
-        let json = serde_json::to_value(&caps).unwrap();
-        let explorer = json.get("explorer").unwrap();
-        assert_eq!(
-            explorer.get("canCreateObject").and_then(|v| v.as_bool()),
-            Some(true)
-        );
-        assert_eq!(
-            explorer.get("objectLabelSingular").and_then(|v| v.as_str()),
-            Some("collection")
-        );
-        println!("{}", serde_json::to_string_pretty(&caps.explorer).unwrap());
     }
 }

@@ -88,7 +88,7 @@ impl ConnectorSession for SqliteSession {
     }
 
     fn capabilities(&self) -> EngineCapabilities {
-        EngineCapabilities::sqlite_defaults()
+        crate::default_capabilities()
     }
 
     async fn ping(&self) -> ConnectorResult<()> {
