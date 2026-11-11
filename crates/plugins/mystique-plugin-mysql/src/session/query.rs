@@ -212,6 +212,7 @@ async fn run_batch(
                 truncated,
                 duration_ms: 0,
                 message,
+                payload: None,
             }
         } else {
             conn.query_drop(sql.as_str()).await.map_err(query_failed)?;
@@ -239,6 +240,7 @@ async fn run_batch(
                 truncated: false,
                 duration_ms: 0,
                 message,
+                payload: None,
             }
         };
 
@@ -525,6 +527,7 @@ where
             truncated,
             duration_ms: started.elapsed().as_millis() as u64,
             message,
+            payload: None,
         };
         let mut outcome = StatementResult::success(stmt, set_index, result, affected, Vec::new());
         outcome.column_origins = origins;

@@ -294,6 +294,9 @@ pub fn clip_query_result(result: &mut QueryResult) {
 /// Clip a query result. `resolved[i]` is where column `i` came from. A cell
 /// gets a locator when its table's key is fully present in the same row.
 pub fn clip_query_result_with(result: &mut QueryResult, resolved: &[Option<ResolvedColumn>]) {
+    if let Some(payload) = result.payload.as_mut() {
+        crate::query::clip_payload(payload);
+    }
     let large = large_cells(&result.rows);
     for (row_index, col_index) in large {
         let row = &mut result.rows[row_index];
@@ -594,6 +597,7 @@ mod tests {
             truncated: false,
             duration_ms: 0,
             message: None,
+            payload: None,
         }
     }
 

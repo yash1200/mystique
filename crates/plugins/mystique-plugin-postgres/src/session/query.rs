@@ -258,6 +258,7 @@ async fn run_planned(
             truncated: fetched.truncated,
             duration_ms: started.elapsed().as_millis() as u64,
             message,
+            payload: None,
         };
         let mut outcome = StatementResult::success(stmt, 0, result, affected, Vec::new());
         outcome.column_origins = origins;
@@ -322,6 +323,7 @@ fn executed_statement(
         truncated: false,
         duration_ms: started.elapsed().as_millis() as u64,
         message,
+        payload: None,
     };
     StatementResult::success(stmt, 0, result, affected, Vec::new())
 }
@@ -439,6 +441,7 @@ async fn run_batch(
                 truncated: fetched.truncated,
                 duration_ms: 0,
                 message,
+                payload: None,
             }
         } else {
             client
@@ -481,6 +484,7 @@ fn executed_message(mode: QueryMode, batch_n: usize, index: usize) -> QueryResul
         truncated: false,
         duration_ms: 0,
         message,
+        payload: None,
     }
 }
 

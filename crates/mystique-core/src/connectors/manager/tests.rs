@@ -970,6 +970,7 @@ impl ConnectorSession for GuardProbe {
             truncated: false,
             duration_ms: 0,
             message: Some(query.text.clone()),
+            payload: None,
         })
     }
 }
@@ -2706,6 +2707,7 @@ fn ok_result() -> mystique_connector_api::QueryResult {
         truncated: false,
         duration_ms: 0,
         message: None,
+        payload: None,
     }
 }
 

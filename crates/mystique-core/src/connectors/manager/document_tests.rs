@@ -51,6 +51,7 @@ impl Probe {
             truncated: false,
             duration_ms: 0,
             message: Some(query.text.clone()),
+            payload: None,
         })
     }
 }

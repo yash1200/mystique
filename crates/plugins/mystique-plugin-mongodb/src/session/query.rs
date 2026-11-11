@@ -333,6 +333,7 @@ fn count_result(
         truncated: false,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(message),
+        payload: None,
     }
 }
 
@@ -421,6 +422,7 @@ async fn execute_distinct(
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(format!("distinct {field} on {}", at.name())),
+        payload: None,
     })
 }
 
@@ -638,6 +640,7 @@ fn docs_result(
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(message),
+        payload: None,
     })
 }
 
@@ -651,6 +654,7 @@ fn write_message(mode: QueryMode, start: Instant, message: String) -> QueryResul
         truncated: false,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(message),
+        payload: None,
     }
 }
 
@@ -681,6 +685,7 @@ pub(super) async fn list_databases(
         truncated: false,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some("listDatabases".into()),
+        payload: None,
     })
 }
 
@@ -743,6 +748,7 @@ pub(super) async fn list_collections(
         truncated,
         duration_ms: start.elapsed().as_millis() as u64,
         message: Some(format!("listCollections on {db_name}")),
+        payload: None,
     })
 }
 

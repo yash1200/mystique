@@ -1155,6 +1155,31 @@ export type QueryHistorySource = "ui" | "agent" | "mcp";
 export type QueryMode = "read" | "write";
 
 /**
+ * A non-tabular result. See [`QueryResult::payload`].
+ */
+export type QueryPayload = { "kind": "value", value: JsonValue, 
+/**
+ * Engine type label (`string`, `hash`, `zset`, `ReJSON-RL`).
+ */
+dataType: string, 
+/**
+ * Time to live in milliseconds; `None` when the key does not expire.
+ */
+ttlMs?: number, 
+/**
+ * `value` was cut to fit the IPC budget.
+ */
+truncated: boolean, } | { "kind": "hits", total: number, 
+/**
+ * False when the engine reports a lower bound (`gte`).
+ */
+totalExact: boolean, maxScore?: number, hits: Array<SearchHit>, 
+/**
+ * Hits were dropped to fit the IPC budget.
+ */
+truncated: boolean, } | { "kind": "message", text: string, };
+
+/**
  * Tabular query result for the FE grid.
  */
 export type QueryResult = { engine: string, mode: QueryMode, columns: Array<QueryColumn>, 
@@ -1165,7 +1190,14 @@ rows: Array<Array<JsonValue>>, rowCount: number, truncated: boolean, durationMs:
 /**
  * Optional human note (e.g. "validated write — not executed").
  */
-message: string | null, };
+message: string | null, 
+/**
+ * The engine's own shape for a result that is not a table (a Redis
+ * value, search hits). `columns`/`rows` still hold a tabular form of
+ * it, so export, history, MCP and the agent work unchanged; the UI
+ * shows this richer view when it has one for the kind.
+ */
+payload?: QueryPayload, };
 
 export type RenamePair = { 
 /**
@@ -1291,6 +1323,11 @@ drops: Array<DropItem>,
 columnRenames: Array<ColumnRename>, };
 
 export type SchemaMigration = { changes: Array<SchemaChange>, warnings: Array<string>, };
+
+/**
+ * One search hit.
+ */
+export type SearchHit = { index: string, id: string, score?: number, source: JsonValue, };
 
 export type SendAgentMessage = { connectionId: string, connectionName: string, engine: string, database: string | null, chatId: string | null, provider: string, model: string, text: string, 
 /**

@@ -169,6 +169,7 @@ mod tests {
             truncated: false,
             duration_ms: 1,
             message: None,
+            payload: None,
         }
     }
 

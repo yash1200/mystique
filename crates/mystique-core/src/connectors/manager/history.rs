@@ -306,6 +306,7 @@ mod tests {
             truncated: false,
             duration_ms,
             message: None,
+            payload: None,
         }
     }
 

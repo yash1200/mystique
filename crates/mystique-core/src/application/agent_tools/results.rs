@@ -105,6 +105,7 @@ mod tests {
             truncated: false,
             duration_ms: 0,
             message: None,
+            payload: None,
         }
     }
 

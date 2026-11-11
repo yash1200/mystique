@@ -137,6 +137,7 @@ pub(super) async fn execute_query(
                         truncated,
                         duration_ms: 0,
                         message,
+                        payload: None,
                     }
                 } else {
                     conn.execute(sql, [])
@@ -159,6 +160,7 @@ pub(super) async fn execute_query(
                         truncated: false,
                         duration_ms: 0,
                         message,
+                        payload: None,
                     }
                 };
 
@@ -371,6 +373,7 @@ fn run_sqlite_statement(
             truncated,
             duration_ms: started.elapsed().as_millis() as u64,
             message,
+            payload: None,
         };
         return Ok(StatementResult::success(
             stmt,
@@ -403,6 +406,7 @@ fn run_sqlite_statement(
                 truncated: false,
                 duration_ms: started.elapsed().as_millis() as u64,
                 message,
+                payload: None,
             };
             Ok(StatementResult::success(
                 stmt,
