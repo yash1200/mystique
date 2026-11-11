@@ -126,7 +126,14 @@ export function connectionFacts(
 	const username = configStr(cfg, 'username')
 	if (database) items.push({ label: 'Database', value: database })
 	if (username) items.push({ label: 'User', value: username })
-	if (kind === 'host') items.push({ label: 'SSL', value: sslOn(profile) ? 'Required' : 'Off' })
+	if (kind === 'host') {
+		const ssl = sslOn(profile)
+		items.push({
+			label: 'SSL',
+			value: ssl ? 'Required' : 'Off',
+			warn: !ssl && profile.environment === 'production' ? 'not encrypted' : undefined,
+		})
+	}
 	items.push(access)
 	items.push({
 		label: 'Last connected',

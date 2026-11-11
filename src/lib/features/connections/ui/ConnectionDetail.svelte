@@ -59,7 +59,7 @@
 	aria-label="Connection details"
 >
 	<header class="flex flex-wrap items-start gap-5">
-		<ConnectionTile engine={connection.engine} color={colorHex(connection.colorId)} size="lg" />
+		<ConnectionTile engine={connection.engine} color={colorHex(connection.colorId)} size="xl" />
 		<div class="flex min-w-0 flex-[1_1_18rem] flex-col gap-2">
 			<div class="flex flex-wrap items-center gap-2.5">
 				<h1 class="m-0 min-w-0 text-display font-semibold tracking-[-0.025em] break-words">

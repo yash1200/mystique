@@ -25,6 +25,8 @@
 		y: number
 		items: ContextMenuItem[]
 		ariaLabel?: string
+		/** Mono label above the items: what the menu acts on (`schema.table`). */
+		title?: string
 		/**
 		 * `cursor` — (x, y) is the top-left (right-click).
 		 * `above-end` — (x, y) is the bottom-right, so a status-bar
@@ -40,6 +42,7 @@
 		y,
 		items,
 		ariaLabel = 'Actions',
+		title,
 		placement = 'cursor',
 		onpick,
 		onclose,
@@ -95,7 +98,7 @@
 
 <div
 	bind:this={root}
-	class="fixed z-50 min-w-52 rounded-lg border border-line bg-raised p-1 shadow-md"
+	class="fixed z-50 min-w-56 rounded-[11px] border border-line bg-raised p-[5px] shadow-md"
 	style="left:{left}px; top:{top}px"
 	transition:popover|global={{
 		origin: placement === 'above-end' ? 'bottom right' : 'top left',
@@ -106,9 +109,14 @@
 	onpointerdown={(e) => e.stopPropagation()}
 	oncontextmenu={(e) => e.preventDefault()}
 >
+	{#if title}
+		<p class="m-0 truncate px-[9px] pt-1.5 pb-[5px] font-mono text-[0.71875rem] text-fg-muted">
+			{title}
+		</p>
+	{/if}
 	{#each items as item (item.id)}
 		{#if item.separatorBefore}
-			<div class="mx-1 my-1 border-t border-line" role="separator"></div>
+			<div class="mx-1 my-[5px] h-px bg-line" role="separator"></div>
 		{/if}
 		{#if item.heading}
 			<p
@@ -122,12 +130,10 @@
 				role="menuitem"
 				disabled={item.disabled}
 				class={cn(
-					'flex h-8 w-full cursor-pointer items-center gap-2 rounded-md border-none bg-transparent px-2.5 text-left text-body',
+					'group/mi flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-[7px] border-none bg-transparent px-[9px] text-left text-body whitespace-nowrap',
 					item.danger
 						? 'text-danger hover:bg-danger-soft'
-						: item.checked
-							? 'text-accent-text hover:bg-hover'
-							: 'text-fg hover:bg-hover',
+						: 'text-fg hover:bg-hover',
 					item.disabled && 'cursor-not-allowed opacity-45 hover:bg-transparent',
 				)}
 				onpointerdown={(e) => {
@@ -136,11 +142,13 @@
 				}}
 			>
 				{#if item.icon}
-					<Icon name={item.icon} class="text-fg-muted" />
+					<span class={cn('flex [&_svg]:size-3.5', item.danger ? 'text-danger' : 'text-fg-muted')}>
+						<Icon name={item.icon} />
+					</span>
 				{/if}
 				<span class="min-w-0 flex-1">{item.label}</span>
 				{#if item.checked}
-					<Icon name="check" />
+					<span class="flex text-accent-text [&_svg]:size-3.5"><Icon name="check" /></span>
 				{:else if item.shortcut}
 					<span
 						class="shrink-0 font-mono text-micro text-fg-muted tabular-nums"

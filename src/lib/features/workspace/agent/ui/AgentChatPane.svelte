@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import { errorMessage } from '#core/ipc'
-	import { Alert, Button, Icon, IconButton, Resizable, Select } from '#core/ui'
+	import { Alert, Button, Icon, IconButton, Modal, Resizable, Select } from '#core/ui'
 	import { cn } from '#core/util'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { showToast } from '#features/toast'
@@ -108,7 +108,12 @@
 	}
 
 	const chatOptions = $derived([
-		{ value: '', label: 'New chat' },
+		{
+			value: '',
+			label: 'New chat',
+			icon: 'plus' as const,
+			separatorAfter: agentChat.chats.length > 0,
+		},
 		...agentChat.chats.map((c) => ({ value: String(c.id), label: c.title })),
 	])
 	const readyProviders = $derived(configuredProviders(settings))
@@ -339,18 +344,25 @@
 		})
 	}
 
-	/** Delete at once; the toast's Undo brings it back. */
+	/** The chat the delete dialog is asking about. */
+	let pendingDelete = $state<{ id: string; title: string } | null>(null)
+
 	function deleteChat() {
 		const id = agentChat.chatId
 		if (sending || !id) return
-		const title = agentChat.chats.find((c) => String(c.id) === String(id))?.title
+		const title = agentChat.chats.find((c) => String(c.id) === String(id))?.title ?? ''
+		pendingDelete = { id: String(id), title }
+	}
+
+	function confirmDeleteChat() {
+		const target = pendingDelete
+		pendingDelete = null
+		if (!target) return
 		error = null
-		const undo = agentChat.removeChat(id, (message) =>
+		agentChat.removeChat(target.id, (message) =>
 			showToast('danger', `Could not delete chat: ${message}`),
 		)
-		showToast('info', title ? `Deleted “${title}”.` : 'Chat deleted.', {
-			action: { label: 'Undo', run: undo },
-		})
+		showToast('success', target.title ? `Deleted “${target.title}”.` : 'Chat deleted.')
 	}
 
 	function scrollToEnd() {
@@ -764,3 +776,20 @@
 		scrollbar-color: var(--border-strong) transparent;
 	}
 </style>
+
+<Modal
+	open={!!pendingDelete}
+	onclose={() => (pendingDelete = null)}
+	role="alertdialog"
+	icon="trash"
+	tone="danger"
+	title="Delete this chat?"
+	description="{pendingDelete?.title
+		? `“${pendingDelete.title}” and its drafts will be removed.`
+		: 'This chat and its drafts will be removed.'} Queries you already applied stay in the editor. This can’t be undone."
+>
+	{#snippet footer()}
+		<Button onclick={() => (pendingDelete = null)}>Cancel</Button>
+		<Button variant="danger" onclick={confirmDeleteChat}>Delete chat</Button>
+	{/snippet}
+</Modal>

@@ -505,7 +505,7 @@
 
 	<WriteGuardModal />
 
-	<ConnectionInfoModal />
+	<ConnectionInfoModal ondisconnect={handleDisconnect} />
 
 	<OpenTransactionModal
 		open={pendingCloseStep === 'transaction'}

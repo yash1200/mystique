@@ -111,6 +111,7 @@
 			{
 				id: 'copy-name',
 				label: 'Copy entity name',
+				icon: 'copy',
 				separatorBefore: true,
 				disabled: !ctxTab || !entityName(ctxTab),
 			},

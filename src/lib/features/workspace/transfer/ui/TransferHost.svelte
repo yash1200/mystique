@@ -67,6 +67,7 @@
 
 <ImportDataModal
 	open={!!transferStore.importTable}
+	connectionName={activeSession?.profile.name}
 	objectName={transferStore.importTable?.name ?? ''}
 	{objectLabel}
 	{formats}
@@ -90,6 +91,7 @@
 
 <ExportDataModal
 	open={!!transferStore.exportTable}
+	connectionName={activeSession?.profile.name}
 	objectName={transferStore.exportTable?.name ?? ''}
 	{objectLabel}
 	{formats}

@@ -57,6 +57,7 @@ import shieldAlert from './shield-alert.svg?raw'
 import sidebar from './sidebar.svg?raw'
 import sliders from './sliders.svg?raw'
 import terminal from './terminal.svg?raw'
+import upload from './upload.svg?raw'
 
 const files = {
 	plus,
@@ -119,6 +120,7 @@ const files = {
 	sidebar,
 	sliders,
 	terminal,
+	upload,
 } as const
 
 export type IconName = keyof typeof files

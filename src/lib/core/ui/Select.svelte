@@ -5,12 +5,17 @@
 	 */
 	import { cn, popover } from '#core/util'
 	import type { Snippet } from 'svelte'
+	import type { IconName } from '#icons'
 	import Icon from './Icon.svelte'
 
 	export type SelectOption = {
 		value: string
 		label: string
 		disabled?: boolean
+		/** Leading glyph in the menu row. */
+		icon?: IconName
+		/** A divider after this row (e.g. under "New chat"). */
+		separatorAfter?: boolean
 	}
 
 	interface Props {
@@ -24,6 +29,12 @@
 		/** Closed-state label. Menu options still use `options[].label`. */
 		triggerLabel?: string
 		ariaLabel?: string
+		/** Small label at the top of the open menu ("Databases on Prod DB"). */
+		menuLabel?: string
+		/** Option labels are data (names, ids): set them in mono. */
+		mono?: boolean
+		/** Import mapping: accent when a value is picked, muted when skipped. */
+		tint?: 'accent' | 'muted'
 		class?: string
 		id?: string
 		/** Fires after the bound value changes. */
@@ -40,6 +51,9 @@
 		variant = 'field',
 		triggerLabel,
 		ariaLabel,
+		menuLabel,
+		mono = false,
+		tint,
 		class: className = '',
 		id,
 		onchange,
@@ -277,9 +291,15 @@
 				'h-control-sm max-w-full gap-1 rounded-md border border-transparent bg-transparent px-1.5 text-caption text-fg-secondary hover:bg-hover hover:text-fg',
 			variant === 'quiet' && open && 'bg-hover text-fg',
 			variant === 'field' &&
-				'w-full justify-between gap-2 rounded-md border border-line-strong bg-field px-3 text-fg focus-field',
+				'w-full justify-between gap-2 rounded-md border px-3 focus-field',
 			variant === 'field' &&
 				(inputSize === 'sm' ? 'h-control-sm text-label' : 'h-field text-body'),
+			variant === 'field' &&
+				(tint === 'accent'
+					? 'border-[color-mix(in_oklab,var(--accent)_45%,transparent)] bg-accent-soft text-accent-text'
+					: tint === 'muted'
+						? 'border-line-strong bg-field text-fg-muted'
+						: 'border-line-strong bg-field text-fg'),
 		)}
 		{disabled}
 		aria-label={ariaLabel}
@@ -321,7 +341,7 @@
 			bind:this={listEl}
 			id={listId}
 			class={cn(
-				'z-50 m-0 overflow-auto rounded-lg border border-line bg-raised p-1 shadow-md',
+				'z-50 m-0 overflow-auto rounded-[11px] border border-line bg-raised p-[5px] shadow-md',
 				'focus:outline-none',
 			)}
 			style={menuStyle}
@@ -333,6 +353,11 @@
 				: undefined}
 			onkeydown={onListKeydown}
 		>
+			{#if menuLabel}
+				<li class="list-none truncate px-[9px] pt-1.5 pb-[5px] text-[0.71875rem] text-fg-muted" role="presentation">
+					{menuLabel}
+				</li>
+			{/if}
 			{#each options as opt, i (opt.value)}
 				{@const isSelected = String(opt.value) === String(value)}
 				{@const isActive = i === highlighted}
@@ -349,33 +374,28 @@
 						tabindex="-1"
 						disabled={opt.disabled}
 						class={cn(
-							'flex w-full items-center rounded-md px-2.5 text-left transition-colors',
-							inputSize === 'sm'
-								? 'h-control-sm text-label'
-								: 'h-control text-body',
+							'flex w-full items-center gap-2.5 rounded-[7px] px-[9px] text-left text-fg transition-colors',
+							inputSize === 'sm' ? 'h-[1.875rem] text-label' : 'h-control text-body',
 							opt.disabled && 'cursor-not-allowed opacity-45',
-							!opt.disabled && isActive && 'bg-hover text-fg',
-							!opt.disabled &&
-								isSelected &&
-								!isActive &&
-								'bg-accent-soft text-accent-text',
-							!opt.disabled &&
-								isSelected &&
-								isActive &&
-								'bg-accent-soft text-accent-text',
-							!opt.disabled && !isSelected && !isActive && 'text-fg',
+							!opt.disabled && isActive && 'bg-hover',
 						)}
 						onpointerenter={() => {
 							if (!opt.disabled) highlighted = i
 						}}
 						onclick={() => selectOption(opt)}
 					>
-						<span class="min-w-0 flex-1 truncate">{opt.label}</span>
+						{#if opt.icon}
+							<span class="flex text-fg-muted [&_svg]:size-3.5"><Icon name={opt.icon} /></span>
+						{/if}
+						<span class={cn('min-w-0 flex-1 truncate', mono && 'font-mono')}>{opt.label}</span>
 						{#if isSelected}
-							<Icon name="check" class="ml-2 size-3.5 text-accent-text" />
+							<span class="flex text-accent-text [&_svg]:size-3.5"><Icon name="check" /></span>
 						{/if}
 					</button>
 				</li>
+				{#if opt.separatorAfter}
+					<li class="mx-1 my-[5px] h-px list-none bg-line" role="separator"></li>
+				{/if}
 			{/each}
 		</ul>
 	{/if}

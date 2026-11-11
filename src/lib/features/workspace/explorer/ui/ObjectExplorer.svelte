@@ -22,8 +22,8 @@
 		presentationFromCaps,
 	} from '#engines'
 	import { CatalogIcon } from '#features/workspace/catalog'
-	import { SaveQueryModal } from '#features/workspace/query'
 	import CreateDatabaseForm from './CreateDatabaseForm.svelte'
+	import TableNameDialog from './TableNameDialog.svelte'
 	import ExplorerSearch from './ExplorerSearch.svelte'
 	import ObjectTree from './ObjectTree.svelte'
 	export type TableExplorerAction =
@@ -38,14 +38,12 @@
 		| 'duplicate'
 		| 'create'
 
-	function defaultCopyName(table: TableMeta): string {
-		return `${table.name}_copy`
-	}
-
 	type CreateKind = 'database' | 'group' | 'object'
 
 	interface Props {
 		engine: string
+		/** For the database switcher's heading. */
+		connectionName?: string
 		databases: DatabaseMeta[]
 		selectedDatabase: string
 		activeTableId: string | null
@@ -73,6 +71,7 @@
 
 	let {
 		engine,
+		connectionName,
 		databases,
 		selectedDatabase,
 		activeTableId,
@@ -118,6 +117,7 @@
 		databases.map((d) => ({
 			value: d.name,
 			label: d.name,
+			icon: 'database' as const,
 		})),
 	)
 
@@ -415,63 +415,58 @@
 		const mutable = adminOpsApply(t.kind)
 		// Plugin config is the only feature gate. Do not grey out collection
 		// actions — read-only is enforced when the plugin runs the op.
-		const items: ContextMenuItem[] = [{ id: 'open', label: 'Open' }]
+		const kindNoun = (t.kind || noun).toLowerCase()
+		const items: ContextMenuItem[] = [{ id: 'open', label: 'Open', icon: 'table' }]
 		if (admin.viewStructure) {
-			items.push({
-				id: 'structure',
-				label: 'View structure',
-			})
+			items.push({ id: 'structure', label: 'View structure', icon: 'structure' })
 		}
 		if (showModel && spec.primary) {
 			items.push({
 				id: 'erd',
 				label: caps.supportsErDiagram ? 'View ERD' : 'View model',
+				icon: 'schema',
 			})
 		}
 		items.push({
 			id: 'export',
-			label: 'Export data',
+			label: 'Export data…',
+			icon: 'download',
 			separatorBefore: true,
 		})
-		if (!isView) {
-			items.push({
-				id: 'import',
-				label: 'Import data',
-			})
+		if (!isView) items.push({ id: 'import', label: 'Import data…', icon: 'upload' })
+		const renames = admin.rename && mutable
+		const duplicates = admin.duplicate && !isView && mutable
+		if (renames) {
+			items.push({ id: 'rename', label: 'Rename…', icon: 'pencil', separatorBefore: true })
 		}
-		if (admin.rename && mutable) {
-			items.push({
-				id: 'rename',
-				label: 'Rename',
-				separatorBefore: true,
-			})
-		}
-		if (admin.duplicate && !isView && mutable) {
-			items.push({
-				id: 'duplicate',
-				label: 'Duplicate',
-				separatorBefore: !(admin.rename && mutable),
-			})
+		if (duplicates) {
+			items.push({ id: 'duplicate', label: 'Duplicate…', icon: 'copy', separatorBefore: !renames })
 		}
 		if (admin.createStatement) {
 			items.push({
 				id: 'create',
-				label: 'View Create',
-				separatorBefore: true,
+				label: 'View CREATE',
+				icon: 'code',
+				separatorBefore: !renames && !duplicates,
 			})
 		}
-		if (admin.truncate && !isView && mutable) {
+		const truncates = admin.truncate && !isView && mutable
+		if (truncates) {
 			items.push({
 				id: 'truncate',
-				label: 'Truncate',
+				label: 'Truncate…',
+				icon: 'trash',
+				danger: true,
 				separatorBefore: true,
 			})
 		}
 		if (admin.drop && mutable) {
 			items.push({
 				id: 'drop',
-				label: 'Drop',
+				label: `Drop ${kindNoun}…`,
+				icon: 'trash',
 				danger: true,
+				separatorBefore: !truncates,
 			})
 		}
 		return items
@@ -547,6 +542,8 @@
 					value={selectedDatabase}
 					options={dbOptions}
 					placeholder="Select database…"
+					menuLabel={connectionName ? `Databases on ${connectionName}` : 'Databases'}
+					mono
 					inputSize="sm"
 					disabled={refreshing || dbOptions.length === 0}
 					onchange={onDbChange}
@@ -688,6 +685,9 @@
 		x={tableMenu.x}
 		y={tableMenu.y}
 		items={tableMenuItems}
+		title={tableMenu.table.schema
+			? `${tableMenu.table.schema}.${tableMenu.table.name}`
+			: tableMenu.table.name}
 		ariaLabel="{tableMenu.table.name} actions"
 		onpick={onMenuPick}
 		onclose={() => {
@@ -716,22 +716,16 @@
 	/>
 {/if}
 
-<SaveQueryModal
-	open={!!namePrompt}
-	initialName={namePrompt
-		? namePrompt.action === 'duplicate'
-			? defaultCopyName(namePrompt.table)
-			: namePrompt.table.name
-		: ''}
-	title={namePrompt?.action === 'duplicate'
-		? `Duplicate ${noun}`
-		: `Rename ${noun}`}
-	description={namePrompt?.action === 'duplicate'
-		? `Create a copy of “${namePrompt.table.name}” on this database.`
-		: `Rename “${namePrompt?.table.name ?? ''}” on this database.`}
-	confirmLabel={namePrompt?.action === 'duplicate' ? 'Duplicate' : 'Rename'}
-	onconfirm={submitName}
-	oncancel={() => {
-		namePrompt = null
-	}}
-/>
+{#if namePrompt}
+	<TableNameDialog
+		action={namePrompt.action}
+		table={namePrompt.table}
+		{noun}
+		database={selectedDatabase}
+		taken={tables
+			.filter((t) => (t.schema ?? '') === (namePrompt?.table.schema ?? ''))
+			.map((t) => t.name)}
+		onconfirm={submitName}
+		oncancel={() => (namePrompt = null)}
+	/>
+{/if}

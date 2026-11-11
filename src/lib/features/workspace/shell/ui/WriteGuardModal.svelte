@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { WriteRowPreview } from '#core/contracts'
 	import { errorMessage, previewWriteRows } from '#core/ipc'
-	import { Alert, Button, Field, Input, Modal } from '#core/ui'
+	import { Alert, Button, CodePreview, Input, Modal, Pill, type IconName } from '#core/ui'
 	import { cn } from '#core/util'
 	import {
 		guardCopy,
@@ -34,6 +34,17 @@
 	)
 
 	const copy = $derived(prompt ? guardCopy(prompt) : null)
+	const production = $derived(prompt?.environment.trim().toLowerCase() === 'production')
+	/** Drop / truncate get the bin; other writes the shield; unlocking the open lock. */
+	const look = $derived.by((): { icon: IconName; tone: 'danger' | 'warning' | 'accent' } => {
+		if (!prompt || !copy) return { icon: 'shield-alert', tone: 'danger' }
+		if (/^(drop|truncate)\b/i.test(copy.title)) return { icon: 'trash', tone: 'danger' }
+		if (prompt.kind === 'unlock') return { icon: 'lock-open', tone: 'warning' }
+		if (prompt.kind === 'review') {
+			return production ? { icon: 'shield-alert', tone: 'warning' } : { icon: 'check', tone: 'accent' }
+		}
+		return { icon: 'shield-alert', tone: 'danger' }
+	})
 	const typeOk = $derived(!prompt || typedNameOk(prompt, typed))
 	const statements = $derived(prompt?.statements ?? [])
 	/** On demand only, for production writes the backend sent SQL for. */
@@ -83,32 +94,49 @@
 <Modal
 	open={!!prompt}
 	onclose={cancel}
+	role="alertdialog"
+	icon={look.icon}
+	tone={look.tone}
 	title={copy?.title ?? ''}
 	description={copy?.description ?? ''}
-	size="lg"
+	note={prompt ? `Runs on ${prompt.connectionName}` : undefined}
+	size={canPreview ? 'lg' : 'md'}
 	dismissible
 	onkeydown={(e) => {
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirm()
 	}}
 >
-	{#if copy?.warnings.length}
-		<div class="mt-3">
-			<Alert tone="warning">
-				<ul class="m-0 list-none space-y-1 p-0">
-					{#each copy.warnings as warning, i (i)}
-						<li>{warning}</li>
-					{/each}
-				</ul>
-			</Alert>
+	{#snippet titleAside()}
+		{#if production}<Pill tone="warning" uppercase>Prod</Pill>{/if}
+	{/snippet}
+	{#if copy?.typed}
+		<div class="flex flex-col gap-1.5">
+			<label class="text-label font-medium text-fg-secondary" for="write-guard-name">
+				Type <span class="font-mono text-fg">{prompt?.objectName}</span> to confirm
+			</label>
+			<Input
+				id="write-guard-name"
+				class="font-mono"
+				bind:value={typed}
+				placeholder={prompt?.objectName ?? ''}
+				autofocus
+			/>
 		</div>
 	{/if}
+	{#if copy?.warnings.length}
+		<Alert tone="warning">
+			<ul class="m-0 list-none space-y-1 p-0">
+				{#each copy.warnings as warning, i (i)}
+					<li>{warning}</li>
+				{/each}
+			</ul>
+		</Alert>
+	{/if}
 	{#if copy?.body}
-		<pre
-			class="mt-3 max-h-64 overflow-auto rounded-md border border-line bg-input px-3 py-2 font-mono text-caption leading-relaxed whitespace-pre-wrap text-fg"
-		>{copy.body}</pre>
+		<CodePreview code={copy.body} lang={statements.length ? 'sql' : 'plain'} />
 	{/if}
 	{#if canPreview}
-		<section class="mt-3" aria-label="Affected rows">
+		<section aria-label="Affected rows">
 			<div class="flex flex-wrap items-center gap-2">
 				<Button
 					variant="ghost"
@@ -159,11 +187,9 @@
 					{previewSummary(preview)}
 				</p>
 				{#if preview.available && !preview.error && preview.rows.length > 0}
-					<div
-						class="mt-2 max-h-64 overflow-auto rounded-md border border-line"
-					>
+					<div class="mt-2 max-h-64 overflow-auto rounded-[9px] border border-line">
 						<table class="w-full border-collapse font-mono text-caption">
-							<thead class="sticky top-0 bg-panel">
+							<thead class="sticky top-0 bg-surface">
 								<tr>
 									{#each preview.columns as column, i (i)}
 										<th
@@ -204,21 +230,10 @@
 			{/if}
 		</section>
 	{/if}
-	{#if copy?.typed}
-		<div class="mt-3">
-			<Field label="Object name" full>
-				<Input bind:value={typed} autocomplete="off" />
-			</Field>
-		</div>
-	{/if}
 	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
+		<Button onclick={cancel}>Cancel</Button>
 		<Button
-			variant={prompt?.kind === 'review' &&
-			prompt.environment.toLowerCase() !== 'production'
-				? 'primary'
-				: 'danger'}
-			size="sm"
+			variant={prompt?.kind === 'review' && !production ? 'primary' : 'danger'}
 			disabled={!typeOk}
 			onclick={confirm}
 		>

@@ -156,6 +156,7 @@
 			{:else if activeSession && explorerOk}
 				<ObjectExplorer
 					engine={String(activeSession.profile.engine)}
+					connectionName={activeSession.profile.name}
 					{databases}
 					selectedDatabase={currentDatabaseName}
 					{activeTableId}

@@ -6,7 +6,13 @@
  */
 export * from './api'
 export { hasProduction } from './environments'
-export { connectionFacts, connectionUrlPreview, copyConnectionUrl, environmentLabel } from './facts'
+export {
+	connectionFacts,
+	connectionTarget,
+	connectionUrlPreview,
+	copyConnectionUrl,
+	environmentLabel,
+} from './facts'
 export {
 	colorHex,
 	configStr,
@@ -25,6 +31,7 @@ export {
 export * from './profiles.svelte'
 export { default as BrandMark } from './ui/BrandMark.svelte'
 export { default as ConnectionFactGrid } from './ui/ConnectionFactGrid.svelte'
+export { default as ConnectionTile } from './ui/ConnectionTile.svelte'
 export { default as EngineBadge } from './ui/EngineBadge.svelte'
 export { default as PasswordPromptModal } from './ui/PasswordPromptModal.svelte'
 export { sshHostKeys } from './ssh-host-key.svelte'
