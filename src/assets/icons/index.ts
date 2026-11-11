@@ -49,13 +49,16 @@ import trash from './trash.svg?raw'
 import view from './view.svg?raw'
 import bolt from './bolt.svg?raw'
 import contrast from './contrast.svg?raw'
+import format from './format.svg?raw'
 import heart from './heart.svg?raw'
 import keyboard from './keyboard.svg?raw'
 import link from './link.svg?raw'
 import pencil from './pencil.svg?raw'
+import play from './play.svg?raw'
 import shieldAlert from './shield-alert.svg?raw'
 import sidebar from './sidebar.svg?raw'
 import sliders from './sliders.svg?raw'
+import stop from './stop.svg?raw'
 import terminal from './terminal.svg?raw'
 import upload from './upload.svg?raw'
 
@@ -112,13 +115,16 @@ const files = {
 	'lock-open': lockOpen,
 	bolt,
 	contrast,
+	format,
 	heart,
 	keyboard,
 	link,
 	pencil,
+	play,
 	'shield-alert': shieldAlert,
 	sidebar,
 	sliders,
+	stop,
 	terminal,
 	upload,
 } as const

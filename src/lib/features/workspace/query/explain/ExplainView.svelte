@@ -1,14 +1,21 @@
 <script lang="ts">
 	import type { ExplainPlan, PlanNode } from '#core/contracts'
-	import { Button } from '#core/ui'
+	import { Icon, IconButton, Segmented } from '#core/ui'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { selfCostShare } from './explain-cost'
 
 	interface Props {
 		plan: ExplainPlan
+		/** Back to the results. */
+		onclose?: () => void
 	}
 
-	let { plan }: Props = $props()
+	let { plan, onclose }: Props = $props()
+
+	const VIEWS = [
+		{ value: 'tree', label: 'Tree' },
+		{ value: 'raw', label: 'Raw' },
+	]
 
 	let tab = $state<'tree' | 'raw'>('tree')
 	const collapsed = new SvelteSet<string>()
@@ -39,12 +46,12 @@
 			{#if children.length > 0}
 				<button
 					type="button"
-					class="mt-0.5 grid size-4 shrink-0 place-items-center rounded text-caption text-fg-muted hover:bg-elevated hover:text-fg"
+					class="mt-0.5 grid size-4 shrink-0 place-items-center rounded-xs border-none bg-transparent text-fg-muted hover:bg-hover hover:text-fg [&_svg]:size-3"
 					aria-expanded={open}
 					aria-label={open ? 'Collapse plan node' : 'Expand plan node'}
 					onclick={() => toggle(path)}
 				>
-					{open ? '▾' : '▸'}
+					<Icon name={open ? 'chevron-down' : 'chevron-right'} />
 				</button>
 			{:else}
 				<span class="mt-0.5 size-4 shrink-0"></span>
@@ -96,37 +103,24 @@
 	</div>
 {/snippet}
 
-<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash">
-	<div
-		class="flex shrink-0 items-center gap-1.5 border-b border-line px-2.5 py-1.5"
-	>
-		<Button
-			variant={tab === 'tree' ? 'secondary' : 'ghost'}
-			size="sm"
-			aria-pressed={tab === 'tree'}
-			onclick={() => (tab = 'tree')}
-		>
-			Tree
-		</Button>
-		<Button
-			variant={tab === 'raw' ? 'secondary' : 'ghost'}
-			size="sm"
-			aria-pressed={tab === 'raw'}
-			onclick={() => (tab = 'raw')}
-		>
-			Raw
-		</Button>
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app">
+	<div class="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-surface pr-1.5 pl-3">
+		<span class="text-label font-medium text-fg-secondary">Query plan</span>
+		<Segmented size="sm" label="Plan view" value={tab} options={VIEWS} onchange={(v) => (tab = v as 'tree' | 'raw')} />
+		{#if onclose}
+			<IconButton label="Back to results" variant="quiet" size="sm" class="ml-auto" onclick={onclose}>
+				<Icon name="close" />
+			</IconButton>
+		{/if}
 	</div>
 	{#if warnings.length > 0}
-		<ul
-			class="shrink-0 space-y-1 border-b border-warning/30 bg-warning/10 px-3 py-2"
-		>
+		<ul class="m-0 shrink-0 list-none space-y-1 border-b border-line bg-warn-soft px-3.5 py-2">
 			{#each warnings as warning, i (`${i}:${warning}`)}
-				<li class="text-caption text-warning">{warning}</li>
+				<li class="text-label text-fg">{warning}</li>
 			{/each}
 		</ul>
 	{/if}
-	<div class="min-h-0 flex-1 overflow-auto px-3 py-2">
+	<div class="min-h-0 flex-1 overflow-auto px-3.5 py-2.5">
 		{#if tab === 'tree'}
 			{@render node(plan.root, '0')}
 		{:else}

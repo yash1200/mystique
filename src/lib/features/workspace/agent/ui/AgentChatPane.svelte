@@ -68,6 +68,7 @@
 	let elapsedSec = $state(0)
 	let error = $state<string | null>(null)
 	let listEl = $state<HTMLDivElement | null>(null)
+	let headerEl = $state<HTMLElement | null>(null)
 	let dragging = $state(false)
 	let loaf = $state(false)
 	let seenConnection = $state<string | null>(null)
@@ -208,6 +209,9 @@
 	})
 	const connectionLine = $derived(
 		database ? `${connectionName} / ${database}` : connectionName,
+	)
+	const chatTitle = $derived(
+		agentChat.chats.find((c) => String(c.id) === String(agentChat.chatId))?.title || 'New chat',
 	)
 
 	function snapProvider(
@@ -579,7 +583,7 @@
 
 <aside
 	class={cn(
-		'relative flex h-full min-h-0 w-full min-w-0 flex-col border-l border-line bg-panel',
+		'relative flex h-full min-h-0 w-full min-w-0 flex-col border-l border-line bg-surface',
 		dragging && 'select-none',
 	)}
 	aria-label="Query agent"
@@ -596,82 +600,47 @@
 		oncommit={(n) => appPrefs.setAgentChatPanelWidth(n, true)}
 	/>
 
-	<header class="shrink-0 border-b border-line">
-		<div class="flex items-center gap-1.5 px-2 py-2">
-			<span
-				class="grid size-7 shrink-0 place-items-center rounded-lg bg-accent-muted text-accent"
-				aria-hidden="true"
-			>
-				<Icon name="chat" />
-			</span>
-			<div class="min-w-0 flex-1">
-				<div
-					class="flex min-w-0 items-center gap-1 text-body font-semibold leading-tight text-fg"
-					title={external
-						? `External agent (ACP): ${externalLabel}`
-						: 'Built-in agent'}
-				>
-					<span class="shrink-0">Agent ·</span>
-					{#if agentOptions.length > 1}
-						<Select
-							class="min-w-0"
-							variant="quiet"
-							inputSize="sm"
-							ariaLabel="Agent for this chat"
-							options={agentOptions}
-							value={agentChoice}
-							triggerLabel={external ? externalLabel : 'Built-in'}
-							disabled={sending}
-							onchange={pickAgent}
-						/>
-					{:else}
-						<span class="truncate font-normal text-fg-muted">Built-in</span>
-					{/if}
-				</div>
-				<p
-					class="m-0 mt-0.5 truncate text-caption leading-tight text-fg-muted"
-					title={connectionLine}
-				>
-					{connectionLine}
-				</p>
-			</div>
-			<IconButton label="New chat" variant="quiet" size="sm" onclick={newChat}>
-				<Icon name="plus" />
+	<header
+		bind:this={headerEl}
+		class="flex h-11 shrink-0 items-center gap-0.5 border-b border-line pr-1.5 pl-2"
+	>
+		<Select
+			class="min-w-0 flex-1"
+			menuAnchor={headerEl}
+			variant="quiet"
+			inputSize="sm"
+			ariaLabel="Chat"
+			menuLabel="Chats on {connectionLine}"
+			options={chatOptions}
+			value={agentChat.chatId ?? ''}
+			triggerLabel={chatTitle}
+			onchange={(v) => void onPickChat(v)}
+		>
+			{#snippet leading()}
+				<span class="flex text-accent-text"><Icon name="sparkle" /></span>
+			{/snippet}
+		</Select>
+		<IconButton label="New chat" variant="quiet" size="sm" onclick={newChat}>
+			<Icon name="plus" />
+		</IconButton>
+		{#if agentChat.chatId}
+			<IconButton label="Delete chat" variant="quiet" size="sm" onclick={deleteChat}>
+				<Icon name="trash" />
 			</IconButton>
-			{#if agentChat.chatId}
-				<IconButton
-					label="Delete chat"
-					variant="quiet"
-					size="sm"
-					class="hover:bg-danger/10 hover:text-danger"
-					onclick={deleteChat}
-				>
-					<Icon name="trash" />
-				</IconButton>
-			{/if}
-			<IconButton
-				label="Close agent"
-				variant="quiet"
-				size="sm"
-				onclick={() => appPrefs.setAgentChatOpen(false)}
-			>
-				<Icon name="close" />
-			</IconButton>
-		</div>
-		<div class="px-2 pb-2">
-			<Select
-				class="min-w-0"
-				inputSize="sm"
-				options={chatOptions}
-				value={agentChat.chatId ?? ''}
-				onchange={(v) => void onPickChat(v)}
-			/>
-		</div>
+		{/if}
+		<IconButton
+			label="Close agent"
+			variant="quiet"
+			size="sm"
+			onclick={() => appPrefs.setAgentChatOpen(false)}
+		>
+			<Icon name="close" />
+		</IconButton>
 	</header>
 
-	<div class="relative flex min-h-0 flex-1 flex-col bg-app">
+	<div class="relative flex min-h-0 flex-1 flex-col">
 		<div
-			class="pointer-events-none absolute inset-x-0 top-0 z-1 h-4 bg-linear-to-b from-app to-transparent"
+			class="pointer-events-none absolute inset-x-0 top-0 z-1 h-4 bg-linear-to-b from-surface to-transparent"
 			aria-hidden="true"
 		></div>
 		<div
@@ -698,7 +667,7 @@
 					onaction={openAiSettings}
 				/>
 			{:else if threadEmpty}
-				<AgentChatWelcome {sendChord} {loaf} onpick={useStarter} />
+				<AgentChatWelcome {sendChord} sleepy={loaf} where={connectionLine} onpick={useStarter} />
 			{:else}
 				<AgentChatThread
 					messages={agentChat.messages}
@@ -713,20 +682,20 @@
 	</div>
 
 	{#if agentChat.modelsError && agentChat.provider === 'ollama'}
-		<div class="shrink-0 bg-app px-2 pb-1">
+		<div class="shrink-0 px-3 pb-2">
 			<Alert tone="danger">{agentChat.modelsError}</Alert>
 		</div>
 	{/if}
 
 	{#if error || agentChat.runError}
-		<div class="shrink-0 bg-app px-2 pb-1">
+		<div class="shrink-0 px-3 pb-2">
 			<Alert tone="danger">{error ?? agentChat.runError}</Alert>
 		</div>
 	{/if}
 
 	{#if canContinue}
 		<div
-			class="flex shrink-0 items-center gap-2 bg-app px-3 pb-1"
+			class="flex shrink-0 items-center gap-2 px-3 pb-2"
 			aria-live="polite"
 		>
 			<p class="m-0 min-w-0 flex-1 text-caption text-fg-secondary">
@@ -757,6 +726,20 @@
 		onsend={() => void send()}
 		onstop={stop}
 	>
+		{#snippet agentPicker()}
+			{#if agentOptions.length > 1}
+				<Select
+					variant="quiet"
+					inputSize="sm"
+					ariaLabel="Agent for this chat"
+					options={agentOptions}
+					value={agentChoice}
+					triggerLabel={external ? externalLabel : 'Built-in'}
+					disabled={sending}
+					onchange={pickAgent}
+				/>
+			{/if}
+		{/snippet}
 		{#snippet footer()}
 			{#if tokensLine && !sending}
 				<span

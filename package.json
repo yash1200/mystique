@@ -85,8 +85,6 @@
 		"#engines/*": "./src/lib/engines/*",
 		"#features/*": "./src/lib/features/*",
 		"#icons": "./src/assets/icons/index.js",
-		"#icons/*": "./src/assets/icons/*",
-		"#illustrations": "./src/assets/illustrations/index.js",
-		"#illustrations/*": "./src/assets/illustrations/*"
+		"#icons/*": "./src/assets/icons/*"
 	}
 }

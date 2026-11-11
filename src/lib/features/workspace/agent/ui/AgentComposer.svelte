@@ -33,6 +33,8 @@
 		onsend: () => void
 		onstop: () => void
 		footer?: Snippet
+		/** Before the model picker: the agent picker. */
+		agentPicker?: Snippet
 		/** An external agent picks its own model: shown instead of the picker. */
 		fixedModel?: string | null
 	}
@@ -47,6 +49,7 @@
 		oncombo,
 		onsend,
 		onstop,
+		agentPicker,
 		footer,
 		fixedModel = null,
 	}: Props = $props()
@@ -137,7 +140,7 @@
 </script>
 
 <form
-	class="relative shrink-0 bg-app p-2 pt-1"
+	class="relative shrink-0 px-3 pt-1 pb-3"
 	onsubmit={(e) => {
 		e.preventDefault()
 		onsend()
@@ -145,7 +148,7 @@
 >
 	{#if popupOpen}
 		<ul
-			class="absolute inset-x-2 bottom-full z-10 m-0 mb-1 max-h-56 list-none overflow-auto rounded-lg border border-line bg-elevated p-1 shadow-lg"
+			class="absolute inset-x-3 bottom-full z-10 m-0 mb-1 max-h-56 list-none overflow-auto rounded-[11px] border border-line bg-raised p-[5px] shadow-md"
 			role="listbox"
 			aria-label="Tables"
 		>
@@ -154,8 +157,8 @@
 					<button
 						type="button"
 						class={cn(
-							'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left font-mono text-label text-fg',
-							i === highlighted ? 'bg-accent-muted' : 'hover:bg-hover',
+							'flex h-[1.875rem] w-full items-center gap-2 rounded-[7px] px-[9px] text-left font-mono text-label text-fg',
+							i === highlighted ? 'bg-hover' : 'hover:bg-hover',
 						)}
 						onmousedown={(e) => e.preventDefault()}
 						onclick={() => pick(table)}
@@ -169,8 +172,9 @@
 	{/if}
 	<div
 		class={cn(
-			'overflow-hidden rounded-xl border border-line bg-elevated shadow-sm focus-within:border-focus focus-within:ring-2 focus-within:ring-accent-muted',
-			dropping && 'border-focus ring-2 ring-accent-muted',
+			'overflow-hidden rounded-xl border border-line-strong bg-field transition-[border-color,box-shadow] duration-150',
+			'focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft)]',
+			dropping && 'border-accent shadow-[0_0_0_3px_var(--accent-soft)]',
 		)}
 		role="group"
 		aria-label="Message"
@@ -184,7 +188,7 @@
 			resize="none"
 			chrome={false}
 			class="min-h-16 rounded-none px-3 pt-2.5 pb-1"
-			placeholder="Ask for a query… (@ to reference a table)"
+			placeholder="Ask for a query · @ to mention a table"
 			bind:value
 			disabled={sending}
 			enterkeyhint="send"
@@ -198,7 +202,8 @@
 			}}
 			onblur={() => (mention = null)}
 		/>
-		<div class="flex items-center justify-between gap-2 px-2 pt-0.5 pb-1.5">
+		<div class="flex items-center gap-1 px-1.5 pt-0.5 pb-1.5">
+			{@render agentPicker?.()}
 			{#if fixedModel}
 				<span
 					class="flex min-w-0 items-center gap-1.5 px-1.5 text-caption text-fg-secondary"
@@ -224,11 +229,11 @@
 					{/snippet}
 				</Select>
 			{/if}
-			<div class="flex min-w-0 items-center gap-2">
+			<div class="ml-auto flex min-w-0 items-center gap-2">
 				{@render footer?.()}
 				{#if sending}
 					<IconButton type="button" label="Stop" variant="default" size="sm" onclick={onstop}>
-						<Icon name="close" />
+						<Icon name="stop" />
 					</IconButton>
 				{:else}
 					<IconButton

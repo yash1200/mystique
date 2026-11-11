@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '#core/ui'
+	import { Button, Icon } from '#core/ui'
 	import type { LiveRun } from '../live-run'
 	import { inferFenceLang, isQueryLang, parseChatMarkdown } from '../markdown'
 	import type { AgentMessage } from '../types'
@@ -42,7 +42,7 @@
 		{:else if msg.role === 'user'}
 			<li class="flex justify-end">
 				<div
-					class="min-w-0 max-w-[88%] rounded-xl rounded-br-sm bg-accent-muted px-3 py-2"
+					class="min-w-0 max-w-[88%] rounded-xl rounded-br-xs bg-accent-soft px-3 py-2"
 					data-chat-message
 				>
 					<ChatMarkdown source={String(msg.content ?? '')} {engine} compact />
@@ -57,12 +57,8 @@
 				/>
 				{#if msg.draftBody && !messageHasApplyableFence(msg.content)}
 					<div class="mt-2">
-						<Button
-							size="sm"
-							variant="secondary"
-							onclick={() => onapply(msg.draftBody ?? '')}
-						>
-							Apply to editor
+						<Button size="sm" onclick={() => onapply(msg.draftBody ?? '')}>
+							<Icon name="code" />Apply to editor
 						</Button>
 					</div>
 				{/if}

@@ -5,7 +5,6 @@
 	 */
 	import { commands, type CommandContext } from '#core/commands'
 	import type { CatalogColumnRow } from '#core/contracts'
-	import { Button, Icon, Input, Pill } from '#core/ui'
 	import { catalogSignature, formatQuery } from '#engines'
 	import { showStatus } from '#features/toast'
 	import { appPrefs, cmd } from '#lib/app'
@@ -33,8 +32,6 @@
 	import {
 		coreSetup,
 		isLargeDocument,
-		LARGE_DOC_CHARS,
-		LARGE_DOC_LINES,
 		richSetup,
 	} from './setup'
 	import {
@@ -67,20 +64,12 @@
 		/** Draft for this tab when it has no EditorState yet. */
 		draft?: string
 		localText?: string
-		lineCount: number
 		language: string
-		collection?: string
-		canRun: boolean
 		running: boolean
-		/** Engine advertises cancel. The button stays disabled while running otherwise. */
-		canCancel?: boolean
-		oncancel?: () => void
+		/** Large-document mode is on (completion, folding and the run gutter are off). */
+		largeDoc?: boolean
 		/** One gutter for every engine with `supportsQuery`. */
 		showStatementGutter?: boolean
-		/** True when draft differs from last saved baseline. */
-		dirty?: boolean
-		/** True while a save is in flight. */
-		saving?: boolean
 		/** Live catalog columns for schema/table/field completions. */
 		catalogColumns?: CatalogColumnRow[]
 		/** The tab's catalog right now, so an early completion can wait for it. */
@@ -90,20 +79,6 @@
 		/** Caret and document, so a shortcut from outside the editor can run too. */
 		onactivity?: (snap: { doc: string; head: number; anchor: number }) => void
 		onrun: (request: { text: string; start: number }) => void
-		/** Explain button. Comes from `supportsExplainPlan`. */
-		showExplain?: boolean
-		/** Analyze collects actual rows. Off until the user turns it on. */
-		analyze?: boolean
-		onanalyze?: (on: boolean) => void
-		onexplain?: () => void
-		/** Engine can hold a transaction on one connection. */
-		showTransactions?: boolean
-		/** Off means the tab is pinned and auto-commit is off. */
-		manualCommit?: boolean
-		transactionOpen?: boolean
-		onmanualcommit?: (manual: boolean) => void
-		oncommit?: () => void
-		onrollback?: () => void
 		/** Underline in the editor. Null clears it. */
 		diagnostic?: { from: number; to: number; message: string } | null
 		/** Bumps when Locate error should scroll again. */
@@ -119,31 +94,15 @@
 		placeholder,
 		draft = '',
 		localText = $bindable(''),
-		lineCount,
 		language,
-		collection = $bindable(''),
-		canRun,
 		running,
-		canCancel = false,
-		oncancel,
+		largeDoc = $bindable(false),
 		showStatementGutter = true,
-		dirty = false,
-		saving = false,
 		catalogColumns = [],
 		catalogFeed,
 		onchange,
 		onactivity,
 		onrun,
-		showExplain = false,
-		analyze = false,
-		onanalyze,
-		onexplain,
-		showTransactions = false,
-		manualCommit = false,
-		transactionOpen = false,
-		onmanualcommit,
-		oncommit,
-		onrollback,
 		onsave,
 		diagnostic = null,
 		locateNonce = 0,
@@ -159,8 +118,6 @@
 	/** Bumps when a language finishes loading, so the editor picks it up. */
 	let languagesLoaded = $state(0)
 	let extensions: Extension[] = []
-	/** Large-document mode for the shown tab (see `setup.ts`). */
-	let largeDoc = $state(false)
 
 	function themeIsDark(): boolean {
 		return appPrefs.resolvedTheme === 'dark'
@@ -281,12 +238,6 @@
 		callbacks.onactivity?.({ doc, head, anchor })
 	}
 
-	const isMac =
-		typeof navigator !== 'undefined' &&
-		/Mac|iPhone|iPad/.test(navigator.platform)
-	const runShortcut = isMac ? '⌘Enter' : 'Ctrl+Enter'
-	const formatShortcut = isMac ? '⌘⇧F' : 'Ctrl+Shift+F'
-	const saveShortcut = isMac ? '⌘S' : 'Ctrl+S'
 
 	function applyTextToEditor(next: string) {
 		const v = view
@@ -305,6 +256,16 @@
 		applyingExternal = false
 		localText = next
 		callbacks.onchange?.(next)
+	}
+
+	/** Run the statement at the caret (or the selection); `all` runs the whole document. */
+	export function run(all = false) {
+		emitRun(all)
+	}
+
+	/** Format the document with the engine's formatter. */
+	export function format() {
+		void formatEditor()
 	}
 
 	async function formatEditor() {
@@ -665,166 +626,19 @@
 </script>
 
 <div
-	class="flex h-full min-h-0 min-w-0 flex-col"
+	class="flex min-h-0 min-w-0 flex-1 flex-col"
 	data-query-editor={connectionId}
 >
 	<label class="sr-only" for="query-cm-{connectionId}">Query editor</label>
 	<div
 		id="query-cm-{connectionId}"
 		bind:this={hostEl}
-		class="query-cm-host min-h-0 min-w-0 flex-1 overflow-hidden bg-input"
+		class="query-cm-host min-h-0 min-w-0 flex-1 overflow-hidden bg-surface"
 		role="textbox"
 		aria-multiline="true"
 		aria-label="Query editor"
 	></div>
 
-	<div
-		class="flex shrink-0 items-center gap-2 border-t border-line bg-elevated px-2.5 py-1.5"
-	>
-		<div class="flex min-w-0 flex-1 items-center gap-2">
-			<Pill uppercase>{language === 'mql' ? 'MQL' : 'SQL'}</Pill>
-			<span class="font-mono text-caption tabular-nums text-fg-muted">
-				{lineCount}
-				{lineCount === 1 ? 'line' : 'lines'}
-			</span>
-			<span class="font-mono text-caption tabular-nums text-fg-muted">
-				{localText.length.toLocaleString()} chars
-			</span>
-			{#if largeDoc}
-				<span
-					class="inline-flex"
-					data-large-document
-					title="Over {LARGE_DOC_CHARS.toLocaleString()} characters or {LARGE_DOC_LINES.toLocaleString()} lines: completion, line wrapping, bracket and match highlighting, folding and the run gutter are off. Run and statement keys still work."
-				>
-					<Pill tone="info">Large file</Pill>
-				</span>
-			{/if}
-		</div>
-		<div class="flex shrink-0 items-center gap-1.5">
-			<Button
-				variant="ghost"
-				size="sm"
-				class={appPrefs.agentChatOpen
-					? 'border-accent/40 bg-accent-muted text-accent hover:border-accent/50 hover:bg-accent-muted'
-					: ''}
-				aria-pressed={appPrefs.agentChatOpen}
-				onclick={() => appPrefs.setAgentChatOpen(!appPrefs.agentChatOpen)}
-				title={appPrefs.agentChatOpen ? 'Close agent' : 'Open agent'}
-			>
-				<Icon name="chat" class="size-3.5" />
-				Agent
-			</Button>
-			<span class="mx-0.5 h-4 w-px shrink-0 bg-line" aria-hidden="true"></span>
-			{#if language === 'mql'}
-				<Input
-					class="w-32 font-mono"
-					inputSize="sm"
-					placeholder="collection"
-					bind:value={collection}
-					aria-label="Collection name"
-					title="Collection name"
-				/>
-			{/if}
-			{#if showTransactions}
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-pressed={!manualCommit}
-					disabled={running}
-					onclick={() => onmanualcommit?.(!manualCommit)}
-					title={manualCommit
-						? 'Turn auto-commit on. An open transaction is rolled back.'
-						: 'Turn auto-commit off. The first write opens a transaction; Commit or Rollback ends it.'}
-				>
-					Auto-commit
-				</Button>
-				{#if manualCommit}
-					<span
-						class="size-1.5 shrink-0 rounded-full {transactionOpen
-							? 'bg-warning'
-							: 'bg-fg-muted/40'}"
-						title={transactionOpen ? 'Transaction open' : 'No open transaction'}
-					></span>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={running || !transactionOpen}
-						onclick={() => oncommit?.()}
-					>
-						Commit
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={running || !transactionOpen}
-						onclick={() => onrollback?.()}
-					>
-						Rollback
-					</Button>
-				{/if}
-			{/if}
-			{#if showExplain}
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-pressed={analyze}
-					disabled={running}
-					onclick={() => onanalyze?.(!analyze)}
-					title="Collect actual rows. A statement that is not a read still cannot change data."
-				>
-					Analyze
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					disabled={!localText.trim() || running}
-					onclick={() => onexplain?.()}
-					title="Explain the statement at the cursor"
-				>
-					Explain
-				</Button>
-			{/if}
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!localText.trim() || running}
-				onclick={formatEditor}
-				title={`Format (${formatShortcut})`}
-			>
-				Format
-			</Button>
-			{#if onsave}
-				<Button
-					variant="ghost"
-					size="sm"
-					class={dirty && !saving
-						? 'border-warning/50 bg-warning/10 text-warning hover:border-warning/60 hover:bg-warning/20'
-						: ''}
-					disabled={!localText.trim() || saving || running}
-					onclick={onsave}
-					title={dirty
-						? `Unsaved changes (${saveShortcut})`
-						: `Save (${saveShortcut})`}
-				>
-					{saving ? 'Saving…' : 'Save'}
-				</Button>
-			{/if}
-			<Button
-				variant="primary"
-				size="sm"
-				disabled={running ? !canCancel : !canRun}
-				onclick={() => {
-					if (running) oncancel?.()
-					else emitRun(false)
-				}}
-				title={running && canCancel
-					? 'Cancel (Esc)'
-					: `Run statement (${runShortcut})`}
-			>
-				{running ? (canCancel ? 'Cancel' : 'Running…') : 'Run'}
-			</Button>
-		</div>
-	</div>
 </div>
 
 <style>

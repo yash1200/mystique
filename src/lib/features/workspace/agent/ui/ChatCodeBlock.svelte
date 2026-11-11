@@ -88,31 +88,24 @@
 
 <figure
 	class={cn(
-		'm-0 max-w-full min-w-0 overflow-hidden rounded-lg border border-line bg-app',
+		'm-0 max-w-full min-w-0 overflow-hidden rounded-[10px] border border-line bg-field',
 		compact && 'rounded-md',
 	)}
 >
 	<figcaption
-		class="flex items-center gap-1 border-b border-line bg-elevated px-2 py-1"
+		class="flex items-center gap-1 border-b border-line bg-surface py-1 pr-1 pl-2.5"
 	>
-		<Icon name="code" class="text-fg-muted" />
-		<span
-			class="min-w-0 flex-1 truncate font-mono text-micro font-semibold tracking-wider text-fg-muted uppercase"
-		>
-			{langLabel}
-		</span>
+		<span class="min-w-0 flex-1 truncate label-caps">{langLabel}</span>
 		<IconButton
 			label={copied ? 'Copied' : 'Copy code'}
-			variant="ghost"
+			variant="quiet"
 			size="sm"
 			onclick={() => void copy()}
 		>
 			<Icon name={copied ? 'check' : 'copy'} />
 		</IconButton>
 		{#if applyable && onApply}
-			<Button size="sm" variant="ghost" onclick={() => onApply(display)}>
-				Apply
-			</Button>
+			<Button size="sm" onclick={() => onApply(display)}>Apply to editor</Button>
 		{/if}
 	</figcaption>
 	<pre

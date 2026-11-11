@@ -40,6 +40,7 @@
 	import QueryResultsPanel, {
 		type ResultExportAction,
 	} from '../results/QueryResultsPanel.svelte'
+	import QueryToolbar from './QueryToolbar.svelte'
 	import {
 		applyPinStatus,
 		cancelRun as cancelTabQuery,
@@ -117,7 +118,10 @@
 	const txn = $derived(tabTxnView(workspaceSession.tabTxn, tabId))
 	const manualCommit = $derived(txn.manualCommit)
 	const transactionOpen = $derived(txn.transactionOpen)
+	/** The last explain asked for actual rows; a params prompt replays it the same way. */
 	let analyze = $state(false)
+	let editor = $state<ReturnType<typeof QueryEditor> | null>(null)
+	let largeDoc = $state(false)
 	let explainPlan = $state<ExplainPlan | null>(null)
 	/** `explain`: the values are for an explain, not a run. */
 	let paramPrompt = $state<{
@@ -170,15 +174,6 @@
 			appPrefs.queryTimeoutSecs,
 		),
 	)
-
-	// Counted without splitting: a large document would allocate every line per keystroke.
-	const lineCount = $derived.by(() => {
-		let lines = 1
-		for (let at = localText.indexOf('\n'); at >= 0; at = localText.indexOf('\n', at + 1)) {
-			lines += 1
-		}
-		return lines
-	})
 
 	/** Read by the editor when a completion is requested. */
 	function catalogFeed(): CatalogFeed | null {
@@ -421,7 +416,7 @@
 </script>
 
 <div
-	class="flex min-h-0 min-w-0 flex-1 flex-col bg-app-wash"
+	class="flex min-h-0 min-w-0 flex-1 flex-col bg-app"
 	data-connection-id={connectionId}
 >
 	<div
@@ -430,44 +425,54 @@
 		class:select-none={splitDragging}
 	>
 		<div
-			class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-elevated"
+			class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
 			style="flex: 0 0 {editorSharePct}%; max-height: {SPLIT_MAX}%"
 		>
 			<QueryEditor
+				bind:this={editor}
 				{tabId}
 				{connectionId}
 				{engine}
 				{placeholder}
 				draft={text ?? ''}
 				bind:localText
-				{lineCount}
+				bind:largeDoc
 				{language}
 				{catalogColumns}
 				{catalogFeed}
-				bind:collection
-				canRun={!!localText.trim()}
-				canCancel={capabilities?.supportsCancelQuery === true}
 				showStatementGutter={capabilities?.supportsQuery !== false}
 				running={runState.status === 'running'}
-				oncancel={cancelRun}
-				{showExplain}
-				{analyze}
-				onanalyze={(on) => (analyze = on)}
-				onexplain={() => void explainQuery()}
-				{showTransactions}
-				{manualCommit}
-				{transactionOpen}
-				onmanualcommit={(manual) => void setManualCommit(manual)}
-				oncommit={() => void commitPin()}
-				onrollback={() => void rollbackPin()}
-				{dirty}
-				{saving}
 				onchange={emitText}
 				onactivity={(snap) => (editorSnap = snap)}
 				diagnostic={cachedRun?.diagnostic ?? null}
 				{locateNonce}
 				onrun={(request) => void runQuery(request.text, request.start)}
 				{onsave}
+			/>
+			<QueryToolbar
+				running={runState.status === 'running'}
+				canRun={!!localText.trim()}
+				canCancel={capabilities?.supportsCancelQuery === true}
+				onrun={() => editor?.run(false)}
+				oncancel={cancelRun}
+				onformat={() => editor?.format()}
+				explain={showExplain}
+				onexplain={(withRows) => {
+					analyze = withRows
+					void explainQuery()
+				}}
+				mql={language === 'mql'}
+				bind:collection
+				transactions={showTransactions}
+				{manualCommit}
+				{transactionOpen}
+				onmanualcommit={(manual) => void setManualCommit(manual)}
+				oncommit={() => void commitPin()}
+				onrollback={() => void rollbackPin()}
+				{onsave}
+				{dirty}
+				{saving}
+				{largeDoc}
 			/>
 		</div>
 
@@ -487,7 +492,7 @@
 
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			{#if explainPlan}
-				<ExplainView plan={explainPlan} />
+				<ExplainView plan={explainPlan} onclose={() => (explainPlan = null)} />
 			{:else}
 				<QueryResultsPanel
 					identStyle={identStyleFor(engine, capabilities?.sqlDialect ?? '')}

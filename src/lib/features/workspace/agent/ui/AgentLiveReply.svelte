@@ -35,7 +35,7 @@
 		</button>
 		{#if showReasoning}
 			<p
-				class="m-0 mt-1 max-h-40 overflow-auto rounded-md bg-elevated px-2 py-1.5 text-caption whitespace-pre-wrap text-fg-muted"
+				class="m-0 mt-1 max-h-40 overflow-auto rounded-md bg-hover px-2.5 py-2 text-caption whitespace-pre-wrap text-fg-muted"
 			>
 				{run.reasoning.slice(-4000)}
 			</p>
@@ -66,7 +66,7 @@
 	</li>
 {/if}
 <li
-	class="flex items-center gap-2 self-stretch rounded-lg bg-elevated px-2.5 py-2"
+	class="flex items-center gap-2 self-stretch rounded-[10px] bg-hover py-1.5 pr-1.5 pl-3"
 	aria-live="polite"
 	transition:fade={{ duration: 160 }}
 >

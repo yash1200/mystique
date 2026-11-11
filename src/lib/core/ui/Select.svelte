@@ -35,6 +35,8 @@
 		mono?: boolean
 		/** Import mapping: accent when a value is picked, muted when skipped. */
 		tint?: 'accent' | 'muted'
+		/** The open menu spans this element (a panel header) instead of the trigger. */
+		menuAnchor?: HTMLElement | null
 		class?: string
 		id?: string
 		/** Fires after the bound value changes. */
@@ -54,6 +56,7 @@
 		menuLabel,
 		mono = false,
 		tint,
+		menuAnchor = null,
 		class: className = '',
 		id,
 		onchange,
@@ -100,11 +103,18 @@
 			Math.max(80, openUp ? spaceAbove : spaceBelow),
 		)
 
+		// An anchor gives the menu its span, inset so the border sits inside it.
+		const span = menuAnchor?.getBoundingClientRect()
+		const inset = 6
 		const width = Math.round(
-			Math.max(rect.width, variant === 'quiet' ? 224 : 0),
+			span
+				? span.width - inset * 2
+				: Math.max(rect.width, variant === 'quiet' ? 224 : 0),
 		)
 		const left = Math.round(
-			Math.min(rect.left, Math.max(8, window.innerWidth - width - 8)),
+			span
+				? span.left + inset
+				: Math.min(rect.left, Math.max(8, window.innerWidth - width - 8)),
 		)
 		if (openUp) {
 			menuStyle = [
