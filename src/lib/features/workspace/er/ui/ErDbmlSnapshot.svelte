@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, IconButton, Pill, Spinner } from '#core/ui'
+	import { Icon, IconButton, Pill, SideDrawer, Spinner } from '#core/ui'
 	import { highlightCode, tokenClass, type SyntaxToken } from '#core/util'
 
 	interface Props {
@@ -26,15 +26,11 @@
 	})
 </script>
 
-<aside
-	class="flex w-[min(24rem,38vw)] shrink-0 flex-col border-l border-line bg-surface"
-	aria-label="DBML"
->
-	<header class="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-1.5 pl-3">
-		<span class="flex text-fg-muted [&_svg]:size-4" aria-hidden="true"><Icon name="code" /></span>
-		<h2 class="m-0 text-label font-semibold text-fg">DBML</h2>
+<SideDrawer title="DBML" icon="code" closeLabel="Close DBML" {onclose}>
+	{#snippet badge()}
 		<Pill uppercase compact>{busy ? 'Generating' : 'Snapshot'}</Pill>
-		<span class="flex-1"></span>
+	{/snippet}
+	{#snippet actions()}
 		<IconButton
 			label={copied ? 'Copied' : 'Copy DBML'}
 			size="sm"
@@ -44,17 +40,14 @@
 		>
 			<Icon name={copied ? 'check' : 'copy'} />
 		</IconButton>
-		<IconButton label="Close DBML" size="sm" variant="quiet" onclick={onclose}>
-			<Icon name="close" />
-		</IconButton>
-	</header>
+	{/snippet}
 
 	{#if busy && !text}
 		<div class="flex flex-1 items-center justify-center gap-2 text-caption text-fg-muted">
 			<Spinner size="sm" />Generating DBML…
 		</div>
 	{:else}
-		<div class="dbml min-h-0 flex-1 overflow-auto bg-app py-2.5" role="region" aria-label="DBML snapshot" tabindex="-1">
+		<div class="min-h-0 flex-1 overflow-auto bg-app py-2.5" role="region" aria-label="DBML snapshot" tabindex="-1">
 			<pre class="m-0 w-max min-w-full font-mono text-caption leading-[1.7] select-text"><code
 					>{#each lines as row, n (n)}<span class="flex"><span
 								class="sticky left-0 w-10 shrink-0 bg-app pr-3 text-right text-fg-muted/60 tabular-nums select-none"
@@ -67,11 +60,4 @@
 				></pre>
 		</div>
 	{/if}
-</aside>
-
-<style>
-	.dbml {
-		scrollbar-width: thin;
-		scrollbar-color: var(--line-2) transparent;
-	}
-</style>
+</SideDrawer>
