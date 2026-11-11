@@ -21,6 +21,7 @@ pub(super) enum DepthFeature {
     Metrics,
     Terminate,
     Er,
+    Explorer,
     TableAdmin(TableAdminOp),
 }
 
@@ -30,6 +31,7 @@ impl DepthFeature {
             Self::Metrics => caps.supports_server_metrics,
             Self::Terminate => caps.supports_terminate_session,
             Self::Er => caps.supports_er_diagram || caps.supports_model_view,
+            Self::Explorer => caps.supports_explorer,
             Self::TableAdmin(op) => admin_allowed(caps, op),
         }
     }
@@ -39,6 +41,7 @@ impl DepthFeature {
             Self::Metrics => "Server metrics are outside this product's support depth.",
             Self::Terminate => "Terminating a backend session is not available for this product.",
             Self::Er => "ER and model view are outside this product's support depth.",
+            Self::Explorer => "The object explorer is outside this product's support depth.",
             Self::TableAdmin(_) => "Table admin is outside this product's support depth.",
         }
     }

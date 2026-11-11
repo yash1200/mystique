@@ -138,6 +138,7 @@ export const mongodb: EngineAdapter = {
 		codeFilterPlaceholder: '{ "email": "user@example.com" }',
 		objectKinds: [...DOCUMENT_OBJECT_KINDS],
 		paging: 'offset',
+		supportsCatalogPaging: false,
 		tableAdmin: {
 			createStatement: true,
 			rename: true,

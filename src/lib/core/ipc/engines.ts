@@ -11,6 +11,7 @@ import type {
 	BatchEvent,
 	CatalogColumnRow,
 	CatalogDatabase,
+	CatalogPage,
 	CatalogRelationship,
 	ExecuteQueryRequest,
 	ExplainPlan,
@@ -27,6 +28,7 @@ import type {
 	ImportObjectRequest,
 	ImportObjectResult,
 	ListCatalogColumnsRequest,
+	ListCatalogChildrenRequest,
 	ListCatalogRequest,
 	ListRelationshipsRequest,
 	ObjectStructure,
@@ -260,6 +262,13 @@ export async function listEngineCatalog(
 	request: ListCatalogRequest,
 ): Promise<CatalogDatabase[]> {
 	return invoke('list_engine_catalog', { request })
+}
+
+/** One explorer level, a page at a time. Follow `nextCursor` for more. */
+export async function listEngineCatalogChildren(
+	request: ListCatalogChildrenRequest,
+): Promise<CatalogPage> {
+	return invoke('list_engine_catalog_children', { request })
 }
 
 export async function listEngineRelationships(

@@ -216,6 +216,7 @@ pub fn run() {
             ipc::engines::fetch_engine_table_preview,
             ipc::engines::fetch_engine_table_preview_stats,
             ipc::engines::list_engine_catalog,
+            ipc::engines::list_engine_catalog_children,
             ipc::engines::list_engine_relationships,
             ipc::engines::apply_engine_table_admin,
             ipc::engines::export_engine_object,

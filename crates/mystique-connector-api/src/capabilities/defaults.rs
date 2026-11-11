@@ -54,6 +54,7 @@ impl EngineCapabilities {
             support_depth: SupportDepth::Operate,
             object_kinds: ObjectKindSpec::relational(),
             paging: PagingStyle::Offset,
+            supports_catalog_paging: false,
         }
     }
 
@@ -96,6 +97,7 @@ impl EngineCapabilities {
             support_depth: SupportDepth::Operate,
             object_kinds: ObjectKindSpec::document(),
             paging: PagingStyle::Offset,
+            supports_catalog_paging: false,
         }
     }
 }
@@ -126,6 +128,7 @@ mod tests {
             assert_eq!(caps.support_depth, SupportDepth::Operate);
             assert!(caps.supports_explorer);
             assert_eq!(caps.paging, PagingStyle::Offset);
+            assert!(!caps.supports_catalog_paging);
             assert!(!caps.object_kinds.is_empty());
         }
     }
@@ -195,6 +198,7 @@ mod tests {
         assert_eq!(caps.support_depth, SupportDepth::Operate);
         assert!(caps.supports_explorer);
         assert_eq!(caps.paging, PagingStyle::Offset);
+        assert!(!caps.supports_catalog_paging);
         assert!(caps.object_kinds.is_empty());
     }
 }

@@ -1,7 +1,8 @@
 use mystique_connector_api::{
-    hidden_schemas, CatalogColumnRow, CatalogDatabase, CatalogRelationship, ColumnInfo,
-    ConnectorError, ConnectorResult, DescribeTableRequest, ListCatalogColumnsRequest,
-    ListCatalogRequest, ListRelationshipsRequest,
+    hidden_schemas, CatalogColumnRow, CatalogDatabase, CatalogPage, CatalogRelationship,
+    ColumnInfo, ConnectorError, ConnectorResult, DescribeTableRequest, ListCatalogChildrenRequest,
+    ListCatalogColumnsRequest, ListCatalogRequest, ListRelationshipsRequest, KIND_DATABASE,
+    KIND_SCHEMA,
 };
 
 use super::depth::{reject_beyond_depth, DepthFeature};
@@ -98,6 +99,22 @@ impl ConnectionManager {
         Ok(databases)
     }
 
+    /// One level of the explorer, paged. Product system schemas are hidden
+    /// the same way [`Self::list_catalog`] hides them.
+    pub async fn list_catalog_children(
+        &self,
+        req: ListCatalogChildrenRequest,
+    ) -> ConnectorResult<CatalogPage> {
+        let meta = self.session_meta(&req.session_id).await?;
+        reject_beyond_depth(&meta.caps, DepthFeature::Explorer)?;
+        let input = req.into_input();
+        let mut page = self
+            .with_metadata(meta.session.list_catalog_children(&input))
+            .await?;
+        hide_system_nodes(&meta.product_id, &mut page);
+        Ok(page)
+    }
+
     pub async fn list_relationships(
         &self,
         req: ListRelationshipsRequest,
@@ -164,6 +181,25 @@ pub(super) fn hide_system_schemas(product_id: &str, databases: &mut Vec<CatalogD
     }
 }
 
+/// [`hide_system_schemas`] for one page: database and schema nodes by name,
+/// objects by their schema.
+pub(super) fn hide_system_nodes(product_id: &str, page: &mut CatalogPage) {
+    let hidden = hidden_schemas(product_id);
+    if hidden.is_empty() {
+        return;
+    }
+    page.nodes.retain(|node| {
+        let is_container = node.kind == KIND_DATABASE || node.kind == KIND_SCHEMA;
+        if is_container && schema_hidden(&node.name, hidden) {
+            return false;
+        }
+        match node.schema.as_deref() {
+            Some(schema) => !schema_hidden(schema, hidden),
+            None => true,
+        }
+    });
+}
+
 fn schema_hidden(name: &str, hidden: &[&str]) -> bool {
     hidden.iter().any(|item| name.eq_ignore_ascii_case(item))
 }
@@ -190,6 +226,32 @@ mod hide_tests {
             system: false,
             objects: vec![],
         }
+    }
+
+    #[test]
+    fn cockroach_pages_drop_internal_schema_nodes_and_their_objects() {
+        use mystique_connector_api::{CatalogNode, CatalogPage};
+        let node = |name: &str, kind: &str, schema: Option<&str>| CatalogNode {
+            name: name.into(),
+            kind: kind.into(),
+            database: Some("defaultdb".into()),
+            schema: schema.map(str::to_string),
+            has_children: kind == KIND_SCHEMA,
+            row_count: None,
+            meta: None,
+        };
+        let mut page = CatalogPage {
+            nodes: vec![
+                node("public", KIND_SCHEMA, None),
+                node("crdb_internal", KIND_SCHEMA, None),
+                node("users", "table", Some("public")),
+                node("jobs", "table", Some("crdb_internal")),
+            ],
+            next_cursor: None,
+        };
+        hide_system_nodes("cockroachdb", &mut page);
+        let names: Vec<_> = page.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["public", "users"]);
     }
 
     #[test]

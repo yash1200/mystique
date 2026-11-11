@@ -212,6 +212,10 @@ pub struct EngineCapabilities {
     /// How the grid asks for the next page of a table.
     #[serde(default)]
     pub paging: PagingStyle,
+    /// The plugin implements `list_catalog_children` itself (paged, lazy).
+    /// When false the default derives pages from `list_catalog`.
+    #[serde(default)]
+    pub supports_catalog_paging: bool,
 }
 
 /// One kind of catalog object (`table`, `view`, `matview`, `sequence`,

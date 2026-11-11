@@ -366,6 +366,26 @@ pub trait ConnectorSession: Send + Sync {
         )))
     }
 
+    /// One level of the explorer tree, a page at a time (see
+    /// [`crate::catalog_page`]). The default derives it from
+    /// [`ConnectorSession::list_catalog`]; engines with very large catalogs
+    /// (Redis keys, Elasticsearch indices) override it and set
+    /// `supports_catalog_paging`.
+    async fn list_catalog_children(
+        &self,
+        input: &crate::ListCatalogChildrenInput,
+    ) -> ConnectorResult<crate::CatalogPage> {
+        let databases = self
+            .list_catalog(
+                input.parent.database.as_deref(),
+                input.parent.database.is_some(),
+            )
+            .await?;
+        let schema_tree = self.capabilities().explorer.layout == "schema-tree";
+        let level = crate::catalog_level(&databases, &input.parent, schema_tree)?;
+        crate::page_nodes(level, input)
+    }
+
     /// Declared relationships for live ER. Default: none (document / KV engines).
     async fn list_relationships(
         &self,

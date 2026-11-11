@@ -517,6 +517,23 @@ pub async fn list_engine_catalog(
     .await
 }
 
+/// One explorer level, paged (`list_catalog_children`).
+#[tauri::command]
+pub async fn list_engine_catalog_children(
+    state: State<'_, AppState>,
+    request: mystique_core::ListCatalogChildrenRequest,
+) -> Result<mystique_core::CatalogPage, IpcError> {
+    super::guard(async move {
+        state
+            .services
+            .connections()
+            .list_catalog_children(request)
+            .await
+            .map_err(IpcError::from)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn list_engine_relationships(
     state: State<'_, AppState>,

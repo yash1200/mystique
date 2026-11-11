@@ -210,6 +210,27 @@ export type CatalogColumnRow = { database?: string | null, schema?: string | nul
 export type CatalogDatabase = { name: string, meta?: string | null, system: boolean, objects: Array<CatalogObject>, };
 
 /**
+ * One node in the explorer tree.
+ */
+export type CatalogNode = { name: string, 
+/**
+ * `database`, `schema`, or one of the plugin's object kinds.
+ */
+kind: string, database?: string, schema?: string, 
+/**
+ * The node can be expanded (databases, schemas, key folders).
+ */
+hasChildren: boolean, 
+/**
+ * Engine estimate, when it has one.
+ */
+rowCount?: number, 
+/**
+ * Short label for the picker (size, owner, `system`).
+ */
+meta?: string, };
+
+/**
  * One table / view / collection in the explorer.
  */
 export type CatalogObject = { name: string, schema?: string | null, database?: string | null, 
@@ -217,6 +238,24 @@ export type CatalogObject = { name: string, schema?: string | null, database?: s
  * `table` | `view` | `collection`
  */
 kind: string, rowCount: number, };
+
+/**
+ * One page of children.
+ */
+export type CatalogPage = { nodes: Array<CatalogNode>, 
+/**
+ * Pass back as `cursor` for the next page. `None`: no more children.
+ */
+nextCursor?: string, };
+
+/**
+ * Which node's children to list.
+ */
+export type CatalogPath = { database?: string | null, schema?: string | null, 
+/**
+ * Plugin-defined nesting below the schema (key folders, index aliases).
+ */
+prefix?: Array<string>, };
 
 /**
  * Declared relationship (FK or equivalent) for live ER.
@@ -539,7 +578,12 @@ objectKinds: Array<ObjectKindSpec>,
 /**
  * How the grid asks for the next page of a table.
  */
-paging: PagingStyle, };
+paging: PagingStyle, 
+/**
+ * The plugin implements `list_catalog_children` itself (paged, lazy).
+ * When false the default derives pages from `list_catalog`.
+ */
+supportsCatalogPaging: boolean, };
 
 export type EngineFamily = "RELATIONAL" | "DOCUMENT" | "WIDE_COLUMN" | "KEY_VALUE" | "OTHER";
 
@@ -803,6 +847,24 @@ export type LargeCellKey = { column: string, value: JsonValue, dataType?: string
  * Handed back by the grid to load the rest of one cell. No SQL text.
  */
 export type LargeCellLocator = { database?: string | null, schema?: string | null, table: string, column: string, keys: Array<LargeCellKey>, };
+
+/**
+ * IPC request.
+ */
+export type ListCatalogChildrenRequest = { sessionId: string, parent?: CatalogPath, 
+/**
+ * The previous page's `next_cursor`.
+ */
+cursor?: string | null, 
+/**
+ * Page size; clamped to [`CATALOG_PAGE_MAX`].
+ */
+limit?: number | null, 
+/**
+ * Case-insensitive name filter, applied by the engine where it can
+ * (`SCAN MATCH`, `LIKE`) so a huge level is searched server-side.
+ */
+filter?: string | null, };
 
 /**
  * Optional scope for bulk column listing.

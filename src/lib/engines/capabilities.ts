@@ -156,6 +156,7 @@ export function relationalCapabilities(
 		supportDepth: 'operate',
 		objectKinds: [...SQL_OBJECT_KINDS],
 		paging: 'offset',
+		supportsCatalogPaging: false,
 		...over,
 		explorer,
 	}
@@ -376,6 +377,11 @@ export function mergeCapabilities(
 			fallback.objectKinds ?? [],
 		),
 		paging: asPaging(c.paging, fallback.paging ?? 'offset'),
+		supportsCatalogPaging: asBool(
+			c.supportsCatalogPaging ??
+				(c as { supports_catalog_paging?: unknown }).supports_catalog_paging,
+			fallback.supportsCatalogPaging ?? false,
+		),
 	}
 	return applySupportDepth(merged)
 }

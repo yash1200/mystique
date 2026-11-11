@@ -31,6 +31,7 @@ describe('object kinds', () => {
 		const caps = mergeCapabilities({ ...base, objectKinds: [] }, base)
 		expect(caps.objectKinds.map((k) => k.id)).toEqual(['table', 'view'])
 		expect(caps.paging).toBe('offset')
+		expect(caps.supportsCatalogPaging).toBe(false)
 	})
 
 	it('treats an unknown kind as a grouped, definition-only object', () => {
