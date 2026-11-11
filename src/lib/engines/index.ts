@@ -41,6 +41,8 @@ export {
 export type { SqlCompleteConfig, SqlSnippetKind } from './sql/complete'
 // Completions live in each engine's `editor()`, so CodeMirror stays out of this index.
 export { catalogSignature } from './sql/signature'
+export { findCloser, isDigit, isIdentByte, isIdentStart } from './sql/scan'
+export { quoteIdent, type IdentQuote } from './sql/quote'
 
 // Statement models for run-at-cursor: SQL (same rules as `mystique-sql`) and the Mongo shell.
 export {

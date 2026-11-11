@@ -1,6 +1,15 @@
 <script lang="ts">
-	import { Button, Icon, IconButton, Pager, StatusBar, ViewLinks, type ViewLink } from '#core/ui'
-	import { cn, fetchedLabel } from '#core/util'
+	import {
+		Button,
+		FetchedAgo,
+		Icon,
+		IconButton,
+		Pager,
+		StatusBar,
+		ViewLinks,
+		type ViewLink,
+	} from '#core/ui'
+	import { cn } from '#core/util'
 	import { StatusNote } from '#features/toast'
 	interface Props {
 		dirtyCount: number
@@ -78,14 +87,6 @@
 		}
 		return out
 	})
-	let now = $state(Date.now())
-
-	$effect(() => {
-		const id = window.setInterval(() => {
-			now = Date.now()
-		}, 15_000)
-		return () => window.clearInterval(id)
-	})
 </script>
 
 <StatusBar class={views.length ? 'pl-1.5!' : ''} ariaLabel="Table status">
@@ -138,12 +139,7 @@
 	{/snippet}
 	{#snippet right()}
 		{#if lastFetchedAt != null}
-			<span
-				class="mr-1 min-w-0 truncate text-[0.71875rem] tabular-nums"
-				title={new Date(lastFetchedAt).toLocaleString()}
-			>
-				Fetched {fetchedLabel(lastFetchedAt, now)}
-			</span>
+			<FetchedAgo at={lastFetchedAt} class="mr-1" />
 		{/if}
 		<IconButton
 			label={refreshing ? 'Refreshing table' : 'Refresh table (⌘/Ctrl+R)'}

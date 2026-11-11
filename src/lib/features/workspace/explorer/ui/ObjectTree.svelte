@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type { DatabaseMeta, ObjectKindSpec, TableMeta } from '#core/contracts'
-	import { Icon } from '#core/ui'
+	import {
+		EmptyHint,
+		Icon,
+	} from '#core/ui'
 	import { cn } from '#core/util'
 	import {
 		CatalogIcon,
@@ -265,60 +268,26 @@
 	aria-busy={busy || undefined}
 >
 	{#if !currentDb}
-		<div
-			class="flex flex-col items-center justify-center px-3 py-8 text-center"
+		<EmptyHint
+			title="No database selected"
+			description="Choose a database above to browse {objectLabel}."
 		>
-			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
-				aria-hidden="true"
-			>
-				<CatalogIcon name="database" class="size-4" />
-			</span>
-			<p class="m-0 text-label font-medium text-fg">No database selected</p>
-			<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
-				Choose a database above to browse {objectLabel}.
-			</p>
-		</div>
+			{#snippet glyph()}<CatalogIcon name="database" class="size-4" />{/snippet}
+		</EmptyHint>
 	{:else if busy && totalCount === 0 && groups.length === 0 && !query.trim()}
-		<div
-			class="flex flex-col items-center justify-center px-3 py-8 text-center"
-		>
-			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
-				aria-hidden="true"
-			>
-				<Icon name="refresh" class="size-4 animate-spin text-fg-muted" />
-			</span>
-			<p class="m-0 text-label font-medium text-fg">Loading {objectLabel}…</p>
-		</div>
+		<EmptyHint title="Loading {objectLabel}…">
+			{#snippet glyph()}<Icon name="refresh" class="animate-spin" />{/snippet}
+		</EmptyHint>
 	{:else if totalCount === 0 && groups.length === 0}
-		<div
-			class="flex flex-col items-center justify-center px-3 py-8 text-center"
-		>
-			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
-				aria-hidden="true"
-			>
-				<Icon
-					name={query.trim() ? 'search' : 'table'}
-					class="size-4 text-fg-muted"
-				/>
-			</span>
-			{#if query.trim()}
-				<p class="m-0 text-label font-medium text-fg">No matches</p>
-				<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
-					Nothing matches “{query.trim()}”.
-				</p>
-			{:else}
-				<p class="m-0 text-label font-medium text-fg">
-					No {objectLabel}
-				</p>
-				<p class="mt-0.5 text-caption leading-relaxed text-fg-muted">
-					<span class="font-mono text-fg-secondary">{currentDb.name}</span>
-					has no {objectLabel} yet.
-				</p>
-			{/if}
-		</div>
+		{#if query.trim()}
+			<EmptyHint icon="search" title="No matches" description="Nothing matches “{query.trim()}”." />
+		{:else}
+			<EmptyHint
+				icon="table"
+				title="No {objectLabel}"
+				description="{currentDb.name} has no {objectLabel} yet."
+			/>
+		{/if}
 	{:else if isTree}
 		{#each groups as group (group.key)}
 			{@const expanded = isExpanded(group.key)}

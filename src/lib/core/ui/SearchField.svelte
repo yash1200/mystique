@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { Icon, Input } from '#core/ui'
+	import Icon from './Icon.svelte'
+	import Input from './Input.svelte'
+
+	/** A small filter box: search glyph, clear button, Escape clears. */
 	interface Props {
 		value?: string
 		placeholder?: string
@@ -10,7 +13,7 @@
 	let {
 		value = $bindable(''),
 		placeholder = 'Filter…',
-		id = 'explorer-filter',
+		id = 'search-field',
 		label,
 	}: Props = $props()
 

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Icon } from '#core/ui'
-	import { cn } from '#core/util'
+	import { Icon, Pill } from '#core/ui'
+	import { cn, splitQualifiedName } from '#core/util'
 	import type { IconName } from '#icons'
 	import { erNodeKindShort } from '../constants'
 	import type { ErNode } from '../types'
@@ -51,13 +51,7 @@
 		node.kind === 'collection' ? 'collection' : node.kind === 'key_pattern' ? 'schema' : 'table',
 	)
 
-	/** `schema.table` → a quiet schema and a bold table name. */
-	const title = $derived.by(() => {
-		const dot = node.name.indexOf('.')
-		return dot > 0
-			? { schema: node.name.slice(0, dot + 1), name: node.name.slice(dot + 1) }
-			: { schema: '', name: node.name }
-	})
+	const title = $derived(splitQualifiedName(node.name))
 
 	const z = $derived(isDragging ? 5 : inLinkFocus ? 4 : dimmed ? 1 : 2)
 </script>
@@ -101,9 +95,7 @@
 				class="font-semibold text-fg">{title.name}</span
 			>
 		</span>
-		<span class="badge badge-sm border border-line-strong text-fg-muted">
-			{erNodeKindShort(node.kind)}
-		</span>
+		<Pill uppercase compact>{erNodeKindShort(node.kind)}</Pill>
 	</div>
 
 	<ul class="m-0 list-none p-0 [&>li:last-child>button]:border-b-0">

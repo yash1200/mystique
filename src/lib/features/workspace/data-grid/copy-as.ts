@@ -2,9 +2,10 @@
  * Copy a grid selection as SQL text.
  * Identifiers follow the plugin quote style. Values are literals, never spliced raw.
  */
+import { quoteIdent, type IdentQuote } from '#engines'
 import { isLargeCell, largeCellText } from './large-cell'
 
-export type IdentStyle = 'postgres' | 'mysql'
+export type IdentStyle = IdentQuote
 
 export type CopyColumn = {
 	name: string
@@ -24,10 +25,6 @@ export function identStyleFor(engine: string, sqlDialect: string): IdentStyle {
 	return 'postgres'
 }
 
-export function quoteIdent(style: IdentStyle, id: string): string {
-	if (style === 'mysql') return `\`${id.replace(/`/g, '``')}\``
-	return `"${id.replace(/"/g, '""')}"`
-}
 
 function qualifyTable(
 	style: IdentStyle,

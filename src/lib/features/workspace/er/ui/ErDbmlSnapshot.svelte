@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon, IconButton, Spinner } from '#core/ui'
+	import { Icon, IconButton, Pill, Spinner } from '#core/ui'
 	import { highlightCode, tokenClass, type SyntaxToken } from '#core/util'
 
 	interface Props {
@@ -33,9 +33,7 @@
 	<header class="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-1.5 pl-3">
 		<span class="flex text-fg-muted [&_svg]:size-4" aria-hidden="true"><Icon name="code" /></span>
 		<h2 class="m-0 text-label font-semibold text-fg">DBML</h2>
-		<span class="badge badge-sm border border-line-strong text-fg-muted">
-			{busy ? 'Generating' : 'Snapshot'}
-		</span>
+		<Pill uppercase compact>{busy ? 'Generating' : 'Snapshot'}</Pill>
 		<span class="flex-1"></span>
 		<IconButton
 			label={copied ? 'Copied' : 'Copy DBML'}

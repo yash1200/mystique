@@ -48,7 +48,6 @@
 	let error = $state<string | null>(null)
 	let loading = $state(false)
 	let fetchedAt = $state<number | null>(null)
-	let now = $state(Date.now())
 	let pending = $state<ActiveBackendSession | null>(null)
 	let ending = $state(false)
 	let sessionFilter = $state('')
@@ -126,12 +125,6 @@
 		return () => window.clearInterval(id)
 	})
 
-	$effect(() => {
-		const id = window.setInterval(() => {
-			now = Date.now()
-		}, 15_000)
-		return () => window.clearInterval(id)
-	})
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-app">
@@ -194,7 +187,7 @@
 		{/if}
 	</div>
 
-	<MetricsStatusBar {fetchedAt} {now} {live} {snapshot} />
+	<MetricsStatusBar {fetchedAt} {live} {snapshot} />
 </div>
 
 <TerminateSessionModal

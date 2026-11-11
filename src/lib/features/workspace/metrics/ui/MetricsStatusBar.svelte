@@ -1,27 +1,23 @@
 <script lang="ts">
 	import type { ServerMetricsSnapshot } from '#core/contracts'
-	import { StatusBar } from '#core/ui'
-	import { fetchedLabel } from '#core/util'
+	import { FetchedAgo, StatusBar } from '#core/ui'
 
 	interface Props {
 		fetchedAt: number | null
-		now: number
 		live: boolean
 		snapshot: ServerMetricsSnapshot | null
 	}
 
-	let { fetchedAt, now, live, snapshot }: Props = $props()
+	let { fetchedAt, live, snapshot }: Props = $props()
 </script>
 
 <StatusBar ariaLabel="Metrics status">
 	{#snippet left()}
-		<span>
-			{#if fetchedAt}
-				Collected {fetchedLabel(fetchedAt, now).toLowerCase()}
-			{:else}
-				Loading…
-			{/if}
-		</span>
+		{#if fetchedAt}
+			<FetchedAgo at={fetchedAt} prefix="Collected" />
+		{:else}
+			<span>Loading…</span>
+		{/if}
 		{#if live}
 			<span class="text-fg-muted"> · live</span>
 		{/if}

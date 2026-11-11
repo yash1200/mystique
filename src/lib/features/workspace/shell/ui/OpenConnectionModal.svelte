@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ConnectionProfile } from '#core/contracts'
 	import { Button, Icon, Input, Modal, Pill } from '#core/ui'
-	import { cn } from '#core/util'
+	import { byName, cn } from '#core/util'
 	import { engineLabel } from '#engines'
 	import {
 		ConnectionTile,
@@ -45,10 +45,7 @@
 				})
 		return [...rows].sort((a, b) => {
 			if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
-			return (
-				a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) ||
-				a.id.localeCompare(b.id)
-			)
+			return byName(a, b)
 		})
 	})
 

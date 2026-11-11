@@ -3,9 +3,10 @@
 		ContextMenu,
 		Icon,
 		IconButton,
-		Input,
+		SearchField,
 		type ContextMenuItem,
 	} from '#core/ui'
+	import { byName } from '#core/util'
 	import { appPrefs, type SavedQueryListSort } from '#lib/app'
 	import type { QueryHistoryEntry } from '../history/history-types'
 	import type { SavedQueryListItem } from '../saved/saved-types'
@@ -59,14 +60,6 @@
 
 	const title = $derived(mode === 'saved-queries' ? 'Saved queries' : 'History')
 
-	function byName(a: SavedQueryListItem, b: SavedQueryListItem): number {
-		return (
-			a.name.localeCompare(b.name, undefined, {
-				numeric: true,
-				sensitivity: 'base',
-			}) || a.id.localeCompare(b.id)
-		)
-	}
 
 	function compareSaved(
 		a: SavedQueryListItem,
@@ -209,37 +202,7 @@
 			</div>
 		</div>
 		<div class="px-2 pb-2">
-			<div class="relative">
-				<label class="sr-only" for={filterId}>{filterLabel}</label>
-				<Icon
-					name="search"
-					class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-fg-muted"
-				/>
-				<Input
-					id={filterId}
-					type="search"
-					placeholder={filterPlaceholder}
-					bind:value={query}
-					inputSize="sm"
-					inset={query.length > 0 ? 'both' : 'start'}
-					class="[appearance:textfield] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
-					onkeydown={(e) => {
-						if (e.key !== 'Escape' || !query) return
-						e.stopPropagation()
-						query = ''
-					}}
-				/>
-				{#if query.length > 0}
-					<button
-						type="button"
-						class="absolute top-1/2 right-0.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm border-none bg-transparent text-fg-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1 enabled:active:scale-[0.97]"
-						aria-label="Clear filter"
-						onclick={() => (query = '')}
-					>
-						<Icon name="close" class="size-3" />
-					</button>
-				{/if}
-			</div>
+			<SearchField bind:value={query} id={filterId} placeholder={filterPlaceholder} label={filterLabel} />
 		</div>
 	</header>
 

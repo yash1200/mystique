@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		Button,
+		ControlGroup,
 		EmptyState,
 		Field,
 		Icon,
@@ -176,9 +177,7 @@
 			</EmptyState>
 		</div>
 	{:else}
-		<div
-			class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface"
-		>
+		<ControlGroup class="mt-4">
 			{#each configured as p (p.id)}
 				<div class="px-3 py-3">
 					<div class="mb-2 flex items-baseline justify-between gap-2">
@@ -310,7 +309,7 @@
 					</Button>
 				</div>
 			{/if}
-		</div>
+		</ControlGroup>
 	{/if}
 	<AgentBackendSettings />
 	<AgentAccessDefault />

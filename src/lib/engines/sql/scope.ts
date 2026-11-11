@@ -4,6 +4,7 @@
  */
 import type { CatalogColumnRow } from '#core/contracts'
 import type { Completion } from '@codemirror/autocomplete'
+import { findCloser, isIdentByte, isIdentStart } from './scan'
 
 import { quoteIdent, type IdentQuote } from './quote'
 
@@ -66,13 +67,7 @@ const NOT_ALIAS = new Set([
 
 type TableRef = { schema: string | null; table: string }
 
-function isIdentStart(code: number): boolean {
-	return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95
-}
 
-function isIdentByte(code: number): boolean {
-	return isIdentStart(code) || (code >= 48 && code <= 57)
-}
 
 function skipWs(sql: string, index: number): number {
 	let i = index
@@ -162,10 +157,6 @@ function dollarQuoteEnd(sql: string, start: number): number | null {
 	return findCloser(sql, tagEnd + 1, sql.slice(start, tagEnd + 1))
 }
 
-function findCloser(sql: string, index: number, tag: string): number {
-	const at = sql.indexOf(tag, index)
-	return at < 0 ? sql.length : at + tag.length
-}
 
 function readIdent(sql: string, index: number): { word: string; end: number } | null {
 	if (!isIdentStart(sql.charCodeAt(index))) return null

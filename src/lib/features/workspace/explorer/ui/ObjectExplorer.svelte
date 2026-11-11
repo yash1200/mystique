@@ -5,11 +5,10 @@
 		TableMeta,
 	} from '#core/contracts'
 	import {
-	} from '#features/connections'
-	import {
 		ContextMenu,
 		Icon,
 		IconButton,
+		SearchField,
 		Select,
 		type ContextMenuItem,
 	} from '#core/ui'
@@ -24,7 +23,6 @@
 	import { CatalogIcon } from '#features/workspace/catalog'
 	import CreateDatabaseForm from './CreateDatabaseForm.svelte'
 	import TableNameDialog from './TableNameDialog.svelte'
-	import ExplorerSearch from './ExplorerSearch.svelte'
 	import ObjectTree from './ObjectTree.svelte'
 	export type TableExplorerAction =
 		| 'open'
@@ -584,7 +582,8 @@
 		</div>
 
 		<div class="mt-2">
-			<ExplorerSearch
+			<SearchField
+				id="explorer-filter"
 				bind:value={query}
 				placeholder={presentation.filterPlaceholder}
 				label={presentation.filterPlaceholder}

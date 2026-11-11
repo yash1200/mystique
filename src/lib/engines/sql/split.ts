@@ -6,6 +6,7 @@
  * Offsets are string (UTF-16) indexes. Rust reports byte offsets; the
  * statement text is the same.
  */
+import { isDigit } from './scan'
 
 export type SqlSplitDialect = 'postgres' | 'mysql' | 'sqlite' | 'generic'
 
@@ -204,9 +205,6 @@ function isWordCode(c: number): boolean {
 	)
 }
 
-function isDigit(c: number): boolean {
-	return c >= 48 && c <= 57
-}
 
 /** Rust's `u8::is_ascii_whitespace` (no vertical tab). */
 function isAsciiSpace(c: number): boolean {

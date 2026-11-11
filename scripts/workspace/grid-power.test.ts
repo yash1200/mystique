@@ -7,9 +7,9 @@ import {
 	buildUpdateSql,
 	buildWhereSql,
 	identStyleFor,
-	quoteIdent,
 	sqlLiteral,
 } from '../../src/lib/features/workspace/data-grid/copy-as.ts'
+import { quoteIdent } from '../../src/lib/engines/sql/quote.ts'
 import {
 	layoutColumns,
 	moveColumn,

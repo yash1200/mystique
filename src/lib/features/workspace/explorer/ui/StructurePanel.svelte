@@ -8,9 +8,13 @@
 	import {
 		Alert,
 		Button,
+		EmptyHint,
 		EmptyState,
+		FetchedAgo,
 		Icon,
 		IconButton,
+		Pill,
+		SearchField,
 		StatusBar,
 		ViewLinks,
 		type ViewLink,
@@ -18,14 +22,13 @@
 	import {
 		cn,
 		copyTextToClipboard,
-		fetchedLabel,
+		splitQualifiedName,
 	} from '#core/util'
 	import { showToast } from '#features/toast'
 	import type { IconName } from '#icons'
 	import { cmd } from '#lib/app'
 	import { onMount } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
-	import ExplorerSearch from './ExplorerSearch.svelte'
 	import StructureDiff from './StructureDiff.svelte'
 	import StructureEditor from './StructureEditor.svelte'
 
@@ -99,12 +102,7 @@
 		return 'structure'
 	})
 
-	/** `schema.table` → a quiet schema and the name in full weight. */
-	const title = $derived.by(() => {
-		const t = structure?.title ?? ''
-		const dot = t.indexOf('.')
-		return dot > 0 ? { schema: t.slice(0, dot + 1), name: t.slice(dot + 1) } : { schema: '', name: t }
-	})
+	const title = $derived(splitQualifiedName(structure?.title ?? ''))
 
 	const isColumns = $derived(section?.id === 'columns' || section?.id === 'fields')
 
@@ -138,15 +136,6 @@
 	function isEnumHeader(h: string): boolean {
 		return h.toLowerCase() === 'enum'
 	}
-
-	let now = $state(Date.now())
-
-	$effect(() => {
-		const id = window.setInterval(() => {
-			now = Date.now()
-		}, 15_000)
-		return () => window.clearInterval(id)
-	})
 
 	function selectSection(id: string) {
 		activeSection = id
@@ -370,14 +359,14 @@
 					>
 				</h1>
 				{#if structure.objectKind}
-					<span class="badge bg-hover text-fg-secondary shadow-[inset_0_0_0_1px_var(--line-2)]">{structure.objectKind}</span>
+					<Pill uppercase>{structure.objectKind}</Pill>
 				{/if}
 			</div>
 
 			<span class="min-w-0 flex-1"></span>
 
 			<div class="w-55 min-w-0 shrink">
-				<ExplorerSearch
+				<SearchField
 					bind:value={filter}
 					id="structure-filter"
 					placeholder={section ? `Filter ${section.title.toLowerCase()}…` : 'Filter…'}
@@ -454,50 +443,21 @@
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			{#if section}
 				{#if section.rows.length === 0}
-					<div
-						class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
-					>
-						<span
-							class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
-							aria-hidden="true"
-						>
-							<Icon
-								name={sectionIcon(section.id)}
-								class="size-4 text-fg-muted"
-							/>
-						</span>
-						<p class="m-0 text-label font-medium text-fg">
-							No {section.title.toLowerCase()}
-						</p>
-						<p class="mt-1 mb-0 max-w-prose-ui text-caption text-fg-muted">
-							{section.emptyMessage ||
-								`No ${section.title.toLowerCase()} on this object.`}
-						</p>
-					</div>
+					<EmptyHint
+						fill
+						icon={sectionIcon(section.id)}
+						title="No {section.title.toLowerCase()}"
+						description={section.emptyMessage || `No ${section.title.toLowerCase()} on this object.`}
+					/>
 				{:else if filteredRows.length === 0}
-					<div
-						class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
+					<EmptyHint
+						fill
+						icon="search"
+						title="No matches"
+						description="Nothing in {section.title.toLowerCase()} matches “{filter.trim()}”"
 					>
-						<span
-							class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
-							aria-hidden="true"
-						>
-							<Icon name="search" class="size-4 text-fg-muted" />
-						</span>
-						<p class="m-0 text-label font-medium text-fg">No matches</p>
-						<p class="mt-1 mb-3 text-caption text-fg-muted">
-							Nothing in {section.title.toLowerCase()} matches “{filter.trim()}”
-						</p>
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => {
-								filter = ''
-							}}
-						>
-							Clear filter
-						</Button>
-					</div>
+						<Button variant="ghost" size="sm" onclick={() => (filter = '')}>Clear filter</Button>
+					</EmptyHint>
 				{:else}
 					<div class="min-h-0 flex-1 overflow-auto">
 						<table class="w-full border-collapse text-left">
@@ -610,19 +570,11 @@
 		<StatusBar class={views.length ? 'pl-1.5!' : ''} ariaLabel="Structure status">
 			{#snippet left()}
 				<ViewLinks links={views} />
-				{#if lastFetchedAt != null}
-					<span
-						class="inline-flex min-w-0 items-center gap-1 truncate text-caption text-fg-muted"
-						title={new Date(lastFetchedAt).toLocaleString()}
-					>
-						<Icon name="history" class="size-3.5 shrink-0" />
-						<span class="truncate tabular-nums"
-							>{fetchedLabel(lastFetchedAt, now)}</span
-						>
-					</span>
-				{/if}
 			{/snippet}
 			{#snippet right()}
+				{#if lastFetchedAt != null}
+					<FetchedAgo at={lastFetchedAt} class="mr-1" />
+				{/if}
 				<IconButton
 					label="Copy this section as TSV"
 					size="sm"
@@ -651,19 +603,11 @@
 			{/snippet}
 		</StatusBar>
 	{:else}
-		<div
-			class="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
-		>
-			<span
-				class="mb-2 grid size-8 place-items-center rounded-lg bg-field"
-				aria-hidden="true"
-			>
-				<Icon name="structure" class="size-4 text-info" />
-			</span>
-			<p class="m-0 text-label font-medium text-fg">Object structure</p>
-			<p class="mt-1 mb-0 max-w-prose-ui text-caption text-fg-muted">
-				Right-click a table or collection and choose View structure.
-			</p>
-		</div>
+		<EmptyHint
+			fill
+			icon="structure"
+			title="Object structure"
+			description="Right-click a table or collection and choose View structure."
+		/>
 	{/if}
 </div>

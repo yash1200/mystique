@@ -2,6 +2,7 @@
  * Editor-side copy of `mystique-sql` `params.rs`.
  * The server still rejects a count mismatch. Values are never spliced in.
  */
+import { findCloser, isDigit, isIdentByte, isIdentStart } from '#engines'
 import type { SplitDialect } from '../editor/statement-span'
 
 export type ParamSlot = {
@@ -277,10 +278,6 @@ function dollarQuoteEnd(sql: string, start: number): number | null {
 	return findCloser(sql, tagEnd + 1, sql.slice(start, tagEnd + 1))
 }
 
-function findCloser(sql: string, index: number, tag: string): number {
-	const at = sql.indexOf(tag, index)
-	return at < 0 ? sql.length : at + tag.length
-}
 
 function dollarNumber(sql: string, start: number): { end: number; value: number } | null {
 	let index = start + 1
@@ -320,14 +317,5 @@ function namedIdent(sql: string, start: number): { end: number; value: string } 
 	return { end: index, value: sql.slice(start, index) }
 }
 
-function isIdentStart(code: number): boolean {
-	return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95
-}
 
-function isIdentByte(code: number): boolean {
-	return isIdentStart(code) || isDigit(code)
-}
 
-function isDigit(code: number): boolean {
-	return code >= 48 && code <= 57
-}

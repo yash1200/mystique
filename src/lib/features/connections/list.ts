@@ -3,6 +3,7 @@
  * the sidebar only renders what this returns.
  */
 import type { ConnectionProfile, Environment } from '#core/contracts'
+import { byName } from '#core/util'
 import type { ConnectionListSort } from '#lib/app'
 import { asEnvironment, configStr } from './model'
 
@@ -48,14 +49,6 @@ export function matchesQuery(profile: ConnectionProfile, query: string): boolean
 	].some((field) => field.toLowerCase().includes(q))
 }
 
-function byName(a: ConnectionProfile, b: ConnectionProfile): number {
-	return (
-		a.name.localeCompare(b.name, undefined, {
-			numeric: true,
-			sensitivity: 'base',
-		}) || a.id.localeCompare(b.id)
-	)
-}
 
 /** Newest first; a missing or unreadable time sorts last. */
 function byTimeDesc(a: string | null | undefined, b: string | null | undefined): number {

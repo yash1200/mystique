@@ -217,9 +217,7 @@
 </section>
 
 {#if ready}
-	<div
-		class="mt-4 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface"
-	>
+	<ControlGroup class="mt-4">
 		<div class="px-3 py-3">
 			<p class="m-0 mb-1.5 text-caption font-medium text-fg-secondary">URL</p>
 			<div class="flex items-center gap-1.5">
@@ -246,7 +244,7 @@
 				</Button>
 			</div>
 		</div>
-	</div>
+	</ControlGroup>
 
 	{#if harnesses.length > 0}
 		<section class="mt-5">
