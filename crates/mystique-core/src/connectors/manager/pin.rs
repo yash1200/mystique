@@ -13,7 +13,7 @@ use mystique_connector_api::{
 };
 use mystique_connector_api::{
     gate_sql_batch_in, PinStatus, PinnedSession, PlannedStatement, QueryBatchResult, QueryMode,
-    SqlDialect, ValidatedBatch, DEFAULT_MAX_ROWS, HARD_MAX_ROWS,
+    SqlDialect, ValidatedBatch, DEFAULT_MAX_ROWS,
 };
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -512,7 +512,7 @@ impl ConnectionManager {
         let max_rows = req
             .max_rows
             .unwrap_or(DEFAULT_MAX_ROWS)
-            .clamp(1, HARD_MAX_ROWS);
+            .max(1);
         let timeout_ms = clamp_timeout_ms(req.timeout_ms);
         self.touch_session(&req.session_id);
 

@@ -419,7 +419,7 @@ User setting in **Settings**; apply via `data-density="compact" | "comfortable"`
 - Nulls: muted italic `NULL` — never an empty-looking hole.
 - **Page size is fixed at 100** for table data and query results. No page-size dropdown.
 - Footer uses `StatusBar` + `Pager`: left = row range, center = pager, right = actions.
-- Table pager fetches the next page from the engine plugin (`OFFSET`); query results page client-side after fetch (max 50k).
+- Table pager fetches the next page from the engine plugin (`OFFSET`); query results fetch every row and page client-side (5,000 per page).
 - Dirty cells: warning wash + save/reset in the footer.
 - Focused cell: accent inset ring; editing: input fills the cell.
 

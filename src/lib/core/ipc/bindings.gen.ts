@@ -591,7 +591,7 @@ export type EngineFamily = "RELATIONAL" | "DOCUMENT" | "WIDE_COLUMN" | "KEY_VALU
  */
 export type ExecuteQueryRequest = { sessionId: string, text: string, mode?: QueryMode, 
 /**
- * Soft cap on returned rows (hard-capped in core).
+ * Cap on returned rows. `u32::MAX` (the query canvas) fetches every row.
  */
 maxRows?: number | null, timeoutMs?: number | null, 
 /**

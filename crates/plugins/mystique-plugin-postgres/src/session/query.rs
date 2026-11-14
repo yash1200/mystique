@@ -9,7 +9,7 @@ use mystique_connector_api::{
     poll_until_idle, split_sql_statements_for, sql_explain_executes, sql_is_proven_read,
     BatchPhase, ColumnOrigin, ConnectorError, ConnectorResult, IdleStop, PlannedStatement,
     QueryBatchResult, QueryColumn, QueryControl, QueryMode, QueryResult, StatementResult,
-    ValidatedBatch, ValidatedQuery, HARD_MAX_ROWS,
+    ValidatedBatch, ValidatedQuery,
 };
 use mystique_sql::SqlDialect;
 use tokio_postgres::error::SqlState;
@@ -242,11 +242,6 @@ async fn run_planned(
         } else {
             None
         };
-        let message = if fetched.truncated {
-            Some(format!("Result truncated to {limit} rows."))
-        } else {
-            None
-        };
         let row_count = fetched.rows.len() as u64;
         let origins = fetched.origins;
         let result = QueryResult {
@@ -257,7 +252,7 @@ async fn run_planned(
             rows: fetched.rows,
             truncated: fetched.truncated,
             duration_ms: started.elapsed().as_millis() as u64,
-            message,
+            message: None,
             payload: None,
         };
         let mut outcome = StatementResult::success(stmt, 0, result, affected, Vec::new());
@@ -370,7 +365,7 @@ async fn run_batch(
     locked: bool,
     watch: Watch<'_>,
 ) -> ConnectorResult<QueryResult> {
-    // A caller bug can pass 0 or a huge cap. The driver ceiling is the hard max.
+    // A caller bug can pass 0; at least one row.
     let limit = row_limit(query.max_rows);
     let mut last: Option<QueryResult> = None;
     let batch_n = stmts.len();
@@ -420,11 +415,7 @@ async fn run_batch(
                 in_txn = false;
             }
             let fetched = fetched?;
-            let mut message = if fetched.truncated {
-                Some(format!("Result truncated to {limit} rows."))
-            } else {
-                None
-            };
+            let mut message = None;
             if batch_n > 1 && i + 1 == batch_n {
                 let note = format!("Last of {batch_n} statements.");
                 message = Some(match message {
@@ -566,12 +557,12 @@ fn is_cursor_source(lower: &str) -> bool {
 }
 
 fn row_limit(max_rows: u32) -> usize {
-    max_rows.clamp(1, HARD_MAX_ROWS) as usize
+    max_rows.max(1) as usize
 }
 
-fn fetch_count(limit: usize) -> ConnectorResult<i32> {
-    i32::try_from(limit.saturating_add(1))
-        .map_err(|_| ConnectorError::Query("Row limit does not fit in a FETCH count.".into()))
+/// `limit + 1` rows, or `ALL` when that does not fit in a FETCH count.
+fn fetch_count(limit: usize) -> String {
+    i32::try_from(limit.saturating_add(1)).map_or_else(|_| "ALL".into(), |n| n.to_string())
 }
 
 /// Strip trailing semicolons so `DECLARE CURSOR FOR …` stays one statement.
@@ -606,7 +597,7 @@ async fn fetch_cursor(
     if body.is_empty() {
         return Err(ConnectorError::Query("Query is empty.".into()));
     }
-    let count = fetch_count(limit)?;
+    let count = fetch_count(limit);
     let declare = format!("DECLARE {ROW_CURSOR} NO SCROLL CURSOR FOR {body}");
     let prefix = u32::try_from(declare.len().saturating_sub(body.len())).unwrap_or(0);
     if let Err(err) = client.batch_execute(&declare).await {
@@ -633,7 +624,7 @@ async fn fetch_cursor(
 async fn read_fetch(
     client: &Client,
     limit: usize,
-    count: i32,
+    count: String,
     watch: Watch<'_>,
 ) -> ConnectorResult<Fetched> {
     let sql = format!("FETCH {count} FROM {ROW_CURSOR}");
@@ -1007,10 +998,16 @@ mod tests {
     }
 
     #[test]
-    fn row_limit_clamps_zero_and_huge_to_the_driver_ceiling() {
+    fn row_limit_raises_zero_and_keeps_huge() {
         assert_eq!(row_limit(0), 1);
         assert_eq!(row_limit(10), 10);
-        assert_eq!(row_limit(u32::MAX), HARD_MAX_ROWS as usize);
+        assert_eq!(row_limit(u32::MAX), u32::MAX as usize);
+    }
+
+    #[test]
+    fn fetch_count_falls_back_to_all() {
+        assert_eq!(fetch_count(10), "11");
+        assert_eq!(fetch_count(u32::MAX as usize), "ALL");
     }
 
     #[test]

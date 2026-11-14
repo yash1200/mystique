@@ -190,11 +190,7 @@ async fn run_batch(
                 out_rows.push(cells);
             }
 
-            let mut message = if truncated {
-                Some(format!("Result truncated to {max_rows} rows."))
-            } else {
-                None
-            };
+            let mut message = None;
             if batch_n > 1 && i + 1 == batch_n {
                 let note = format!("Last of {batch_n} statements.");
                 message = Some(match message {
@@ -506,9 +502,7 @@ where
         } else {
             None
         };
-        let message = if truncated {
-            Some(format!("Result truncated to {max_rows} rows."))
-        } else if !has_grid {
+        let message = if !has_grid {
             if let Some(rows) = affected {
                 Some(affected_message(rows))
             } else {

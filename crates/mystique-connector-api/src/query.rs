@@ -28,7 +28,7 @@ pub struct ExecuteQueryRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub mode: QueryMode,
-    /// Soft cap on returned rows (hard-capped in core).
+    /// Cap on returned rows. `u32::MAX` (the query canvas) fetches every row.
     #[serde(default)]
     pub max_rows: Option<u32>,
     #[serde(default)]
@@ -255,7 +255,7 @@ pub fn clip_payload(payload: &mut QueryPayload) {
 
 /// Defaults applied by core when client omits limits.
 pub const DEFAULT_MAX_ROWS: u32 = 500;
-/// Hard ceiling for a single query fetch (query canvas uses up to this).
+/// Ceiling for grid previews and other capped fetches. The query canvas is not capped.
 pub const HARD_MAX_ROWS: u32 = 50_000;
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 /// `timeout_ms` of 0: no statement timeout and no client deadline.

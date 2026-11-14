@@ -7,7 +7,6 @@
 		Icon,
 		IconButton,
 		Pager,
-		Pill,
 		Spinner,
 		type ContextMenuItem,
 	} from '#core/ui'
@@ -338,9 +337,6 @@
 					<span class="shrink-0" title={`Ran in ${durationMs.toLocaleString()} ms`}>
 						{formatDuration(durationMs)}
 					</span>
-				{/if}
-				{#if runState.status === 'ok' && runState.result?.truncated}
-					<Pill tone="warning" uppercase>Truncated</Pill>
 				{/if}
 				{#if runState.status === 'ok' && runState.message}
 					<span class="min-w-0 truncate font-sans" title={runState.message}>{runState.message}</span>

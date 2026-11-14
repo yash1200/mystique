@@ -115,11 +115,7 @@ pub(super) async fn execute_query(
                         last_row = Instant::now();
                     }
 
-                    let mut message = if truncated {
-                        Some(format!("Result truncated to {max_rows} rows."))
-                    } else {
-                        None
-                    };
+                    let mut message = None;
                     if batch_n > 1 && i + 1 == batch_n {
                         let note = format!("Last of {batch_n} statements.");
                         message = Some(match message {
@@ -359,11 +355,6 @@ fn run_sqlite_statement(
             last_row = Instant::now();
         }
         let affected = if stmt.returns_count { Some(seen) } else { None };
-        let message = if truncated {
-            Some(format!("Result truncated to {max_rows} rows."))
-        } else {
-            None
-        };
         let result = QueryResult {
             engine: "sqlite".into(),
             mode,
@@ -372,7 +363,7 @@ fn run_sqlite_statement(
             rows: out_rows,
             truncated,
             duration_ms: started.elapsed().as_millis() as u64,
-            message,
+            message: None,
             payload: None,
         };
         return Ok(StatementResult::success(

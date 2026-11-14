@@ -54,7 +54,7 @@
 		/** Source table column per result column, when known (header tooltip). */
 		sources?: (ResultColumnSource | null)[]
 		identStyle?: IdentStyle
-		/** Rows for the current page (may be up to 50k). */
+		/** Rows for the current page. */
 		rows: unknown[][]
 		/** Absolute index of rows[0] in the full result set (for # column). */
 		pageStart: number
