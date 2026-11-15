@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mystique_agent::kit::{CancellationToken, ChatHost, EventStream};
-use mystique_agent::{AgentErrorKind, AgentEvent, AgentEventSink, AgentTokens};
+use mystique_agent::{
+    provider_error_summary, AgentErrorKind, AgentEvent, AgentEventSink, AgentTokens,
+};
 use serde_json::Value as JsonValue;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -224,6 +226,10 @@ fn rpc_failure(step: &str, err: &RpcError, stderr: &str) -> String {
         format!("The agent exited during {step}.")
     } else if err.code == protocol::AUTH_REQUIRED {
         "The agent needs you to sign in first. Run it once in a terminal and log in, or add its API key under Environment in Settings → AI.".to_string()
+    } else if let Some(summary) = provider_error_summary("The agent's model provider", &err.message)
+    {
+        // The agent relayed its provider's raw HTTP error. One sentence says it.
+        return summary;
     } else {
         format!("The agent failed {step}: {}", err.message)
     };

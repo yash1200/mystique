@@ -67,6 +67,10 @@ impl From<AppError> for IpcError {
     fn from(value: AppError) -> Self {
         let kind = match value {
             AppError::Connector(inner) => return IpcError::from(inner),
+            // `kind` already says which; the text is for the user.
+            AppError::NotFound(text) => return IpcError::new(IpcErrorKind::NotFound, text),
+            AppError::Invalid(text) => return IpcError::new(IpcErrorKind::InvalidInput, text),
+            AppError::Internal(text) => return IpcError::new(IpcErrorKind::Internal, text),
             AppError::PasswordRequired => {
                 return IpcError {
                     prompt: Some(Box::new(IpcPrompt::PasswordRequired)),
@@ -74,9 +78,6 @@ impl From<AppError> for IpcError {
                 };
             }
             AppError::Database(_) | AppError::Io(_) | AppError::Json(_) => IpcErrorKind::Storage,
-            AppError::NotFound(_) => IpcErrorKind::NotFound,
-            AppError::Invalid(_) => IpcErrorKind::InvalidInput,
-            AppError::Internal(_) => IpcErrorKind::Internal,
             AppError::SecretStore(_) => IpcErrorKind::SecretStore,
             AppError::AccessDenied(_) => IpcErrorKind::Policy,
         };
@@ -107,10 +108,20 @@ mod ipc_tests {
     }
 
     #[test]
-    fn app_errors_keep_their_text() {
+    fn app_errors_keep_their_text_without_the_prefix() {
         let value = serde_json::to_value(IpcError::from(AppError::NotFound("profile x".into())))
             .expect("serialize");
         assert_eq!(value["kind"], "not_found");
-        assert_eq!(value["message"], "not found: profile x");
+        assert_eq!(value["message"], "profile x");
+    }
+
+    #[test]
+    fn invalid_and_internal_drop_their_prefix() {
+        let invalid = IpcError::from(AppError::Invalid("Pick a model.".into()));
+        assert_eq!(invalid.kind, IpcErrorKind::InvalidInput);
+        assert_eq!(invalid.message, "Pick a model.");
+        let internal = IpcError::from(AppError::Internal("Queue closed.".into()));
+        assert_eq!(internal.kind, IpcErrorKind::Internal);
+        assert_eq!(internal.message, "Queue closed.");
     }
 }

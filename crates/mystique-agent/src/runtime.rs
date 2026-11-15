@@ -1,6 +1,7 @@
 pub(crate) mod context;
 pub(crate) mod draft;
 pub(crate) mod events;
+pub(crate) mod friendly;
 pub(crate) mod host;
 #[cfg(test)]
 mod loop_tests;
@@ -25,6 +26,7 @@ use crate::secrets::SecretStore;
 use crate::tools::BoundTools;
 
 pub use self::events::{AgentErrorKind, AgentEvent, AgentTokens};
+pub use self::friendly::{friendly_error, provider_error_summary};
 pub use self::stream::AgentEventSink;
 
 use self::context::history_from;

@@ -509,10 +509,7 @@ impl ConnectionManager {
         let engine = session.engine_id().to_string();
         let read_only = live_read_only;
         let mode = if read_only { QueryMode::Read } else { req.mode };
-        let max_rows = req
-            .max_rows
-            .unwrap_or(DEFAULT_MAX_ROWS)
-            .max(1);
+        let max_rows = req.max_rows.unwrap_or(DEFAULT_MAX_ROWS).max(1);
         let timeout_ms = clamp_timeout_ms(req.timeout_ms);
         self.touch_session(&req.session_id);
 

@@ -77,11 +77,15 @@ pub(crate) trait TurnModel: Send + Sync {
 
 struct RigTurnModel<M> {
     model: M,
+    /// Display name for error messages ("Gemini").
+    provider: &'static str,
 }
 
-fn classify(err: CompletionError) -> TurnError {
-    let message = err.to_string();
-    let lower = message.to_ascii_lowercase();
+/// Retry on transport and overload failures. The user sees one sentence;
+/// the raw provider text goes to the log.
+fn classify(provider: &str, err: CompletionError) -> TurnError {
+    let raw = err.to_string();
+    let lower = raw.to_ascii_lowercase();
     let retryable = matches!(err, CompletionError::HttpError(_))
         || [
             "429",
@@ -96,7 +100,11 @@ fn classify(err: CompletionError) -> TurnError {
         ]
         .iter()
         .any(|needle| lower.contains(needle));
-    TurnError { message, retryable }
+    tracing::warn!(provider, error = %raw, "model call failed");
+    TurnError {
+        message: super::friendly::friendly_error(provider, &raw),
+        retryable,
+    }
 }
 
 impl<M> TurnModel for RigTurnModel<M>
@@ -122,11 +130,11 @@ where
                 .max_tokens(req.max_tokens)
                 .stream()
                 .await
-                .map_err(classify)?;
+                .map_err(|e| classify(self.provider, e))?;
             // A provider that sends whole reasoning blocks without deltas.
             let mut reasoning_seen: HashSet<String> = HashSet::new();
             while let Some(item) = stream.next().await {
-                match item.map_err(classify)? {
+                match item.map_err(|e| classify(self.provider, e))? {
                     StreamedAssistantContent::Text(text) => {
                         on_delta(Delta::Text(text.text().to_string()));
                     }
@@ -151,11 +159,14 @@ where
     }
 }
 
-fn boxed<M>(model: M) -> Box<dyn TurnModel>
+fn boxed<M>(provider: AgentProvider, model: M) -> Box<dyn TurnModel>
 where
     M: CompletionModel + Clone + 'static,
 {
-    Box::new(RigTurnModel { model })
+    Box::new(RigTurnModel {
+        model,
+        provider: provider.label(),
+    })
 }
 
 fn require_key(secrets: &SecretStore, provider: AgentProvider) -> Result<String, String> {
@@ -169,7 +180,7 @@ macro_rules! keyed {
     ($mod:ident, $secrets:expr, $provider:expr, $model:expr) => {{
         let key = require_key($secrets, $provider)?;
         let client = $mod::Client::new(&key).map_err(|e| e.to_string())?;
-        Ok(boxed(client.completion_model($model)))
+        Ok(boxed($provider, client.completion_model($model)))
     }};
 }
 
@@ -199,7 +210,7 @@ pub(crate) fn turn_model(
                 .base_url(ollama_url)
                 .build()
                 .map_err(|e| e.to_string())?;
-            Ok(boxed(client.completion_model(model)))
+            Ok(boxed(provider, client.completion_model(model)))
         }
     }
 }

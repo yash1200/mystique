@@ -45,8 +45,12 @@ pub use mystique_core::IpcError;
 
 pub type IpcResult<T> = Result<T, IpcError>;
 
+/// Shown for a panic or a lost task. The cause goes to the log.
+const INTERNAL_FAILURE: &str = "Something went wrong inside Mystique. Try again; if it keeps happening, the log has the details.";
+
 fn panicked(payload: &Box<dyn std::any::Any + Send>) -> IpcError {
-    IpcError::internal(format!("internal error: {}", panic_payload(payload)))
+    tracing::error!(panic = %panic_payload(payload), "IPC command panicked");
+    IpcError::internal(INTERNAL_FAILURE)
 }
 
 /// Run a sync IPC body. A panic becomes an `internal` error so one plugin
@@ -84,7 +88,10 @@ where
     match joined {
         Ok(Ok(result)) => result,
         Ok(Err(payload)) => Err(panicked(&payload)),
-        Err(err) => Err(IpcError::internal(format!("internal error: {err}"))),
+        Err(err) => {
+            tracing::error!(error = %err, "blocking IPC task failed");
+            Err(IpcError::internal(INTERNAL_FAILURE))
+        }
     }
 }
 
@@ -114,8 +121,8 @@ mod tests {
     fn guard_sync_returns_internal_error_when_the_body_panics() {
         let err = guard_sync(|| -> IpcResult<()> { panic!("be-02 slice") }).unwrap_err();
         assert_eq!(err.kind, IpcErrorKind::Internal);
-        assert!(err.message.starts_with("internal error: "), "{err}");
-        assert!(err.message.contains("be-02 slice"), "{err}");
+        assert_eq!(err.message, INTERNAL_FAILURE);
+        assert!(!err.message.contains("be-02 slice"), "{err}");
     }
 
     #[test]
@@ -133,7 +140,7 @@ mod tests {
         }))
         .unwrap_err();
         assert_eq!(err.kind, IpcErrorKind::Internal);
-        assert!(err.message.contains("plugin bug"), "{err}");
+        assert_eq!(err.message, INTERNAL_FAILURE);
     }
 
     #[test]

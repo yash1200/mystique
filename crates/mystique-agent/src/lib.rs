@@ -17,6 +17,7 @@ pub use providers::{
     default_model, models_for, parse_provider, provider_catalog, AgentModelInfo, AgentProvider,
     AgentProviderInfo,
 };
+pub use runtime::{friendly_error, provider_error_summary};
 pub use runtime::{
     AgentErrorKind, AgentEvent, AgentEventSink, AgentFixRequest, AgentRuntime, AgentTableRef,
     AgentTokens, SendAgentMessage, SendAgentResult, TurnStart, DEFAULT_OLLAMA_URL,
