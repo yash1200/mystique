@@ -420,15 +420,26 @@ fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>
     let shortcuts = item(app, "help_shortcuts", "Keyboard Shortcuts", true, None)?;
     if include_about {
         let about = about_item(app)?;
+        let updates = check_updates_item(app)?;
         Submenu::with_items(
             app,
             "Help",
             true,
-            &[&shortcuts, &PredefinedMenuItem::separator(app)?, &about],
+            &[
+                &shortcuts,
+                &PredefinedMenuItem::separator(app)?,
+                &updates,
+                &about,
+            ],
         )
     } else {
         Submenu::with_items(app, "Help", true, &[&shortcuts])
     }
+}
+
+/// Runs the frontend's update check (`app.check-updates`).
+fn check_updates_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
+    item(app, "app_check_updates", "Check for Updates…", true, None)
 }
 
 /// The OS About panel, filled from the bundle config.
@@ -460,6 +471,7 @@ fn about_metadata(version: &str, copyright: Option<&str>) -> AboutMetadata<'stat
 #[cfg(target_os = "macos")]
 fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let about = about_item(app)?;
+    let updates = check_updates_item(app)?;
     let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
 
@@ -469,6 +481,7 @@ fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         true,
         &[
             &about,
+            &updates,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &shortcuts,

@@ -115,6 +115,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // Updates from GitHub Releases (`latest.json`); the frontend drives it.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // `relaunch` after an update is installed.
+        .plugin(tauri_plugin_process::init())
         .menu(|app| menu::build_menu(app, &NativeMenuState::default()))
         .on_menu_event(|app, event| menu::handle_menu_event(app, event.id().as_ref()))
         .on_window_event(|window, event| {
@@ -315,4 +319,43 @@ pub fn run() {
                 });
             }
         });
+}
+
+#[cfg(test)]
+mod updater_config_tests {
+    use base64::Engine;
+
+    /// The updater reads `plugins.updater` when the app starts; a bad value
+    /// would only show up then. Parse it the way the plugin does.
+    #[test]
+    fn the_updater_config_parses_and_points_at_github() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        let updater: tauri_plugin_updater::Config =
+            serde_json::from_value(conf["plugins"]["updater"].clone()).expect("updater config");
+        let urls: Vec<String> = updater.endpoints.iter().map(|u| u.to_string()).collect();
+        assert_eq!(
+            urls,
+            ["https://github.com/yash1200/mystique/releases/latest/download/latest.json"]
+        );
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(updater.pubkey.trim())
+            .expect("pubkey is base64");
+        let key = String::from_utf8(key).expect("pubkey text");
+        assert!(
+            key.starts_with("untrusted comment: minisign public key"),
+            "{key}"
+        );
+    }
+
+    /// Plain builds need no key; only the release overlay asks for the archive.
+    #[test]
+    fn only_the_release_config_builds_update_archives() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        assert!(base["bundle"].get("createUpdaterArtifacts").is_none());
+        let release: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.release.conf.json")).expect("release conf");
+        assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
+    }
 }

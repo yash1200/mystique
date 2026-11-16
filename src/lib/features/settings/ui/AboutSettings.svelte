@@ -2,6 +2,7 @@
 	import { errorMessage } from '#core/ipc'
 	import { Button, ControlGroup, ControlRow } from '#core/ui'
 	import { showToast } from '#features/toast'
+	import { UpdateSettingsRow } from '#features/updater'
 	import { onMount } from 'svelte'
 	import { defaultDiagnosticsName, exportDiagnostics } from '../api'
 
@@ -51,6 +52,7 @@
 		<ControlRow label="Version">
 			<span class="font-mono text-caption text-fg-muted">{version ?? '…'}</span>
 		</ControlRow>
+		<UpdateSettingsRow />
 		<ControlRow
 			label="Diagnostics"
 			description="A .tar.gz to attach to a bug report: app version, OS, plugins, settings without secrets, connection flags and recent logs."

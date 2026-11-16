@@ -41,6 +41,12 @@ export const cmd = {
 		group: 'app',
 		menu: ['app_shortcuts', 'help_shortcuts'],
 	}),
+	checkUpdates: defineCommand({
+		id: 'app.check-updates',
+		title: 'Check for updates',
+		group: 'app',
+		menu: 'app_check_updates',
+	}),
 	reset: defineCommand({
 		id: 'app.reset',
 		title: 'Close connections and return home',

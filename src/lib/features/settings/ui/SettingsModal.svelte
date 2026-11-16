@@ -54,7 +54,7 @@
 			icon: 'plug',
 			description: 'Let other AI tools query your databases while Mystique is open.',
 		},
-		{ id: 'about', label: 'About', icon: 'info', description: 'Version and diagnostics for bug reports.' },
+		{ id: 'about', label: 'About', icon: 'info', description: 'Version, updates and diagnostics for bug reports.' },
 	]
 
 	/** The MCP server is listening (the dot beside its section). */

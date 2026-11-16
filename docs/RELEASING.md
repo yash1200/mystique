@@ -55,12 +55,62 @@ This creates a self-signed code-signing certificate in your login keychain
 (macOS asks for your password to trust it). Builds signed with it keep the
 same identity, so "Always Allow" sticks. Other Macs won't trust it.
 
+## Publishing a release (auto-update)
+
+Releases are Apple silicon only for now. Installed apps check
+`https://github.com/yash1200/mystique/releases/latest/download/latest.json`
+at launch (and from **Mystique › Check for Updates…** or **Settings › About**).
+If it names a newer version, a card in the bottom-right offers it. **Update**
+downloads in the background, installs, then asks to restart.
+
+```bash
+pnpm bump 1.0.3
+git commit -am "chore(release): version 1.0.3" && git push
+pnpm release --notes notes.md      # Markdown shown on the release page
+```
+
+`pnpm release` (`scripts/release.mjs`) refuses to run unless the tree is clean
+and `HEAD` is `origin/main`. It builds with `src-tauri/tauri.release.conf.json`
+(which turns on the signed update archive), writes `latest.json`, tags
+`v<version>`, and publishes the release with the `.dmg`, the
+`.app.tar.gz`, its `.sig` and `latest.json`. `--dry-run` stops before tagging;
+`--skip-build` reuses the last build. Set `APPLE_SIGNING_IDENTITY` (and the
+notarization variables above) to ship a Developer ID build.
+
+`gh` must be able to push to the repo: `gh auth switch -u yash1200`, or
+`GH_TOKEN=$(gh auth token -u yash1200) pnpm release …`.
+
+### The updater key
+
+Updates are signed with a minisign key, separate from Apple signing. The
+public half is `plugins.updater.pubkey` in `tauri.conf.json`; the private
+half is `~/.tauri/mystique.key` (password protected).
+
+```bash
+# Once: keep the key password in the login keychain for `pnpm release`.
+security add-generic-password -a "$USER" -s mystique-updater-key -w
+```
+
+Or set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. **Back up the key file and its
+password.** Installed apps only accept updates signed with this key; if it is
+lost, every user has to download the next version by hand.
+
+A plain `pnpm tauri build` needs no key: only the release config asks for
+the update archive.
+
+Builds from before 1.0.3 have no updater, so those users install the first
+version with it by hand.
+
 ## CI
 
-`.github/workflows/release-macos.yml` builds both architectures on a `v*`
-tag and attaches them to a draft GitHub release. Repository secrets:
-`APPLE_CERTIFICATE` (base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`,
-`APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
+`.github/workflows/release-macos.yml` is run by hand for an existing tag
+(Actions › release-macos › Run workflow). It builds Apple silicon and
+attaches the files, `latest.json` included, to a draft release. A tag push
+does not start it, because `pnpm release` pushes the tag itself. Repository
+secrets: `APPLE_CERTIFICATE` (base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`,
+`APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, and
+the updater key as `TAURI_SIGNING_PRIVATE_KEY` (the key file's text) and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
 ```bash
 base64 -i DeveloperID.p12 | pbcopy   # paste as APPLE_CERTIFICATE

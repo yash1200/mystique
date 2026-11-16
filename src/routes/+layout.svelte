@@ -26,6 +26,7 @@
 	import { appSettingsUi, type SettingsSection } from '#features/settings'
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
 	import { ToastContext } from '#features/toast'
+	import { UpdateNotice, updater } from '#features/updater'
 	import {
 		QuickOpen,
 		quickOpen,
@@ -79,6 +80,7 @@
 				appSettingsUi.show(args?.section as SettingsSection | undefined),
 		},
 		{ ...cmd.shortcuts, run: () => appShortcutsUi.show() },
+		{ ...cmd.checkUpdates, run: () => void updater.check({ manual: true }) },
 		{ ...cmd.reset, run: () => resetGuard.request() },
 		{ ...cmd.zoomIn, run: () => zoomBy(0.1) },
 		{ ...cmd.zoomOut, run: () => zoomBy(-0.1) },
@@ -97,6 +99,7 @@
 		void setAppTitle()
 
 		const unmountCommands = mountCommands()
+		const stopUpdateCheck = updater.start()
 		window.addEventListener('keydown', blockHistoryBackspace, true)
 		let unlistenQuit: (() => void) | null = null
 		let gone = false
@@ -111,12 +114,16 @@
 			unlistenQuit?.()
 			unwatchScheme()
 			unmountCommands()
+			stopUpdateCheck()
 			window.removeEventListener('keydown', blockHistoryBackspace, true)
 		}
 	})
 </script>
 
 <ToastContext>
+	{#snippet corner()}
+		<UpdateNotice />
+	{/snippet}
 	{@render children()}
 	<Lazy component={QuickOpen} when={quickOpen.open} fallback="none" />
 	<Lazy

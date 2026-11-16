@@ -1,15 +1,23 @@
-# Signed + notarized macOS builds on a version tag (v*). Draft release only.
+# Signed + notarized macOS build for an existing version tag, run by hand
+# (Actions › release-macos › Run workflow). Releases are normally published
+# from a Mac with `pnpm release` (docs/RELEASING.md), which pushes the tag, so
+# a tag push does not start this. Apple silicon only for now; the draft
+# carries latest.json for the updater.
 #
 # Repository secrets:
 #   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
 #   APPLE_CERTIFICATE_PASSWORD  password of that .p12
 #   APPLE_SIGNING_IDENTITY      "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID   notarization (app-specific password)
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD   updater key
 name: release-macos
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to build (e.g. v1.0.3)
+        required: true
 
 permissions:
   contents: write
@@ -19,10 +27,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+        target: [aarch64-apple-darwin]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: pnpm/action-setup@v4
 
@@ -50,9 +60,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: Mystique ${{ github.ref_name }}
+          args: --target ${{ matrix.target }} --config src-tauri/tauri.release.conf.json
+          tagName: ${{ inputs.tag }}
+          releaseName: Release ${{ inputs.tag }}
           releaseDraft: true
           prerelease: false
