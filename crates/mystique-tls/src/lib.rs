@@ -368,6 +368,3 @@ fn read_file(path: &Path) -> TlsResult<Vec<u8>> {
     fs::read(path)
         .map_err(|e| TlsError::InvalidConfig(format!("could not read {}: {e}", path.display())))
 }
-
-#[cfg(test)]
-mod tests;

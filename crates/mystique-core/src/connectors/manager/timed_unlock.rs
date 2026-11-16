@@ -84,7 +84,7 @@ impl ConnectionManager {
     }
 
     /// Any length, for tests that cannot wait a minute.
-    pub(super) async fn start_timed_unlock_for(
+    pub(crate) async fn start_timed_unlock_for(
         &self,
         session_id: &str,
         length: Duration,

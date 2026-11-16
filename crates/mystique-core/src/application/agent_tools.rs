@@ -16,7 +16,7 @@ mod policy;
 mod query;
 mod results;
 mod specs;
-mod types;
+pub(crate) mod types;
 
 use std::sync::Arc;
 

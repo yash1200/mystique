@@ -62,13 +62,120 @@ pub use mystique_connector_api::{
     TerminateSessionRequest, TerminateSessionResult, TestResult, TransferProgress,
 };
 
-/// Internals the tests in `tests/` reach. Only with the `test-support`
-/// feature, which only the crate's own dev-dependency turns on.
+/// Internals for `tests/` (feature `test-support`, which only this crate's
+/// dev-dependency on itself turns on).
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub mod test_support {
+    pub mod application {
+        pub use crate::application::SessionUse;
+        use crate::connectors::OpenSessionRequest;
+        use crate::error::AppResult;
+        use crate::secrets::{Prompt, SecretStore};
+        use crate::storage::AppDatabase;
+
+        pub fn bind_with_session(
+            db: &AppDatabase,
+            secrets: &SecretStore,
+            req: OpenSessionRequest,
+            prompt: Prompt,
+        ) -> AppResult<(OpenSessionRequest, SessionUse)> {
+            crate::application::bind_with_session(db, secrets, req, prompt)
+        }
+
+        pub fn settle_session_password<T, E: std::fmt::Display>(
+            secrets: &SecretStore,
+            session: SessionUse,
+            result: &Result<T, E>,
+        ) {
+            crate::application::settle_session_password(secrets, session, result);
+        }
+    }
+
+    pub mod agent_tools {
+        pub use crate::application::agent_tools::types::AgentCellWindow;
+    }
+
     pub mod manager {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        use mystique_connector_api::{ConnectorResult, ConnectorSession, SessionInfo};
+        use tokio::sync::RwLock;
+
         pub use crate::connectors::manager::history::QueryHistoryWriter;
-        pub use crate::connectors::manager::{LiveSession, SessionOrigin};
+        pub use crate::connectors::manager::{overlay_session_caps, LiveSession, SessionOrigin};
+        use crate::connectors::{ConnectionManager, OpenSessionRequest, TimedUnlockStatus};
+
+        /// The live session map, to put test doubles in.
+        pub fn sessions(mgr: &ConnectionManager) -> &RwLock<HashMap<String, LiveSession>> {
+            &mgr.sessions
+        }
+
+        pub fn set_query_history_writer(
+            mgr: &ConnectionManager,
+            writer: Arc<dyn QueryHistoryWriter>,
+        ) {
+            mgr.set_query_history_writer(writer);
+        }
+
+        pub async fn get_or_open(
+            mgr: &ConnectionManager,
+            req: OpenSessionRequest,
+            origin: SessionOrigin,
+        ) -> ConnectorResult<SessionInfo> {
+            mgr.get_or_open(req, origin).await
+        }
+
+        pub async fn open_session_as(
+            mgr: &ConnectionManager,
+            req: OpenSessionRequest,
+            origin: SessionOrigin,
+        ) -> ConnectorResult<SessionInfo> {
+            mgr.open_session_as(req, origin).await
+        }
+
+        /// A timed write unlock of any length, so tests need not wait minutes.
+        pub async fn start_timed_unlock_for(
+            mgr: &ConnectionManager,
+            session_id: &str,
+            length: Duration,
+        ) -> ConnectorResult<TimedUnlockStatus> {
+            mgr.start_timed_unlock_for(session_id, length).await
+        }
+
+        pub async fn session_and_read_only(
+            mgr: &ConnectionManager,
+            session_id: &str,
+        ) -> ConnectorResult<(Arc<dyn ConnectorSession>, bool)> {
+            mgr.session_and_read_only(session_id).await
+        }
+    }
+
+    pub mod secrets {
+        use std::sync::Arc;
+
+        pub use crate::secrets::counting::{CountingKeySource, FakeKeychain};
+        pub use crate::secrets::session::SessionPasswords;
+        use crate::secrets::{KeySource, SecretBackend, SecretStore};
+
+        /// A store over `source`, with `legacy` as the old keychain items.
+        pub fn from_parts(
+            source: Arc<dyn KeySource>,
+            legacy: Option<Arc<FakeKeychain>>,
+        ) -> SecretStore {
+            SecretStore::from_parts(source, legacy.map(|l| l as Arc<dyn SecretBackend>))
+        }
+
+        /// The passwords typed this session.
+        pub fn session_passwords(store: &SecretStore) -> &SessionPasswords {
+            store.session()
+        }
+
+        /// Drop the cached vault key, to prove a path loads nothing.
+        pub fn forget_cached(store: &SecretStore) {
+            store.forget_cached();
+        }
     }
 }

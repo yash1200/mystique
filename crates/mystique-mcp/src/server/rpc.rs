@@ -1,7 +1,7 @@
 use mystique_core::{AgentTools, ToolCaller};
 use serde_json::{json, Value as JsonValue};
 
-pub(super) async fn handle_method(
+pub async fn handle_method(
     tools: &AgentTools,
     method: &str,
     params: JsonValue,

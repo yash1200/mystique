@@ -8,8 +8,15 @@ use serde_json::json;
 
 use mystique_core::domain::{SaveConnectionInput, VAULT_SECRET_REF};
 use mystique_core::error::AppError;
-use mystique_core::secrets::counting::CountingKeySource;
 use mystique_core::storage::sqlite::repo;
+use mystique_core::test_support::application::{
+    bind_with_session, settle_session_password, SessionUse,
+};
+use mystique_core::test_support::secrets::{session_passwords, CountingKeySource};
+use mystique_core::{
+    AppDatabase, AppServices, ConnectionManager, OpenSessionRequest, Prompt, SecretStore,
+    ToolCaller,
+};
 
 struct TempFile(PathBuf);
 
@@ -102,8 +109,8 @@ fn envelope(app: &AppServices, id: &str) -> Option<String> {
 
 /// Pretend an earlier connect this session typed `pw`.
 fn hold(app: &AppServices, id: &str, pw: &str) {
-    let pending = app.secrets.session().pending(id, pw);
-    app.secrets.session().commit(pending);
+    let pending = session_passwords(&app.secrets).pending(id, pw);
+    session_passwords(&app.secrets).commit(pending);
 }
 
 #[test]
@@ -233,7 +240,7 @@ async fn a_passing_test_keeps_the_typed_password_like_a_connect() {
     typed.password = Some("typed-pw".into());
     assert!(app.test_connection(typed).await.unwrap().ok);
     assert_eq!(
-        app.secrets.session().get(&saved.id).as_deref(),
+        session_passwords(&app.secrets).get(&saved.id).as_deref(),
         Some("typed-pw")
     );
 }
@@ -259,7 +266,7 @@ fn a_refused_held_password_is_forgotten() {
     let refused: Result<(), String> =
         Err("authentication failed: password authentication failed for user".into());
     settle_session_password(&app.secrets, session, &refused);
-    assert!(app.secrets.session().get(&saved.id).is_none());
+    assert!(session_passwords(&app.secrets).get(&saved.id).is_none());
 }
 
 #[test]
@@ -272,13 +279,16 @@ fn delete_and_a_host_change_forget_the_session_password() {
     app.profiles()
         .save(edit(&saved.id, pg("renamed", None, None)))
         .unwrap();
-    assert_eq!(app.secrets.session().get(&saved.id).as_deref(), Some("pw"));
+    assert_eq!(
+        session_passwords(&app.secrets).get(&saved.id).as_deref(),
+        Some("pw")
+    );
 
     // A new host drops it.
     let mut moved = edit(&saved.id, pg("renamed", None, None));
     moved.plugin_config = json!({"host": "other.internal", "port": 5432, "database": "app"});
     app.profiles().save(moved).unwrap();
-    assert!(app.secrets.session().get(&saved.id).is_none());
+    assert!(session_passwords(&app.secrets).get(&saved.id).is_none());
 
     // Saving the password again drops it.
     hold(&app, &saved.id, "pw");
@@ -288,16 +298,16 @@ fn delete_and_a_host_change_forget_the_session_password() {
             pg("renamed", Some("now-saved"), Some(true)),
         ))
         .unwrap();
-    assert!(app.secrets.session().get(&saved.id).is_none());
+    assert!(session_passwords(&app.secrets).get(&saved.id).is_none());
 
     let other = app.profiles().save(pg("other", None, Some(false))).unwrap();
     hold(&app, &other.id, "pw");
     app.profiles().delete(&other.id).unwrap();
-    assert!(app.secrets.session().get(&other.id).is_none());
+    assert!(session_passwords(&app.secrets).get(&other.id).is_none());
 
     hold(&app, &saved.id, "pw");
     app.forget_session_passwords();
-    assert!(app.secrets.session().get(&saved.id).is_none());
+    assert!(session_passwords(&app.secrets).get(&saved.id).is_none());
 }
 
 #[tokio::test]

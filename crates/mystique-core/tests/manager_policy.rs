@@ -5,8 +5,10 @@ use std::time::Duration;
 use mystique_connector_api::{ConnectorError, ExecuteQueryRequest, QueryMode};
 use serde_json::json;
 
-use mystique_core::test_support::manager::SessionOrigin;
-use mystique_core::{ConnectionManager, OpenSessionRequest};
+use mystique_core::test_support::manager::{
+    open_session_as, session_and_read_only, start_timed_unlock_for, SessionOrigin,
+};
+use mystique_core::{ConnectionManager, OpenSessionRequest, PreviewWriteRowsRequest};
 
 fn temp_db(label: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -80,8 +82,7 @@ async fn timed_unlock_allows_writes_until_it_expires() {
         .await
         .expect_err("read-only refuses the write");
 
-    let status = mgr
-        .start_timed_unlock_for("ro", Duration::from_millis(700))
+    let status = start_timed_unlock_for(&mgr, "ro", Duration::from_millis(700))
         .await
         .expect("unlock");
     assert!(status.remaining_ms.is_some_and(|ms| ms <= 700));
@@ -96,7 +97,7 @@ async fn timed_unlock_allows_writes_until_it_expires() {
         .expect_err("the next write after expiry is refused");
 
     // The profile bit never changed.
-    let (_, read_only) = mgr.session_and_read_only("ro").await.expect("session");
+    let (_, read_only) = session_and_read_only(&mgr, "ro").await.expect("session");
     assert!(read_only);
     let _ = mgr.close_session("ro").await;
     let _ = std::fs::remove_file(&path);
@@ -144,9 +145,13 @@ async fn agent_and_mcp_sessions_never_get_the_human_unlock() {
     mgr.open_session(open_req(&path, "7", "local", true))
         .await
         .expect("open desktop");
-    mgr.open_session_as(open_req(&path, "mcp:7", "local", true), SessionOrigin::Mcp)
-        .await
-        .expect("open mcp");
+    open_session_as(
+        &mgr,
+        open_req(&path, "mcp:7", "local", true),
+        SessionOrigin::Mcp,
+    )
+    .await
+    .expect("open mcp");
     mgr.start_timed_unlock("7", 60).await.expect("human unlock");
     mgr.execute_query(write("7", "INSERT INTO t VALUES (1)"))
         .await

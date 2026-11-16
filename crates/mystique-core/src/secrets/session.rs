@@ -41,12 +41,12 @@ impl SessionPasswords {
         self.state.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    pub(crate) fn get(&self, connection_id: &str) -> Option<String> {
+    pub fn get(&self, connection_id: &str) -> Option<String> {
         self.lock().passwords.get(connection_id.trim()).cloned()
     }
 
     /// Hold a typed password until [`Self::commit`].
-    pub(crate) fn pending(&self, connection_id: &str, password: &str) -> PendingPassword {
+    pub fn pending(&self, connection_id: &str, password: &str) -> PendingPassword {
         PendingPassword {
             connection_id: connection_id.trim().to_string(),
             password: password.to_string(),
@@ -55,7 +55,7 @@ impl SessionPasswords {
     }
 
     /// Keep the password for the session, unless the profile changed meanwhile.
-    pub(crate) fn commit(&self, pending: PendingPassword) {
+    pub fn commit(&self, pending: PendingPassword) {
         let mut state = self.lock();
         if state.generation == pending.generation && !pending.password.trim().is_empty() {
             state

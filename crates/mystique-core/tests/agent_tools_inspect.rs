@@ -9,11 +9,16 @@ use mystique_connector_api::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use mystique_core::connectors::{ConnectionManager, SessionOrigin};
+use mystique_core::connectors::ConnectionManager;
 use mystique_core::domain::{ConnectionProfile, SaveConnectionInput};
+use mystique_core::error::{AppError, AppResult};
 use mystique_core::secrets::SecretStore;
 use mystique_core::storage::AppDatabase;
-use mystique_core::AppServices;
+use mystique_core::test_support::manager::{sessions, LiveSession, SessionOrigin};
+use mystique_core::{
+    tool_specs, tool_specs_for, AppServices, ToolCaller, AGENT_SAMPLE_DEFAULT_ROWS,
+    AGENT_SAMPLE_MAX_ROWS,
+};
 
 struct Fixture {
     app: Arc<AppServices>,
@@ -445,14 +450,14 @@ async fn infer_fields_returns_the_histogram_and_clamps_the_sample() {
             json!({ "uri": "mongodb://127.0.0.1:1/app" }),
         );
         let probe = InferProbe::default();
-        app.connections()
-            .insert_test_session(
-                &format!("agent:{}", profile.id),
-                Arc::new(probe.clone()),
-                "local",
-                SessionOrigin::Agent,
-            )
-            .await;
+        insert_test_session(
+            &app.connections(),
+            &format!("agent:{}", profile.id),
+            Arc::new(probe.clone()),
+            "local",
+            SessionOrigin::Agent,
+        )
+        .await;
         let out = app
             .agent_tools()
             .call_tool(
@@ -495,4 +500,31 @@ async fn infer_fields_returns_the_histogram_and_clamps_the_sample() {
         assert!(matches!(err, AppError::AccessDenied(_)), "{err:?}");
         assert_eq!(probe.asked.lock().unwrap().len(), 1);
     }
+}
+
+/// Put a test double in the session map under `session_id`.
+async fn insert_test_session(
+    mgr: &ConnectionManager,
+    session_id: &str,
+    session: Arc<dyn ConnectorSession>,
+    environment: &str,
+    origin: SessionOrigin,
+) {
+    sessions(mgr).write().await.insert(
+        session_id.into(),
+        LiveSession {
+            product_id: session.engine_id().to_string(),
+            session,
+            display_name: "test".into(),
+            opened_at: String::new(),
+            _tunnel: None,
+            environment: environment.into(),
+            read_only: false,
+            connection_name: "test".into(),
+            origin,
+            profile_id: None,
+            default_database: None,
+            last_used: std::sync::Mutex::new(std::time::Instant::now()),
+        },
+    );
 }

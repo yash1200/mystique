@@ -9,9 +9,11 @@ use serde_json::{json, Value as JsonValue};
 
 use mystique_core::connectors::{ConnectionManager, OpenSessionRequest};
 use mystique_core::domain::{ConnectionProfile, SaveConnectionInput};
+use mystique_core::error::{AppError, AppResult};
 use mystique_core::secrets::SecretStore;
 use mystique_core::storage::AppDatabase;
-use mystique_core::AppServices;
+use mystique_core::test_support::agent_tools::AgentCellWindow;
+use mystique_core::{AppServices, ToolCaller};
 
 struct Fixture {
     app: Arc<AppServices>,
@@ -123,7 +125,7 @@ impl Fixture {
                 None,
                 None,
                 "json",
-                types::AgentCellWindow::default(),
+                AgentCellWindow::default(),
                 ToolCaller::Agent,
             )
             .await

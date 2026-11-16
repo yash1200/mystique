@@ -9,10 +9,17 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use mystique_core::domain::{SaveConnectionInput, SshAuth, SshConfig, SshTunnelRequest, VAULT_SECRET_REF};
-use mystique_core::secrets::counting::{CountingKeySource, FakeKeychain};
+use mystique_core::domain::{
+    SaveConnectionInput, SshAuth, SshConfig, SshTunnelRequest, VAULT_SECRET_REF,
+};
 use mystique_core::secrets::KeySource;
 use mystique_core::storage::sqlite::repo;
+use mystique_core::test_support::secrets::{
+    forget_cached, from_parts, CountingKeySource, FakeKeychain,
+};
+use mystique_core::{
+    AppDatabase, AppServices, ConnectionManager, OpenSessionRequest, SecretStore, ToolCaller,
+};
 
 struct TempDb(PathBuf);
 
@@ -254,7 +261,7 @@ async fn a_live_tool_session_binds_no_secret() {
     input.password = Some("unused".into());
     let profile = app.profiles().save(input).unwrap();
     let tools = app.agent_tools();
-    app.secrets.forget_cached();
+    forget_cached(&app.secrets);
     keys.reset();
 
     tools
@@ -263,7 +270,7 @@ async fn a_live_tool_session_binds_no_secret() {
         .unwrap();
     assert_eq!(keys.loads(), 1);
 
-    app.secrets.forget_cached();
+    forget_cached(&app.secrets);
     keys.reset();
     tools
         .ensure_session_for(&profile.id, ToolCaller::Agent)
@@ -328,7 +335,7 @@ fn mongo_username_lives_in_plugin_config() {
     assert_eq!(saved.plugin_config["username"], "admin");
     assert_eq!(refs(&app, &saved.id).0.as_deref(), Some(VAULT_SECRET_REF));
 
-    app.secrets.forget_cached();
+    forget_cached(&app.secrets);
     keys.reset();
     let mut req = open_req(&saved);
     req.plugin_config = json!({"uri": "mongodb://127.0.0.1:27017/app?authSource=admin"});
@@ -359,7 +366,7 @@ fn orphaned_items_are_purged_except_the_vault_key() {
     let app = AppServices::with_secrets(
         AppDatabase::open_in_memory().unwrap(),
         ConnectionManager::bootstrap(),
-        SecretStore::from_parts(keys.clone(), Some(items.clone())),
+        from_parts(keys.clone(), Some(items.clone())),
     );
     let live = app.profiles().save(pg_input("live")).unwrap();
     let install = uuid::Uuid::new_v4();
@@ -456,7 +463,7 @@ fn tls_server_name_redirect_gets_no_saved_password() {
     let keys = fakes();
     let app = app_on(AppDatabase::open_in_memory().unwrap(), &keys);
     let profile = app.profiles().save(pg_input("pg")).unwrap();
-    app.secrets.forget_cached();
+    forget_cached(&app.secrets);
     keys.reset();
     let mut req = open_req(&profile);
     req.plugin_config["tlsServerName"] = json!("evil.example");

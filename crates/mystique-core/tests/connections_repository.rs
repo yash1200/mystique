@@ -1,4 +1,7 @@
+use mystique_core::domain::SaveConnectionInput;
 use mystique_core::storage::sqlite::ensure_schema;
+use mystique_core::storage::sqlite::repo::connections::{delete, list_all, save};
+use rusqlite::Connection;
 use serde_json::json;
 
 fn test_db() -> Connection {

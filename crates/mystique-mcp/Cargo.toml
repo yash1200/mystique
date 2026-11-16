@@ -17,8 +17,11 @@ tracing = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+mystique-mcp = { path = ".", features = ["test-support"] }
 tempfile = "3"
 
 [features]
 # TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
 ts = ["dep:ts-rs", "mystique-core/ts"]
+# Exposes internals to `tests/`. On only through the dev-dependency above.
+test-support = []

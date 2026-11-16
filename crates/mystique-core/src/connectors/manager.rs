@@ -308,7 +308,7 @@ impl ConnectionManager {
         self.open_session_as(req, SessionOrigin::Ui).await
     }
 
-    pub(super) async fn open_session_as(
+    pub(crate) async fn open_session_as(
         &self,
         req: OpenSessionRequest,
         origin: SessionOrigin,
@@ -556,7 +556,7 @@ impl ConnectionManager {
     /// Requests carry no read-only flag. Callers use this bit (filled from the
     /// stored profile at open, kept current by `apply_profile_read_only`)
     /// to decide whether a query is allowed to write.
-    pub(super) async fn session_and_read_only(
+    pub(crate) async fn session_and_read_only(
         &self,
         session_id: &str,
     ) -> ConnectorResult<(std::sync::Arc<dyn ConnectorSession>, bool)> {

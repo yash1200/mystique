@@ -9,7 +9,7 @@ use mystique_core::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::rpc::handle_method;
+use mystique_mcp::test_support::handle_method;
 
 struct Fixture {
     app: Arc<AppServices>,

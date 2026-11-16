@@ -422,7 +422,7 @@ pub(crate) fn bind_with_session(
 
 /// How a bound request used the session password store.
 #[derive(Debug)]
-pub(crate) enum SessionUse {
+pub enum SessionUse {
     None,
     /// Typed for a profile that does not save it: kept once the dial works.
     Typed(PendingPassword),

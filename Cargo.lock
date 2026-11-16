@@ -6451,6 +6451,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "mystique-core",
+ "mystique-mcp",
  "serde",
  "serde_json",
  "tempfile",

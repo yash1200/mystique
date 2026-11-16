@@ -12,7 +12,7 @@
 
 mod envelope;
 pub mod keychain;
-mod session;
+pub(crate) mod session;
 pub mod vault;
 
 use std::path::Path;
@@ -302,7 +302,7 @@ pub(crate) mod counting {
 
     use super::*;
 
-    pub(crate) use super::vault::counting::CountingKeySource;
+    pub use super::vault::counting::CountingKeySource;
 
     #[derive(Default)]
     pub struct FakeKeychain {

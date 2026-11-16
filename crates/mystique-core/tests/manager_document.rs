@@ -9,9 +9,11 @@ use mystique_connector_api::{
     QueryResult, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery,
 };
 
-use mystique_core::test_support::manager::{LiveSession, QueryHistoryWriter, SessionOrigin};
-use mystique_core::ConnectionManager;
 use mystique_core::domain::AppendHistoryInput;
+use mystique_core::test_support::manager::{
+    sessions, set_query_history_writer, LiveSession, QueryHistoryWriter, SessionOrigin,
+};
+use mystique_core::ConnectionManager;
 
 /// Index, range start, range end and text of one pinned call.
 type Pinned = (u32, u32, u32, String);
@@ -153,7 +155,7 @@ impl QueryHistoryWriter for History {
 
 async fn mongo(mgr: &ConnectionManager, session_id: &str, environment: &str) -> Probe {
     let probe = Probe::default();
-    mgr.sessions.write().await.insert(
+    sessions(mgr).write().await.insert(
         session_id.into(),
         LiveSession {
             session: Arc::new(probe.clone()),
@@ -205,7 +207,7 @@ const SCRIPT: &str = "// three statements\ndb.a.find({})\ndb.b\n  .insertOne({ x
 async fn each_statement_runs_in_order_with_its_own_result() {
     let mgr = ConnectionManager::bootstrap();
     let history = Arc::new(History::default());
-    mgr.set_query_history_writer(Arc::clone(&history) as Arc<dyn QueryHistoryWriter>);
+    set_query_history_writer(&mgr, Arc::clone(&history) as Arc<dyn QueryHistoryWriter>);
     let probe = mongo(&mgr, "local-mongo", "local").await;
     let (progress, events) = pump();
 
@@ -260,7 +262,7 @@ async fn each_statement_runs_in_order_with_its_own_result() {
 async fn the_first_error_stops_the_batch_and_points_at_its_statement() {
     let mgr = ConnectionManager::bootstrap();
     let history = Arc::new(History::default());
-    mgr.set_query_history_writer(Arc::clone(&history) as Arc<dyn QueryHistoryWriter>);
+    set_query_history_writer(&mgr, Arc::clone(&history) as Arc<dyn QueryHistoryWriter>);
     let probe = mongo(&mgr, "local-mongo", "local").await;
     let text = "db.a.find({})\n  db.boom.find({})\ndb.c.find({})";
 
@@ -320,7 +322,7 @@ async fn read_mode_refuses_a_write_anywhere_before_anything_runs() {
     assert_eq!((position.line, position.column), (2, 1));
 
     // A live read-only session reads the same way, whatever the client sent.
-    mgr.sessions
+    sessions(&mgr)
         .write()
         .await
         .get_mut("local-mongo")

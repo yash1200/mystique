@@ -1,11 +1,8 @@
 //! Minimal MCP Streamable HTTP (JSON-RPC 2.0) on 127.0.0.1.
 
 mod http;
-mod rpc;
+pub(crate) mod rpc;
 mod token;
-
-#[cfg(test)]
-mod tests;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

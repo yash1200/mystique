@@ -1,4 +1,4 @@
-use super::*;
+use mystique_tls::{tls_mode_support, SslMode, TlsModeSupport, TlsSettings};
 use serde_json::json;
 
 fn cfg(plugin: serde_json::Value) -> serde_json::Value {

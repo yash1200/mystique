@@ -6,7 +6,9 @@ use serde_json::json;
 
 use mystique_connector_api::ConnectorError;
 
-use mystique_core::test_support::manager::LiveSession;
+use mystique_core::test_support::manager::{
+    get_or_open, overlay_session_caps, sessions, LiveSession, SessionOrigin,
+};
 use mystique_core::{ConnectionManager, OpenSessionRequest};
 
 #[test]
@@ -909,8 +911,7 @@ fn cockroach_overlay_hides_terminate_and_postgres_keeps_it() {
     let probe = GuardProbe {
         ran: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
-    let cockroach =
-        overlay_session_caps(&probe, mystique_connector_api::product("cockroachdb"));
+    let cockroach = overlay_session_caps(&probe, mystique_connector_api::product("cockroachdb"));
     assert_eq!(cockroach.engine, "cockroachdb");
     assert!(!cockroach.supports_terminate_session);
     assert!(cockroach.supports_server_metrics);
@@ -985,7 +986,7 @@ async fn insert_probe(
     let session: std::sync::Arc<dyn ConnectorSession> = std::sync::Arc::new(GuardProbe {
         ran: std::sync::Arc::clone(&ran),
     });
-    mgr.sessions.write().await.insert(
+    sessions(mgr).write().await.insert(
         session_id.into(),
         LiveSession {
             session,
@@ -2122,12 +2123,10 @@ async fn two_get_or_open_calls_keep_one_session() {
     let _ = std::fs::remove_file(&path);
     let mgr = std::sync::Arc::new(ConnectionManager::bootstrap());
     let req = sqlite_open(&path, "pin-once", "local", false);
-    let first = mgr
-        .get_or_open(req.clone(), SessionOrigin::Ui)
+    let first = get_or_open(&mgr, req.clone(), SessionOrigin::Ui)
         .await
         .expect("first");
-    let second = mgr
-        .get_or_open(req, SessionOrigin::Ui)
+    let second = get_or_open(&mgr, req, SessionOrigin::Ui)
         .await
         .expect("second");
     assert_eq!(first.opened_at, second.opened_at);
@@ -2282,10 +2281,10 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
         req
     };
     mgr.open_session(open("ui-hist")).await.expect("ui");
-    mgr.get_or_open(open("agent:1"), SessionOrigin::Agent)
+    get_or_open(&mgr, open("agent:1"), SessionOrigin::Agent)
         .await
         .expect("agent");
-    mgr.get_or_open(open("mcp:1"), SessionOrigin::Mcp)
+    get_or_open(&mgr, open("mcp:1"), SessionOrigin::Mcp)
         .await
         .expect("mcp");
 
@@ -2340,7 +2339,8 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
             && row.duration_ms.is_some()
     }));
     assert!(page.iter().any(|row| {
-        row.source == mystique_core::domain::QueryHistorySource::Mcp && row.body.contains("mcp-marker")
+        row.source == mystique_core::domain::QueryHistorySource::Mcp
+            && row.body.contains("mcp-marker")
     }));
 
     let blob = services
@@ -2795,7 +2795,7 @@ impl ConnectorSession for DroppingSession {
 #[tokio::test]
 async fn a_transaction_the_server_dropped_is_reported_and_commit_refuses() {
     let mgr = ConnectionManager::bootstrap();
-    mgr.sessions.write().await.insert(
+    sessions(&mgr).write().await.insert(
         "drop".into(),
         LiveSession {
             session: std::sync::Arc::new(DroppingSession),

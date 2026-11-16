@@ -3,9 +3,13 @@ use serde_json::json;
 
 use mystique_core::connectors::ConnectionManager;
 use mystique_core::domain::SaveConnectionInput;
+use mystique_core::error::AppError;
 use mystique_core::secrets::SecretStore;
 use mystique_core::storage::AppDatabase;
-use mystique_core::AppServices;
+use mystique_core::test_support::agent_tools::AgentCellWindow;
+use mystique_core::{
+    tool_specs, tool_specs_for, AppServices, ToolCaller, AGENT_MAX_CELL_CHARS, AGENT_MAX_ROWS,
+};
 
 fn app() -> AppServices {
     AppServices::with_secrets(
@@ -369,7 +373,10 @@ async fn mcp_save_query_updates_its_own_row() {
     assert_eq!(updated["body"], "SELECT 2");
 }
 
-fn save_sqlite(app: &AppServices, path: &std::path::Path) -> mystique_core::domain::ConnectionProfile {
+fn save_sqlite(
+    app: &AppServices,
+    path: &std::path::Path,
+) -> mystique_core::domain::ConnectionProfile {
     save_sqlite_as(app, path, "local", false)
 }
 
@@ -427,7 +434,7 @@ async fn cell_paging_never_runs_a_write_again() {
                     None,
                     None,
                     "json",
-                    types::AgentCellWindow::from_options(Some(offset), Some(10)),
+                    AgentCellWindow::from_options(Some(offset), Some(10)),
                     ToolCaller::Agent,
                 )
                 .await
@@ -442,7 +449,7 @@ async fn cell_paging_never_runs_a_write_again() {
                 None,
                 None,
                 "json",
-                types::AgentCellWindow::default(),
+                AgentCellWindow::default(),
                 ToolCaller::Agent,
             )
             .await
