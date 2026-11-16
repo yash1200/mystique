@@ -15,7 +15,7 @@ use std::ops::ControlFlow;
 use serde_json::Value as JsonValue;
 use sqlparser::ast::{
     visit_expressions, AssignmentTarget, Expr, FromTable, ObjectNamePart, SetExpr, Statement,
-    TableFactor, TableWithJoins, Value,
+    TableFactor, TableWithJoins, Update, Value,
 };
 use sqlparser::parser::Parser;
 
@@ -87,13 +87,13 @@ pub fn row_preview_plan(
     }
     let limit = limit.clamp(1, 1_000);
     match statement {
-        Statement::Update {
+        Statement::Update(Update {
             table,
             assignments,
             from,
             selection,
             ..
-        } => {
+        }) => {
             if from.is_some() {
                 return Err(SINGLE_TABLE.into());
             }
@@ -171,8 +171,15 @@ pub fn row_preview_plan(
             let SetExpr::Values(values) = source.body.as_ref() else {
                 return Err(INSERT_VALUES.into());
             };
-            let insert_columns: Vec<String> =
-                insert.columns.iter().map(|c| c.value.clone()).collect();
+            // One plain column name each; a qualified one is not this shape.
+            let insert_columns: Vec<String> = insert
+                .columns
+                .iter()
+                .map(|c| match c.0.as_slice() {
+                    [ObjectNamePart::Identifier(ident)] => Ok(ident.value.clone()),
+                    _ => Err(SHAPE.to_string()),
+                })
+                .collect::<Result<_, _>>()?;
             let insert_table = if insert_columns.is_empty() {
                 Some(table_path(name, dialect).ok_or_else(|| SHAPE.to_string())?)
             } else {

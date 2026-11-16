@@ -215,7 +215,13 @@ fn connections_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Res
     let sel = state.has_selection;
     let new_conn = item(app, "home_new_connection", "New Connection", true, None)?;
     let import_url = item(app, "home_import_url", "Import Connection URL…", true, None)?;
-    let save = item(app, "home_save", "Save Connection", state.has_form, Some("CmdOrCtrl+S"))?;
+    let save = item(
+        app,
+        "home_save",
+        "Save Connection",
+        state.has_form,
+        Some("CmdOrCtrl+S"),
+    )?;
     let connect = item(app, "home_connect", "Connect", sel, None)?;
     let edit = item(app, "home_edit", "Edit Connection", sel, None)?;
     let duplicate = item(app, "home_duplicate", "Duplicate Connection", sel, None)?;

@@ -455,9 +455,9 @@ fn route_ast(stmt: &Statement, raw_sql: &str) -> TextRoute {
             route.returns_count = true;
             route.returns_rows = insert.returning.is_some();
         }
-        Statement::Update { returning, .. } => {
+        Statement::Update(update) => {
             route.returns_count = true;
-            route.returns_rows = returning.is_some();
+            route.returns_rows = update.returning.is_some();
         }
         Statement::Delete(delete) => {
             route.returns_count = true;
@@ -753,8 +753,9 @@ fn statement_risk(stmt: &Statement) -> StatementRisk {
             name, value, is_eq, ..
         } => pragma_risk(&basename(name), value.is_some(), *is_eq),
 
-        Statement::AlterTable { operations, .. } => {
-            if operations
+        Statement::AlterTable(alter) => {
+            if alter
+                .operations
                 .iter()
                 .any(|op| matches!(op, AlterTableOperation::DropColumn { .. }))
             {
@@ -800,9 +801,12 @@ fn statement_risk(stmt: &Statement) -> StatementRisk {
     }
 }
 
+/// Every variant is named, with no catch-all: a new kind of `SET` in a
+/// sqlparser upgrade is a compile error here, never a silent `Session`.
+/// (0.64 added `SetSessionAuthorization`, which the old `_` let through.)
 fn set_risk(set: &Set) -> StatementRisk {
     match set {
-        Set::SetRole { .. } => StatementRisk::Write,
+        Set::SetRole { .. } | Set::SetSessionAuthorization(_) => StatementRisk::Write,
         Set::SingleAssignment {
             scope, variable, ..
         } => {
@@ -822,7 +826,18 @@ fn set_risk(set: &Set) -> StatementRisk {
                 StatementRisk::Session
             }
         }
-        _ => StatementRisk::Session,
+        Set::ParenthesizedAssignments { variables, .. } => {
+            if variables.iter().any(variable_is_sensitive) {
+                StatementRisk::Write
+            } else {
+                StatementRisk::Session
+            }
+        }
+        Set::SetSessionParam(_)
+        | Set::SetTimeZone { .. }
+        | Set::SetNames { .. }
+        | Set::SetNamesDefault {}
+        | Set::SetTransaction { .. } => StatementRisk::Session,
     }
 }
 
@@ -976,7 +991,7 @@ pub(crate) fn basename(name: &ObjectName) -> String {
 fn ast_is_safe_dml(stmt: &Statement) -> bool {
     let shape = match stmt {
         Statement::Insert(_) | Statement::Update { .. } => true,
-        Statement::Merge { clauses, .. } => clauses.iter().all(|clause| {
+        Statement::Merge(merge) => merge.clauses.iter().all(|clause| {
             matches!(
                 clause.action,
                 MergeAction::Insert(_) | MergeAction::Update { .. }
@@ -1025,11 +1040,13 @@ fn classify_query(query: &Query) -> StatementRisk {
 fn ast_destructive_names(stmt: &Statement) -> Vec<String> {
     match stmt {
         Statement::Drop { names, .. } => names.iter().filter_map(last_object_ident).collect(),
-        Statement::Truncate { table_names, .. } => table_names
+        Statement::Truncate(truncate) => truncate
+            .table_names
             .iter()
             .filter_map(|target| last_object_ident(&target.name))
             .collect(),
-        Statement::DropFunction { func_desc, .. } => func_desc
+        Statement::DropFunction(drop) => drop
+            .func_desc
             .iter()
             .filter_map(|desc| last_object_ident(&desc.name))
             .collect(),
@@ -1037,10 +1054,9 @@ fn ast_destructive_names(stmt: &Statement) -> Vec<String> {
             .iter()
             .filter_map(|desc| last_object_ident(&desc.name))
             .collect(),
-        Statement::DropTrigger { trigger_name, .. } => {
-            last_object_ident(trigger_name).into_iter().collect()
-        }
-        Statement::AlterTable { operations, .. } => operations
+        Statement::DropTrigger(drop) => last_object_ident(&drop.trigger_name).into_iter().collect(),
+        Statement::AlterTable(alter) => alter
+            .operations
             .iter()
             .flat_map(|op| match op {
                 AlterTableOperation::DropColumn { column_names, .. } => column_names

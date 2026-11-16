@@ -9,8 +9,8 @@
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
-    BinaryOperator, Expr, FromTable, Statement, TableFactor, TableWithJoins, UnaryOperator, Value,
-    Visit, Visitor,
+    BinaryOperator, Expr, FromTable, InTarget, Statement, TableFactor, TableWithJoins,
+    UnaryOperator, Value, Visit, Visitor,
 };
 
 use super::risk::parse_result;
@@ -43,9 +43,12 @@ impl Visitor for WhereScan<'_> {
     // Also reached for DML nested in a CTE (`WITH … DELETE`).
     fn pre_visit_statement(&mut self, stmt: &Statement) -> ControlFlow<()> {
         let found = match stmt {
-            Statement::Update {
-                table, selection, ..
-            } => Some(("UPDATE", "changes", table_name(table), selection.as_ref())),
+            Statement::Update(update) => Some((
+                "UPDATE",
+                "changes",
+                table_name(&update.table),
+                update.selection.as_ref(),
+            )),
             Statement::Delete(delete) if delete.limit.is_none() => {
                 let from = match &delete.from {
                     FromTable::WithFromKeyword(tables) | FromTable::WithoutKeyword(tables) => {
@@ -229,7 +232,11 @@ fn is_pure(expr: &Expr) -> bool {
                 Expr::Function(_)
                 | Expr::Subquery(_)
                 | Expr::Exists { .. }
-                | Expr::InSubquery { .. } => ControlFlow::Break(()),
+                // `x IN (SELECT …)` and SQLite's `x IN table` both read a table.
+                | Expr::In {
+                    target: InTarget::Subquery(_) | InTarget::Table { .. },
+                    ..
+                } => ControlFlow::Break(()),
                 _ => ControlFlow::Continue(()),
             }
         }

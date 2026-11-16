@@ -53,19 +53,15 @@ fn entry(account: &str) -> AppResult<keyring::Entry> {
     keyring::Entry::new(SERVICE, account).map_err(secret_store_err)
 }
 
-/// keyring 3 has no default store. Missing features → in-process mock →
-/// save appears to work then the secret is gone after restart.
+/// keyring 4 (`v1`) sets the platform store on first use, or reports why it
+/// could not. Same items as keyring 3: a generic password with this service
+/// and account on macOS, `account.service` on Windows, the `service` and
+/// `username` attributes in the Secret Service.
 fn ensure_native_keyring() -> AppResult<()> {
-    use keyring::credential::CredentialPersistence;
-    match keyring::default::default_credential_builder().persistence() {
-        CredentialPersistence::UntilDelete | CredentialPersistence::UntilReboot => Ok(()),
-        CredentialPersistence::EntryOnly | CredentialPersistence::ProcessOnly => {
-            Err(secret_store_err(
-                "keyring is using a non-persistent store; enable apple-native, windows-native, or sync-secret-service",
-            ))
-        }
-        _ => Ok(()),
-    }
+    keyring::Entry::store_status()
+        .as_ref()
+        .map(|_| ())
+        .map_err(secret_store_err)
 }
 
 fn secret_store_err(err: impl std::fmt::Display) -> AppError {
@@ -202,15 +198,10 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
+    /// Setting up the store touches no item, so it never prompts.
+    #[cfg(target_os = "macos")]
     #[test]
-    fn default_keyring_is_not_the_in_process_mock() {
-        use keyring::credential::CredentialPersistence;
-        assert!(
-            !matches!(
-                keyring::default::default_credential_builder().persistence(),
-                CredentialPersistence::EntryOnly | CredentialPersistence::ProcessOnly
-            ),
-            "keyring 3 needs apple-native / windows-native / sync-secret-service or passwords vanish on restart"
-        );
+    fn the_platform_keychain_is_the_store() {
+        assert!(super::ensure_native_keyring().is_ok());
     }
 }

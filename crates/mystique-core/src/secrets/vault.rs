@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use rand::RngCore;
+use rand::TryRng;
 use serde::Serialize;
 
 pub const KEY_SOURCE_ENV: &str = "MYSTIQUE_VAULT_KEY_SOURCE";
@@ -37,7 +37,10 @@ pub struct VaultKey([u8; 32]);
 impl VaultKey {
     pub fn random() -> Self {
         let mut key = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut key);
+        // Straight from the OS, as before. Without it there is no safe key.
+        rand::rngs::SysRng
+            .try_fill_bytes(&mut key)
+            .expect("the OS random source failed");
         Self(key)
     }
 

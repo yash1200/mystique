@@ -308,7 +308,8 @@ fn statements_that_are_not_reads_fail() {
         reason(MY, "SELECT * FROM t INTO OUTFILE '/tmp/x'"),
         ReadProofReason::Unparsed
     );
-    assert_eq!(reason(PG, "VACUUM"), ReadProofReason::Unparsed);
+    // sqlparser 0.64 parses VACUUM; before, it was refused as unparsed.
+    assert_eq!(reason(PG, "VACUUM"), not("VACUUM"));
     assert_eq!(reason(PG, "SELECT * FORM t"), ReadProofReason::Unparsed);
     // One bad statement fails the batch, and says which.
     let err = read_proof(PG, "SELECT 1; SELECT 2; SELECT nextval('s')").unwrap_err();

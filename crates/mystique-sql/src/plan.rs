@@ -162,26 +162,26 @@ mod tests {
         assert!(!plan[0].cursor);
     }
 
+    // Not `SELECT * FORM t`: since sqlparser 0.64 Postgres reads `* FORM` as
+    // a wildcard alias, so the fault moves to `t`. A doubled `=` cannot be
+    // read any other way.
     #[test]
-    fn form_is_a_syntax_fault_on_that_token() {
-        let sql = "SELECT * FORM t";
+    fn a_syntax_fault_lands_on_that_token() {
+        let sql = "SELECT * FROM t WHERE id = = 1";
         let fault = first_syntax_fault(sql, SqlDialect::Postgres).expect("fault");
         assert_eq!(fault.index, 0);
         let at = usize::try_from(fault.offset).unwrap_or(0);
         let token = sql.get(at..).unwrap_or("");
-        assert!(
-            token.starts_with("FORM"),
-            "offset {at} landed on {token:?} ({fault:?})"
-        );
+        assert_eq!(token, "= 1", "offset {at} landed on {token:?} ({fault:?})");
     }
 
     #[test]
     fn syntax_fault_in_statement_two_is_not_at_the_start() {
-        let sql = "SELECT 1; SELECT * FORM t";
+        let sql = "SELECT 1; SELECT * FROM t WHERE id = = 1";
         let fault = first_syntax_fault(sql, SqlDialect::Postgres).expect("fault");
         assert_eq!(fault.index, 1);
         let at = usize::try_from(fault.offset).unwrap_or(0);
-        assert!(sql.get(at..).unwrap_or("").starts_with("FORM"), "{fault:?}");
+        assert_eq!(sql.get(at..).unwrap_or(""), "= 1", "{fault:?}");
         assert!(at > "SELECT 1; ".len(), "{fault:?}");
     }
 

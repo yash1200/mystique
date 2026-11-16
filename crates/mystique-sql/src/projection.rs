@@ -58,7 +58,7 @@ fn from_query(query: &Query) -> Option<SingleTableSelect> {
         || !select.lateral_views.is_empty()
         || !select.named_window.is_empty()
         || select.qualify.is_some()
-        || select.connect_by.is_some()
+        || !select.connect_by.is_empty()
     {
         return None;
     }
@@ -117,6 +117,8 @@ fn from_query(query: &Query) -> Option<SingleTableSelect> {
                 ProjectedItem::Wildcard
             }
             SelectItem::QualifiedWildcard(_, _) => return None,
+            // Spark's `expr AS (a, b)`: one expression, several columns.
+            SelectItem::ExprWithAliases { .. } => return None,
             SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => match expr {
                 Expr::Identifier(ident) => ProjectedItem::Column(ident.value.clone()),
                 Expr::CompoundIdentifier(idents) if idents.len() >= 2 => {

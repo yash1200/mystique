@@ -319,8 +319,14 @@ fn query_shape(body: &SetExpr) -> Result<(), Fault> {
     match body {
         SetExpr::Select(select) => match &select.into {
             Some(into) => Err(Fault::new(
-                ReadProofReason::SelectInto(into.name.to_string()),
-                into.name.span(),
+                ReadProofReason::SelectInto(
+                    into.targets
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+                into.targets.first().map_or_else(Span::empty, Spanned::span),
             )),
             None => Ok(()),
         },

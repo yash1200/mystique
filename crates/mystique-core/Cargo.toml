@@ -21,14 +21,14 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net", "io-util", "time"] }
 async-trait = "0.1"
-# keyring 3 has no default features; without these it uses an in-process mock
-# and passwords vanish on restart.
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-russh = { version = "0.63.3", default-features = false, features = ["aws-lc-rs"] }
+# keyring 4 `v1` (default): the platform store (macOS keychain, Windows
+# Credential Manager, Secret Service), or an error. No in-process mock.
+keyring = "4"
+russh = { version = "0.65.1", default-features = false, features = ["aws-lc-rs"] }
 # Vault envelopes (AES-256-GCM) and the base64 key.
-aes-gcm = "0.10"
-base64 = "0.22"
-rand = "0.8"
+aes-gcm = "0.11"
+base64 = "0.23"
+rand = "0.10"
 tracing = { workspace = true }
 # Diagnostics bundle (.tar.gz).
 flate2 = "1"

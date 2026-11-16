@@ -8,7 +8,6 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use base64::Engine;
-use rand::RngCore;
 
 use super::vault::VaultKey;
 use crate::error::{AppError, AppResult};
@@ -44,12 +43,13 @@ fn cipher(key: &VaultKey) -> AppResult<Aes256Gcm> {
 }
 
 pub(crate) fn seal(key: &VaultKey, slot: &Slot<'_>, plaintext: &str) -> AppResult<String> {
+    // A fresh 96-bit nonce per envelope, from the OS-seeded CSPRNG.
     let mut nonce = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    rand::fill(&mut nonce[..]);
     let aad = aad(slot);
     let ct = cipher(key)?
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: plaintext.as_bytes(),
                 aad: &aad,
@@ -66,10 +66,10 @@ pub(crate) fn open(key: &VaultKey, slot: &Slot<'_>, envelope: &str) -> AppResult
     else {
         return Err(AppError::SecretStore(UNREADABLE.into()));
     };
-    let nonce = B64
+    let nonce: [u8; 12] = B64
         .decode(nonce)
         .ok()
-        .filter(|n| n.len() == 12)
+        .and_then(|n| n.try_into().ok())
         .ok_or_else(|| AppError::SecretStore(UNREADABLE.into()))?;
     let ct = B64
         .decode(ct)
@@ -77,7 +77,7 @@ pub(crate) fn open(key: &VaultKey, slot: &Slot<'_>, envelope: &str) -> AppResult
     let aad = aad(slot);
     let plain = cipher(key)?
         .decrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: &ct,
                 aad: &aad,
