@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 use tauri::{
-    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, Wry,
 };
 
@@ -448,30 +448,10 @@ fn check_updates_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
     item(app, "app_check_updates", "Check for Updates…", true, None)
 }
 
-/// The OS About panel, filled from the bundle config.
-fn about_item(app: &AppHandle) -> tauri::Result<PredefinedMenuItem<Wry>> {
-    let mut metadata = about_metadata(
-        &app.package_info().version.to_string(),
-        app.config().bundle.copyright.as_deref(),
-    );
-    metadata.icon = app.default_window_icon().cloned();
-    PredefinedMenuItem::about(
-        app,
-        Some(&format!("About {APP_DISPLAY_NAME}")),
-        Some(metadata),
-    )
-}
-
-fn about_metadata(version: &str, copyright: Option<&str>) -> AboutMetadata<'static> {
-    AboutMetadata {
-        name: Some(APP_DISPLAY_NAME.to_string()),
-        version: Some(version.to_string()),
-        copyright: copyright
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_string),
-        ..Default::default()
-    }
+/// Opens the app's own About dialog (`app.about`), not the OS panel, so it
+/// follows the theme and carries the update status.
+fn about_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
+    item(app, "app_about", "About Mystique", true, None)
 }
 
 #[cfg(target_os = "macos")]
@@ -531,20 +511,5 @@ fn close_focused_window(app: &AppHandle) {
     }
     if let Some((_label, win)) = app.webview_windows().into_iter().next() {
         let _ = win.close();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn about_metadata_uses_the_bundle_values() {
-        let about = about_metadata("1.2.3", Some(" (c) Mystique "));
-        assert_eq!(about.name.as_deref(), Some(APP_DISPLAY_NAME));
-        assert_eq!(about.version.as_deref(), Some("1.2.3"));
-        assert_eq!(about.copyright.as_deref(), Some("(c) Mystique"));
-        assert_eq!(about_metadata("1.2.3", Some("  ")).copyright, None);
-        assert_eq!(about_metadata("1.2.3", None).copyright, None);
     }
 }

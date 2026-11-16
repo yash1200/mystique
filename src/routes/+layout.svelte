@@ -21,6 +21,7 @@
 		setAppTitle,
 		writeScalePreference,
 	} from '#core/util'
+	import { AboutModal, appAboutUi } from '#features/about'
 	import { ApprovalDock } from '#features/approvals'
 	import { PasswordPromptModal, SshHostKeyModal } from '#features/connections'
 	import { appSettingsUi, type SettingsSection } from '#features/settings'
@@ -80,6 +81,7 @@
 				appSettingsUi.show(args?.section as SettingsSection | undefined),
 		},
 		{ ...cmd.shortcuts, run: () => appShortcutsUi.show() },
+		{ ...cmd.about, run: () => appAboutUi.show() },
 		{ ...cmd.checkUpdates, run: () => void updater.check({ manual: true }) },
 		{ ...cmd.reset, run: () => resetGuard.request() },
 		{ ...cmd.zoomIn, run: () => zoomBy(0.1) },
@@ -134,6 +136,7 @@
 	<PasswordPromptModal />
 	<SshHostKeyModal />
 	<ApprovalDock />
+	<AboutModal open={appAboutUi.open} onclose={() => appAboutUi.close()} />
 	<KeyboardShortcutsModal
 		open={appShortcutsUi.open}
 		onclose={() => appShortcutsUi.close()}

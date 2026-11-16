@@ -41,6 +41,12 @@ export const cmd = {
 		group: 'app',
 		menu: ['app_shortcuts', 'help_shortcuts'],
 	}),
+	about: defineCommand({
+		id: 'app.about',
+		title: 'About Mystique',
+		group: 'app',
+		menu: 'app_about',
+	}),
 	checkUpdates: defineCommand({
 		id: 'app.check-updates',
 		title: 'Check for updates',

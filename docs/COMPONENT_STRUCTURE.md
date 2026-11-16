@@ -30,6 +30,7 @@ src/
     │   └── postgres/ mysql/ mongodb/ sqlite/
     │
     ├── features/                 # vertical slices
+    │   ├── about/                # About dialog (App menu › About Mystique)
     │   ├── connections/          # home screen: profiles, picker, create/edit form
     │   ├── settings/             # appearance, workspace, AI, MCP
     │   ├── shortcuts/            # keyboard reference
