@@ -39,13 +39,13 @@ const APPROVAL_POLL: Duration = Duration::from_millis(200);
 const EXIT_GRACE: Duration = Duration::from_millis(300);
 
 /// Where the agent's stdio comes from: a real process, or a fake in tests.
-pub(crate) struct Transport {
+pub struct Transport {
     pub reader: Box<dyn AsyncRead + Unpin + Send>,
     pub writer: Box<dyn AsyncWrite + Unpin + Send>,
     pub process: Option<AgentProcess>,
 }
 
-pub(crate) trait Launcher: Send + Sync {
+pub trait Launcher: Send + Sync {
     fn launch(&self, launch: &Launch, scrub: &Scrubber) -> std::io::Result<Transport>;
 }
 

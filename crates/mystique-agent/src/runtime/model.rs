@@ -1,35 +1,35 @@
 //! One streamed model call, behind a small trait so the loop can be tested
 //! with a fake provider.
 //!
-//! The real implementation wraps any Rig [`CompletionModel`]: it streams the
-//! request, forwards text and reasoning deltas as they arrive, and returns
-//! the aggregated assistant content (text, tool calls, reasoning with its
-//! signatures) for the history. Dropping the future drops the HTTP request.
+//! The real implementation wraps a Rig completion model (`DynModel`): it
+//! streams the request, forwards text and reasoning deltas as they arrive,
+//! and returns the finished assistant turn (text, tool calls, reasoning with
+//! its provider items) for the history. Dropping the future drops the HTTP
+//! request.
 
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 
 use futures::StreamExt;
-use rig::client::Nothing;
 use rig::completion::{
-    AssistantContent, CompletionError, CompletionModel, CompletionResponse, Message,
-    ToolDefinition, Usage,
+    AssistantContent, AssistantMessage, CompletionRequest, Message, ToolDefinition, Usage,
 };
-use rig::prelude::*;
+use rig::operation::Completion;
 use rig::providers::{
     anthropic, cohere, deepseek, gemini, groq, huggingface, mistral, moonshot, ollama, openai,
     openrouter, together, xai,
 };
-use rig::streaming::StreamedAssistantContent;
+use rig::streaming::{Item, StreamEvent};
+use rig::{DynModel, ProviderError};
 
 use crate::providers::AgentProvider;
 use crate::secrets::SecretStore;
 
-pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// What one model call is asked.
-pub(crate) struct TurnRequest {
+pub struct TurnRequest {
     pub preamble: String,
     /// Non-empty. The last message is the prompt for this call.
     pub history: Vec<Message>,
@@ -38,36 +38,29 @@ pub(crate) struct TurnRequest {
 }
 
 /// A streamed piece of the reply.
-pub(crate) enum Delta {
+pub enum Delta {
     Text(String),
     Reasoning(String),
 }
 
-/// The finished call: every content block, for the history.
-pub(crate) struct TurnOutput {
-    pub content: Vec<AssistantContent>,
+/// The finished call. The whole assistant turn goes back into the history:
+/// its origin and each block's provider item (reasoning signatures, call ids)
+/// are what a provider needs to accept the conversation again.
+pub struct TurnOutput {
+    pub message: AssistantMessage,
     pub usage: Usage,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TurnError {
+pub struct TurnError {
     pub message: String,
     /// A transport or overload failure worth one more try, if nothing streamed.
     pub retryable: bool,
 }
 
-impl TurnError {
-    pub(crate) fn fatal(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            retryable: false,
-        }
-    }
-}
+pub type DeltaSink<'a> = &'a (dyn Fn(Delta) + Send + Sync);
 
-pub(crate) type DeltaSink<'a> = &'a (dyn Fn(Delta) + Send + Sync);
-
-pub(crate) trait TurnModel: Send + Sync {
+pub trait TurnModel: Send + Sync {
     fn turn<'a>(
         &'a self,
         req: TurnRequest,
@@ -75,96 +68,93 @@ pub(crate) trait TurnModel: Send + Sync {
     ) -> BoxFuture<'a, Result<TurnOutput, TurnError>>;
 }
 
-struct RigTurnModel<M> {
-    model: M,
+struct RigTurnModel {
+    model: DynModel<Completion>,
     /// Display name for error messages ("Gemini").
     provider: &'static str,
 }
 
-/// Retry on transport and overload failures. The user sees one sentence;
-/// the raw provider text goes to the log.
-fn classify(provider: &str, err: CompletionError) -> TurnError {
+/// The user sees one sentence; the raw provider text goes to the log. Rig
+/// decides what is worth retrying (transport faults, 429/5xx, overload,
+/// a stalled stream).
+fn classify(provider: &str, err: ProviderError) -> TurnError {
     let raw = err.to_string();
-    let lower = raw.to_ascii_lowercase();
-    let retryable = matches!(err, CompletionError::HttpError(_))
-        || [
-            "429",
-            "500",
-            "502",
-            "503",
-            "504",
-            "529",
-            "overloaded",
-            "rate limit",
-            "timed out",
-        ]
-        .iter()
-        .any(|needle| lower.contains(needle));
     tracing::warn!(provider, error = %raw, "model call failed");
     TurnError {
         message: super::friendly::friendly_error(provider, &raw),
-        retryable,
+        retryable: err.is_retryable(),
     }
 }
 
-impl<M> TurnModel for RigTurnModel<M>
-where
-    M: CompletionModel + Clone + 'static,
-{
+impl TurnModel for RigTurnModel {
     fn turn<'a>(
         &'a self,
         req: TurnRequest,
         on_delta: DeltaSink<'a>,
     ) -> BoxFuture<'a, Result<TurnOutput, TurnError>> {
         Box::pin(async move {
-            let mut history = req.history;
-            let prompt = history
-                .pop()
-                .ok_or_else(|| TurnError::fatal("empty model request"))?;
+            let request = CompletionRequest::from(req.history)
+                .preamble(req.preamble)
+                .tools(req.tools)
+                .max_tokens(req.max_tokens);
             let mut stream = self
                 .model
-                .completion_request(prompt)
-                .preamble(req.preamble)
-                .messages(history)
-                .tools(req.tools)
-                .max_tokens(req.max_tokens)
-                .stream()
-                .await
+                .stream(request)
                 .map_err(|e| classify(self.provider, e))?;
-            // A provider that sends whole reasoning blocks without deltas.
-            let mut reasoning_seen: HashSet<String> = HashSet::new();
+            // Some providers send a reasoning block whole, with no deltas.
+            let mut reasoning_streamed = HashSet::new();
             while let Some(item) = stream.next().await {
-                match item.map_err(|e| classify(self.provider, e))? {
-                    StreamedAssistantContent::Text(text) => {
-                        on_delta(Delta::Text(text.text().to_string()));
+                let Item::Event(event) = item.map_err(|e| classify(self.provider, e))? else {
+                    continue;
+                };
+                match event {
+                    StreamEvent::Text { text, .. } => on_delta(Delta::Text(text)),
+                    StreamEvent::Reasoning { part, text } => {
+                        reasoning_streamed.insert(part);
+                        on_delta(Delta::Reasoning(text));
                     }
-                    StreamedAssistantContent::ReasoningDelta { id, reasoning, .. } => {
-                        reasoning_seen.insert(id);
-                        on_delta(Delta::Reasoning(reasoning));
-                    }
-                    StreamedAssistantContent::Reasoning { reasoning, id }
-                        if !reasoning_seen.contains(&id) =>
-                    {
-                        on_delta(Delta::Reasoning(reasoning.display_text()));
+                    StreamEvent::End {
+                        part,
+                        content: AssistantContent::Reasoning(reasoning),
+                    } if !reasoning_streamed.contains(&part) => {
+                        on_delta(Delta::Reasoning(reasoning.text));
                     }
                     _ => {}
                 }
             }
-            let response: CompletionResponse = stream.into();
+            let response = stream
+                .finish()
+                .await
+                .map_err(|e| classify(self.provider, e))?;
+            let message = match response.message() {
+                Some(Message::Assistant(message)) => message,
+                _ => AssistantMessage::new(Vec::new()).with_origin(response.origin.clone()),
+            };
+            // A turn the provider failed in-band (a content filter, an error
+            // stop) with nothing usable in it.
+            if let Some(reason) = response.error.as_deref() {
+                if message.text().trim().is_empty() && message.tool_calls().next().is_none() {
+                    return Err(classify(
+                        self.provider,
+                        ProviderError::Provider(reason.into()),
+                    ));
+                }
+            }
             Ok(TurnOutput {
-                content: response.choice,
+                message,
                 usage: response.usage,
             })
         })
     }
 }
 
-fn boxed<M>(provider: AgentProvider, model: M) -> Box<dyn TurnModel>
-where
-    M: CompletionModel + Clone + 'static,
-{
+/// The adapter around one Rig completion model (`provider` names it in errors).
+pub fn boxed(
+    provider: AgentProvider,
+    model: impl Into<DynModel<Completion>>,
+) -> Box<dyn TurnModel> {
     Box::new(RigTurnModel {
-        model,
+        model: model.into(),
         provider: provider.label(),
     })
 }
@@ -176,11 +166,12 @@ fn require_key(secrets: &SecretStore, provider: AgentProvider) -> Result<String,
         .ok_or_else(|| format!("No API key for {}. Add one in Settings.", provider.label()))
 }
 
+/// `$client(key).completion(model)`: each provider's own client, or an
+/// OpenAI-compatible vendor's `new`.
 macro_rules! keyed {
-    ($mod:ident, $secrets:expr, $provider:expr, $model:expr) => {{
+    ($client:path, $secrets:expr, $provider:expr, $model:expr) => {{
         let key = require_key($secrets, $provider)?;
-        let client = $mod::Client::new(&key).map_err(|e| e.to_string())?;
-        Ok(boxed($provider, client.completion_model($model)))
+        Ok(boxed($provider, $client(key).completion($model)))
     }};
 }
 
@@ -192,25 +183,25 @@ pub(crate) fn turn_model(
     ollama_url: &str,
 ) -> Result<Box<dyn TurnModel>, String> {
     match provider {
-        AgentProvider::Openai => keyed!(openai, secrets, provider, model),
-        AgentProvider::Anthropic => keyed!(anthropic, secrets, provider, model),
-        AgentProvider::Google => keyed!(gemini, secrets, provider, model),
-        AgentProvider::Groq => keyed!(groq, secrets, provider, model),
-        AgentProvider::Together => keyed!(together, secrets, provider, model),
-        AgentProvider::Mistral => keyed!(mistral, secrets, provider, model),
-        AgentProvider::Cohere => keyed!(cohere, secrets, provider, model),
-        AgentProvider::Huggingface => keyed!(huggingface, secrets, provider, model),
-        AgentProvider::Moonshot => keyed!(moonshot, secrets, provider, model),
-        AgentProvider::Deepseek => keyed!(deepseek, secrets, provider, model),
-        AgentProvider::Openrouter => keyed!(openrouter, secrets, provider, model),
-        AgentProvider::Xai => keyed!(xai, secrets, provider, model),
-        AgentProvider::Ollama => {
-            let client = ollama::Client::builder()
-                .api_key(Nothing)
-                .base_url(ollama_url)
-                .build()
-                .map_err(|e| e.to_string())?;
-            Ok(boxed(provider, client.completion_model(model)))
-        }
+        AgentProvider::Openai => keyed!(openai::OpenAI::new, secrets, provider, model),
+        AgentProvider::Anthropic => keyed!(anthropic::Anthropic::new, secrets, provider, model),
+        AgentProvider::Google => keyed!(gemini::Gemini::new, secrets, provider, model),
+        AgentProvider::Groq => keyed!(groq::new, secrets, provider, model),
+        AgentProvider::Together => keyed!(together::new, secrets, provider, model),
+        AgentProvider::Mistral => keyed!(mistral::new, secrets, provider, model),
+        AgentProvider::Cohere => keyed!(cohere::Cohere::new, secrets, provider, model),
+        AgentProvider::Huggingface => keyed!(huggingface::new, secrets, provider, model),
+        AgentProvider::Moonshot => keyed!(moonshot::new, secrets, provider, model),
+        AgentProvider::Deepseek => keyed!(deepseek::new, secrets, provider, model),
+        AgentProvider::Openrouter => keyed!(openrouter::new, secrets, provider, model),
+        AgentProvider::Xai => keyed!(xai::new, secrets, provider, model),
+        // The native `/api/chat`, as before: it takes `think` and `num_ctx`.
+        AgentProvider::Ollama => Ok(boxed(
+            provider,
+            ollama::OllamaConfig::new()
+                .with_base_url(ollama_url)
+                .client()
+                .native_completion(model),
+        )),
     }
 }

@@ -436,6 +436,3 @@ fn is_numeric_data_type(data_type: &str) -> bool {
         || data_type.contains("number")
         || data_type.contains("oid")
 }
-
-#[cfg(test)]
-mod tests;

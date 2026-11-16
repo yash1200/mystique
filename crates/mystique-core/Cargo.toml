@@ -39,9 +39,13 @@ tar = { version = "0.4", default-features = false }
 security-framework = "3"
 
 [dev-dependencies]
+mystique-core = { path = ".", features = ["test-support"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [features]
 # TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
 ts = ["dep:ts-rs", "mystique-connector-api/ts"]
+# Exposes internals to `tests/`. On only through the dev-dependency above,
+# so normal builds and other crates never see it.
+test-support = []

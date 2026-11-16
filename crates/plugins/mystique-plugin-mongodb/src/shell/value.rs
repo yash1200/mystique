@@ -9,7 +9,7 @@ use serde_json::Value as JsonValue;
 use super::lex::{query_err, Tok};
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Lit {
+pub enum Lit {
     Null,
     Bool(bool),
     /// Number as written.
@@ -224,7 +224,7 @@ fn object(cur: &mut Cursor<'_>) -> ConnectorResult<Lit> {
 }
 
 /// One object literal, with nothing after it but `;`.
-pub(crate) fn parse_document(text: &str) -> ConnectorResult<Document> {
+pub fn parse_document(text: &str) -> ConnectorResult<Document> {
     let toks = super::lex::lex(text)?;
     let mut cur = Cursor::new(&toks);
     if cur.peek() != Some(&Tok::Punct('{')) {

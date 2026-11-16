@@ -3,7 +3,7 @@
 //! Core never imports engine drivers — only [`mystique_connector_api`]
 //! and plugin entry points registered at bootstrap.
 
-mod manager;
+pub(crate) mod manager;
 mod registry;
 mod ssh;
 

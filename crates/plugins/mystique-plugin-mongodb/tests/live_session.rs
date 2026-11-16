@@ -4,7 +4,7 @@ use mongodb::bson::doc;
 use mongodb::Client;
 use mystique_connector_api::{ConnectorSession, QueryControl, QueryMode, ValidatedQuery};
 
-use super::MongoSession;
+use mystique_plugin_mongodb::test_support::MongoSession;
 
 #[tokio::test]
 #[ignore = "needs local MongoDB"]

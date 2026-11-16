@@ -3,7 +3,7 @@
 //! IPC / HTTP adapters call these — never repositories or drivers directly.
 
 mod agent_chat;
-mod agent_tools;
+pub(crate) mod agent_tools;
 pub(crate) mod dbml;
 mod grid_layout;
 mod history;
@@ -550,12 +550,6 @@ fn inject_mongo_username(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod keychain_tests;
-
-#[cfg(test)]
-mod session_password_tests;
 
 #[cfg(test)]
 mod attach_secrets_tests {

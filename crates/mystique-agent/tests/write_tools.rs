@@ -10,7 +10,7 @@ use mystique_core::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::{BoundTools, ToolErr, WRITE_TOOL};
+use mystique_agent::test_support::{BoundTools, ToolErr, WRITE_TOOL};
 
 struct Fixture {
     app: Arc<AppServices>,

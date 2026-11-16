@@ -5,7 +5,8 @@ use std::time::Duration;
 use mystique_connector_api::{ConnectorError, ExecuteQueryRequest, QueryMode};
 use serde_json::json;
 
-use super::{ConnectionManager, OpenSessionRequest, SessionOrigin};
+use mystique_core::test_support::manager::SessionOrigin;
+use mystique_core::{ConnectionManager, OpenSessionRequest};
 
 fn temp_db(label: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -189,7 +190,7 @@ async fn row_preview_reads_the_rows_and_never_writes() {
         .expect("seed rows");
 
     let preview = |statement: &str| {
-        mgr.preview_write_rows(super::PreviewWriteRowsRequest {
+        mgr.preview_write_rows(PreviewWriteRowsRequest {
             session_id: "prod".into(),
             statement: statement.into(),
             database: None,

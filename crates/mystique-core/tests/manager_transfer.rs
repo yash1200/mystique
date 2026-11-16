@@ -8,7 +8,7 @@ use mystique_connector_api::{
 };
 use serde_json::json;
 
-use super::{ConnectionManager, OpenSessionRequest};
+use mystique_core::{ConnectionManager, OpenSessionRequest};
 
 fn temp(label: &str, ext: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()

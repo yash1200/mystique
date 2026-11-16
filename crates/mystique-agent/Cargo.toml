@@ -16,12 +16,19 @@ tokio-util = "0.7"
 futures = "0.3"
 tracing = { workspace = true }
 thiserror = "2"
-rig = { version = "0.42", default-features = false, features = ["agent", "rustls"] }
+# Only the model layer: our own loop runs tools, so no `agent` runtime.
+rig = { version = "0.46", default-features = false, features = ["reqwest", "rustls"] }
 
 [dev-dependencies]
+mystique-agent = { path = ".", features = ["test-support"] }
+# The model wire tests serve recorded provider replies on a local socket.
+tokio = { version = "1", features = ["net", "io-util"] }
 # Captures log lines in the redaction test.
 tracing-subscriber = { workspace = true }
 
 [features]
 # TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
 ts = ["dep:ts-rs", "mystique-core/ts"]
+# Exposes the model adapter to `tests/`. On only through the dev-dependency
+# below, so normal builds and other crates never see it.
+test-support = []

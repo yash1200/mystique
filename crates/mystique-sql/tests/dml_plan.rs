@@ -1,5 +1,9 @@
-use super::*;
-use crate::dml::{ApplyTableEditsInput, TableEditColumn, TableRowUpdate};
+use std::collections::BTreeMap;
+
+use mystique_sql::dml::{
+    plan_table_edits, rows_hash, ApplyTableEditsInput, TableEditColumn, TableRowUpdate,
+};
+use mystique_sql::{SqlDialect, SqlPlaceholder};
 use serde_json::json;
 
 fn column(name: &str, data_type: &str, pk: bool) -> TableEditColumn {
@@ -131,7 +135,7 @@ fn a_deleted_row_with_a_large_preview_has_no_undo() {
         vec![column("id", "int", true), column("body", "text", false)],
         Vec::new(),
     );
-    edits.deletes = vec![crate::dml::TableRowDelete {
+    edits.deletes = vec![mystique_sql::dml::TableRowDelete {
         original: BTreeMap::from([
             ("id".into(), json!(1)),
             (

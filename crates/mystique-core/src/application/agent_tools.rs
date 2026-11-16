@@ -382,12 +382,3 @@ fn tool_session_id(
         ),
     })
 }
-
-#[cfg(test)]
-mod access_tests;
-
-#[cfg(test)]
-mod inspect_tests;
-
-#[cfg(test)]
-mod principal_tests;

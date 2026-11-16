@@ -1,12 +1,11 @@
 use mystique_connector_api::HARD_MAX_ROWS;
 use serde_json::json;
 
-use super::*;
-use crate::connectors::ConnectionManager;
-use crate::domain::SaveConnectionInput;
-use crate::secrets::SecretStore;
-use crate::storage::AppDatabase;
-use crate::AppServices;
+use mystique_core::connectors::ConnectionManager;
+use mystique_core::domain::SaveConnectionInput;
+use mystique_core::secrets::SecretStore;
+use mystique_core::storage::AppDatabase;
+use mystique_core::AppServices;
 
 fn app() -> AppServices {
     AppServices::with_secrets(
@@ -16,7 +15,7 @@ fn app() -> AppServices {
     )
 }
 
-fn save_pg(app: &AppServices, name: &str) -> crate::domain::ConnectionProfile {
+fn save_pg(app: &AppServices, name: &str) -> mystique_core::domain::ConnectionProfile {
     app.profiles()
         .save(SaveConnectionInput {
             id: None,
@@ -32,7 +31,7 @@ fn save_pg(app: &AppServices, name: &str) -> crate::domain::ConnectionProfile {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -119,7 +118,7 @@ async fn agent_connection_list_has_no_mongo_password() {
         clear_secret: false,
         copy_secret_from: None,
         favorite: None,
-        ssh_config: crate::domain::SshConfig::default(),
+        ssh_config: mystique_core::domain::SshConfig::default(),
         ssh_password: None,
         clear_ssh_secret: false,
         tls_key_passphrase: None,
@@ -299,7 +298,7 @@ async fn mcp_save_query_does_not_overwrite_another_connection() {
     level(&app, &prod.id, None, "none");
     let tools = app.agent_tools();
     let saved = tools
-        .save_query(crate::domain::SaveQueryInput {
+        .save_query(mystique_core::domain::SaveQueryInput {
             id: None,
             connection_id: prod.id.clone(),
             name: "prod query".into(),
@@ -329,7 +328,7 @@ async fn mcp_save_query_does_not_overwrite_another_connection() {
     );
     let still = app
         .db
-        .with_conn(|c| crate::storage::sqlite::repo::queries::get_query(c, &saved.id))
+        .with_conn(|c| mystique_core::storage::sqlite::repo::queries::get_query(c, &saved.id))
         .unwrap();
     assert_eq!(still.body, "SELECT secret");
     assert_eq!(still.name, "prod query");
@@ -370,7 +369,7 @@ async fn mcp_save_query_updates_its_own_row() {
     assert_eq!(updated["body"], "SELECT 2");
 }
 
-fn save_sqlite(app: &AppServices, path: &std::path::Path) -> crate::domain::ConnectionProfile {
+fn save_sqlite(app: &AppServices, path: &std::path::Path) -> mystique_core::domain::ConnectionProfile {
     save_sqlite_as(app, path, "local", false)
 }
 
@@ -379,7 +378,7 @@ fn save_sqlite_as(
     path: &std::path::Path,
     environment: &str,
     read_only: bool,
-) -> crate::domain::ConnectionProfile {
+) -> mystique_core::domain::ConnectionProfile {
     app.profiles()
         .save(SaveConnectionInput {
             id: None,
@@ -395,7 +394,7 @@ fn save_sqlite_as(
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,

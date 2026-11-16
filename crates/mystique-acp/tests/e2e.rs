@@ -25,11 +25,8 @@ use tokio::io::{
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 
-use crate::process::Launch;
-use crate::scrub::{Scrubber, MASK};
-use crate::service::AcpService;
-use crate::session::{Launcher, McpAccess, Transport};
-use crate::settings::{AcpEnvInput, SaveAcpAgent};
+use mystique_acp::test_support::{Launch, Launcher, Scrubber, Transport, MASK};
+use mystique_acp::{AcpEnvInput, AcpService, McpAccess, SaveAcpAgent};
 
 // ---------------------------------------------------------------- logs
 
@@ -173,11 +170,11 @@ impl Fx {
 
     /// One custom agent, the default; configuring again replaces it.
     fn configure(&self, program: &str, args: &[&str], env: Vec<(&str, &str)>) {
-        let existing = crate::settings::view(&self.app)
+        let existing = mystique_acp::test_support::view(&self.app)
             .agents
             .first()
             .map(|a| a.id.clone());
-        crate::settings::save_agent(
+        mystique_acp::test_support::save_agent(
             &self.app,
             SaveAcpAgent {
                 id: existing,
@@ -759,7 +756,10 @@ async fn a_turn_streams_text_and_a_tool_call_through_mystique_mcp() {
     // on the agent for the menu.
     assert_eq!(chat.provider, "acp");
     assert_eq!(chat.model, "custom-1");
-    assert_eq!(crate::settings::view(&fx.app).agents[0].label, "Fake Agent");
+    assert_eq!(
+        mystique_acp::test_support::view(&fx.app).agents[0].label,
+        "Fake Agent"
+    );
     fx.close().await;
 }
 
@@ -1229,8 +1229,8 @@ async fn an_agent_without_http_mcp_reaches_mystique_through_the_stdio_bridge() {
                     .map(|e| e["value"].as_str().unwrap().to_string())
                     .unwrap()
             };
-            let url = env(crate::bridge::ENV_URL);
-            let token = env(crate::bridge::ENV_TOKEN);
+            let url = env(mystique_acp::bridge::ENV_URL);
+            let token = env(mystique_acp::bridge::ENV_TOKEN);
             agent.reply(id, json!({ "sessionId": "s1" })).await;
             let (prompt_id, _) = agent.expect("session/prompt").await;
             // What the agent does: start the bridge and speak MCP to it.
@@ -1247,7 +1247,7 @@ async fn an_agent_without_http_mcp_reaches_mystique_through_the_stdio_bridge() {
             let log = LogBuf::default();
             let (o, l) = (out.clone(), log.clone());
             tokio::task::spawn_blocking(move || {
-                crate::bridge::run(&url, &token, input.as_bytes(), o, l).unwrap();
+                mystique_acp::bridge::run(&url, &token, input.as_bytes(), o, l).unwrap();
             })
             .await
             .unwrap();
@@ -1278,7 +1278,7 @@ async fn an_agent_without_http_mcp_reaches_mystique_through_the_stdio_bridge() {
 
     let (server, out, log) = bridged.lock().unwrap().clone().unwrap();
     assert_eq!(server["command"], exe.to_string_lossy().as_ref());
-    assert_eq!(server["args"], json!([crate::bridge::BRIDGE_FLAG]));
+    assert_eq!(server["args"], json!([mystique_acp::bridge::BRIDGE_FLAG]));
     assert!(!server["args"].to_string().contains(&fx.access.token));
     let replies: Vec<JsonValue> = out
         .lines()

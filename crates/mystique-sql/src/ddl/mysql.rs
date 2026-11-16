@@ -22,7 +22,7 @@ pub(super) fn modify_column(
 
 /// The full MySQL column definition for MODIFY: the new type and NULL-ness,
 /// with every other attribute copied from the original definition.
-pub(super) fn mysql_modify_definition(
+pub fn mysql_modify_definition(
     original: &ColumnOriginal,
     column: &ColumnDraft,
 ) -> Result<String, String> {

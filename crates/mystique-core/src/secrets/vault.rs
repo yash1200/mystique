@@ -179,7 +179,7 @@ impl Vault {
     }
 
     /// Drop the cached key. Tests use it to prove a path loads nothing.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn forget(&self) {
         *self.state.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
@@ -391,14 +391,14 @@ impl KeySource for MemoryKeySource {
 }
 
 /// Key source that counts loads, for tests.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod counting {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
     #[derive(Default)]
-    pub(crate) struct CountingKeySource {
+    pub struct CountingKeySource {
         key: Mutex<Option<VaultKey>>,
         loads: AtomicUsize,
         /// Every load is refused, like a denied prompt.

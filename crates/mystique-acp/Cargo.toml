@@ -23,6 +23,7 @@ tracing = { workspace = true }
 libc = "0.2"
 
 [dev-dependencies]
+mystique-acp = { path = ".", features = ["test-support"] }
 # The real MCP server for the end-to-end turn.
 mystique-mcp = { path = "../mystique-mcp" }
 tempfile = "3"
@@ -32,3 +33,5 @@ tracing-subscriber = { workspace = true }
 [features]
 # TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
 ts = ["dep:ts-rs", "mystique-core/ts", "mystique-agent/ts"]
+# Exposes internals to `tests/`. On only through the dev-dependency below.
+test-support = []

@@ -7,12 +7,11 @@ use std::time::Duration;
 use mystique_connector_api::{ExecuteQueryRequest, QueryMode};
 use serde_json::{json, Value as JsonValue};
 
-use super::*;
-use crate::connectors::{ConnectionManager, OpenSessionRequest};
-use crate::domain::{ConnectionProfile, SaveConnectionInput};
-use crate::secrets::SecretStore;
-use crate::storage::AppDatabase;
-use crate::AppServices;
+use mystique_core::connectors::{ConnectionManager, OpenSessionRequest};
+use mystique_core::domain::{ConnectionProfile, SaveConnectionInput};
+use mystique_core::secrets::SecretStore;
+use mystique_core::storage::AppDatabase;
+use mystique_core::AppServices;
 
 struct Fixture {
     app: Arc<AppServices>,
@@ -53,7 +52,7 @@ fn fixture(environment: &str, read_only: bool) -> Fixture {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -336,7 +335,7 @@ async fn closing_the_human_session_leaves_the_tool_session_running() {
     let _ = fx.app.connections().close_session(&agent).await;
 }
 
-async fn next_request(app: &AppServices) -> crate::domain::ToolApprovalRequest {
+async fn next_request(app: &AppServices) -> mystique_core::domain::ToolApprovalRequest {
     for _ in 0..400 {
         if let Some(req) = app.tool_approvals().pending().into_iter().next() {
             return req;

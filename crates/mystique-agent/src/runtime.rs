@@ -3,8 +3,6 @@ pub(crate) mod draft;
 pub(crate) mod events;
 pub(crate) mod friendly;
 pub(crate) mod host;
-#[cfg(test)]
-mod loop_tests;
 pub(crate) mod model;
 pub(crate) mod ollama;
 pub(crate) mod prompt;

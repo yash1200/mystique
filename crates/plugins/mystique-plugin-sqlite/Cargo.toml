@@ -16,4 +16,9 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
+mystique-plugin-sqlite = { path = ".", features = ["test-support"] }
 mystique-conformance = { path = "../../mystique-conformance" }
+
+[features]
+# Exposes internals to `tests/`. On only through the dev-dependency above.
+test-support = []

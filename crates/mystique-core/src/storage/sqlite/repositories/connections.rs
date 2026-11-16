@@ -306,6 +306,3 @@ pub fn set_secret_ref(conn: &Connection, id: &str, secret_ref: Option<&str>) -> 
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

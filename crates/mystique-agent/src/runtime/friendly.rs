@@ -144,16 +144,19 @@ fn strip_prefixes(raw: &str) -> &str {
     }
 }
 
-/// The number after "status code", as Rig and reqwest print it.
+/// The HTTP status in the error text: "status code 400" (reqwest, older
+/// Rig) or "status 400 Bad Request" (Rig 0.46's `ProviderResponseError`).
 fn status_code(text: &str) -> Option<u16> {
     let lower = text.to_ascii_lowercase();
-    let at = lower.find("status code")? + "status code".len();
-    let digits: String = lower[at..]
-        .trim_start_matches([':', ' '])
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
-    digits.parse().ok()
+    lower.match_indices("status").find_map(|(at, word)| {
+        let rest = lower[at + word.len()..].trim_start_matches(" code");
+        let digits: String = rest
+            .trim_start_matches([':', ' '])
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        (digits.len() == 3).then(|| digits.parse().ok()).flatten()
+    })
 }
 
 /// The JSON response body inside the error text, if any.
@@ -245,6 +248,25 @@ mod tests {
         assert_eq!(
             friendly_error("Gemini", GEMINI_BAD_KEY),
             "Gemini rejected the API key. Check it in Settings → AI."
+        );
+    }
+
+    /// Rig 0.46 prints a provider's HTTP error as `status 401 …: {body}`.
+    #[test]
+    fn rig_046_status_format() {
+        let raw = r#"provider response: status 401 Unauthorized: {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}} [anthropic /v1/messages]"#;
+        assert_eq!(
+            friendly_error("Anthropic", raw),
+            "Anthropic rejected the API key. Check it in Settings → AI."
+        );
+        let raw = r#"status 400 Bad Request: {"error":{"message":"Invalid value at 'contents[0]'","status":"INVALID_ARGUMENT"}}"#;
+        assert_eq!(
+            friendly_error("Gemini", raw),
+            "Gemini returned an error: Invalid value at 'contents[0]'."
+        );
+        assert_eq!(
+            status_code("status 503 Service Unavailable: busy"),
+            Some(503)
         );
     }
 

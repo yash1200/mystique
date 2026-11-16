@@ -9,12 +9,11 @@ use mystique_connector_api::{
 };
 use serde_json::{json, Value as JsonValue};
 
-use super::*;
-use crate::connectors::{ConnectionManager, SessionOrigin};
-use crate::domain::{ConnectionProfile, SaveConnectionInput};
-use crate::secrets::SecretStore;
-use crate::storage::AppDatabase;
-use crate::AppServices;
+use mystique_core::connectors::{ConnectionManager, SessionOrigin};
+use mystique_core::domain::{ConnectionProfile, SaveConnectionInput};
+use mystique_core::secrets::SecretStore;
+use mystique_core::storage::AppDatabase;
+use mystique_core::AppServices;
 
 struct Fixture {
     app: Arc<AppServices>,
@@ -57,7 +56,7 @@ fn save(
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,

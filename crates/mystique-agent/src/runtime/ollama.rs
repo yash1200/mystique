@@ -1,8 +1,6 @@
 //! List models from a local Ollama daemon.
 
 use mystique_core::{AppError, AppResult, AppServices};
-use rig::client::Nothing;
-use rig::prelude::*;
 use rig::providers::ollama;
 
 use crate::providers::AgentModelInfo;
@@ -11,17 +9,14 @@ use super::AgentRuntime;
 
 pub(super) async fn list_ollama_models(app: &AppServices) -> AppResult<Vec<AgentModelInfo>> {
     let url = AgentRuntime::ollama_url(app);
-    let client = ollama::Client::builder()
-        .api_key(Nothing)
-        .base_url(&url)
-        .build()
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let client = ollama::OllamaConfig::new().with_base_url(&url).client();
     let listed = client.list_models().await.map_err(|e| {
         AppError::Invalid(format!(
             "Could not list Ollama models at {url}. Is Ollama running? ({e})"
         ))
     })?;
 
+    let listed = listed.data;
     let mut out: Vec<AgentModelInfo> = listed
         .iter()
         .filter(|m| !is_likely_embedding(&m.id) && !is_likely_embedding(m.display_name()))

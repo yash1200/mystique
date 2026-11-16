@@ -6,21 +6,44 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use mystique_core::ToolApprovalRequest;
-use rig::completion::message::{AssistantContent, ToolCall, ToolFunction, UserContent};
+use rig::completion::message::{
+    AssistantContent, AssistantMessage, ToolCall, ToolFunction, ToolName, UserContent,
+};
 use rig::completion::{Message, ToolDefinition, Usage};
 use serde_json::{json, Value as JsonValue};
 use tokio_util::sync::CancellationToken;
 
-use super::events::{AgentErrorKind, AgentEvent};
-use super::host::{RunHost, ToolFailure, ToolRunner};
-use super::model::{BoxFuture, Delta, DeltaSink, TurnError, TurnModel, TurnOutput, TurnRequest};
-use super::prompt::ErrorAt;
-use super::runs::{execute_run, RunRegistry, RunSpec};
-use super::stream::tests::recording_sink;
-use super::turns::LoopConfig;
-use super::AgentTableRef;
+use mystique_agent::test_support::{
+    execute_run, BoxFuture, Delta, DeltaSink, ErrorAt, LoopConfig, RunHost, RunRegistry, RunSpec,
+    ToolFailure, ToolRunner, TurnError, TurnModel, TurnOutput, TurnRequest,
+};
+use mystique_agent::{AgentErrorKind, AgentEvent, AgentEventSink, AgentTableRef};
 
 // ---------------------------------------------------------------- fakes
+
+/// A fake the test keeps a handle to while the loop owns it. A newtype, as
+/// the seams' traits and `Arc` are both foreign here.
+struct Shared<T>(Arc<T>);
+
+impl<T> std::ops::Deref for Shared<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// A sink that records events.
+fn recording_sink() -> (AgentEventSink, Arc<Mutex<Vec<AgentEvent>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink_seen = Arc::clone(&seen);
+    let sink: AgentEventSink = Arc::new(move |event| {
+        if let Ok(mut list) = sink_seen.lock() {
+            list.push(event);
+        }
+    });
+    (sink, seen)
+}
 
 enum Step {
     /// Stream `deltas`, then answer with them and `calls` (id, name, args).
@@ -83,7 +106,7 @@ impl FakeModel {
     }
 }
 
-impl TurnModel for Arc<FakeModel> {
+impl TurnModel for Shared<FakeModel> {
     fn turn<'a>(
         &'a self,
         req: TurnRequest,
@@ -108,13 +131,13 @@ impl TurnModel for Arc<FakeModel> {
                     for (id, name, args) in calls {
                         content.push(AssistantContent::ToolCall(ToolCall::from_wire(
                             id,
-                            ToolFunction::new(name.to_string(), args),
+                            ToolFunction::new(ToolName::new(name).expect("tool name"), args),
                         )));
                     }
-                    let mut usage = Usage::new();
-                    usage.input_tokens = 10;
-                    usage.output_tokens = 5;
-                    Ok(TurnOutput { content, usage })
+                    Ok(TurnOutput {
+                        message: AssistantMessage::new(content),
+                        usage: Usage::new().input_tokens(10).output_tokens(5),
+                    })
                 }
                 Some(Step::Fail {
                     streamed,
@@ -151,13 +174,13 @@ struct FakeTools {
     big_result: AtomicBool,
 }
 
-impl ToolRunner for Arc<FakeTools> {
+impl ToolRunner for Shared<FakeTools> {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        vec![ToolDefinition {
-            name: "describe_object".into(),
-            description: "fake".into(),
-            parameters: json!({ "type": "object" }),
-        }]
+        vec![ToolDefinition::new(
+            ToolName::new("describe_object").expect("tool name"),
+            "fake",
+            json!({ "type": "object" }),
+        )]
     }
 
     fn call<'a>(
@@ -251,8 +274,8 @@ impl Harness {
             limit: self.limit,
         };
         execute_run(
-            Box::new(Arc::clone(&self.model)),
-            Arc::new(Arc::clone(&self.tools)),
+            Box::new(Shared(Arc::clone(&self.model))),
+            Arc::new(Shared(Arc::clone(&self.tools))),
             Arc::clone(&self.host) as Arc<dyn RunHost>,
             spec,
             token,

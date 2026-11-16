@@ -23,7 +23,7 @@ const STDERR_TAIL: usize = 12;
 
 /// What to run.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Launch {
+pub struct Launch {
     pub program: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
@@ -85,7 +85,7 @@ fn kill_group(pid: u32) {
 fn kill_group(_pid: u32) {}
 
 /// A running agent. Dropping it kills the process group.
-pub(crate) struct AgentProcess {
+pub struct AgentProcess {
     child: Child,
     pid: Option<u32>,
     children: Children,

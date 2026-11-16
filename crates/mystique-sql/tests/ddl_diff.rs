@@ -1,7 +1,7 @@
 //! Schema diff (column renames, keys, constraints, drops) and the Postgres /
 //! MySQL statements for defaults, identity, keys, and constraints.
 
-use super::*;
+use mystique_sql::ddl::*;
 
 fn col(name: &str, data_type: &str) -> ColumnDraft {
     ColumnDraft::loaded(name, data_type, true, 0)

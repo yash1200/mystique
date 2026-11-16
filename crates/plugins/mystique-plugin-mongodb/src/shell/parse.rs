@@ -15,7 +15,7 @@ use super::value::{call_args, describe, literal, to_bson, to_document, Cursor, L
 
 /// `show dbs` / `listDatabases`, `show collections` / `listCollections`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Listing {
+pub enum Listing {
     Databases,
     Collections,
 }
@@ -44,7 +44,7 @@ impl Listing {
 
 /// What the text says, before anything checks the executor can run it.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Statement {
+pub enum Statement {
     Listing(Listing),
     /// A bare `{ … }` with no `op` key: a find filter.
     Filter(Lit),
@@ -57,7 +57,7 @@ pub(crate) enum Statement {
 
 /// `db[.getSiblingDB(d)].coll.method(args).chain(args)…`
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ShellCall {
+pub struct ShellCall {
     pub database: Option<String>,
     /// `None` for a database method such as `db.dropDatabase()`.
     pub collection: Option<String>,
@@ -68,7 +68,7 @@ pub(crate) struct ShellCall {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Chained {
+pub struct Chained {
     pub method: String,
     pub args: Vec<Lit>,
 }
@@ -113,7 +113,7 @@ impl Statement {
     }
 }
 
-pub(crate) fn parse(text: &str) -> ConnectorResult<Statement> {
+pub fn parse(text: &str) -> ConnectorResult<Statement> {
     let text = text.trim();
     if text.is_empty() {
         return Err(query_err("Query is empty."));
@@ -284,7 +284,7 @@ fn string_arg(method: &str, args: &[Lit]) -> ConnectorResult<String> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Target {
+pub struct Target {
     /// From `db.getSiblingDB("…")`. `None` uses the session database.
     pub database: Option<String>,
     /// `None` uses the Collection field.
@@ -292,14 +292,14 @@ pub(crate) struct Target {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct MongoCall {
+pub struct MongoCall {
     pub target: Target,
     pub op: MongoOp,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)] // built once per query, moved straight into dispatch
-pub(crate) enum MongoOp {
+pub enum MongoOp {
     Find(FindSpec),
     Aggregate(AggregateSpec),
     Count(CountSpec),
@@ -314,7 +314,7 @@ pub(crate) enum MongoOp {
 
 /// Options any read takes.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct ReadOptions {
+pub struct ReadOptions {
     /// An index name (`Bson::String`) or key pattern (`Bson::Document`).
     pub hint: Option<Bson>,
     pub collation: Option<Document>,
@@ -324,7 +324,7 @@ pub(crate) struct ReadOptions {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct FindSpec {
+pub struct FindSpec {
     pub filter: Document,
     pub projection: Option<Document>,
     pub sort: Option<Document>,
@@ -337,7 +337,7 @@ pub(crate) struct FindSpec {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct AggregateSpec {
+pub struct AggregateSpec {
     pub pipeline: Vec<Document>,
     pub allow_disk_use: Option<bool>,
     pub batch_size: Option<u32>,
@@ -347,7 +347,7 @@ pub(crate) struct AggregateSpec {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct CountSpec {
+pub struct CountSpec {
     pub filter: Document,
     pub limit: Option<u64>,
     pub skip: Option<u64>,
@@ -356,7 +356,7 @@ pub(crate) struct CountSpec {
 
 /// The writes that run as `insert` / `update` / `delete` commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WriteMethod {
+pub enum WriteMethod {
     InsertOne,
     InsertMany,
     UpdateOne,
@@ -368,7 +368,7 @@ pub(crate) enum WriteMethod {
 }
 
 impl WriteMethod {
-    pub(crate) fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::InsertOne => "insertOne",
             Self::InsertMany => "insertMany",
@@ -384,7 +384,7 @@ impl WriteMethod {
 
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)] // built once per query, moved straight into dispatch
-pub(crate) enum ShellWrite {
+pub enum ShellWrite {
     /// insertOne … deleteMany are one model; insertMany and bulkWrite many.
     Models {
         method: WriteMethod,
@@ -396,7 +396,7 @@ pub(crate) enum ShellWrite {
 
 /// Options on the write command as a whole.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct WriteOptions {
+pub struct WriteOptions {
     /// `None` is ordered, as on the server.
     pub ordered: Option<bool>,
     pub bypass_document_validation: Option<bool>,
@@ -408,7 +408,7 @@ pub(crate) struct WriteOptions {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum WriteModel {
+pub enum WriteModel {
     InsertOne(Document),
     UpdateOne(UpdateModel),
     UpdateMany(UpdateModel),
@@ -419,7 +419,7 @@ pub(crate) enum WriteModel {
 
 /// One update statement. For `replaceOne`, `update` is the replacement.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct UpdateModel {
+pub struct UpdateModel {
     pub filter: Document,
     pub update: Document,
     pub upsert: Option<bool>,
@@ -430,14 +430,14 @@ pub(crate) struct UpdateModel {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct DeleteModel {
+pub struct DeleteModel {
     pub filter: Document,
     pub collation: Option<Document>,
     pub hint: Option<Bson>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Modify {
+pub enum Modify {
     Update(Document),
     Replace(Document),
     Delete,
@@ -445,7 +445,7 @@ pub(crate) enum Modify {
 
 /// `findOneAndUpdate` / `findOneAndReplace` / `findOneAndDelete`.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct FindAndModify {
+pub struct FindAndModify {
     pub filter: Document,
     pub modify: Modify,
     pub upsert: Option<bool>,
@@ -461,7 +461,7 @@ pub(crate) struct FindAndModify {
 }
 
 impl FindAndModify {
-    pub(crate) fn method(&self) -> &'static str {
+    pub fn method(&self) -> &'static str {
         match self.modify {
             Modify::Update(_) => "findOneAndUpdate",
             Modify::Replace(_) => "findOneAndReplace",
@@ -473,12 +473,12 @@ impl FindAndModify {
 /// What the executor runs.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)] // built once per query, moved straight into dispatch
-pub(crate) enum Executable {
+pub enum Executable {
     Listing(Listing),
     Call(MongoCall),
 }
 
-pub(crate) fn parse_executable(text: &str) -> ConnectorResult<Executable> {
+pub fn parse_executable(text: &str) -> ConnectorResult<Executable> {
     lower(&parse(text)?)
 }
 

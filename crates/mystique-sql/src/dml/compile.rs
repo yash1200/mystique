@@ -204,6 +204,3 @@ pub fn compile_delete(
         where_sql.join(" AND ")
     ))
 }
-
-#[cfg(test)]
-mod tests;

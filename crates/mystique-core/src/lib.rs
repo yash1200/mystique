@@ -61,3 +61,14 @@ pub use mystique_connector_api::{
     TablePreviewCount, TablePreviewResult, TablePreviewStats, TableRowInsert, TableRowUpdate,
     TerminateSessionRequest, TerminateSessionResult, TestResult, TransferProgress,
 };
+
+/// Internals the tests in `tests/` reach. Only with the `test-support`
+/// feature, which only the crate's own dev-dependency turns on.
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support {
+    pub mod manager {
+        pub use crate::connectors::manager::history::QueryHistoryWriter;
+        pub use crate::connectors::manager::{LiveSession, SessionOrigin};
+    }
+}

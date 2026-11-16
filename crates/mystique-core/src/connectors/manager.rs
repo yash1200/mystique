@@ -19,7 +19,7 @@ mod document;
 mod explain;
 mod grid_save;
 mod guard;
-mod history;
+pub(crate) mod history;
 mod infer;
 mod large;
 mod meta_cache;
@@ -46,7 +46,7 @@ use super::ssh::{
 use super::ConnectorRegistry;
 use crate::domain::SshTunnelRequest;
 
-fn overlay_session_caps(
+pub fn overlay_session_caps(
     session: &dyn ConnectorSession,
     product: Option<&EngineProduct>,
 ) -> EngineCapabilities {
@@ -109,37 +109,37 @@ fn default_use_saved_ssh() -> bool {
 
 /// Who opened the pool. Pins are keyed by tab id, not by this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum SessionOrigin {
+pub enum SessionOrigin {
     #[default]
     Ui,
     Agent,
     Mcp,
 }
 
-struct LiveSession {
-    session: Arc<dyn ConnectorSession>,
-    display_name: String,
-    opened_at: String,
+pub struct LiveSession {
+    pub session: Arc<dyn ConnectorSession>,
+    pub display_name: String,
+    pub opened_at: String,
     /// Product id the user picked (`cockroachdb`), not the runtime crate.
-    product_id: String,
+    pub product_id: String,
     /// Held so the local forward stays up until close.
-    _tunnel: Option<SshTunnel>,
-    environment: String,
-    read_only: bool,
-    connection_name: String,
-    origin: SessionOrigin,
+    pub _tunnel: Option<SshTunnel>,
+    pub environment: String,
+    pub read_only: bool,
+    pub connection_name: String,
+    pub origin: SessionOrigin,
     /// Saved profile id. History is keyed by this, not the live session id.
-    profile_id: Option<String>,
+    pub profile_id: Option<String>,
     /// `database` in the plugin config at open: where unqualified names go
     /// (the row preview names an `INSERT`'s columns from it).
-    default_database: Option<String>,
-    last_used: std::sync::Mutex<std::time::Instant>,
+    pub default_database: Option<String>,
+    pub last_used: std::sync::Mutex<std::time::Instant>,
 }
 
 /// Tracks open engine sessions (each session owns its connection pool).
 pub struct ConnectionManager {
     registry: ConnectorRegistry,
-    sessions: RwLock<HashMap<String, LiveSession>>,
+    pub(crate) sessions: RwLock<HashMap<String, LiveSession>>,
     /// Session ids unlocked for writes this process (P3.1). Not persisted.
     /// Human sessions only: a tool session is never in here (F-01).
     write_unlocks: Mutex<HashSet<String>>,
@@ -675,12 +675,3 @@ fn test_fail(engine: &str, start: std::time::Instant, err: ConnectorError) -> Te
         ssh_host_key: None,
     }
 }
-
-#[cfg(test)]
-mod document_tests;
-#[cfg(test)]
-mod policy_tests;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod transfer_tests;

@@ -14,11 +14,11 @@
 use mongodb::bson::{Bson, Document};
 use mystique_connector_api::{EngineQueryPolicy, QueryMode, WriteRisk};
 
-use super::parse::{
+use mystique_plugin_mongodb::test_support::{
     parse_executable, DeleteModel, Executable, FindAndModify, Listing, Modify, MongoOp,
     ReadOptions, ShellWrite, Target, UpdateModel, WriteMethod, WriteModel, WriteOptions,
 };
-use super::policy::MongoQueryPolicy;
+use mystique_plugin_mongodb::MongoQueryPolicy;
 
 use WriteRisk::{Destructive as X, Read as R, Write as W};
 
@@ -705,11 +705,10 @@ fn preview_names_the_operation() {
 mod parse {
     use mongodb::bson::{doc, Bson};
 
-    use super::super::parse::{
-        parse, parse_executable, Executable, Modify, MongoCall, MongoOp, ShellWrite, Statement,
-        WriteMethod, WriteModel, WriteOptions,
+    use mystique_plugin_mongodb::test_support::{
+        parse, parse_document, parse_executable, Executable, Modify, MongoCall, MongoOp,
+        ShellWrite, Statement, WriteMethod, WriteModel, WriteOptions,
     };
-    use super::super::value::parse_document;
 
     fn call(text: &str) -> MongoCall {
         match parse_executable(text) {

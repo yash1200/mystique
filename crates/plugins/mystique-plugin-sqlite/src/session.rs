@@ -21,7 +21,7 @@ use r2d2::Pool;
 
 mod admin;
 mod catalog;
-mod ddl;
+pub(crate) mod ddl;
 mod distinct;
 mod edits;
 mod encode;

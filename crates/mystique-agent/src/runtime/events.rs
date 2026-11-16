@@ -20,10 +20,14 @@ pub struct AgentTokens {
 }
 
 impl AgentTokens {
+    /// A count the provider did not report adds nothing.
     pub(crate) fn add(&mut self, usage: &rig::completion::Usage) {
-        self.input = self.input.saturating_add(usage.input_tokens);
-        self.output = self.output.saturating_add(usage.output_tokens);
-        self.cached_input = self.cached_input.saturating_add(usage.cached_input_tokens);
+        let n = |count: Option<u64>| count.unwrap_or(0);
+        self.input = self.input.saturating_add(n(usage.input_tokens));
+        self.output = self.output.saturating_add(n(usage.output_tokens));
+        self.cached_input = self
+            .cached_input
+            .saturating_add(n(usage.cached_input_tokens));
     }
 }
 

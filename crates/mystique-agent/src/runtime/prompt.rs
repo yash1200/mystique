@@ -125,7 +125,7 @@ pub(crate) fn referenced_tables(tables: &[(String, Result<JsonValue, String>)]) 
 
 /// 1-based line and column of an error inside the statement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ErrorAt {
+pub struct ErrorAt {
     pub line: u32,
     pub column: u32,
 }

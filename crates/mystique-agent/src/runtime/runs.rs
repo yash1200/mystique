@@ -35,14 +35,14 @@ struct LiveRun {
 
 /// Runs in flight, by chat id.
 #[derive(Default)]
-pub(crate) struct RunRegistry {
+pub struct RunRegistry {
     live: Mutex<HashMap<String, LiveRun>>,
     next: AtomicU64,
 }
 
 impl RunRegistry {
     /// Claim the chat. `None` while another run of it is live.
-    pub(crate) fn begin(&self, chat_id: &str) -> Option<(u64, CancellationToken)> {
+    pub fn begin(&self, chat_id: &str) -> Option<(u64, CancellationToken)> {
         let mut live = self.live.lock().ok()?;
         if live.contains_key(chat_id) {
             return None;
@@ -60,7 +60,7 @@ impl RunRegistry {
     }
 
     /// Stop the chat's run. False when none is live.
-    pub(crate) fn cancel(&self, chat_id: &str) -> bool {
+    pub fn cancel(&self, chat_id: &str) -> bool {
         let token = self
             .live
             .lock()
@@ -75,7 +75,7 @@ impl RunRegistry {
         }
     }
 
-    pub(crate) fn finish(&self, chat_id: &str, run: u64) {
+    pub fn finish(&self, chat_id: &str, run: u64) {
         if let Ok(mut live) = self.live.lock() {
             if live.get(chat_id).is_some_and(|r| r.run == run) {
                 live.remove(chat_id);
@@ -83,7 +83,7 @@ impl RunRegistry {
         }
     }
 
-    pub(crate) fn is_live(&self, chat_id: &str) -> bool {
+    pub fn is_live(&self, chat_id: &str) -> bool {
         self.live
             .lock()
             .map(|live| live.contains_key(chat_id))
@@ -179,7 +179,7 @@ where
 }
 
 /// Everything one run needs besides the model, tools and host.
-pub(crate) struct RunSpec {
+pub struct RunSpec {
     /// Task contract + workspace context. Referenced tables are added here.
     pub preamble: String,
     pub mentions: Vec<AgentTableRef>,
@@ -241,7 +241,7 @@ fn fail(events: &EventTx, kind: AgentErrorKind, message: impl Into<String>) {
 }
 
 /// Run one turn to its terminal event. Returns when every event is sent.
-pub(crate) async fn execute_run(
+pub async fn execute_run(
     model: Box<dyn TurnModel>,
     tools: Arc<dyn ToolRunner>,
     host: Arc<dyn RunHost>,

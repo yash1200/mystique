@@ -16,9 +16,6 @@ use super::catalog::sqlite_pragma_invoke;
 use super::query_failed;
 use super::SqliteSession;
 
-#[cfg(test)]
-mod tests;
-
 pub(super) async fn describe_table_definition(
     session: &SqliteSession,
     table: &str,
@@ -129,7 +126,7 @@ fn primary_key_of(conn: &Connection, table: &str) -> ConnectorResult<Vec<String>
     Ok(keys.into_iter().map(|(_, name)| name).collect())
 }
 
-pub(super) fn describe_on(conn: &Connection, table: &str) -> ConnectorResult<TableDefinition> {
+pub fn describe_on(conn: &Connection, table: &str) -> ConnectorResult<TableDefinition> {
     let revision = table_sql(conn, table)?;
     let extras = revision
         .as_deref()
@@ -392,7 +389,7 @@ fn foreign_keys_on(conn: &Connection) -> ConnectorResult<bool> {
         .map_err(query_failed)
 }
 
-pub(super) fn apply_on(
+pub fn apply_on(
     conn: &Connection,
     plan: &DdlPlan,
     draft: &TableDefinition,

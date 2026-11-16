@@ -296,6 +296,3 @@ impl ConnectorSession for MongoSession {
         metrics::terminate_backend_session(self, input).await
     }
 }
-
-#[cfg(test)]
-mod live_tests;

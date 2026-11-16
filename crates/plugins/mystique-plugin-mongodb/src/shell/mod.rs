@@ -25,6 +25,3 @@ pub(crate) use parse::{
     WriteMethod, WriteModel, WriteOptions,
 };
 pub(crate) use value::{json_to_document, parse_document};
-
-#[cfg(test)]
-mod tests;

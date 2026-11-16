@@ -26,8 +26,16 @@ mod service;
 mod session;
 mod settings;
 
-#[cfg(test)]
-mod tests;
+/// Internals for `tests/e2e.rs` (feature `test-support`, which only this
+/// crate's dev-dependency on itself turns on).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::process::Launch;
+    pub use crate::scrub::{Scrubber, MASK};
+    pub use crate::session::{Launcher, Transport};
+    pub use crate::settings::{save_agent, view};
+}
 
 pub use detect::{AcpAgentStatus, DetectedAcpAgent};
 pub use process::Children;

@@ -276,7 +276,7 @@ impl SecretStore {
     }
 
     /// Drop the cached key. Tests use it to prove a path loads nothing.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn forget_cached(&self) {
         self.vault.forget();
     }
@@ -296,7 +296,7 @@ pub(crate) fn install_id(conn: &Connection) -> AppResult<String> {
 }
 
 /// A fake keychain of old items, and a counting key source.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod counting {
     use std::collections::HashMap;
 
@@ -305,7 +305,7 @@ pub(crate) mod counting {
     pub(crate) use super::vault::counting::CountingKeySource;
 
     #[derive(Default)]
-    pub(crate) struct FakeKeychain {
+    pub struct FakeKeychain {
         map: Mutex<HashMap<String, String>>,
     }
 

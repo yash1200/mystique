@@ -3,8 +3,12 @@
 
 use std::path::PathBuf;
 
-use super::*;
+use mystique_connector_api::{
+    ApplyDdlResult, ColumnDraft, DdlPlan, ForeignKeyDraft, TableDefinition,
+};
+use mystique_plugin_sqlite::test_support::{apply_on, describe_on};
 use mystique_sql::ddl::{plan_table_alter, DdlTarget};
+use rusqlite::Connection;
 
 /// A database file in the temp dir, removed on drop.
 struct TempDb {

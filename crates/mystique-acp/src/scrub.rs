@@ -12,13 +12,13 @@ use std::sync::Arc;
 use mystique_agent::kit::{redact_args, redact_text};
 use serde_json::Value as JsonValue;
 
-pub(crate) const MASK: &str = "[redacted]";
+pub const MASK: &str = "[redacted]";
 
 /// Secrets shorter than this are not matched (too likely to hit real text).
 const MIN_SECRET: usize = 6;
 
 #[derive(Clone, Default)]
-pub(crate) struct Scrubber {
+pub struct Scrubber {
     secrets: Arc<Vec<String>>,
 }
 

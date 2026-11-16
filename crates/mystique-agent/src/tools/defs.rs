@@ -1,8 +1,7 @@
 use mystique_core::{tool_specs, AgentToolSpec};
-use rig::tool::{Tool, ToolContext};
+use rig::completion::ToolDefinition;
+use rig::message::ToolName;
 use serde_json::{json, Value as JsonValue};
-
-use super::{BoundTools, ToolErr};
 
 /// In-app tools use the same spec as MCP. `connection_id` is bound by the chat.
 fn shared_tool(name: &str) -> AgentToolSpec {
@@ -27,51 +26,31 @@ pub(super) fn bound_schema(mut schema: JsonValue) -> JsonValue {
     schema
 }
 
-macro_rules! json_tool {
-    ($ty:ident, $name:literal) => {
-        #[derive(Clone)]
-        pub struct $ty(pub BoundTools);
-
-        impl Tool for $ty {
-            const NAME: &'static str = $name;
-            type Args = JsonValue;
-            type Output = JsonValue;
-            type Error = ToolErr;
-
-            fn description(&self) -> String {
-                shared_tool($name).description.to_string()
-            }
-
-            fn parameters(&self) -> JsonValue {
-                bound_schema(shared_tool($name).input_schema)
-            }
-
-            async fn call(
-                &self,
-                _ctx: &mut ToolContext,
-                args: Self::Args,
-            ) -> Result<Self::Output, Self::Error> {
-                self.0.dispatch($name, args).await
-            }
-        }
-    };
+/// The definition the model is offered for an in-app tool: the shared
+/// spec's name, description and schema, with `connection_id` bound. Our own
+/// loop runs the call (`BoundTools::dispatch`), so no Rig `Tool` is needed.
+pub(super) fn definition(name: &str) -> Option<ToolDefinition> {
+    let spec = shared_tool(name);
+    let name = ToolName::new(spec.name).ok()?;
+    Some(ToolDefinition::new(
+        name,
+        spec.description,
+        bound_schema(spec.input_schema),
+    ))
 }
-
-json_tool!(GetSchemaDbml, "get_schema_dbml");
-json_tool!(ListObjects, "list_objects");
-json_tool!(DescribeObject, "describe_object");
-json_tool!(SampleRows, "sample_rows");
-json_tool!(ExplainQuery, "explain_query");
-json_tool!(InferFields, "infer_fields");
-json_tool!(ExecuteReadonly, "execute_readonly_query");
-json_tool!(ListSavedQueries, "list_saved_queries");
-// Listed only when the agent may write (see `tool_definitions`).
-json_tool!(ExecuteQuery, "execute_query");
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use mystique_core::AGENT_MAX_CELL_CHARS;
+
+    #[test]
+    fn a_definition_is_the_shared_spec_without_connection_id() {
+        let def = definition("describe_object").expect("definition");
+        assert_eq!(def.name.as_str(), "describe_object");
+        assert_eq!(def.description, shared_tool("describe_object").description);
+        assert!(def.parameters["properties"].get("connection_id").is_none());
+    }
 
     #[test]
     fn readonly_query_schema_documents_the_cell_window() {

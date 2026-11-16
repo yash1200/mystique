@@ -1,6 +1,5 @@
-use super::compile_update;
-use crate::dml::{ApplyTableEditsInput, TableEditColumn, TableRowUpdate};
-use crate::SqlDialect;
+use mystique_sql::dml::{compile_update, ApplyTableEditsInput, TableEditColumn, TableRowUpdate};
+use mystique_sql::SqlDialect;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -55,7 +54,7 @@ fn numeric_identity_keeps_the_fraction() {
 /// SQLite used to pass the Postgres ident style. Its statements must not change.
 #[test]
 fn sqlite_statements_match_the_old_postgres_style() {
-    use crate::dml::{compile_upsert, TableRowInsert};
+    use mystique_sql::dml::{compile_upsert, TableRowInsert};
     let input = ApplyTableEditsInput {
         table: "t\"x".into(),
         schema: Some("main".into()),

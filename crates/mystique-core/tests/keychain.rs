@@ -9,11 +9,10 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use super::*;
-use crate::domain::{SaveConnectionInput, SshAuth, SshConfig, SshTunnelRequest, VAULT_SECRET_REF};
-use crate::secrets::counting::{CountingKeySource, FakeKeychain};
-use crate::secrets::KeySource;
-use crate::storage::sqlite::repo;
+use mystique_core::domain::{SaveConnectionInput, SshAuth, SshConfig, SshTunnelRequest, VAULT_SECRET_REF};
+use mystique_core::secrets::counting::{CountingKeySource, FakeKeychain};
+use mystique_core::secrets::KeySource;
+use mystique_core::storage::sqlite::repo;
 
 struct TempDb(PathBuf);
 
@@ -105,7 +104,7 @@ fn full_input() -> SaveConnectionInput {
     input
 }
 
-fn full_pg(app: &AppServices) -> crate::domain::ConnectionProfile {
+fn full_pg(app: &AppServices) -> mystique_core::domain::ConnectionProfile {
     app.profiles().save(full_input()).unwrap()
 }
 
@@ -119,7 +118,7 @@ fn mongo_input() -> SaveConnectionInput {
     input
 }
 
-fn open_req(profile: &crate::domain::ConnectionProfile) -> OpenSessionRequest {
+fn open_req(profile: &mystique_core::domain::ConnectionProfile) -> OpenSessionRequest {
     OpenSessionRequest {
         engine: profile.engine.clone(),
         plugin_config: profile.plugin_config.clone(),
@@ -179,7 +178,7 @@ fn connect_loads_the_vault_key_once_even_in_parallel() {
     };
     // A new process, whose key source is slow so first uses overlap.
     let slow = Arc::new(CountingKeySource::slow(Duration::from_millis(40)));
-    let key = keys.load(crate::secrets::Prompt::Allowed).unwrap();
+    let key = keys.load(mystique_core::secrets::Prompt::Allowed).unwrap();
     slow.seed(key);
     let app = Arc::new(app_on(file.open(), &slow));
     let handles: Vec<_> = (0..6)
@@ -376,7 +375,7 @@ fn orphaned_items_are_purged_except_the_vault_key() {
     for account in &orphans {
         items.plant(account, "x");
     }
-    items.plant(crate::secrets::VAULT_ACCOUNT, "key");
+    items.plant(mystique_core::secrets::VAULT_ACCOUNT, "key");
     items.plant("someone.else", "x");
     keys.reset();
 
@@ -387,7 +386,7 @@ fn orphaned_items_are_purged_except_the_vault_key() {
     for account in &orphans {
         assert!(!items.contains(account), "{account}");
     }
-    assert!(items.contains(crate::secrets::VAULT_ACCOUNT));
+    assert!(items.contains(mystique_core::secrets::VAULT_ACCOUNT));
     assert!(items.contains("someone.else"));
     assert_eq!(keys.loads(), 0);
 

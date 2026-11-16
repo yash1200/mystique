@@ -12,9 +12,9 @@
 
 mod alter;
 mod changes;
-mod diff;
+pub(crate) mod diff;
 mod mongo;
-mod mysql;
+pub(crate) mod mysql;
 mod order;
 mod pg;
 mod sqlite;
@@ -22,13 +22,6 @@ mod sqlite_text;
 mod statements;
 pub mod types;
 mod validate;
-
-#[cfg(test)]
-mod diff_tests;
-#[cfg(test)]
-mod sqlite_tests;
-#[cfg(test)]
-mod tests;
 
 pub use diff::{plan_schema_diff, plan_schema_diff_with};
 pub use mysql::mysql_column_default;

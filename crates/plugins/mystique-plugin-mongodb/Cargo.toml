@@ -15,7 +15,12 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
+mystique-plugin-mongodb = { path = ".", features = ["test-support"] }
 mystique-conformance = { path = "../../mystique-conformance" }
 mystique-connector-api = { path = "../../mystique-connector-api" }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[features]
+# Exposes internals to `tests/`. On only through the dev-dependency above.
+test-support = []

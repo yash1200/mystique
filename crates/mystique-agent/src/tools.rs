@@ -3,14 +3,9 @@ mod leaked;
 
 use mystique_core::{AgentTools, ToolCaller};
 use rig::completion::ToolDefinition;
-use rig::tool::tool_definition;
 use serde_json::{json, Value as JsonValue};
 use thiserror::Error;
 
-pub use defs::{
-    DescribeObject, ExecuteQuery, ExecuteReadonly, ExplainQuery, GetSchemaDbml, InferFields,
-    ListObjects, ListSavedQueries, SampleRows,
-};
 pub use leaked::{extract_leaked_tool_calls, strip_leaked_tool_calls, LeakedToolCall};
 
 /// Read tools: always listed.
@@ -27,7 +22,7 @@ pub(super) const READ_TOOLS: &[&str] = &[
 
 /// The write tool. Listed only when the agent may write somewhere (a level
 /// of `write`/`full`, or a connection that asks for approval), as on MCP.
-pub(super) const WRITE_TOOL: &str = "execute_query";
+pub const WRITE_TOOL: &str = "execute_query";
 
 /// Every tool name the agent may call (leaked-call parsing uses it too).
 pub(super) const ALLOWED: &[&str] = &[
@@ -119,8 +114,10 @@ impl BoundTools {
     /// Levels, production rules and the approval dock apply exactly as for
     /// MCP; a write above the level is denied or waits in the dock. An
     /// unlisted `execute_query` (a leaked call) gets the same level denial
-    /// as on MCP, not a different message.
-    pub(crate) async fn dispatch(&self, name: &str, args: JsonValue) -> Result<JsonValue, ToolErr> {
+    /// as on MCP, not a different message. The loop calls
+    /// [`Self::dispatch_located`]; the write tests call this.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn dispatch(&self, name: &str, args: JsonValue) -> Result<JsonValue, ToolErr> {
         if !ALLOWED.contains(&name) {
             return Err(ToolErr(format!("unknown or disabled tool `{name}`")));
         }
@@ -181,24 +178,11 @@ impl LocatedToolErr {
 /// `execute_query` when [`BoundTools::may_write`] (the [`BoundTools::listed`]
 /// set). The streaming loop sends these with each model call.
 pub fn tool_definitions(bound: &BoundTools) -> Vec<ToolDefinition> {
-    let b = || bound.clone();
     bound
         .listed()
         .into_iter()
-        .filter_map(|name| {
-            Some(match name {
-                "get_schema_dbml" => tool_definition(&GetSchemaDbml(b())),
-                "list_objects" => tool_definition(&ListObjects(b())),
-                "describe_object" => tool_definition(&DescribeObject(b())),
-                "sample_rows" => tool_definition(&SampleRows(b())),
-                "explain_query" => tool_definition(&ExplainQuery(b())),
-                "infer_fields" => tool_definition(&InferFields(b())),
-                "execute_readonly_query" => tool_definition(&ExecuteReadonly(b())),
-                "list_saved_queries" => tool_definition(&ListSavedQueries(b())),
-                WRITE_TOOL => tool_definition(&ExecuteQuery(b())),
-                _ => return None,
-            })
-        })
+        .filter(|name| READ_TOOLS.contains(name) || *name == WRITE_TOOL)
+        .filter_map(defs::definition)
         .collect()
 }
 
@@ -223,9 +207,6 @@ fn floor_char_boundary(s: &str, i: usize) -> usize {
     }
     end
 }
-
-#[cfg(test)]
-mod write_tests;
 
 #[cfg(test)]
 mod tests {

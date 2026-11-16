@@ -146,8 +146,8 @@ impl AcpService {
         self
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_launcher(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_launcher(
         app: Arc<AppServices>,
         workdir: PathBuf,
         launcher: Arc<dyn Launcher>,

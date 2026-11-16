@@ -590,7 +590,7 @@ fn column_as_is(column: &ColumnDraft) -> ColumnDraft {
     }
 }
 
-pub(super) fn column_original(column: &ColumnDraft) -> ColumnOriginal {
+pub fn column_original(column: &ColumnDraft) -> ColumnOriginal {
     ColumnOriginal {
         name: column.name.clone(),
         data_type: column.data_type.clone(),

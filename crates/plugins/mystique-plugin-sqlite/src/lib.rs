@@ -9,6 +9,15 @@ mod session;
 pub use capabilities::default_capabilities;
 pub use connector::SqliteConnector;
 
+/// Internals for `tests/` (feature `test-support`, which only this crate's
+/// dev-dependency on itself turns on): DDL describe and apply on one
+/// connection.
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::session::ddl::{apply_on, describe_on};
+}
+
 use std::sync::Arc;
 
 use mystique_connector_api::DatabaseConnector;

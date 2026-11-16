@@ -1,6 +1,5 @@
-use super::diff::column_original;
-use super::mysql::mysql_modify_definition;
-use super::*;
+use mystique_sql::ddl::*;
+use mystique_sql::test_support::{column_original, mysql_modify_definition};
 
 fn text_column(name: &str, nullable: bool) -> ColumnDraft {
     ColumnDraft {

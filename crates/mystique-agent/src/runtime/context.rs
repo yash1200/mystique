@@ -9,7 +9,7 @@
 //!   so replayed history never carries tool ids a provider did not issue.
 
 use mystique_core::AgentMessage;
-use rig::completion::message::{AssistantContent, UserContent};
+use rig::completion::message::{AssistantContent, AssistantMessage, UserContent};
 use rig::completion::Message;
 use serde_json::Value as JsonValue;
 
@@ -53,14 +53,14 @@ fn content_chars(msg: &Message) -> usize {
                 _ => 256,
             })
             .sum(),
-        Message::Assistant { content, .. } => content
+        Message::Assistant(AssistantMessage { content, .. }) => content
             .iter()
             .map(|c| match c {
                 AssistantContent::Text(t) => t.text().chars().count(),
                 AssistantContent::ToolCall(call) => {
-                    call.function.name.len() + call.function.arguments.to_string().len()
+                    call.function.name.as_str().len() + call.function.arguments_json().len()
                 }
-                AssistantContent::Reasoning(r) => r.display_text().chars().count(),
+                AssistantContent::Reasoning(r) => r.text.chars().count(),
                 _ => 256,
             })
             .sum(),
@@ -68,7 +68,7 @@ fn content_chars(msg: &Message) -> usize {
 }
 
 fn calls_tools(msg: &Message) -> bool {
-    matches!(msg, Message::Assistant { content, .. }
+    matches!(msg, Message::Assistant(AssistantMessage { content, .. })
         if content.iter().any(|c| matches!(c, AssistantContent::ToolCall(_))))
 }
 
@@ -231,7 +231,7 @@ pub(crate) fn transcript_from(prior: &[AgentMessage], budget: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::completion::message::{ToolCall, ToolFunction, ToolResultContent};
+    use rig::completion::message::{CallId, ToolCall, ToolFunction, ToolName};
     use serde_json::json;
 
     fn row(role: &str, content: &str, tool: Option<&str>) -> AgentMessage {
@@ -246,24 +246,18 @@ mod tests {
         }
     }
 
+    fn describe() -> ToolName {
+        ToolName::new("describe_object").expect("tool name")
+    }
+
     fn tool_call(id: &str) -> Message {
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(ToolCall::from_wire(
-                id,
-                ToolFunction::new("describe_object".into(), json!({ "name": "t" })),
-            ))],
-        }
+        Message::Assistant(AssistantMessage::new(vec![AssistantContent::ToolCall(
+            ToolCall::from_wire(id, ToolFunction::new(describe(), json!({ "name": "t" }))),
+        )]))
     }
 
     fn tool_result(id: &str, body: &str) -> Message {
-        Message::User {
-            content: vec![UserContent::tool_result_from_wire(
-                id,
-                "describe_object",
-                vec![ToolResultContent::text(body)],
-            )],
-        }
+        Message::tool_result(CallId::from_wire(id), describe(), body)
     }
 
     #[test]
@@ -336,7 +330,7 @@ mod tests {
             row("assistant", "hi", None),
         ]);
         assert_eq!(history.len(), 2);
-        let Message::Assistant { content, .. } = &history[1] else {
+        let Message::Assistant(AssistantMessage { content, .. }) = &history[1] else {
             panic!("expected the reply");
         };
         let text = match content.first() {

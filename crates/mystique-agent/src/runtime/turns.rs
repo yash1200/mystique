@@ -35,7 +35,7 @@ const MAX_RETRIES: usize = 1;
 /// Rounds of "you printed tool calls as JSON" before we take the text as is.
 const MAX_LEAK_REPAIRS: usize = 3;
 
-pub(crate) struct LoopConfig {
+pub struct LoopConfig {
     pub max_turns: usize,
     pub max_tokens: u64,
     pub retry_backoff: Duration,
@@ -320,9 +320,9 @@ pub(crate) async fn run_turns(
         .await?;
         tokens.add(&out.usage);
 
-        let calls = tool_calls(&out.content);
+        let calls = tool_calls(&out.message.content);
         if calls.is_empty() {
-            let text = text_of(&out.content);
+            let text = text_of(&out.message.content);
             let leaked: Vec<LeakedToolCall> = extract_leaked_tool_calls(&text);
             if leaked.is_empty() || leak_repairs >= MAX_LEAK_REPAIRS {
                 let answer = if leaked.is_empty() {
@@ -343,14 +343,11 @@ pub(crate) async fn run_turns(
                 let body = run_tool(tools, host, events, cfg, &id, &call.name, call.args).await;
                 results.push_str(&format!("\n[{}]\n{}\n", call.name, body));
             }
-            history.push(Message::Assistant {
-                id: None,
-                content: vec![AssistantContent::text(if text.trim().is_empty() {
-                    "(tool calls)".to_string()
-                } else {
-                    text
-                })],
-            });
+            history.push(Message::assistant(if text.trim().is_empty() {
+                "(tool calls)".to_string()
+            } else {
+                text
+            }));
             history.push(Message::user(repair_prompt(&Repair {
                 what: "You printed tool calls as JSON text instead of using the tool interface. They were run for you",
                 statement: None,
@@ -369,25 +366,20 @@ pub(crate) async fn run_turns(
                 host,
                 events,
                 cfg,
-                call.id.as_str(),
-                &call.function.name,
-                call.function.arguments.clone(),
+                &call.id.wire(),
+                call.function.name.as_str(),
+                call.function.arguments_value(),
             )
             .await;
             if body.contains("characters omitted") {
                 trimmed_results += 1;
             }
-            results.push(UserContent::tool_result_for(
-                call.id.clone(),
-                call.provider.clone(),
-                call.function.name.clone(),
-                vec![ToolResultContent::text(body)],
+            // Answers the call by its id and tool name.
+            results.push(UserContent::ToolResult(
+                call.result(vec![ToolResultContent::text(body)]),
             ));
         }
-        history.push(Message::Assistant {
-            id: None,
-            content: out.content,
-        });
+        history.push(Message::Assistant(out.message));
         history.push(Message::User { content: results });
     }
 

@@ -1,6 +1,6 @@
 //! SQLite rebuild plans: the exact statements, built from the original text.
 
-use super::*;
+use mystique_sql::ddl::*;
 
 fn loaded(name: &str, data_type: &str, nullable: bool, pk: u32) -> ColumnDraft {
     ColumnDraft::loaded(name, data_type, nullable, pk)

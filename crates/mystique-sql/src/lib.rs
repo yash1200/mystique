@@ -37,3 +37,12 @@ pub use risk::{
 pub use split::{split_statement_spans, split_statements, statement_at, StatementSpan};
 pub use switch::switches_database;
 pub use tautology::where_warnings;
+
+/// DDL internals for `tests/ddl.rs` (feature `test-support`, which only this
+/// crate's dev-dependency on itself turns on).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::ddl::diff::column_original;
+    pub use crate::ddl::mysql::mysql_modify_definition;
+}

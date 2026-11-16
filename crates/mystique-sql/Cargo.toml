@@ -11,6 +11,11 @@ sqlparser = { version = "0.64", features = ["visitor"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[dev-dependencies]
+mystique-sql = { path = ".", features = ["test-support"] }
+
 [features]
 # TypeScript bindings for `pnpm gen:ipc` (ts-rs). Off in normal builds.
 ts = ["dep:ts-rs"]
+# Exposes internals to `tests/`. On only through the dev-dependency above.
+test-support = []

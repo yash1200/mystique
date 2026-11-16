@@ -9,9 +9,9 @@ use mystique_connector_api::{
     QueryResult, StatementKind, StatementResult, ValidatedBatch, ValidatedQuery,
 };
 
-use super::history::QueryHistoryWriter;
-use super::{ConnectionManager, LiveSession, SessionOrigin};
-use crate::domain::AppendHistoryInput;
+use mystique_core::test_support::manager::{LiveSession, QueryHistoryWriter, SessionOrigin};
+use mystique_core::ConnectionManager;
+use mystique_core::domain::AppendHistoryInput;
 
 /// Index, range start, range end and text of one pinned call.
 type Pinned = (u32, u32, u32, String);

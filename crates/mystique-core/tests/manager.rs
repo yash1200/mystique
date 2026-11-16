@@ -6,7 +6,8 @@ use serde_json::json;
 
 use mystique_connector_api::ConnectorError;
 
-use super::{ConnectionManager, LiveSession, OpenSessionRequest};
+use mystique_core::test_support::manager::LiveSession;
+use mystique_core::{ConnectionManager, OpenSessionRequest};
 
 #[test]
 fn parse_connection_url_postgres_and_mysql() {
@@ -909,11 +910,11 @@ fn cockroach_overlay_hides_terminate_and_postgres_keeps_it() {
         ran: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     let cockroach =
-        super::overlay_session_caps(&probe, mystique_connector_api::product("cockroachdb"));
+        overlay_session_caps(&probe, mystique_connector_api::product("cockroachdb"));
     assert_eq!(cockroach.engine, "cockroachdb");
     assert!(!cockroach.supports_terminate_session);
     assert!(cockroach.supports_server_metrics);
-    let postgres = super::overlay_session_caps(&probe, mystique_connector_api::product("postgres"));
+    let postgres = overlay_session_caps(&probe, mystique_connector_api::product("postgres"));
     assert!(postgres.supports_terminate_session);
     assert!(postgres.supports_server_metrics);
 }
@@ -995,7 +996,7 @@ async fn insert_probe(
             environment: "production".into(),
             read_only,
             connection_name: "Prod Mongo".into(),
-            origin: super::SessionOrigin::Ui,
+            origin: SessionOrigin::Ui,
             profile_id: None,
             default_database: None,
             last_used: std::sync::Mutex::new(std::time::Instant::now()),
@@ -2122,11 +2123,11 @@ async fn two_get_or_open_calls_keep_one_session() {
     let mgr = std::sync::Arc::new(ConnectionManager::bootstrap());
     let req = sqlite_open(&path, "pin-once", "local", false);
     let first = mgr
-        .get_or_open(req.clone(), super::SessionOrigin::Ui)
+        .get_or_open(req.clone(), SessionOrigin::Ui)
         .await
         .expect("first");
     let second = mgr
-        .get_or_open(req, super::SessionOrigin::Ui)
+        .get_or_open(req, SessionOrigin::Ui)
         .await
         .expect("second");
     assert_eq!(first.opened_at, second.opened_at);
@@ -2257,7 +2258,7 @@ async fn structure_apply_on_production_prompts_and_read_only_runs_nothing() {
 async fn query_history_records_ui_agent_and_mcp_without_secrets() {
     let path = temp_db("history-v2");
     let _ = std::fs::remove_file(&path);
-    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    let db = mystique_core::storage::AppDatabase::open_in_memory().expect("app db");
     db.with_conn(|c| {
         c.execute(
             "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
@@ -2268,10 +2269,10 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
     })
     .expect("profile");
     let profile_id = "1".to_string();
-    let services = crate::application::AppServices::with_secrets(
+    let services = mystique_core::application::AppServices::with_secrets(
         db,
         ConnectionManager::bootstrap(),
-        crate::secrets::SecretStore::memory(),
+        mystique_core::secrets::SecretStore::memory(),
     );
     let mgr = services.connections();
     let open = |session_id: &str| {
@@ -2281,10 +2282,10 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
         req
     };
     mgr.open_session(open("ui-hist")).await.expect("ui");
-    mgr.get_or_open(open("agent:1"), super::SessionOrigin::Agent)
+    mgr.get_or_open(open("agent:1"), SessionOrigin::Agent)
         .await
         .expect("agent");
-    mgr.get_or_open(open("mcp:1"), super::SessionOrigin::Mcp)
+    mgr.get_or_open(open("mcp:1"), SessionOrigin::Mcp)
         .await
         .expect("mcp");
 
@@ -2325,7 +2326,7 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
         .expect("list");
     assert!(
         page.iter().any(|row| {
-            row.source == crate::domain::QueryHistorySource::Ui
+            row.source == mystique_core::domain::QueryHistorySource::Ui
                 && row.affected_rows == Some(1)
                 && row.duration_ms.is_some()
                 && row.body.contains("INSERT")
@@ -2333,13 +2334,13 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
         "{page:?}"
     );
     assert!(page.iter().any(|row| {
-        row.source == crate::domain::QueryHistorySource::Agent
+        row.source == mystique_core::domain::QueryHistorySource::Agent
             && row.body.contains("agent-marker")
             && row.database.is_none()
             && row.duration_ms.is_some()
     }));
     assert!(page.iter().any(|row| {
-        row.source == crate::domain::QueryHistorySource::Mcp && row.body.contains("mcp-marker")
+        row.source == mystique_core::domain::QueryHistorySource::Mcp && row.body.contains("mcp-marker")
     }));
 
     let blob = services
@@ -2369,11 +2370,11 @@ async fn query_history_records_ui_agent_and_mcp_without_secrets() {
 
 #[tokio::test]
 async fn history_logs_grid_saves_rollbacks_ddl_and_explain_analyze() {
-    use crate::domain::QueryHistoryKind;
+    use mystique_core::domain::QueryHistoryKind;
 
     let path = temp_db("history-kinds");
     let _ = std::fs::remove_file(&path);
-    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    let db = mystique_core::storage::AppDatabase::open_in_memory().expect("app db");
     db.with_conn(|c| {
         c.execute(
             "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
@@ -2383,10 +2384,10 @@ async fn history_logs_grid_saves_rollbacks_ddl_and_explain_analyze() {
         Ok(())
     })
     .expect("profile");
-    let services = crate::application::AppServices::with_secrets(
+    let services = mystique_core::application::AppServices::with_secrets(
         db,
         ConnectionManager::bootstrap(),
-        crate::secrets::SecretStore::memory(),
+        mystique_core::secrets::SecretStore::memory(),
     );
     let mgr = services.connections();
     let mut open = sqlite_open(&path, "kinds", "local", false);
@@ -2498,7 +2499,7 @@ async fn history_logs_grid_saves_rollbacks_ddl_and_explain_analyze() {
 async fn bound_parameter_is_not_spliced_into_history() {
     let path = temp_db("bind-hist");
     let _ = std::fs::remove_file(&path);
-    let db = crate::storage::AppDatabase::open_in_memory().expect("app db");
+    let db = mystique_core::storage::AppDatabase::open_in_memory().expect("app db");
     db.with_conn(|c| {
         c.execute(
             "INSERT INTO connections (name, engine, color_id, environment, read_only, plugin_config, created_at, updated_at)
@@ -2509,10 +2510,10 @@ async fn bound_parameter_is_not_spliced_into_history() {
     })
     .expect("profile");
     let profile_id = "1".to_string();
-    let services = crate::application::AppServices::with_secrets(
+    let services = mystique_core::application::AppServices::with_secrets(
         db,
         ConnectionManager::bootstrap(),
-        crate::secrets::SecretStore::memory(),
+        mystique_core::secrets::SecretStore::memory(),
     );
     let mgr = services.connections();
     let mut open = sqlite_open(&path, "bind-hist", "local", false);
@@ -2805,7 +2806,7 @@ async fn a_transaction_the_server_dropped_is_reported_and_commit_refuses() {
             environment: "local".into(),
             read_only: false,
             connection_name: "drop".into(),
-            origin: super::SessionOrigin::Ui,
+            origin: SessionOrigin::Ui,
             profile_id: None,
             default_database: None,
             last_used: std::sync::Mutex::new(std::time::Instant::now()),

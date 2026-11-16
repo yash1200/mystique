@@ -25,3 +25,19 @@ pub use runtime::{
 };
 pub use secrets::{AiKeyStatus, AiSettingsView, SecretStore};
 pub use service::{runtime_enabled, AgentService};
+
+/// Internals for `tests/` (feature `test-support`, which only this crate's
+/// dev-dependency on itself turns on): the model adapter, the streaming
+/// loop with its seams, and the bound tools.
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::runtime::host::{RunHost, ToolFailure, ToolRunner};
+    pub use crate::runtime::model::{
+        boxed, BoxFuture, Delta, DeltaSink, TurnError, TurnModel, TurnOutput, TurnRequest,
+    };
+    pub use crate::runtime::prompt::ErrorAt;
+    pub use crate::runtime::runs::{execute_run, RunRegistry, RunSpec};
+    pub use crate::runtime::turns::LoopConfig;
+    pub use crate::tools::{BoundTools, ToolErr, WRITE_TOOL};
+}

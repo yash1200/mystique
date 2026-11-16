@@ -153,6 +153,3 @@ pub fn sql_preview_where(
     }
     sql_where_clause(style, &all)
 }
-
-#[cfg(test)]
-mod tests;

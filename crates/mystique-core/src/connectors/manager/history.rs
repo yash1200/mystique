@@ -20,7 +20,7 @@ use crate::domain::{
 
 use super::{ConnectionManager, SessionOrigin};
 
-pub(crate) trait QueryHistoryWriter: Send + Sync {
+pub trait QueryHistoryWriter: Send + Sync {
     fn append_queries(&self, rows: Vec<AppendHistoryInput>);
 }
 

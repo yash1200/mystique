@@ -16,12 +16,12 @@ use super::prompt::ErrorAt;
 
 /// A failed tool call. `at` points into the statement it ran, if any.
 #[derive(Debug, Clone)]
-pub(crate) struct ToolFailure {
+pub struct ToolFailure {
     pub message: String,
     pub at: Option<ErrorAt>,
 }
 
-pub(crate) trait ToolRunner: Send + Sync {
+pub trait ToolRunner: Send + Sync {
     fn definitions(&self) -> Vec<ToolDefinition>;
     fn call<'a>(
         &'a self,
@@ -52,7 +52,7 @@ impl ToolRunner for BoundTools {
 }
 
 /// Persistence and the approval queue, as the loop sees them.
-pub(crate) trait RunHost: Send + Sync {
+pub trait RunHost: Send + Sync {
     /// Save a tool card. Returns its message id.
     fn save_tool(&self, name: &str, content: &str) -> Option<String>;
     /// Save the assistant reply (with its draft). Returns its message id.

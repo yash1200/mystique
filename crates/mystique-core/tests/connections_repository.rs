@@ -1,5 +1,4 @@
-use super::*;
-use crate::storage::sqlite::ensure_schema;
+use mystique_core::storage::sqlite::ensure_schema;
 use serde_json::json;
 
 fn test_db() -> Connection {
@@ -33,7 +32,7 @@ fn save_list_delete_connection() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -76,7 +75,7 @@ fn update_keeps_password_when_blank() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -102,7 +101,7 @@ fn update_keeps_password_when_blank() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -135,7 +134,7 @@ fn clear_secret_removes_password() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -161,7 +160,7 @@ fn clear_secret_removes_password() {
             clear_secret: true,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -194,7 +193,7 @@ fn a_secret_ref_in_the_input_is_not_stored() {
             clear_secret: false,
             copy_secret_from: None,
             favorite: None,
-            ssh_config: crate::domain::SshConfig::default(),
+            ssh_config: mystique_core::domain::SshConfig::default(),
             ssh_password: None,
             clear_ssh_secret: false,
             tls_key_passphrase: None,
@@ -222,7 +221,7 @@ fn sample_input(name: &str, favorite: Option<bool>) -> SaveConnectionInput {
         clear_secret: false,
         copy_secret_from: None,
         favorite,
-        ssh_config: crate::domain::SshConfig::default(),
+        ssh_config: mystique_core::domain::SshConfig::default(),
         ssh_password: None,
         clear_ssh_secret: false,
         tls_key_passphrase: None,

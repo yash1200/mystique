@@ -6,11 +6,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use super::*;
-use crate::domain::{SaveConnectionInput, VAULT_SECRET_REF};
-use crate::error::AppError;
-use crate::secrets::counting::CountingKeySource;
-use crate::storage::sqlite::repo;
+use mystique_core::domain::{SaveConnectionInput, VAULT_SECRET_REF};
+use mystique_core::error::AppError;
+use mystique_core::secrets::counting::CountingKeySource;
+use mystique_core::storage::sqlite::repo;
 
 struct TempFile(PathBuf);
 
@@ -61,7 +60,7 @@ fn pg(name: &str, password: Option<&str>, save_password: Option<bool>) -> SaveCo
         clear_secret: false,
         copy_secret_from: None,
         favorite: None,
-        ssh_config: crate::domain::SshConfig::default(),
+        ssh_config: mystique_core::domain::SshConfig::default(),
         ssh_password: None,
         clear_ssh_secret: false,
         tls_key_passphrase: None,
@@ -77,7 +76,7 @@ fn edit(id: &str, input: SaveConnectionInput) -> SaveConnectionInput {
     }
 }
 
-fn open_req(profile: &crate::domain::ConnectionProfile) -> OpenSessionRequest {
+fn open_req(profile: &mystique_core::domain::ConnectionProfile) -> OpenSessionRequest {
     OpenSessionRequest {
         engine: profile.engine.clone(),
         plugin_config: profile.plugin_config.clone(),
