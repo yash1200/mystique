@@ -16,7 +16,6 @@
 		getToolAccess,
 		installMcpHarness,
 		listMcpHarnesses,
-		mcpClientSnippet,
 		rotateMcpToken,
 		setMcpEnabled,
 		setToolAccessAsk,
@@ -53,7 +52,6 @@
 		`${levelHint(access.mcpDefault)} Used for connections without their own level. Never allows writes on production.`,
 	)
 
-	const snippet = $derived(mcpClientSnippet(mcp))
 	const ready = $derived(Boolean(mcp.url && mcp.token))
 
 	async function loadHarnesses() {
@@ -239,6 +237,14 @@
 				<Button size="sm" onclick={() => void copy(mcp.token ?? '', 'token')}>
 					{copied === 'token' ? 'Copied' : 'Copy'}
 				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={busy}
+					onclick={() => void onRotate()}
+				>
+					New token
+				</Button>
 			</div>
 		</div>
 	</ControlGroup>
@@ -263,36 +269,6 @@
 			</div>
 		</section>
 	{/if}
-
-	<section class="mt-5">
-		<p
-			class="m-0 mb-1 text-label font-semibold tracking-wider text-fg-muted uppercase"
-		>
-			Manual config
-		</p>
-		<p class="mt-0 mb-2 text-caption text-fg-muted">
-			{#if harnesses.length > 0}
-				For any other MCP client.
-			{:else}
-				Paste this into your MCP client's settings.
-			{/if}
-		</p>
-		<pre
-			class="m-0 max-h-40 overflow-auto rounded-lg border border-line bg-surface p-3 font-mono text-caption text-fg">{snippet}</pre>
-		<div class="mt-2 flex flex-wrap gap-1.5">
-			<Button size="sm" onclick={() => void copy(snippet, 'snippet')}>
-				{copied === 'snippet' ? 'Copied' : 'Copy config'}
-			</Button>
-			<Button
-				size="sm"
-				variant="ghost"
-				disabled={busy}
-				onclick={() => void onRotate()}
-			>
-				New token
-			</Button>
-		</div>
-	</section>
 
 	<p class="mt-3 mb-0 text-caption text-fg-muted">
 		{#if mcp.running}

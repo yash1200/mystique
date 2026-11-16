@@ -58,25 +58,6 @@ export async function setToolAccessAsk(
 	return invoke('set_tool_access_ask', { connectionId, ask })
 }
 
-export function mcpClientSnippet(status: McpStatus): string {
-	const url = status.url?.trim() || 'http://127.0.0.1:17321/mcp'
-	const token = status.token?.trim() || 'YOUR_TOKEN'
-	return JSON.stringify(
-		{
-			mcpServers: {
-				mystique: {
-					url,
-					headers: {
-						Authorization: `Bearer ${token}`,
-					},
-				},
-			},
-		},
-		null,
-		2,
-	)
-}
-
 /** The one vault key that seals saved passwords (`VaultStatus`, generated, narrowed). */
 export type VaultStatus = Omit<VaultStatusRow, 'source' | 'state'> & {
 	/** `keychain` in release builds, `file` in development builds. */
