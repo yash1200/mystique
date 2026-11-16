@@ -33,6 +33,15 @@ function harness(check: UpdaterBackend['check']) {
 }
 
 describe('update messages', () => {
+	it('reads the message of an IPC error', () => {
+		expect(
+			updateErrorMessage(
+				{ kind: 'internal', message: 'error sending request for url (https://github.com/…)' },
+				'check',
+			),
+		).toContain('Could not reach GitHub')
+	})
+
 	it('says what went wrong in one sentence', () => {
 		expect(updateErrorMessage(new Error('error sending request for url'), 'check')).toContain(
 			'Could not reach GitHub',
@@ -122,10 +131,33 @@ describe('updater', () => {
 		await store.check()
 		const running = store.update()
 		expect(store.busy).toBe(true)
-		expect(store.phase).toMatchObject({ kind: 'downloading', received: 100_000, total: 100_000 })
+		expect(store.phase).toMatchObject({
+			kind: 'downloading',
+			connected: true,
+			received: 100_000,
+			total: 100_000,
+		})
 		// 0 % through 100 %: one state change each, not one per chunk.
 		expect(shown.size).toBe(101)
 		release()
+		await running
+		expect(store.phase.kind).toBe('ready')
+	})
+
+	it('says connecting until the server answers', async () => {
+		let answer!: () => void
+		const update = pending({
+			async download(onProgress) {
+				await new Promise<void>((r) => (answer = r))
+				onProgress(0, 1_000)
+				onProgress(1_000, 1_000)
+			},
+		})
+		const { store } = harness(async () => update)
+		await store.check()
+		const running = store.update()
+		expect(store.phase).toMatchObject({ kind: 'downloading', connected: false, received: 0 })
+		answer()
 		await running
 		expect(store.phase.kind).toBe('ready')
 	})
@@ -182,7 +214,19 @@ describe('update notice', () => {
 			expect(text).toContain('Not now')
 			expect(target.querySelector('a')?.getAttribute('href')).toBe(releaseUrl('1.0.3'))
 
-			updater.phase = { kind: 'downloading', update: info, received: 5 * 1024 * 1024, total: 10 * 1024 * 1024 }
+			// Before the server answers: no fake "0.0 MB".
+			updater.phase = { kind: 'downloading', update: info, connected: false, received: 0, total: null }
+			await settle()
+			expect(target.textContent).toContain('Connecting…')
+			expect(target.textContent).not.toContain('MB')
+
+			updater.phase = {
+				kind: 'downloading',
+				update: info,
+				connected: true,
+				received: 5 * 1024 * 1024,
+				total: 10 * 1024 * 1024,
+			}
 			await settle()
 			text = target.textContent ?? ''
 			expect(text).toContain('5.0 of 10.0 MB')

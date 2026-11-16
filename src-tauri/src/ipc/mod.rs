@@ -17,6 +17,7 @@
 //!   `list_agent_messages`, `update_agent_chat`
 //! - mcp: `get_mcp_access`, `set_mcp_access`
 //! - diagnostics: `export_diagnostics` (metadata SQLite + log files)
+//! - updates: `check_for_update`, `download_update`, `install_update` (network)
 //! - engines: `trust_ssh_host_key` (known-hosts row). `test_engine_connection`
 //!   and `open_engine_session` resolve the keychain password in [`blocking`]
 //!   before the network `.await`
@@ -36,6 +37,7 @@ pub mod mcp;
 pub mod profiles;
 pub mod query_library;
 pub mod settings;
+pub mod updates;
 pub mod workspace_tabs;
 
 /// Every command rejects with this envelope (`kind`, `message`, optional

@@ -20,7 +20,14 @@ export type UpdatePhase =
 	| { kind: 'checking' }
 	| { kind: 'current' }
 	| { kind: 'available'; update: UpdateInfo }
-	| { kind: 'downloading'; update: UpdateInfo; received: number; total: number | null }
+	/** `connected` once the server answered; before that the card says "Connecting…". */
+	| {
+			kind: 'downloading'
+			update: UpdateInfo
+			connected: boolean
+			received: number
+			total: number | null
+	  }
 	| { kind: 'ready'; update: UpdateInfo }
 	/** `update` is set when the download failed, so it can be retried. */
 	| { kind: 'failed'; message: string; update: UpdateInfo | null }
@@ -92,7 +99,7 @@ export class Updater {
 		const kind = this.phase.kind
 		if (!pending || (kind !== 'available' && kind !== 'failed')) return
 		const update = infoOf(pending)
-		this.phase = { kind: 'downloading', update, received: 0, total: null }
+		this.phase = { kind: 'downloading', update, connected: false, received: 0, total: null }
 		let shownPercent = -1
 		try {
 			await pending.download((received, total) => {
@@ -100,7 +107,7 @@ export class Updater {
 				const percent = total ? Math.floor((received / total) * 100) : -1
 				if (percent === shownPercent && total) return
 				shownPercent = percent
-				this.phase = { kind: 'downloading', update, received, total }
+				this.phase = { kind: 'downloading', update, connected: true, received, total }
 			})
 			await pending.install()
 			this.phase = { kind: 'ready', update }

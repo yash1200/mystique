@@ -94,7 +94,9 @@
 					></div>
 				</div>
 				<p class="mt-1.5 mb-0 font-mono text-caption text-fg-muted tabular-nums">
-					{#if phase.total}
+					{#if !phase.connected}
+						<span class="font-sans">Connecting…</span>
+					{:else if phase.total}
 						{megabytes(phase.received)} of {megabytes(phase.total)} MB
 					{:else}
 						{megabytes(phase.received)} MB

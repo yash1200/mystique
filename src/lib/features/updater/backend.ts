@@ -1,7 +1,9 @@
 /**
- * The Tauri updater behind a small interface, so the store can be tested
- * with a fake. Releases publish `latest.json` (see docs/RELEASING.md).
+ * The updater behind a small interface, so the store can be tested with a
+ * fake. The Rust commands (`src-tauri/src/ipc/updates.rs`) wrap the Tauri
+ * updater with a connect timeout. Releases publish `latest.json`.
  */
+import { Channel, invoke } from '#core/ipc'
 
 export type UpdateInfo = {
 	version: string
@@ -23,28 +25,30 @@ export type UpdaterBackend = {
 	relaunch(): Promise<void>
 }
 
-const CHECK_TIMEOUT_MS = 30_000
+type DownloadEvent =
+	| { event: 'Started'; data: { contentLength: number | null } }
+	| { event: 'Progress'; data: { chunkLength: number } }
+	| { event: 'Finished' }
 
 export const tauriUpdater: UpdaterBackend = {
 	async check() {
-		const { check } = await import('@tauri-apps/plugin-updater')
-		const update = await check({ timeout: CHECK_TIMEOUT_MS })
-		if (!update) return null
+		const found = await invoke<UpdateInfo | null>('check_for_update')
+		if (!found) return null
 		return {
-			version: update.version,
-			currentVersion: update.currentVersion,
-			notes: update.body?.trim() || null,
-			date: update.date ?? null,
+			...found,
 			download(onProgress) {
 				let received = 0
 				let total: number | null = null
-				return update.download((event) => {
+				const onEvent = new Channel<DownloadEvent>()
+				onEvent.onmessage = (event) => {
 					if (event.event === 'Started') total = event.data.contentLength ?? null
 					else if (event.event === 'Progress') received += event.data.chunkLength
+					else return
 					onProgress(received, total)
-				})
+				}
+				return invoke('download_update', { onEvent })
 			},
-			install: () => update.install(),
+			install: () => invoke('install_update'),
 		}
 	},
 	async relaunch() {
@@ -55,9 +59,13 @@ export const tauriUpdater: UpdaterBackend = {
 
 /** One sentence for a failed check or download. The raw error is logged. */
 export function updateErrorMessage(err: unknown, during: 'check' | 'download'): string {
-	const raw = (
-		err instanceof Error ? err.message : typeof err === 'string' ? err : JSON.stringify(err)
-	).toLowerCase()
+	const message =
+		typeof err === 'string'
+			? err
+			: err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+				? err.message
+				: JSON.stringify(err)
+	const raw = (message ?? '').toLowerCase()
 	if (raw.includes('signature')) {
 		return 'The update failed its signature check, so it was not installed.'
 	}

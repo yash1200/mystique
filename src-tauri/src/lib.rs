@@ -115,8 +115,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        // Updates from GitHub Releases (`latest.json`); the frontend drives it.
+        // Updates from GitHub Releases (`latest.json`), driven by
+        // `ipc::updates` so requests get a connect timeout.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(ipc::updates::PendingUpdate::default())
         // `relaunch` after an update is installed.
         .plugin(tauri_plugin_process::init())
         .menu(|app| menu::build_menu(app, &NativeMenuState::default()))
@@ -257,6 +259,10 @@ pub fn run() {
             ipc::settings::retry_vault_unlock,
             ipc::settings::purge_keychain_items,
             ipc::diagnostics::export_diagnostics,
+            // app updates (GitHub Releases)
+            ipc::updates::check_for_update,
+            ipc::updates::download_update,
+            ipc::updates::install_update,
             // MCP (external clients). In-app agents must call AgentTools, not HTTP.
             ipc::mcp::get_mcp_status,
             ipc::mcp::set_mcp_enabled,

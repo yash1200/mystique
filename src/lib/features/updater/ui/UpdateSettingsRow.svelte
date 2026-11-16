@@ -14,6 +14,7 @@
 			case 'available':
 				return `Mystique ${phase.update.version} is available.`
 			case 'downloading':
+				if (!phase.connected) return `Connecting to download ${phase.update.version}…`
 				return phase.total
 					? `Downloading ${phase.update.version}… ${Math.round((phase.received / phase.total) * 100)}%`
 					: `Downloading ${phase.update.version}…`
