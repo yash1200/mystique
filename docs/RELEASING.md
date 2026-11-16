@@ -63,9 +63,24 @@ at launch (and from **Mystique › Check for Updates…** or **Settings › Abou
 If it names a newer version, a card in the bottom-right offers it. **Update**
 downloads in the background, installs, then asks to restart.
 
+One command does it all (`scripts/ship.sh`):
+
 ```bash
-pnpm bump 1.0.3
-git commit -am "chore(release): version 1.0.3" && git push
+pnpm ship 1.0.4                    # notes drafted from the commits since the last tag
+pnpm ship 1.0.4 --edit             # …opened in $EDITOR first
+pnpm ship 1.0.4 --notes notes.md   # your own Markdown notes
+pnpm ship 1.0.4 --dry-run          # checks and notes only
+```
+
+It checks everything first (clean `main` equal to `origin/main`, a newer
+version, no existing tag or release, GitHub push access, the updater key),
+then bumps, commits and pushes the version, and runs `pnpm release`. If the
+build or upload fails after the push, run the same command again: it skips
+the bump and carries on. By hand, the same steps are:
+
+```bash
+pnpm bump 1.0.4
+git commit -am "chore(release): version 1.0.4" && git push
 pnpm release --notes notes.md      # Markdown shown on the release page
 ```
 
