@@ -12,24 +12,23 @@ export function metricOccupancy(m: MetricValue): number | null {
 	return Math.max(0, Math.min(1, m.value / m.max))
 }
 
-export function metricTone(m: MetricValue): 'ok' | 'warn' | 'muted' {
-	if (!m.available) return 'muted'
-	if (m.key === 'cacheHitRatio' && m.value != null && m.value < 80) {
-		return 'warn'
-	}
+/** Near its limit (≥ 85 % of the gauge) or a cache hit ratio under 80 %. */
+export function metricWarns(m: MetricValue): boolean {
+	if (!m.available) return false
+	if (m.key === 'cacheHitRatio' && m.value != null && m.value < 80) return true
 	const fill = metricOccupancy(m)
-	if (fill != null && fill >= 0.85) return 'warn'
-	return 'ok'
+	return fill != null && fill >= 0.85
 }
 
+/** Running is info; waiting, locked or idle inside a transaction is a warning. */
 export function sessionStateTone(
 	state: string | null | undefined,
-): 'success' | 'warning' | 'info' | 'neutral' {
+): 'warning' | 'info' | 'neutral' {
 	const s = (state ?? '').toLowerCase()
+	if (s.includes('idle in transaction') || s.includes('wait') || s.includes('lock')) {
+		return 'warning'
+	}
 	if (s === 'active' || s === 'query') return 'info'
-	if (s.includes('idle') || s === 'sleep') return 'neutral'
-	if (s.includes('wait') || s.includes('lock')) return 'warning'
-	if (s.includes('idle in transaction')) return 'warning'
 	return 'neutral'
 }
 

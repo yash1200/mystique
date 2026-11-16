@@ -2,53 +2,40 @@
 	import type { MetricValue } from '#core/contracts'
 	import { cn } from '#core/util'
 	import { formatMetric, formatMetricHint } from '../format'
-	import { metricOccupancy, metricTone } from '../presentation'
+	import { metricOccupancy, metricWarns } from '../presentation'
 
 	interface Props {
 		metric: MetricValue
-		class?: string
 	}
 
-	let { metric, class: className = '' }: Props = $props()
+	let { metric }: Props = $props()
 
 	const hint = $derived(formatMetricHint(metric))
 	const fill = $derived(metricOccupancy(metric))
-	const tone = $derived(metricTone(metric))
+	const warns = $derived(metricWarns(metric))
 </script>
 
-<div
-	class={cn(
-		'flex min-h-28 flex-col justify-between rounded-xl border border-line bg-raised px-4 py-3',
-		!metric.available && 'opacity-80',
-		className,
-	)}
->
-	<div class="text-caption font-medium text-fg-muted">{metric.label}</div>
-	<div class="mt-3">
-		<p
-			class={cn(
-				'm-0 font-mono text-display font-semibold tracking-tight tabular-nums',
-				tone === 'warn' ? 'text-warning' : 'text-fg',
-			)}
-		>
-			{formatMetric(metric)}
-		</p>
-		{#if hint}
-			<p class="mt-1 text-caption text-fg-muted">{hint}</p>
-		{/if}
-	</div>
+<div class="flex min-h-28 flex-col rounded-lg border border-line bg-surface px-4 py-3.5">
+	<p class="m-0 label-caps">{metric.label}</p>
+	<p
+		class={cn(
+			'm-0 mt-2.5 font-mono text-title font-semibold tracking-tight tabular-nums',
+			!metric.available ? 'text-fg-muted' : warns ? 'text-danger' : 'text-fg',
+		)}
+	>
+		{formatMetric(metric)}
+	</p>
+	{#if hint}
+		<p class="m-0 mt-0.5 truncate font-mono text-caption text-fg-muted" title={hint}>{hint}</p>
+	{/if}
 	{#if fill != null}
-		<div
-			class="mt-3 h-0.5 overflow-hidden rounded-full bg-line"
-			aria-hidden="true"
-		>
-			<div
-				class={cn(
-					'h-full rounded-full',
-					tone === 'warn' ? 'bg-warning' : 'bg-accent',
-				)}
-				style="width: {Math.round(fill * 100)}%"
-			></div>
+		<div class="mt-auto pt-3" aria-hidden="true">
+			<div class="h-1 overflow-hidden rounded-full bg-field">
+				<div
+					class={cn('h-full rounded-full', warns ? 'bg-danger' : 'bg-accent')}
+					style="width: {Math.round(fill * 100)}%"
+				></div>
+			</div>
 		</div>
 	{/if}
 </div>

@@ -6,63 +6,50 @@
 
 	interface Props {
 		snapshot: ServerMetricsSnapshot
-		error?: string | null
 	}
 
-	let { snapshot, error = null }: Props = $props()
+	let { snapshot }: Props = $props()
 
 	const tiles = $derived([
-		{
-			metric: snapshot.overview.connections,
-			span: 'col-span-12 sm:col-span-6 lg:col-span-5',
-		},
-		{
-			metric: snapshot.overview.cacheHitRatio,
-			span: 'col-span-6 lg:col-span-3',
-		},
-		{
-			metric: snapshot.overview.databaseSize,
-			span: 'col-span-6 lg:col-span-4',
-		},
-		{ metric: snapshot.overview.uptime, span: 'col-span-12 sm:col-span-7' },
-		{
-			metric: snapshot.overview.activeQueries,
-			span: 'col-span-12 sm:col-span-5',
-		},
+		snapshot.overview.connections,
+		snapshot.overview.activeQueries,
+		snapshot.overview.cacheHitRatio,
+		snapshot.overview.databaseSize,
+		snapshot.overview.uptime,
 	])
 </script>
 
-{#if error}
-	<div class="mb-3">
-		<Alert tone="warning">{error}</Alert>
-	</div>
-{/if}
+<div class="min-h-0 flex-1 overflow-auto p-4">
+	<div class="stagger flex flex-col gap-6">
+		<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3">
+			{#each tiles as metric (metric.key)}
+				<MetricTile {metric} />
+			{/each}
+		</div>
 
-<div class="grid grid-cols-12 gap-3">
-	{#each tiles as tile (tile.metric.key)}
-		<MetricTile metric={tile.metric} class={tile.span} />
-	{/each}
-</div>
+		{#if snapshot.overview.extras.length}
+			<section aria-labelledby="metrics-engine-details">
+				<h2 id="metrics-engine-details" class="m-0 mb-2 label-caps">Engine details</h2>
+				<dl class="m-0 grid overflow-hidden rounded-lg border border-line bg-surface sm:grid-cols-2">
+					{#each snapshot.overview.extras as extra (extra.key)}
+						<div
+							class="-mb-px flex h-9 min-w-0 items-center justify-between gap-4 border-b border-line px-4 sm:odd:border-r"
+							title={extra.available ? undefined : (extra.unavailableReason ?? 'Not available')}
+						>
+							<dt class="min-w-0 truncate text-label text-fg-secondary">{extra.label}</dt>
+							<dd class="m-0 shrink-0 font-mono text-data text-fg tabular-nums">{formatMetric(extra)}</dd>
+						</div>
+					{/each}
+				</dl>
+			</section>
+		{/if}
 
-{#if snapshot.overview.extras.length}
-	<dl
-		class="mt-6 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-4"
-	>
-		{#each snapshot.overview.extras as extra (extra.key)}
-			<div>
-				<dt class="text-caption text-fg-muted">{extra.label}</dt>
-				<dd class="m-0 font-mono text-body tabular-nums text-fg">
-					{formatMetric(extra)}
-				</dd>
+		{#if snapshot.capabilities.notes.length}
+			<div class="flex flex-col gap-2">
+				{#each snapshot.capabilities.notes as note (note)}
+					<Alert tone="info">{note}</Alert>
+				{/each}
 			</div>
-		{/each}
-	</dl>
-{/if}
-
-{#if snapshot.capabilities.notes.length}
-	<div class="mt-5 space-y-2">
-		{#each snapshot.capabilities.notes as note (note)}
-			<Alert tone="info">{note}</Alert>
-		{/each}
+		{/if}
 	</div>
-{/if}
+</div>

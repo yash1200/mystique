@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ActiveBackendSession } from '#core/contracts'
-	import { Button, EmptyState, Pill } from '#core/ui'
+	import { Button, EmptyHint, Pill } from '#core/ui'
 	import { formatDurationMs } from '../format'
 	import { filterSessions, sessionStateTone } from '../presentation'
 
@@ -12,75 +12,70 @@
 		onend: (row: ActiveBackendSession) => void
 	}
 
-	let { sessions, filter, supported, canTerminate, onend }: Props = $props()
+	let {
+		sessions,
+		filter = $bindable(''),
+		supported,
+		canTerminate,
+		onend,
+	}: Props = $props()
 
 	const rows = $derived(filterSessions(sessions, filter))
+	const th = 'text-[0.71875rem] font-medium whitespace-nowrap text-fg-muted'
+	const mono = 'font-mono text-label whitespace-nowrap tabular-nums'
 </script>
 
 {#if !supported}
-	<EmptyState
-		title="No session list"
-		description="This engine does not expose live backend sessions."
-	/>
+	<EmptyHint fill icon="plug" title="No session list" description="This engine does not expose live backend sessions." />
+{:else if sessions.length === 0}
+	<EmptyHint fill icon="plug" title="No connections" description="The server did not report any sessions." />
 {:else if rows.length === 0}
-	<EmptyState
-		title={filter.trim() ? 'No matching sessions' : 'No connections'}
-		description={filter.trim()
-			? 'Try a different filter.'
-			: 'The server did not report any sessions.'}
-	/>
+	<EmptyHint fill icon="search" title="No matches" description="No connection matches “{filter.trim()}”">
+		<Button variant="ghost" size="sm" onclick={() => (filter = '')}>Clear filter</Button>
+	</EmptyHint>
 {:else}
-	<div class="overflow-x-auto">
+	<div class="min-h-0 flex-1 overflow-auto">
 		<table class="w-full min-w-160 border-collapse text-left">
-			<thead>
-				<tr class="text-caption font-medium text-fg-muted">
-					<th class="px-2 py-1.5 font-medium">Pid</th>
-					<th class="px-2 py-1.5 font-medium">User</th>
-					<th class="px-2 py-1.5 font-medium">Database</th>
-					<th class="px-2 py-1.5 font-medium">State</th>
-					<th class="px-2 py-1.5 font-medium">Duration</th>
-					<th class="px-2 py-1.5 font-medium">Query</th>
+			<thead class="sticky top-0 z-10 bg-surface">
+				<tr class="h-8.5 shadow-[inset_0_-1px_0_var(--line)]">
+					<th class="{th} pr-2 pl-4" scope="col">Id</th>
+					<th class="{th} px-2" scope="col">User</th>
+					<th class="{th} px-2" scope="col">Database</th>
+					<th class="{th} px-2" scope="col">State</th>
+					<th class="{th} px-2 text-right" scope="col">Duration</th>
+					<th class="{th} px-2 w-full" scope="col">Query</th>
 					{#if canTerminate}
-						<th class="w-20 px-2 py-1.5 font-medium"> </th>
+						<th class="w-16 pr-3" scope="col"><span class="sr-only">Actions</span></th>
 					{/if}
 				</tr>
 			</thead>
 			<tbody>
 				{#each rows as row (row.id)}
-					<tr class="border-t border-line hover:bg-hover">
-						<td class="px-2 py-1.5 font-mono text-caption tabular-nums text-fg">
-							{row.id}
+					<tr class="group/row h-10 border-b border-line text-body transition-colors duration-150 hover:bg-surface">
+						<td class="{mono} pr-2 pl-4 text-fg">{row.id}</td>
+						<td class="px-2 whitespace-nowrap text-fg">{row.user ?? '—'}</td>
+						<td class="{mono} px-2 text-fg-secondary">{row.database ?? '—'}</td>
+						<td class="px-2">
+							{#if row.state}
+								<Pill compact tone={sessionStateTone(row.state)}>{row.state}</Pill>
+							{:else}
+								<span class="text-fg-muted">—</span>
+							{/if}
 						</td>
-						<td class="px-2 py-1.5 text-caption text-fg">
-							{row.user ?? '—'}
-						</td>
-						<td class="px-2 py-1.5 font-mono text-caption text-fg-secondary">
-							{row.database ?? '—'}
-						</td>
-						<td class="px-2 py-1.5">
-							<Pill tone={sessionStateTone(row.state)}>{row.state ?? '—'}</Pill>
-						</td>
-						<td
-							class="px-2 py-1.5 font-mono text-caption tabular-nums text-fg-secondary"
-						>
+						<td class="{mono} px-2 text-right text-fg-secondary">
 							{row.durationMs != null ? formatDurationMs(row.durationMs) : '—'}
 						</td>
-						<td
-							class="max-w-xs truncate px-2 py-1.5 font-mono text-caption text-fg"
-							title={row.query ?? ''}
-						>
-							{row.query || '—'}
+						<td class="max-w-0 px-2">
+							<span class="block truncate font-mono text-label text-fg-secondary" title={row.query ?? ''}>
+								{row.query || '—'}
+							</span>
 						</td>
 						{#if canTerminate}
-							<td class="px-2 py-1.5 text-right">
+							<td class="pr-3 text-right">
 								{#if row.canTerminate}
-									<Button
-										variant="danger-ghost"
-										size="sm"
-										onclick={() => onend(row)}
-									>
-										End
-									</Button>
+									<div class="opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+										<Button variant="danger-ghost" size="sm" onclick={() => onend(row)}>End</Button>
+									</div>
 								{/if}
 							</td>
 						{/if}

@@ -356,22 +356,24 @@
 				as drops you can choose.
 			</p>
 			<div class="flex flex-wrap items-center gap-1.5">
-				<Select
-					bind:value={renameFrom}
-					options={unpaired.sourceOnly.map((name) => ({ value: name, label: name }))}
-					placeholder="Table here"
-					ariaLabel="Table on this connection"
-					inputSize="sm"
-					class="w-40"
-				/>
-				<Select
-					bind:value={renameTo}
-					options={unpaired.targetOnly.map((name) => ({ value: name, label: name }))}
-					placeholder="Table there"
-					ariaLabel="Table on the other connection"
-					inputSize="sm"
-					class="w-40"
-				/>
+				<div class="w-40">
+					<Select
+						bind:value={renameFrom}
+						options={unpaired.sourceOnly.map((name) => ({ value: name, label: name }))}
+						placeholder="Table here"
+						ariaLabel="Table on this connection"
+						inputSize="sm"
+					/>
+				</div>
+				<div class="w-40">
+					<Select
+						bind:value={renameTo}
+						options={unpaired.targetOnly.map((name) => ({ value: name, label: name }))}
+						placeholder="Table there"
+						ariaLabel="Table on the other connection"
+						inputSize="sm"
+					/>
+				</div>
 				<Button variant="secondary" size="sm" onclick={addPair} disabled={!renameFrom || !renameTo}>
 					Pair as rename
 				</Button>
@@ -473,26 +475,28 @@
 					{/if}
 					{#if added.length > 0 && dropped.length > 0}
 						<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-							<Select
-								value={pick.to}
-								onchange={(value) =>
-									(columnPick = { ...columnPick, [change.name]: { ...pick, to: value } })}
-								options={dropped.map((name) => ({ value: name, label: name }))}
-								placeholder="Column there"
-								ariaLabel="Column on the other connection"
-								inputSize="sm"
-								class="w-36"
-							/>
-							<Select
-								value={pick.from}
-								onchange={(value) =>
-									(columnPick = { ...columnPick, [change.name]: { ...pick, from: value } })}
-								options={added.map((name) => ({ value: name, label: name }))}
-								placeholder="Column here"
-								ariaLabel="Column on this connection"
-								inputSize="sm"
-								class="w-36"
-							/>
+							<div class="w-36">
+								<Select
+									value={pick.to}
+									onchange={(value) =>
+										(columnPick = { ...columnPick, [change.name]: { ...pick, to: value } })}
+									options={dropped.map((name) => ({ value: name, label: name }))}
+									placeholder="Column there"
+									ariaLabel="Column on the other connection"
+									inputSize="sm"
+								/>
+							</div>
+							<div class="w-36">
+								<Select
+									value={pick.from}
+									onchange={(value) =>
+										(columnPick = { ...columnPick, [change.name]: { ...pick, from: value } })}
+									options={added.map((name) => ({ value: name, label: name }))}
+									placeholder="Column here"
+									ariaLabel="Column on this connection"
+									inputSize="sm"
+								/>
+							</div>
 							<Button
 								variant="secondary"
 								size="sm"
