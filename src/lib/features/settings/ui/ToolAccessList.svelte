@@ -94,7 +94,7 @@
 					checked={c.askHighRisk}
 					disabled={busy}
 					label="Ask me for high-risk writes"
-					description="A write above the level waits in the approval dock for 90 seconds instead of being refused."
+					description="Writes above the level wait 90 seconds for your approval instead of failing."
 					onchange={(on) => onask(c.id, on)}
 				/>
 				<div>
@@ -164,8 +164,8 @@
 							</Button>
 						</div>
 						<p class="m-0 text-caption text-fg-muted">
-							A database's level wins over the connection's. Choose Inherit to
-							remove it.
+							A database's level overrides the connection's. Choose Inherit to
+							clear it.
 						</p>
 					</div>
 				{/if}

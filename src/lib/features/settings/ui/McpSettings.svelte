@@ -50,7 +50,7 @@
 	}))
 
 	const defaultHint = $derived(
-		`${levelHint(access.mcpDefault)} Applies to connections with no level of their own; it never allows writes on a production connection.`,
+		`${levelHint(access.mcpDefault)} Used for connections without their own level. Never allows writes on production.`,
 	)
 
 	const snippet = $derived(mcpClientSnippet(mcp))
@@ -183,11 +183,8 @@
 		Access
 	</p>
 	<p class="mt-0 mb-2 text-caption text-fg-muted">
-		Levels apply to MCP clients and the built-in agent: None hides a
-		connection, Read runs SELECT and find, Write adds INSERT and UPDATE, Full
-		adds DELETE, DDL and DROP. A database's level wins over its connection's,
-		and a connection's over the default. A call above the level is refused
-		with a message that says what to change here; nothing pops up.
+		What AI tools, including the built-in agent, can do on each connection. A
+		database's level overrides its connection's, which overrides the default.
 	</p>
 	<ControlGroup>
 		<ControlRow label="MCP default" description={defaultHint}>
@@ -254,7 +251,7 @@
 				On this machine
 			</p>
 			<p class="mt-0 mb-2 text-caption text-fg-muted">
-				Add Mystique to an AI tool already installed here.
+				Add Mystique to AI tools installed here.
 			</p>
 			<div class="overflow-hidden rounded-lg border border-line bg-surface">
 				<McpHarnesses
@@ -275,9 +272,9 @@
 		</p>
 		<p class="mt-0 mb-2 text-caption text-fg-muted">
 			{#if harnesses.length > 0}
-				For Cursor and any other client that is not listed above.
+				For any other MCP client.
 			{:else}
-				Paste this into Cursor or any other MCP client.
+				Paste this into your MCP client's settings.
 			{/if}
 		</p>
 		<pre
@@ -299,11 +296,11 @@
 
 	<p class="mt-3 mb-0 text-caption text-fg-muted">
 		{#if mcp.running}
-			Turning the app off stops the server.
+			The server stops when you quit Mystique.
 		{:else if mcp.enabled}
-			Enabled, but the server is not running yet.
+			The server is not running yet.
 		{:else}
-			Clients can be added now. They connect only while the server is on.
+			You can add clients now; they connect once the server is on.
 		{/if}
 	</p>
 {/if}

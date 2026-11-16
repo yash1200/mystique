@@ -89,7 +89,7 @@
 	<Field
 		label="Command"
 		htmlFor={`${idPrefix}-command`}
-		hint="Full path, or a name on PATH. Runs without a shell."
+		hint="A full path, or a command on your PATH."
 	>
 		<Input
 			id={`${idPrefix}-command`}
@@ -162,7 +162,7 @@
 				Add variable
 			</Button>
 			<span class="text-caption text-fg-muted">
-				Names like *_KEY or *_TOKEN are kept in the vault.
+				*_KEY and *_TOKEN values are stored encrypted.
 			</span>
 		</div>
 	</div>

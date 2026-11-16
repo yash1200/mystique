@@ -44,17 +44,17 @@
 		icon: IconName
 		description: string
 	}[] = [
-		{ id: 'appearance', label: 'Appearance', icon: 'contrast', description: 'Applies to every window.' },
-		{ id: 'workspace', label: 'Workspace', icon: 'sidebar', description: 'How tables and results behave.' },
-		{ id: 'passwords', label: 'Passwords', icon: 'lock', description: 'How Mystique protects the passwords you save.' },
-		{ id: 'ai', label: 'AI agent', icon: 'sparkle', description: 'Draft queries from the open connection.' },
+		{ id: 'appearance', label: 'Appearance', icon: 'contrast', description: 'Theme and interface size.' },
+		{ id: 'workspace', label: 'Workspace', icon: 'sidebar', description: 'Tables, results and queries.' },
+		{ id: 'passwords', label: 'Passwords', icon: 'lock', description: 'How your saved passwords are stored.' },
+		{ id: 'ai', label: 'AI agent', icon: 'sparkle', description: 'Providers, agents and what they can access.' },
 		{
 			id: 'mcp',
 			label: 'MCP server',
 			icon: 'plug',
 			description: 'Let other AI tools query your databases while Mystique is open.',
 		},
-		{ id: 'about', label: 'About', icon: 'info', description: 'Version, updates and diagnostics for bug reports.' },
+		{ id: 'about', label: 'About', icon: 'info', description: 'Version, updates and diagnostics.' },
 	]
 
 	/** The MCP server is listening (the dot beside its section). */

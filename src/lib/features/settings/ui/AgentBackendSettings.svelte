@@ -143,10 +143,9 @@
 	<div>
 		<p class="m-0 text-label font-medium text-fg">Agent</p>
 		<p class="m-0 mt-0.5 text-caption leading-relaxed text-fg-muted">
-			New chats use the default. Switch any chat from the agent panel's header.
-			External agents get only Mystique's database tools, through the MCP server
-			(turn it on in Settings → MCP), with its access levels and the approval dock.
-			File and terminal access are declined; their other tools are refused.
+			New chats use the default agent; switch per chat in the agent panel.
+			External agents reach your databases only through the MCP server, so turn
+			it on first.
 		</p>
 	</div>
 
@@ -255,7 +254,7 @@
 			</p>
 		{:else if groups.found.length === 0}
 			<p class="m-0 mt-1 text-caption text-fg-muted">
-				No known ACP agent was found. Install one below, or add a Custom agent.
+				No agents found. Install one below or add a custom agent.
 			</p>
 		{:else}
 			<ul
@@ -355,8 +354,7 @@
 					{/each}
 				</ul>
 				<p class="m-0 mt-1 text-caption text-fg-muted">
-					Mystique never installs anything. Install an agent in a terminal, then
-					Rescan.
+					Install an agent from your terminal, then rescan.
 				</p>
 			{/if}
 		</div>

@@ -16,7 +16,7 @@
 
 	const options = ACCESS_LEVELS.map((l) => ({ value: l, label: levelLabel(l) }))
 	const hint = $derived(
-		`${levelHint(level)} For connections with no level of their own (set in Settings → MCP). The agent's tools only read today.`,
+		`${levelHint(level)} Used for connections without their own level (see MCP server). The agent can only read for now.`,
 	)
 
 	onMount(() => {

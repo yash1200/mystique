@@ -22,7 +22,7 @@
 			case 'failed':
 				return phase.message
 			default:
-				return 'Mystique checks GitHub for a new version when it starts.'
+				return 'Mystique checks for updates when it starts.'
 		}
 	})
 </script>

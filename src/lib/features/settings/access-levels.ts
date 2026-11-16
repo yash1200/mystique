@@ -15,7 +15,7 @@ const LABELS: Record<AccessLevel, string> = {
 }
 
 const HINTS: Record<AccessLevel, string> = {
-	none: 'Hidden. Tools cannot see it.',
+	none: 'Hidden from AI tools.',
 	read: 'SELECT and find only.',
 	write: 'Adds INSERT and UPDATE.',
 	full: 'Adds DELETE, DDL and DROP.',

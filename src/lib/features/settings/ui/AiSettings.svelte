@@ -166,7 +166,7 @@
 		<div class="mt-4">
 			<EmptyState
 				title="No providers yet"
-				description="Add a provider key to use the query agent. Only providers you add appear in the agent panel."
+				description="Add an API key to start using the query agent."
 			>
 				{#snippet actions()}
 					<Button size="sm" disabled={busy} onclick={startAdd}>

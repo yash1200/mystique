@@ -45,11 +45,7 @@
 		appPrefs.theme === 'system' ? ['dark', 'light'] : [appPrefs.theme],
 	)
 
-	const scaleHint = $derived(
-		appSettingsUi.scale >= 1.5
-			? `Big dog energy. ${mod}0 resets.`
-			: `${mod}+ and ${mod}− change it from anywhere.`,
-	)
+	const scaleHint = `Use ${mod}+ and ${mod}− anywhere. ${mod}0 resets.`
 
 	function picked(theme: ThemeInfo): boolean {
 		return theme.scheme === 'dark'
@@ -78,7 +74,7 @@
 	<ControlGroup labelledby="settings-pane-title">
 		<ControlRow
 			label="Mode"
-			description="System follows {mac ? 'macOS' : 'your system'} and swaps between your two picks below."
+			description="System switches between your light and dark theme with {mac ? 'macOS' : 'your system'}."
 		>
 			<Segmented label="Mode" value={appPrefs.theme} options={MODES} onchange={onMode} />
 		</ControlRow>

@@ -75,7 +75,7 @@
 		</ControlRow>
 		<ControlRow
 			label="Query timeout (seconds)"
-			description="For profiles without their own. 0 means no timeout, for long DDL and migrations."
+			description="Used when a connection has no timeout of its own. 0 turns it off."
 			htmlFor="settings-query-timeout"
 		>
 			<Input
@@ -99,7 +99,7 @@
 		</ControlRow>
 		<ControlRow
 			label="Review before saving"
-			description="Show the SQL before a grid save. Production always asks once per session."
+			description="Show the SQL before saving grid edits. Production connections always ask once per session."
 		>
 			<Segmented
 				label="Review before saving"
@@ -113,10 +113,9 @@
 	<div class="flex gap-3 rounded-lg bg-hover px-4 py-3.5 leading-relaxed text-fg-secondary">
 		<span class="mt-0.5 flex text-fg-muted [&_svg]:size-4"><Icon name="history" /></span>
 		<p class="m-0">
-			Query history stores the SQL of each run, including agent and MCP runs.
-			Mystique keeps the latest <span class="font-mono text-fg">2,000</span> runs for
-			each connection. Passwords and connection-string userinfo are left out of
-			those rows.
+			Query history keeps the last <span class="font-mono text-fg">2,000</span> queries
+			for each connection, including ones run by AI tools. Passwords are never
+			saved in it.
 		</p>
 	</div>
 </div>

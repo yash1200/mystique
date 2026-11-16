@@ -55,7 +55,7 @@
 		<UpdateSettingsRow />
 		<ControlRow
 			label="Diagnostics"
-			description="A .tar.gz to attach to a bug report: app version, OS, plugins, settings without secrets, connection flags and recent logs."
+			description="Save a file to attach to a bug report. It never includes passwords or queries."
 		>
 			<Button size="sm" disabled={busy} onclick={exportBundle}>
 				{busy ? 'Exporting…' : 'Export…'}
@@ -65,9 +65,4 @@
 	{#if error}
 		<p class="mt-2 mb-0 text-caption text-danger" role="alert">{error}</p>
 	{/if}
-	<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
-		The bundle never holds passwords, keys, tokens, host names, user names,
-		SQL text or query history. Passwords in log lines are masked. Logs are
-		in the app log folder; set <code>MYSTIQUE_LOG=debug</code> for more detail.
-	</p>
 </div>

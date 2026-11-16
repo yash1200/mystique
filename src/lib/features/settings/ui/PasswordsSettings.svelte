@@ -20,7 +20,7 @@
 	function describe(s: VaultStatus | null): string {
 		if (!s) return ''
 		if (s.source !== 'keychain') {
-			return 'MYSTIQUE_VAULT_KEY_SOURCE=file: the key is in a file in the app data folder and the keychain is not used.'
+			return 'Not used: MYSTIQUE_VAULT_KEY_SOURCE is set to file.'
 		}
 		if (s.state === 'unlocked') return 'Unlocked for this session.'
 		if (s.state === 'denied') {
@@ -36,7 +36,7 @@
 		if (c.deleted === 0 && c.skipped === 0) return 'Nothing to clean up.'
 		const deleted = `Deleted ${c.deleted} old ${c.deleted === 1 ? 'item' : 'items'}.`
 		if (c.skipped === 0) return deleted
-		return `${deleted} Skipped ${c.skipped} that would have needed a keychain prompt.`
+		return `${deleted} Skipped ${c.skipped} that need your keychain password.`
 	}
 
 	async function run(work: () => Promise<void>) {
@@ -83,7 +83,7 @@
 		</ControlRow>
 		<ControlRow
 			label="Old keychain items"
-			description="Earlier versions kept one keychain item per password. Delete the ones no connection uses. Never asks for your password."
+			description="Remove keychain entries left by older versions of Mystique."
 		>
 			<Button size="sm" disabled={busy || !keychain} onclick={cleanUp}>
 				Clean up
@@ -99,8 +99,7 @@
 		<p class="mt-2 mb-0 text-caption text-danger" role="alert">{error}</p>
 	{/if}
 	<p class="mt-3 mb-0 max-w-prose-ui text-caption leading-relaxed text-fg-muted">
-		Saved passwords, SSH and TLS secrets, AI keys and the MCP token are
-		encrypted in the app database with one key, kept in the macOS keychain.
-		Development builds cache a copy in the app data folder.
+		Saved passwords, keys and tokens are encrypted with a key kept in your
+		macOS keychain.
 	</p>
 </div>
