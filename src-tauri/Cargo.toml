@@ -8,7 +8,7 @@ publish = false
 
 # Release panic policy lives on the workspace `[profile.release]` in ../Cargo.toml
 # (`panic = "unwind"`). This shell catches a plugin panic in `src/ipc/mod.rs`
-# (`guard` / `guard_sync`) and returns `internal error: …`. A `[profile]` here
+# (`guard` / `guard_sync`) and returns an `internal` IPC error. A `[profile]` here
 # would be ignored.
 
 [lib]
