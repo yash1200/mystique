@@ -28,7 +28,7 @@
 	},
 	"plugins": {
 		"updater": {
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENDOTNEMTIxRjNCNEU1QkUKUldTKzViVHpJZEdUek1EdEVXeThFbnRtVkNBazFUVThjQ0xpMDVvMGh1NlRxQnVIWU1QRzlmR0sK",
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzMDZFMTc3NDU5OTMxMTkKUldRWk1abEZkK0VHMDQzMWk1bno0c0tnTXl2a1JJWk9GZjhTV1kzbmlRZFFYV2ZUalhxRE50cWsK",
 			"endpoints": [
 				"https://github.com/yash1200/mystique/releases/latest/download/latest.json"
 			]
