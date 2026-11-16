@@ -1,6 +1,6 @@
 [package]
 name = "mystique"
-version = "1.0.2"
+version = "1.0.3"
 description = "Mystique desktop shell (Tauri)"
 authors = ["you"]
 edition = "2021"
