@@ -206,7 +206,7 @@
 	axis="x"
 	ignore="[data-tab-close]"
 	scrollRoot={tablistEl}
-	previewClass={production ? 'bg-warning/[0.08]' : ''}
+	previewClass={production ? 'bg-warning/6' : ''}
 	onpickup={onactivate}
 	{onreorder}
 >
@@ -214,7 +214,7 @@
 		<div
 			bind:this={tablistEl}
 			class={cn(
-				'scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto overscroll-x-contain border-b border-line bg-surface',
+				'scrollbar-none flex h-control-sm shrink-0 items-stretch overflow-x-auto overscroll-x-contain border-b border-line bg-side',
 				production && 'bg-warning/6',
 				drag.draggingId && 'cursor-grabbing select-none',
 			)}
@@ -243,6 +243,7 @@
 						'group/tab relative flex max-w-56 shrink-0 items-stretch border-r border-line',
 						canReorder && !drag.draggingId && 'cursor-grab',
 						dragging && 'pointer-events-none cursor-grabbing opacity-35',
+						'transition-colors duration-150 ease-standard',
 						active
 							? 'bg-app text-fg'
 							: 'bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
@@ -251,12 +252,8 @@
 					onpointerdown={(e) => drag.start(e, tab.id)}
 					oncontextmenu={(e) => onTabContextMenu(tab.id, e)}
 				>
-					{#if connectionColor}
-						<span
-							class="absolute inset-x-0 top-0 h-0.5 bg-conn"
-							class:opacity-40={!active}
-							aria-hidden="true"
-						></span>
+					{#if connectionColor && active}
+						<span class="absolute inset-x-0 top-0 h-0.5 bg-conn" aria-hidden="true"></span>
 					{/if}
 					{#if edge === 'before' || edge === 'after'}
 						<span
@@ -295,11 +292,10 @@
 						data-tab-close
 						draggable="false"
 						class={cn(
-							'group/close mr-1 flex size-6 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-body-lg font-medium',
-							'hover:bg-hover hover:text-fg',
+							'group/close mr-1 flex size-6 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-fg-muted',
+							'transition-[color,background-color,opacity] duration-150 ease-standard hover:bg-pressed hover:text-fg',
 							// Clean inactive tabs: show close only when the tab row is hovered
 							!dirty && !active && 'opacity-0 group-hover/tab:opacity-100',
-							dirty ? 'text-warning' : 'text-fg-muted',
 						)}
 						aria-label={dirty
 							? `Unsaved, close ${tabLabel(tab)}`
@@ -310,12 +306,12 @@
 							onclose(tab.id)
 						}}
 					>
-						<!-- Dirty: yellow dot; hover this control to reveal close -->
+						<!-- Dirty: a dot (not amber: amber means production); hover reveals close -->
 						{#if dirty}
 							<span
-								class="text-label leading-none group-hover/close:hidden"
-								aria-hidden="true">●</span
-							>
+								class="size-2 rounded-full bg-fg-secondary group-hover/close:hidden"
+								aria-hidden="true"
+							></span>
 							<Icon
 								name="close"
 								class="hidden size-3.5 group-hover/close:block"
@@ -328,14 +324,15 @@
 			{/each}
 
 			{#if onopenquery}
+				<!-- Sized like the tab close button: IconButton sm (28px) is the strip's full height. -->
 				<button
 					type="button"
-					class="flex shrink-0 items-center border-none bg-transparent px-2 text-caption text-fg-muted hover:bg-hover hover:text-fg"
-					title="New query tab (⌘/Ctrl+T)"
+					class="mx-1 grid size-6 shrink-0 place-items-center self-center rounded-sm border-none bg-transparent text-fg-muted transition-colors duration-150 ease-standard hover:bg-hover hover:text-fg active:scale-[0.92]"
+					title="New query tab"
 					aria-label="New query tab"
 					onclick={onopenquery}
 				>
-					+ Query
+					<Icon name="plus" />
 				</button>
 			{/if}
 		</div>
@@ -360,9 +357,7 @@
 					<span class="min-w-0 truncate leading-normal">{tabLabel(tab)}</span>
 				</div>
 				{#if tab.dirty}
-					<span class="mr-1.5 self-center text-label leading-none text-warning"
-						>●</span
-					>
+					<span class="mr-2.5 size-2 shrink-0 self-center rounded-full bg-fg-secondary"></span>
 				{:else}
 					<Icon
 						name="close"
