@@ -11,8 +11,8 @@ use super::query::drive;
 use super::write::{write_batches, CommandFields};
 use super::MongoSession;
 use crate::shell::{
-    parse_executable, AggregateSpec, Executable, FindAndModify, FindSpec, Modify, MongoOp,
-    ReadOptions, ShellWrite, WriteMethod,
+    parse_executable, AggregateSpec, CountSpec, Executable, FindAndModify, FindSpec, Modify,
+    MongoOp, ReadOptions, ShellWrite, WriteMethod,
 };
 
 /// Explain the same parsed call the executor would run. Writes are sent as
@@ -41,10 +41,11 @@ pub(super) async fn explain_query(
     let (spec, write) = match call.op {
         MongoOp::Aggregate(aggregate) => (aggregate_spec(coll, aggregate), false),
         MongoOp::Find(find) => (find_spec(coll, find), false),
+        MongoOp::Count(count) => (count_spec(coll, count), false),
         MongoOp::Write(write) => (write_spec(&coll, write)?, true),
-        MongoOp::Count(_) | MongoOp::EstimatedCount(_) | MongoOp::Distinct { .. } => {
+        MongoOp::EstimatedCount(_) | MongoOp::Distinct { .. } => {
             return Err(ConnectorError::Query(
-                "Explain a find, an aggregate, or a write. Nothing ran.".into(),
+                "Explain a find, a countDocuments, an aggregate, or a write. Nothing ran.".into(),
             ))
         }
     };
@@ -89,6 +90,26 @@ fn aggregate_spec(coll: String, aggregate: AggregateSpec) -> Document {
     }
     read_fields(&mut spec, aggregate.read);
     spec
+}
+
+/// The pipeline the driver runs for `countDocuments`.
+fn count_spec(coll: String, count: CountSpec) -> Document {
+    let mut pipeline = vec![doc! { "$match": count.filter }];
+    if let Some(skip) = count.skip {
+        pipeline.push(doc! { "$skip": skip as i64 });
+    }
+    if let Some(limit) = count.limit {
+        pipeline.push(doc! { "$limit": limit as i64 });
+    }
+    pipeline.push(doc! { "$group": { "_id": 1, "n": { "$sum": 1 } } });
+    aggregate_spec(
+        coll,
+        AggregateSpec {
+            pipeline,
+            read: count.read,
+            ..Default::default()
+        },
+    )
 }
 
 /// `hint`, `collation` and `comment` as command fields. `maxTimeMS` goes on
@@ -370,6 +391,32 @@ mod tests {
         assert_eq!(
             spec.get_document("collation").ok(),
             Some(&doc! { "locale": "en" })
+        );
+    }
+
+    #[test]
+    fn count_documents_explains_as_its_pipeline() {
+        let MongoOp::Count(count) = (match parse_executable(
+            r#"db.t.countDocuments({a: 1}, {skip: 2, limit: 5, hint: "a_1"})"#,
+        ) {
+            Ok(Executable::Call(call)) => call.op,
+            other => panic!("{other:?}"),
+        }) else {
+            panic!("count");
+        };
+        assert_eq!(
+            count_spec("t".into(), count),
+            doc! {
+                "aggregate": "t",
+                "pipeline": [
+                    { "$match": { "a": 1 } },
+                    { "$skip": 2_i64 },
+                    { "$limit": 5_i64 },
+                    { "$group": { "_id": 1, "n": { "$sum": 1 } } },
+                ],
+                "cursor": {},
+                "hint": "a_1",
+            }
         );
     }
 
