@@ -140,7 +140,8 @@ async fn mysql_lists_routines_and_triggers_with_definitions() {
     let p = definition(s, "mk_noop", "procedure").await;
     assert!(p.contains("PROCEDURE `mk_noop`"), "{p}");
     let t = definition(s, "mk_touch", "trigger").await;
-    assert!(t.contains("TRIGGER `mk_touch`"), "{t}");
+    // MySQL quotes the trigger name in SHOW CREATE TRIGGER; MariaDB does not.
+    assert!(t.replace('`', "").contains("TRIGGER mk_touch"), "{t}");
     for stmt in [
         "DROP TRIGGER mk_touch",
         "DROP FUNCTION mk_add",

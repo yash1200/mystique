@@ -27,12 +27,11 @@ impl Host {
             }
         }
 
-        let mut app_dirs = Vec::new();
-        #[cfg(target_os = "macos")]
-        {
-            app_dirs.push(PathBuf::from("/Applications"));
-            app_dirs.push(home.join("Applications"));
-        }
+        let app_dirs = if cfg!(target_os = "macos") {
+            vec![PathBuf::from("/Applications"), home.join("Applications")]
+        } else {
+            Vec::new()
+        };
 
         Self {
             user_config: user_config_dir(&home),
@@ -117,18 +116,11 @@ fn extra_bin_dirs(home: &Path) -> Vec<PathBuf> {
 }
 
 fn executable_in(dir: &Path, name: &str) -> bool {
-    if dir.join(name).is_file() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        for ext in ["exe", "cmd", "bat"] {
-            if dir.join(format!("{name}.{ext}")).is_file() {
-                return true;
-            }
-        }
-    }
-    false
+    dir.join(name).is_file()
+        || (cfg!(windows)
+            && ["exe", "cmd", "bat"]
+                .iter()
+                .any(|ext| dir.join(format!("{name}.{ext}")).is_file()))
 }
 
 #[cfg(test)]

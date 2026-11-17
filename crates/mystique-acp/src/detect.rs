@@ -91,6 +91,9 @@ pub(crate) struct Machine {
     pub local_app_data: Option<PathBuf>,
     pub shell_timeout: Duration,
     pub version_timeout: Duration,
+    /// Search /opt/homebrew/bin, /usr/local/bin and Linuxbrew. Off in tests
+    /// so the host's own tools never shadow the stubs.
+    pub system_dirs: bool,
 }
 
 impl Machine {
@@ -103,6 +106,7 @@ impl Machine {
             local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
             shell_timeout: SHELL_TIMEOUT,
             version_timeout: VERSION_TIMEOUT,
+            system_dirs: true,
         }
     }
 }
@@ -234,7 +238,7 @@ fn newest_nvm_bin(home: &Path) -> Option<PathBuf> {
 /// Folders installers commonly use, beyond `PATH`.
 fn well_known_dirs(machine: &Machine) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if cfg!(unix) {
+    if cfg!(unix) && machine.system_dirs {
         dirs.push(PathBuf::from("/opt/homebrew/bin"));
         dirs.push(PathBuf::from("/usr/local/bin"));
         dirs.push(PathBuf::from("/home/linuxbrew/.linuxbrew/bin"));
@@ -596,6 +600,7 @@ mod tests {
             local_app_data: None,
             shell_timeout: Duration::from_millis(500),
             version_timeout: Duration::from_millis(1500),
+            system_dirs: false,
         }
     }
 
@@ -777,7 +782,10 @@ mod tests {
     fn search_dirs_keep_order_and_drop_duplicates() {
         let root = tempfile::tempdir().unwrap();
         let a = root.path().join("a");
-        let m = machine(root.path(), &[&a, &a]);
+        let m = Machine {
+            system_dirs: true,
+            ..machine(root.path(), &[&a, &a])
+        };
         let dirs = search_dirs(&m, Some(&format!("{}:/usr/bin", a.display())));
         assert_eq!(dirs[0], a);
         assert_eq!(dirs.iter().filter(|d| **d == a).count(), 1);
