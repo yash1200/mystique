@@ -5,6 +5,7 @@
 		Icon,
 		IconButton,
 		Input,
+		isNapTime,
 		Mascot,
 		Resizable,
 		type ContextMenuItem,
@@ -23,7 +24,12 @@
 	} from '#lib/app'
 	import { onMount } from 'svelte'
 	import { getHome, type ConnectionMenuAction } from '../home.svelte'
-	import { groupConnections, isListSort, isTreatQuery, SORT_OPTIONS } from '../list'
+	import {
+		groupConnections,
+		isListSort,
+		isTreatQuery,
+		SORT_OPTIONS,
+	} from '../list'
 	import ConnectionListItem from './ConnectionListItem.svelte'
 
 	const FILTER_ID = 'home-connection-filter'
@@ -74,7 +80,9 @@
 			},
 			{
 				id: 'favorite',
-				label: current?.favorite ? 'Remove from favourites' : 'Add to favourites',
+				label: current?.favorite
+					? 'Remove from favourites'
+					: 'Add to favourites',
 			},
 			{ id: 'edit', label: 'Edit', separatorBefore: true },
 			{ id: 'duplicate', label: 'Duplicate' },
@@ -150,7 +158,9 @@
 			>
 				<Mascot mood={guarding ? 'alert' : 'idle'} {zoom} playful />
 			</button>
-			<span class="min-w-0 flex-1 truncate text-body-lg font-semibold tracking-tight">
+			<span
+				class="min-w-0 flex-1 truncate text-body-lg font-semibold tracking-tight"
+			>
 				Mystique
 			</span>
 			<IconButton
@@ -246,8 +256,11 @@
 			{#each groups as group (group.env)}
 				<section class="flex flex-col gap-px" aria-label={group.label}>
 					<h3 class="m-0 flex items-center gap-2 px-3 pt-2.5 pb-1">
-						<span class={cn('size-1.5 rounded-full', ENV_DOT[group.env])}></span>
-						<span class="text-[0.71875rem] font-medium text-fg-muted">{group.label}</span>
+						<span class={cn('size-1.5 rounded-full', ENV_DOT[group.env])}
+						></span>
+						<span class="text-[0.71875rem] font-medium text-fg-muted"
+							>{group.label}</span
+						>
 					</h3>
 					{#each group.items as conn (conn.id)}
 						<ConnectionListItem
@@ -266,10 +279,15 @@
 				<div
 					class="mx-2 mt-4 flex animate-rise flex-col items-center gap-2.5 rounded-lg border border-dashed border-line-strong px-4 py-5 text-center"
 				>
-					<Mascot mood={treat ? 'happy' : 'sleep'} size={48} />
+					<Mascot
+						mood={treat ? 'happy' : isNapTime() ? 'sleep' : 'idle'}
+						size={48}
+					/>
 					{#if total === 0}
 						<p class="m-0 font-medium">No connections yet</p>
-						<p class="m-0 text-label text-fg-muted">Create one to get started.</p>
+						<p class="m-0 text-label text-fg-muted">
+							Create one to get started.
+						</p>
 					{:else if treat}
 						<p class="m-0 font-medium">Here’s a treat.</p>
 						<p class="m-0 text-label text-fg-muted">
@@ -277,7 +295,9 @@
 						</p>
 					{:else}
 						<p class="m-0 font-medium">Nothing matches “{q}”</p>
-						<p class="m-0 text-label text-fg-muted">Try a name, engine or host.</p>
+						<p class="m-0 text-label text-fg-muted">
+							Try a name, engine or host.
+						</p>
 					{/if}
 				</div>
 			{/each}

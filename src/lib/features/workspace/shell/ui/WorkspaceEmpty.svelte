@@ -1,13 +1,13 @@
 <script lang="ts">
-	import type { ConnectionProfile } from '#core/contracts'
 	import { commands, type CommandSpec } from '#core/commands'
-	import { Icon, Mascot } from '#core/ui'
+	import type { ConnectionProfile } from '#core/contracts'
+	import { Icon, isNapTime, Mascot } from '#core/ui'
 	import { engineLabel } from '#engines'
 	import { colorHex } from '#features/connections'
 	import { isMacPlatform, keyCap, shortcutItem } from '#features/shortcuts'
 	import { workspaceSession } from '#features/workspace/session'
-	import { cmd } from '#lib/app'
 	import type { IconName } from '#icons'
+	import { cmd } from '#lib/app'
 
 	/** The workspace with no tab open: what to do next, and the keys for it. */
 	interface Props {
@@ -24,15 +24,27 @@
 			keyCap(key, 'glyphs', mac),
 		)
 
-	type Action = { label: string; icon: IconName; spec: CommandSpec; run: () => void }
+	type Action = {
+		label: string
+		icon: IconName
+		spec: CommandSpec
+		run: () => void
+	}
 
 	/** A tab closed on this connection can come back. */
 	const canReopen = $derived(
-		workspaceSession.closedTabs.some((entry) => entry.tab.connectionId === profile.id),
+		workspaceSession.closedTabs.some(
+			(entry) => entry.tab.connectionId === profile.id,
+		),
 	)
 
 	const actions = $derived<Action[]>([
-		{ label: 'New query', icon: 'code-slash', spec: cmd.newQuery, run: () => onnewquery?.() },
+		{
+			label: 'New query',
+			icon: 'code-slash',
+			spec: cmd.newQuery,
+			run: () => onnewquery?.(),
+		},
 		...(canReopen
 			? [
 					{
@@ -60,16 +72,21 @@
 	const tint = $derived(colorHex(profile.colorId))
 </script>
 
-<div class="relative flex flex-1 items-center justify-center overflow-auto bg-app px-4 py-12">
-	<div class="stagger flex w-full max-w-[24rem] flex-col items-center text-center">
-		<!-- The connection's own colour, as a halo the dog sleeps in. -->
+<div
+	class="relative flex flex-1 items-center justify-center overflow-auto bg-app px-4 py-12"
+>
+	<div
+		class="stagger flex w-full max-w-[24rem] flex-col items-center text-center"
+	>
+		<!-- The connection's own colour, as a halo around the dog. -->
 		<div class="relative grid place-items-center">
 			<span
 				class="pointer-events-none absolute size-40 rounded-full opacity-70"
-				style:background="radial-gradient(closest-side, color-mix(in oklab, {tint} 22%, transparent), transparent)"
+				style:background="radial-gradient(closest-side, color-mix(in oklab, {tint}
+				22%, transparent), transparent)"
 				aria-hidden="true"
 			></span>
-			<Mascot mood="sleep" size={60} />
+			<Mascot mood={isNapTime() ? 'sleep' : 'idle'} size={60} />
 		</div>
 
 		<p
@@ -80,12 +97,14 @@
 				style:background={tint}
 				aria-hidden="true"
 			></span>
-			<span class="max-w-[14rem] truncate font-medium text-fg">{profile.name}</span>
+			<span class="max-w-56 truncate font-medium text-fg">{profile.name}</span>
 			<span class="h-3 w-px bg-line-strong" aria-hidden="true"></span>
 			<span class="text-fg-muted">{engineLabel(profile.engine)}</span>
 		</p>
 
-		<h1 class="m-0 mt-4 text-title font-semibold tracking-[-0.015em] text-fg">No tab open</h1>
+		<h1 class="m-0 mt-4 text-title font-semibold tracking-[-0.015em] text-fg">
+			No tab open
+		</h1>
 		<p class="m-0 mt-1 text-body text-pretty text-fg-muted">
 			Pick a table in the explorer, or start a query.
 		</p>
@@ -112,7 +131,12 @@
 							>
 								<Icon name={action.icon} />
 							</span>
-							<span class={['min-w-0 flex-1 truncate', primary && 'font-medium text-fg']}>
+							<span
+								class={[
+									'min-w-0 flex-1 truncate',
+									primary && 'font-medium text-fg',
+								]}
+							>
 								{action.label}
 							</span>
 							<span class="flex shrink-0 items-center gap-1">

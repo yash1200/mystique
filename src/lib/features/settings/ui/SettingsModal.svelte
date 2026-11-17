@@ -11,6 +11,7 @@
 	import {
 		Icon,
 		IconButton,
+		isNapTime,
 		Lazy,
 		Mascot,
 		Modal,
@@ -19,7 +20,6 @@
 	} from '#core/ui'
 	import { cn } from '#core/util'
 	import { appShortcutsUi } from '#features/shortcuts'
-	import { appPrefs } from '#lib/app'
 	import { getMcpStatus } from '../api'
 	import { appSettingsUi } from '../model.svelte'
 	import type { SettingsSection } from '../prefs'
@@ -44,17 +44,43 @@
 		icon: IconName
 		description: string
 	}[] = [
-		{ id: 'appearance', label: 'Appearance', icon: 'contrast', description: 'Theme and interface size.' },
-		{ id: 'workspace', label: 'Workspace', icon: 'sidebar', description: 'Tables, results and queries.' },
-		{ id: 'passwords', label: 'Passwords', icon: 'lock', description: 'How your saved passwords are stored.' },
-		{ id: 'ai', label: 'AI agent', icon: 'sparkle', description: 'Providers, agents and what they can access.' },
+		{
+			id: 'appearance',
+			label: 'Appearance',
+			icon: 'contrast',
+			description: 'Theme and interface size.',
+		},
+		{
+			id: 'workspace',
+			label: 'Workspace',
+			icon: 'sidebar',
+			description: 'Tables, results and queries.',
+		},
+		{
+			id: 'passwords',
+			label: 'Passwords',
+			icon: 'lock',
+			description: 'How your saved passwords are stored.',
+		},
+		{
+			id: 'ai',
+			label: 'AI agent',
+			icon: 'sparkle',
+			description: 'Providers, agents and what they can access.',
+		},
 		{
 			id: 'mcp',
 			label: 'MCP server',
 			icon: 'plug',
-			description: 'Let other AI tools query your databases while Mystique is open.',
+			description:
+				'Let other AI tools query your databases while Mystique is open.',
 		},
-		{ id: 'about', label: 'About', icon: 'info', description: 'Version, updates and diagnostics.' },
+		{
+			id: 'about',
+			label: 'About',
+			icon: 'info',
+			description: 'Version, updates and diagnostics.',
+		},
 	]
 
 	/** The MCP server is listening (the dot beside its section). */
@@ -66,13 +92,14 @@
 		sections.find((s) => s.id === appSettingsUi.section) ?? sections[0]!,
 	)
 
-	/** Night themes put the dog to sleep; a pet or a 150% scale wakes it. */
+	/** The dog naps at nap time (see isNapTime); a pet or a 150% scale wakes it. */
 	const dog = $derived.by((): { mood: MascotMood; line: string } => {
 		if (awake) return { mood: 'happy', line: 'Five more minutes…' }
-		if (appSettingsUi.scale >= 1.5) return { mood: 'happy', line: 'Big dog energy.' }
-		return appPrefs.resolvedTheme === 'dark'
-			? { mood: 'sleep', line: 'Shh. Night mode means nap time.' }
-			: { mood: 'idle', line: 'Daylight! Ready to fetch.' }
+		if (appSettingsUi.scale >= 1.5)
+			return { mood: 'happy', line: 'Big dog energy.' }
+		return isNapTime()
+			? { mood: 'sleep', line: 'Shh. It’s nap time.' }
+			: { mood: 'idle', line: 'Wide awake! Ready to fetch.' }
 	})
 
 	$effect(() => {
@@ -127,11 +154,17 @@
 	<Icon name="sliders" />
 </IconButton>
 
-{#snippet navItem(icon: IconName, label: string, on: boolean, onclick: () => void, trailing?: 'live' | 'out')}
+{#snippet navItem(
+	icon: IconName,
+	label: string,
+	on: boolean,
+	onclick: () => void,
+	trailing?: 'live' | 'out',
+)}
 	<button
 		type="button"
 		class={cn(
-			'flex h-[2.125rem] w-full items-center gap-2.5 rounded-md border-none px-2.5 text-left font-medium transition-colors duration-150',
+			'flex h-8.5 w-full items-center gap-2.5 rounded-md border-none px-2.5 text-left font-medium transition-colors duration-150',
 			on
 				? 'bg-hover text-fg shadow-[inset_0_0_0_1px_var(--line)]'
 				: 'bg-transparent text-fg-secondary hover:bg-hover hover:text-fg',
@@ -139,14 +172,25 @@
 		aria-current={on ? 'page' : undefined}
 		{onclick}
 	>
-		<span class={cn('flex [&_svg]:size-4', on ? 'text-accent-text' : 'text-fg-muted')}>
+		<span
+			class={cn(
+				'flex [&_svg]:size-4',
+				on ? 'text-accent-text' : 'text-fg-muted',
+			)}
+		>
 			<Icon name={icon} />
 		</span>
 		<span class="min-w-0 flex-1 truncate">{label}</span>
 		{#if trailing === 'live'}
-			<span class="size-1.5 rounded-full dot-live" role="img" aria-label="Running"></span>
+			<span
+				class="size-1.5 rounded-full dot-live"
+				role="img"
+				aria-label="Running"
+			></span>
 		{:else if trailing === 'out'}
-			<span class="flex text-fg-muted [&_svg]:size-3.5"><Icon name="external" /></span>
+			<span class="flex text-fg-muted [&_svg]:size-3.5"
+				><Icon name="external" /></span
+			>
 		{/if}
 	</button>
 {/snippet}
@@ -161,10 +205,12 @@
 >
 	<div class="flex h-full min-h-0 w-full flex-wrap">
 		<nav
-			class="flex max-w-full flex-[1_1_13.75rem] flex-col gap-0.5 border-r border-line bg-surface px-2.5 pt-[1.125rem] pb-3.5"
+			class="flex max-w-full flex-[1_1_13.75rem] flex-col gap-0.5 border-r border-line bg-surface px-2.5 pt-4.5 pb-3.5"
 			aria-label="Settings sections"
 		>
-			<h2 id={TITLE_ID} class="m-0 px-2.5 pb-3 text-heading font-semibold">Settings</h2>
+			<h2 id={TITLE_ID} class="m-0 px-2.5 pb-3 text-heading font-semibold">
+				Settings
+			</h2>
 			{#each sections as item (item.id)}
 				{@render navItem(
 					item.icon,
@@ -175,7 +221,13 @@
 				)}
 			{/each}
 			<div class="mx-1.5 my-2.5 h-px bg-line" role="separator"></div>
-			{@render navItem('keyboard', 'Keyboard shortcuts', false, openShortcuts, 'out')}
+			{@render navItem(
+				'keyboard',
+				'Keyboard shortcuts',
+				false,
+				openShortcuts,
+				'out',
+			)}
 			<div class="flex-1"></div>
 			<div class="flex items-center gap-2.5 rounded-[10px] bg-hover p-2.5">
 				<button
@@ -186,19 +238,34 @@
 				>
 					<Mascot mood={dog.mood} size={34} playful />
 				</button>
-				<span class="text-label leading-snug text-fg-muted" aria-live="polite">{dog.line}</span>
+				<span class="text-label leading-snug text-fg-muted" aria-live="polite"
+					>{dog.line}</span
+				>
 			</div>
 		</nav>
 
-		<section class="flex h-full min-w-0 flex-[999_1_27.5rem] flex-col" aria-labelledby="settings-pane-title">
-			<header class="flex shrink-0 items-start gap-3 border-b border-line px-6 pt-5 pb-4">
+		<section
+			class="flex h-full min-w-0 flex-[999_1_27.5rem] flex-col"
+			aria-labelledby="settings-pane-title"
+		>
+			<header
+				class="flex shrink-0 items-start gap-3 border-b border-line px-6 pt-5 pb-4"
+			>
 				<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-					<h3 id="settings-pane-title" class="m-0 text-title leading-tight font-semibold tracking-[-0.015em]">
+					<h3
+						id="settings-pane-title"
+						class="m-0 text-title leading-tight font-semibold tracking-[-0.015em]"
+					>
 						{current.label}
 					</h3>
 					<p class="m-0 text-fg-muted">{current.description}</p>
 				</div>
-				<IconButton label="Close settings" variant="quiet" size="sm" onclick={close}>
+				<IconButton
+					label="Close settings"
+					variant="quiet"
+					size="sm"
+					onclick={close}
+				>
 					<Icon name="close" />
 				</IconButton>
 			</header>

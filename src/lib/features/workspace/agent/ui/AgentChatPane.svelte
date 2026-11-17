@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import { errorMessage } from '#core/ipc'
-	import { Alert, Button, Icon, IconButton, Modal, Resizable, Select } from '#core/ui'
+	import {
+		Alert,
+		Button,
+		Icon,
+		IconButton,
+		isNapTime,
+		Modal,
+		Resizable,
+		Select,
+	} from '#core/ui'
 	import { cn } from '#core/util'
 	import { isMacPlatform, labelForKey } from '#features/shortcuts'
 	import { showToast } from '#features/toast'
@@ -32,9 +41,9 @@
 	import { aiSettings } from '../settings.svelte'
 	import type { AgentFixRequest, AgentMessage } from '../types'
 	import AgentChatNotice from './AgentChatNotice.svelte'
-	import AgentComposer from './AgentComposer.svelte'
 	import AgentChatThread from './AgentChatThread.svelte'
 	import AgentChatWelcome from './AgentChatWelcome.svelte'
+	import AgentComposer from './AgentComposer.svelte'
 
 	interface Props {
 		tabId: string
@@ -204,14 +213,16 @@
 	const tokensLine = $derived.by(() => {
 		const t = agentChat.lastTokens
 		if (!t || (t.input === 0 && t.output === 0)) return ''
-		const cached = t.cachedInput > 0 ? `, ${formatTokens(t.cachedInput)} cached` : ''
+		const cached =
+			t.cachedInput > 0 ? `, ${formatTokens(t.cachedInput)} cached` : ''
 		return `${formatTokens(t.input)} in · ${formatTokens(t.output)} out${cached}`
 	})
 	const connectionLine = $derived(
 		database ? `${connectionName} / ${database}` : connectionName,
 	)
 	const chatTitle = $derived(
-		agentChat.chats.find((c) => String(c.id) === String(agentChat.chatId))?.title || 'New chat',
+		agentChat.chats.find((c) => String(c.id) === String(agentChat.chatId))
+			?.title || 'New chat',
 	)
 
 	function snapProvider(
@@ -354,7 +365,8 @@
 	function deleteChat() {
 		const id = agentChat.chatId
 		if (sending || !id) return
-		const title = agentChat.chats.find((c) => String(c.id) === String(id))?.title ?? ''
+		const title =
+			agentChat.chats.find((c) => String(c.id) === String(id))?.title ?? ''
 		pendingDelete = { id: String(id), title }
 	}
 
@@ -366,7 +378,10 @@
 		agentChat.removeChat(target.id, (message) =>
 			showToast('danger', `Could not delete chat: ${message}`),
 		)
-		showToast('success', target.title ? `Deleted “${target.title}”.` : 'Chat deleted.')
+		showToast(
+			'success',
+			target.title ? `Deleted “${target.title}”.` : 'Chat deleted.',
+		)
 	}
 
 	function scrollToEnd() {
@@ -566,8 +581,7 @@
 	}
 
 	onMount(() => {
-		const hour = new Date().getHours()
-		if (hour >= 20 || hour < 6) loaf = true
+		loaf = isNapTime()
 		void (async () => {
 			try {
 				agentChat.resetForConnection(connectionId)
@@ -624,7 +638,12 @@
 			<Icon name="plus" />
 		</IconButton>
 		{#if agentChat.chatId}
-			<IconButton label="Delete chat" variant="quiet" size="sm" onclick={deleteChat}>
+			<IconButton
+				label="Delete chat"
+				variant="quiet"
+				size="sm"
+				onclick={deleteChat}
+			>
 				<Icon name="trash" />
 			</IconButton>
 		{/if}
@@ -667,7 +686,12 @@
 					onaction={openAiSettings}
 				/>
 			{:else if threadEmpty}
-				<AgentChatWelcome {sendChord} sleepy={loaf} where={connectionLine} onpick={useStarter} />
+				<AgentChatWelcome
+					{sendChord}
+					sleepy={loaf}
+					where={connectionLine}
+					onpick={useStarter}
+				/>
 			{:else}
 				<AgentChatThread
 					messages={agentChat.messages}
@@ -694,10 +718,7 @@
 	{/if}
 
 	{#if canContinue}
-		<div
-			class="flex shrink-0 items-center gap-2 px-3 pb-2"
-			aria-live="polite"
-		>
+		<div class="flex shrink-0 items-center gap-2 px-3 pb-2" aria-live="polite">
 			<p class="m-0 min-w-0 flex-1 text-caption text-fg-secondary">
 				Stopped after {agentChat.exhausted?.turns} steps without an answer.
 			</p>
@@ -753,13 +774,6 @@
 	</AgentComposer>
 </aside>
 
-<style>
-	.agent-thread {
-		scrollbar-width: thin;
-		scrollbar-color: var(--line-2) transparent;
-	}
-</style>
-
 <Modal
 	open={!!pendingDelete}
 	onclose={() => (pendingDelete = null)}
@@ -776,3 +790,10 @@
 		<Button variant="danger" onclick={confirmDeleteChat}>Delete chat</Button>
 	{/snippet}
 </Modal>
+
+<style>
+	.agent-thread {
+		scrollbar-width: thin;
+		scrollbar-color: var(--line-2) transparent;
+	}
+</style>
