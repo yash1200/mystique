@@ -399,14 +399,14 @@
 <div class="gt-scroll min-h-0 flex-1" data-grid-scroll bind:this={scrollEl}>
 	<div class="gt-canvas" style="width: {canvasW}px">
 		<table
-			class="gt-table border-collapse bg-raised text-left"
+			class="gt-table border-collapse bg-side text-left"
 			data-grid-head
 			style="width: {canvasW}px"
 		>
 			<thead class="sticky top-0 z-10">
 				<tr>
 					<th
-						class="gt-idx sticky left-0 z-20 border-b border-r border-line bg-raised px-2 py-1.5 text-caption font-semibold text-fg-muted"
+						class="gt-idx sticky left-0 z-20 border-b border-r border-line bg-side px-2 py-1.5 text-caption font-semibold text-fg-muted"
 						style="width: {indexW}px"
 					>
 						#
@@ -420,7 +420,7 @@
 						<th
 							class={cn(
 								'border-b border-line px-2.5 py-1.5 text-caption font-semibold whitespace-nowrap text-fg-secondary',
-								part.left != null ? 'sticky z-20 bg-raised' : 'relative',
+								part.left != null ? 'sticky z-20 bg-side' : 'relative',
 							)}
 							style="width: {part.width}px;{part.left != null ? ` left: ${part.left}px;` : ''}"
 							title={col.type}
@@ -442,10 +442,10 @@
 									<button
 										type="button"
 										class={cn(
-											'inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent p-0 leading-none transition-colors',
+											'inline-grid size-5 shrink-0 place-items-center rounded-sm border-none bg-transparent p-0 leading-none transition-colors duration-150 ease-standard',
 											active
 												? 'text-accent-text hover:bg-accent-soft'
-												: 'text-fg-muted/70 hover:border-line hover:bg-hover hover:text-fg-secondary',
+												: 'text-fg-muted hover:bg-hover hover:text-fg',
 										)}
 										title={sortLabel(col.name)}
 										aria-label={sortLabel(col.name)}
@@ -658,7 +658,7 @@
 											{@const ref = col.ref}
 											<button
 												type="button"
-												class="inline-grid size-5 shrink-0 place-items-center rounded-sm border border-transparent bg-transparent p-0 leading-none text-fg-muted transition-colors hover:border-accent/30 hover:bg-accent-soft hover:text-accent-text"
+												class="inline-grid size-5 shrink-0 place-items-center rounded-sm border-none bg-transparent p-0 leading-none text-fg-muted transition-colors duration-150 ease-standard hover:bg-accent-soft hover:text-accent-text"
 												title={`Open ${ref.schema ? `${ref.schema}.` : ''}${ref.table}.${ref.column}`}
 												aria-label={`Open referenced ${ref.table} row`}
 												onclick={(e) => {

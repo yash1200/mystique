@@ -294,6 +294,7 @@
 						class={cn(
 							'group/close mr-1 flex size-6 shrink-0 self-center items-center justify-center rounded-sm border-none bg-transparent text-fg-muted',
 							'transition-[color,background-color,opacity] duration-150 ease-standard hover:bg-pressed hover:text-fg',
+							dirty && 'text-warning',
 							// Clean inactive tabs: show close only when the tab row is hovered
 							!dirty && !active && 'opacity-0 group-hover/tab:opacity-100',
 						)}
@@ -306,10 +307,10 @@
 							onclose(tab.id)
 						}}
 					>
-						<!-- Dirty: a dot (not amber: amber means production); hover reveals close -->
+						<!-- Dirty: an amber dot, like the grid's unsaved changes; hover reveals close -->
 						{#if dirty}
 							<span
-								class="size-2 rounded-full bg-fg-secondary group-hover/close:hidden"
+								class="size-2 rounded-full bg-warning group-hover/close:hidden"
 								aria-hidden="true"
 							></span>
 							<Icon
@@ -357,7 +358,7 @@
 					<span class="min-w-0 truncate leading-normal">{tabLabel(tab)}</span>
 				</div>
 				{#if tab.dirty}
-					<span class="mr-2.5 size-2 shrink-0 self-center rounded-full bg-fg-secondary"></span>
+					<span class="mr-2.5 size-2 shrink-0 self-center rounded-full bg-warning"></span>
 				{:else}
 					<Icon
 						name="close"

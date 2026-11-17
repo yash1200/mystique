@@ -125,14 +125,14 @@
 			id="{listId}-{target}"
 			role="listbox"
 			aria-label={target === 'code' && completions.length > 0 ? 'Columns' : 'Values'}
-			class="absolute top-full left-0 z-30 mt-1 max-h-48 max-w-full min-w-36 overflow-auto rounded-md border border-line bg-raised py-1 shadow-sm"
+			class="absolute top-full left-0 z-30 mt-1 max-h-48 max-w-full min-w-36 overflow-auto rounded-lg border border-line bg-raised p-1 shadow-md"
 		>
 			{#each items as item, i (item)}
 				<li role="option" aria-selected={i === active}>
 					<button
 						type="button"
 						tabindex="-1"
-						class="block w-full truncate px-2 py-1 text-left font-mono text-label text-fg hover:bg-hover {i ===
+						class="block w-full truncate rounded-md border-none bg-transparent px-2 py-1 text-left font-mono text-label text-fg hover:bg-hover {i ===
 						active
 							? 'bg-hover'
 							: ''}"
@@ -148,7 +148,7 @@
 {/snippet}
 
 <!-- Filters: fixed single-row height so UI ↔ code does not shift layout -->
-<div class="shrink-0 border-b border-line bg-raised px-2.5 py-2">
+<div class="shrink-0 border-b border-line bg-side px-2.5 py-2">
 	<div class="flex w-full min-w-0 items-center gap-1.5">
 		<!-- Mode switch (funnel = UI, code = expression) -->
 		<IconButton
