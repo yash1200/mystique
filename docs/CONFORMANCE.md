@@ -46,9 +46,9 @@ fails the test with the whole report when any check failed.
 | Engine | Runs where | Server from |
 |---|---|---|
 | SQLite | Ordinary `cargo test`, on every push (`rust` job) and in `live` | A temp file; nothing to set up |
-| Postgres 16 | `live` job, or locally with `--ignored` | `MYSTIQUE_PG_{HOST,PORT,USER,PASSWORD,DATABASE}`. Defaults: `127.0.0.1:5432`, user `$USER`, no password, database `postgres`. |
-| MySQL 8.4 and MariaDB 10.11 | `live` job (one suite, run twice), or locally with `--ignored` | `MYSTIQUE_MYSQL_{HOST,PORT,USER,PASSWORD,DATABASE}`. Defaults: `127.0.0.1:3306`, `admin` / `123`, database `mystique`, which must already exist. An empty `MYSTIQUE_MYSQL_PASSWORD` means no password. |
-| MongoDB 7 | `live` job, or locally with `--ignored` | `MYSTIQUE_MONGO_URI`. Default: `mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin`. |
+| Postgres 18 | `live` job, or locally with `--ignored` | `MYSTIQUE_PG_{HOST,PORT,USER,PASSWORD,DATABASE}`. Defaults: `127.0.0.1:5432`, user `$USER`, no password, database `postgres`. |
+| MySQL 9.7 and MariaDB 12 | `live` job (one suite, run twice), or locally with `--ignored` | `MYSTIQUE_MYSQL_{HOST,PORT,USER,PASSWORD,DATABASE}`. Defaults: `127.0.0.1:3306`, `admin` / `123`, database `mystique`, which must already exist. An empty `MYSTIQUE_MYSQL_PASSWORD` means no password. |
+| MongoDB 9 | `live` job, or locally with `--ignored` | `MYSTIQUE_MONGO_URI`. Default: `mongodb://admin:123@127.0.0.1:27017/mystique?authSource=admin`. |
 
 ```sh
 cargo test -p mystique-plugin-sqlite   --test conformance -- --nocapture
