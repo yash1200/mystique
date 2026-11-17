@@ -19,8 +19,7 @@
  *
  * Run with `pnpm check:boundaries` (also part of `pnpm check`).
  */
-import { readFileSync, existsSync, statSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -41,11 +40,16 @@ const SHELL = 'workspace/shell'
 /** The aggregate `#features/workspace` re-exports the shell for routes. */
 const AGGREGATE = 'workspace'
 
+/** `path.relative` with `/` separators, so the zone rules read the same on Windows. */
+function relPosix(from, to) {
+	return path.relative(from, to).split(path.sep).join('/')
+}
+
 /** Which zone a file belongs to. */
 function zoneOf(file) {
-	const rel = path.relative(ROOT, file)
+	const rel = relPosix(ROOT, file)
 	if (rel.startsWith('src/routes/')) return { kind: 'routes', id: 'routes' }
-	const lib = path.relative(LIB, file)
+	const lib = relPosix(LIB, file)
 	if (lib.startsWith('..')) return null
 	if (lib.startsWith('core/')) return { kind: 'core', id: 'core' }
 	if (lib.startsWith('engines/')) return { kind: 'engines', id: 'engines' }
@@ -142,12 +146,10 @@ function importsOf(src) {
 
 const RANK = { core: 0, engines: 1, app: 2, feature: 3, routes: 4 }
 
-const files = execSync(
-	`find ${ROOT}/src -type f \\( -name '*.ts' -o -name '*.svelte' \\)`,
-	{ encoding: 'utf8' },
-)
-	.trim()
-	.split('\n')
+// Node's own walk, not `find`: Windows has a different `find`.
+const files = readdirSync(path.join(ROOT, 'src'), { recursive: true, withFileTypes: true })
+	.filter((e) => e.isFile() && /\.(ts|svelte)$/.test(e.name))
+	.map((e) => path.join(e.parentPath, e.name))
 
 const violations = []
 /** Runtime import graph: file → set of files. */
@@ -163,7 +165,7 @@ for (const file of files) {
 	for (const { spec, typeOnly } of importsOf(src)) {
 		if (inGraph && !typeOnly) {
 			const dest = resolveSpec(file, spec)
-			const key = `${path.relative(ROOT, file)}\0${dest && path.relative(ROOT, dest)}`
+			const key = `${relPosix(ROOT, file)}\0${dest && relPosix(ROOT, dest)}`
 			if (dest && allowed.has(key)) usedAllow.add(key)
 			else if (dest) graph.get(file).add(dest)
 		}
