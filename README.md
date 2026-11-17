@@ -1,54 +1,107 @@
-# Mystique
+<p align="center">
+  <img src="static/brand/mystique-mark.svg" width="72" height="72" alt="Mystique logo" />
+</p>
 
-<img src="static/brand/mystique-mark.svg" width="48" height="48" alt="" />
+<h1 align="center">Mystique</h1>
 
-A calm, fast desktop client for your databases. Connections, queries and
-history stay on your machine.
+<p align="center">
+  A calm, fast desktop client for PostgreSQL, MySQL, SQLite and MongoDB.<br />
+</p>
 
-## Highlights
+<p align="center">
+  <a href="https://github.com/yash1200/mystique/releases/latest"><b>Download</b></a> ·
+  <a href="#features">Features</a> ·
+  <a href="#supported-databases">Supported databases</a> ·
+  <a href="#install">Install</a>
+</p>
 
-- **Connections, organised.** Save profiles with a colour, an environment
-  (production gets a clear warning), favourites and read-only mode. Connect
-  over SSL or an SSH tunnel, or paste a connection URL.
-- **A workspace per connection.** Keep several databases open side by side and
-  switch between them from the session rail.
-- **Browse and edit data.** Filter, sort and page through rows, edit cells
-  inline, and review the exact SQL before you save.
-- **Structure at a glance.** Columns, keys, indexes, foreign keys, triggers and
-  constraints for any table, with a schema compare.
-- **ER diagrams.** See a table and its relations on a canvas, auto-arrange it,
-  export a PNG or copy it as DBML.
-- **Query editor.** Run the statement at the cursor or the whole script, explain
-  plans, keep history and saved queries per connection.
-- **Agent in the query tab (optional).** Ask it to draft or fix a query against
-  the open connection. The same read-only tools are available to Claude Code,
-  Codex, Cursor and other MCP clients on your machine.
-- **Server metrics.** Live sessions and slow queries where the engine supports
-  them.
-- **Import and export** rows as CSV, JSON or JSON Lines (export also writes
-  SQL inserts).
-- **Quick open (⌘K / Ctrl+K)** for connections, tables, saved queries and
-  commands.
+![Creating a PostgreSQL connection in Mystique, with saved connections grouped by environment in the sidebar](docs/screenshots/home.png)
 
-## Look and feel
+## Features
 
-Quiet surfaces, loud data: the interface stays out of the way so connection
-colours, environment badges and results carry the signal. Pick a dark theme
-(Night, Abyss) or a light one (Day, Linen), or follow the system. The full
-design language is in [docs/DESIGN_LANGUAGE.md](./docs/DESIGN_LANGUAGE.md).
+#### Connections
+
+- Save connections with a name, colour and environment. Production connections are marked in amber wherever they appear.
+- Connect over SSL or an SSH tunnel, or paste a connection URL to fill in the form.
+- Keep several connections open at once and switch between them from the session rail.
+
+#### Data grid
+
+- Filter, sort and page through the rows of any table or collection.
+- Edit cells inline; add, duplicate and delete rows with undo and redo. Review the exact SQL before you save.
+- Copy cells, rows or a selection as CSV, TSV, JSON, Markdown, or as `INSERT`, `UPDATE` and `WHERE` statements.
+- Import rows from CSV, JSON or JSON Lines. Export to the same formats or to SQL inserts.
+
+#### Query editor
+
+- Run the statement at the cursor or the whole script, and cancel a query that runs too long.
+- Format queries, fill in parameters before a run, and read explain plans.
+- History and saved queries for every connection.
+
+#### Schema
+
+- Columns, keys, indexes, foreign keys, triggers and constraints for any table, plus a schema compare.
+- ER diagrams with auto-layout. Download one as a PNG or copy it as DBML.
+
+#### Agent
+
+- Ask the agent in a query tab to draft or fix a query against the open connection. Use your own Anthropic, OpenAI, Gemini or OpenRouter key, a local model through Ollama, or an agent you already have, such as Claude Code, Codex or Gemini CLI.
+- Claude Code, Codex, Cursor and other MCP clients on your machine can use Mystique's database tools too. Each connection has an access level (read, write or full), and risky writes wait for your approval.
+
+#### Everyday
+
+- Live sessions and slow queries in server metrics.
+- Quick open (⌘K / Ctrl+K) for connections, tables, saved queries and commands.
+- Four themes, two dark (Night, Abyss) and two light (Day, Linen), or follow the system.
 
 ## Supported databases
 
-| Database                         | Language | Connect     | ER diagram     | Metrics |
-| -------------------------------- | -------- | ----------- | -------------- | ------- |
-| PostgreSQL, CockroachDB          | SQL      | Host / port | Yes            | Yes     |
-| MySQL, MariaDB, TiDB             | SQL      | Host / port | Yes            | Yes     |
-| SQLite                           | SQL      | File        | Yes            | Yes     |
-| MongoDB, DocumentDB              | MQL      | URI         | Collection map | Yes     |
+| Database          | Query editor | Data grid | ER diagram | Server metrics |
+| ----------------- | :----------: | :-------: | :--------: | :------------: |
+| PostgreSQL        |      ✓       |     ✓     |     ✓      |       ✓        |
+| CockroachDB       |      ✓       |     ✓     |     ✓      |       ✓        |
+| MySQL             |      ✓       |     ✓     |     ✓      |       ✓        |
+| MariaDB           |      ✓       |     ✓     |     ✓      |       ✓        |
+| TiDB              |      ✓       |     ✓     |     ✓      |       ✓        |
+| SQLite            |      ✓       |     ✓     |     ✓      |       ✓        |
+| MongoDB           |      ✓       |     ✓     |     ✓      |       ✓        |
+| Amazon DocumentDB |      ✓       |     ✓     |     ✓      |       ✓        |
+
+## Install
+
+Download the file for your system from the [latest release](https://github.com/yash1200/mystique/releases/latest).
+
+| System  | Architectures        | File                            |
+| ------- | -------------------- | ------------------------------- |
+| macOS   | Apple silicon, Intel | `.dmg` (`aarch64` or `x64`)     |
+| Windows | x64, ARM64           | `-setup.exe` (`x64` or `arm64`) |
+| Linux   | x64, ARM64           | `.deb`, `.rpm` or `.AppImage`   |
+
+Builds are not signed by Apple or Microsoft yet, so the first launch needs one extra step.
+
+#### MacOS
+
+Open the `.dmg` and drag Mystique to Applications. If macOS says it can't check the app, open **System Settings › Privacy & Security** and click **Open Anyway**.
+
+#### Windows
+
+Run the installer. If SmartScreen says "Windows protected your PC", click **More info › Run anyway**.
+
+#### Linux
+
+Download the `deb` or `rpm` or `AppImage` and run the following commands according to the file:
+
+```bash
+sudo apt install ./Mystique_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./Mystique-*.x86_64.rpm     # Fedora, RHEL
+chmod +x Mystique_*.AppImage && ./Mystique_*.AppImage   # anywhere else
+```
+
+On ARM64 the files end in `arm64.deb`, `aarch64.rpm` and `aarch64.AppImage`.
 
 ## Run it locally
 
-You need Node 18+, pnpm, Rust and the usual Tauri prerequisites for your OS.
+You need Node 22+, pnpm, Rust and the usual Tauri prerequisites for your OS.
 
 ```bash
 pnpm install
