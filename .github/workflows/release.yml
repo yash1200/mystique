@@ -20,13 +20,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version tag to build (e.g. v1.0.3)
+        description: Version tag to build (v1.0.3, or 1.0.3)
         required: true
 
 permissions:
   contents: write
 
 env:
+  # Tags are v-prefixed (scripts/release.mjs); accept the bare version too.
+  TAG: ${{ startsWith(inputs.tag, 'v') && inputs.tag || format('v{0}', inputs.tag) }}
   CARGO_TERM_COLOR: always
   # rust-toolchain.toml lists the macOS targets for local builds; each job
   # installs only its own target.
@@ -50,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ env.TAG }}
 
       - if: runner.os == 'Linux'
         run: |
@@ -111,7 +113,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/download-artifact@v8
         with:
