@@ -22,8 +22,8 @@
 	} from '#engines'
 	import { CatalogIcon } from '#features/workspace/catalog'
 	import CreateDatabaseForm from './CreateDatabaseForm.svelte'
-	import TableNameDialog from './TableNameDialog.svelte'
 	import ObjectTree from './ObjectTree.svelte'
+	import TableNameDialog from './TableNameDialog.svelte'
 	export type TableExplorerAction =
 		| 'open'
 		| 'erd'
@@ -414,9 +414,15 @@
 		// Plugin config is the only feature gate. Do not grey out collection
 		// actions — read-only is enforced when the plugin runs the op.
 		const kindNoun = (t.kind || noun).toLowerCase()
-		const items: ContextMenuItem[] = [{ id: 'open', label: 'Open', icon: 'table' }]
+		const items: ContextMenuItem[] = [
+			{ id: 'open', label: 'Open', icon: 'table' },
+		]
 		if (admin.viewStructure) {
-			items.push({ id: 'structure', label: 'View structure', icon: 'structure' })
+			items.push({
+				id: 'structure',
+				label: 'View structure',
+				icon: 'structure',
+			})
 		}
 		if (showModel && spec.primary) {
 			items.push({
@@ -431,14 +437,25 @@
 			icon: 'download',
 			separatorBefore: true,
 		})
-		if (!isView) items.push({ id: 'import', label: 'Import data…', icon: 'upload' })
+		if (!isView)
+			items.push({ id: 'import', label: 'Import data…', icon: 'upload' })
 		const renames = admin.rename && mutable
 		const duplicates = admin.duplicate && !isView && mutable
 		if (renames) {
-			items.push({ id: 'rename', label: 'Rename…', icon: 'pencil', separatorBefore: true })
+			items.push({
+				id: 'rename',
+				label: 'Rename…',
+				icon: 'pencil',
+				separatorBefore: true,
+			})
 		}
 		if (duplicates) {
-			items.push({ id: 'duplicate', label: 'Duplicate…', icon: 'copy', separatorBefore: !renames })
+			items.push({
+				id: 'duplicate',
+				label: 'Duplicate…',
+				icon: 'copy',
+				separatorBefore: !renames,
+			})
 		}
 		if (admin.createStatement) {
 			items.push({
@@ -523,11 +540,10 @@
 		if (!prompt || !ontableaction) return
 		ontableaction(prompt.action, prompt.table, name)
 	}
-
 </script>
 
 <aside
-	class="flex h-full w-full min-w-0 flex-col bg-surface"
+	class="flex h-full w-full min-w-0 flex-col bg-side"
 	aria-label="Database objects"
 	aria-busy={refreshing || refreshingTables || undefined}
 >
@@ -540,7 +556,9 @@
 					value={selectedDatabase}
 					options={dbOptions}
 					placeholder="Select database…"
-					menuLabel={connectionName ? `Databases on ${connectionName}` : 'Databases'}
+					menuLabel={connectionName
+						? `Databases on ${connectionName}`
+						: 'Databases'}
 					mono
 					inputSize="sm"
 					disabled={refreshing || dbOptions.length === 0}
@@ -599,9 +617,7 @@
 
 	<div class="flex shrink-0 items-center gap-1 px-2.5 py-0.5">
 		<div class="flex min-w-0 flex-1 items-center gap-1.5">
-			<h2
-				class="m-0 min-w-0 truncate text-label font-semibold tracking-wider text-fg-muted uppercase"
-			>
+			<h2 class="label-caps m-0 min-w-0 truncate">
 				{presentation.listTitle}
 			</h2>
 			<span

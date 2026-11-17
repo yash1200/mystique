@@ -1,9 +1,6 @@
 <script lang="ts">
 	import type { DatabaseMeta, ObjectKindSpec, TableMeta } from '#core/contracts'
-	import {
-		EmptyHint,
-		Icon,
-	} from '#core/ui'
+	import { EmptyHint, Icon } from '#core/ui'
 	import { cn } from '#core/util'
 	import {
 		CatalogIcon,
@@ -49,7 +46,6 @@
 		onopen,
 		onmenu,
 	}: Props = $props()
-
 
 	function wellClass(kind: TableMeta['kind'], active: boolean): string {
 		if (active) return 'bg-accent-soft'
@@ -280,7 +276,11 @@
 		</EmptyHint>
 	{:else if totalCount === 0 && groups.length === 0}
 		{#if query.trim()}
-			<EmptyHint icon="search" title="No matches" description="Nothing matches “{query.trim()}”." />
+			<EmptyHint
+				icon="search"
+				title="No matches"
+				description="Nothing matches “{query.trim()}”."
+			/>
 		{:else}
 			<EmptyHint
 				icon="table"
@@ -295,7 +295,7 @@
 				<button
 					type="button"
 					class={cn(
-						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-surface/95 px-1.5 text-left transition-colors duration-150',
+						'sticky top-0 z-10 flex h-control-sm w-full items-center gap-1.5 rounded-md border-none bg-side/95 px-1.5 text-left transition-colors duration-150',
 						'text-fg-secondary hover:bg-hover hover:text-fg',
 						'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
 					)}

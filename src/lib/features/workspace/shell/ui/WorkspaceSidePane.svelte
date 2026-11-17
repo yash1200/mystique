@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { commands } from '#core/commands'
 	import { Icon, IconButton, Resizable } from '#core/ui'
+	import { resolveCapabilities } from '#engines'
 	import {
 		catalogStore,
 		createCatalogGroup,
@@ -15,7 +16,6 @@
 		ObjectExplorer,
 		onTableExplorerAction,
 	} from '#features/workspace/explorer'
-	import { tablePreview } from '#features/workspace/table'
 	import {
 		clearHistorySearch,
 		historyStore,
@@ -30,6 +30,13 @@
 		setHistorySearch,
 	} from '#features/workspace/query'
 	import {
+		liveStatusMark,
+		timedUnlocks,
+		workspaceSession,
+		workspaceStudio,
+	} from '#features/workspace/session'
+	import { tablePreview } from '#features/workspace/table'
+	import {
 		appPrefs,
 		cmd,
 		EXPLORER_PANEL_WIDTH_DEFAULT,
@@ -37,13 +44,6 @@
 		EXPLORER_PANEL_WIDTH_MIN,
 	} from '#lib/app'
 	import { onMount, untrack } from 'svelte'
-	import { resolveCapabilities } from '#engines'
-	import {
-		liveStatusMark,
-		timedUnlocks,
-		workspaceSession,
-		workspaceStudio,
-	} from '#features/workspace/session'
 	import { connectionInfo } from '../connection-info.svelte'
 
 	const sideMode = $derived(workspaceStudio.sideMode)
@@ -117,7 +117,7 @@
 	min={EXPLORER_PANEL_WIDTH_MIN}
 	max={EXPLORER_PANEL_WIDTH_MAX}
 	label="Resize side panel"
-	class="h-full border-r border-line bg-surface"
+	class="h-full border-r border-line bg-side"
 	data-explorer-panel
 	onresize={(n) => appPrefs.setExplorerPanelWidth(n, false)}
 	oncommit={(n) => appPrefs.setExplorerPanelWidth(n, true)}
@@ -139,19 +139,19 @@
 				/>
 			{:else if sideMode === 'history'}
 				{#key activeId}
-				<QueryListPanel
-					mode="history"
-					{savedQueries}
-					history={queryHistory}
-					selectedId={selectedHistoryId}
-					onselect={selectHistory}
-					onrefresh={() => void refreshHistory({ force: true })}
-					onhistorysearch={setHistorySearch}
-					onhistorymore={() => void loadOlderHistory()}
-					historyHasMore={history.hasMore}
-					historyLoadingMore={history.loadingMore}
-					loading={history.loading}
-				/>
+					<QueryListPanel
+						mode="history"
+						{savedQueries}
+						history={queryHistory}
+						selectedId={selectedHistoryId}
+						onselect={selectHistory}
+						onrefresh={() => void refreshHistory({ force: true })}
+						onhistorysearch={setHistorySearch}
+						onhistorymore={() => void loadOlderHistory()}
+						historyHasMore={history.hasMore}
+						historyLoadingMore={history.loadingMore}
+						loading={history.loading}
+					/>
 				{/key}
 			{:else if activeSession && explorerOk}
 				<ObjectExplorer

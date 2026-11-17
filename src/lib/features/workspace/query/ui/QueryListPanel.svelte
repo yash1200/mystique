@@ -9,8 +9,8 @@
 	import { byName } from '#core/util'
 	import { appPrefs, type SavedQueryListSort } from '#lib/app'
 	import type { QueryHistoryEntry } from '../history/history-types'
-	import type { SavedQueryListItem } from '../saved/saved-types'
 	import HistoryQueryList from '../history/HistoryQueryList.svelte'
+	import type { SavedQueryListItem } from '../saved/saved-types'
 	import SavedQueryList, {
 		type SavedQueryMenuAction,
 	} from '../saved/SavedQueryList.svelte'
@@ -47,7 +47,6 @@
 		loading = false,
 	}: Props = $props()
 
-
 	const SORT_OPTIONS: { id: SavedQueryListSort; label: string }[] = [
 		{ id: 'name', label: 'Name' },
 		{ id: 'created', label: 'Created' },
@@ -59,7 +58,6 @@
 	let refreshBusy = $state(false)
 
 	const title = $derived(mode === 'saved-queries' ? 'Saved queries' : 'History')
-
 
 	function compareSaved(
 		a: SavedQueryListItem,
@@ -150,7 +148,7 @@
 	}
 </script>
 
-<aside class="flex h-full w-full min-w-0 flex-col bg-surface" aria-label={title}>
+<aside class="flex h-full w-full min-w-0 flex-col bg-side" aria-label={title}>
 	<header class="shrink-0 border-b border-line">
 		<div class="flex items-center gap-1 px-3 pt-2.5 pb-1.5">
 			<h2 class="m-0 min-w-0 flex-1 truncate text-body font-semibold text-fg">
@@ -202,15 +200,18 @@
 			</div>
 		</div>
 		<div class="px-2 pb-2">
-			<SearchField bind:value={query} id={filterId} placeholder={filterPlaceholder} label={filterLabel} />
+			<SearchField
+				bind:value={query}
+				id={filterId}
+				placeholder={filterPlaceholder}
+				label={filterLabel}
+			/>
 		</div>
 	</header>
 
 	<div class="flex-1 overflow-auto px-1.5 py-2">
 		{#if loading && !query.trim() && (mode === 'saved-queries' ? savedQueries.length === 0 : history.length === 0)}
-			<p class="m-2 text-caption leading-relaxed text-fg-muted">
-				Loading…
-			</p>
+			<p class="m-2 text-caption leading-relaxed text-fg-muted">Loading…</p>
 		{:else if mode === 'saved-queries'}
 			<SavedQueryList
 				items={filteredSaved}
