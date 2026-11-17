@@ -29,7 +29,6 @@ export {
 	testSessionWithPassword,
 } from './password-prompt.svelte'
 export * from './profiles.svelte'
-export { default as BrandMark } from './ui/BrandMark.svelte'
 export { default as ConnectionFactGrid } from './ui/ConnectionFactGrid.svelte'
 export { default as ConnectionTile } from './ui/ConnectionTile.svelte'
 export { default as EngineBadge } from './ui/EngineBadge.svelte'

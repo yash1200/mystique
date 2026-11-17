@@ -6,12 +6,12 @@
 		Draggable,
 		Icon,
 		IconButton,
+		Mascot,
 		type ContextMenuItem,
 	} from '#core/ui'
 	import { cn } from '#core/util'
 	import { engineLabel, normalizeCapabilities } from '#engines'
 	import {
-		BrandMark,
 		colorHex,
 		connectionInitial,
 		copyConnectionUrl as copyProfileUrl,
@@ -60,6 +60,10 @@
 	const sessions = $derived(workspaceSession.sessions)
 	const activeId = $derived(workspaceSession.activeConnectionId)
 	const mode = $derived(workspaceStudio.sideMode)
+	/** The dog pricks its ears while a production connection is in view. */
+	const guarding = $derived(
+		sessions.find((s) => s.profile.id === activeId)?.profile.environment === 'production',
+	)
 
 	const flipMs =
 		typeof window !== 'undefined' &&
@@ -179,26 +183,24 @@
 </script>
 
 <aside
-	class="flex h-full w-12 shrink-0 flex-col items-center border-r border-line bg-surface"
+	class="flex h-full w-12 shrink-0 flex-col items-center border-r border-line bg-side"
 	aria-label="Workspace navigation"
 >
-	<header
-		class="flex h-topbar w-full shrink-0 items-center justify-center border-b border-line"
-	>
+	<header class="flex h-topbar w-full shrink-0 items-center justify-center">
 		<button
 			type="button"
-			class="grid size-9 place-items-center rounded-lg border-none bg-transparent p-0 transition-opacity hover:opacity-85 focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1"
+			class="grid size-control place-items-center rounded-md border-none bg-transparent p-0 transition-colors duration-150 ease-standard hover:bg-hover"
 			title="Back to connections"
 			aria-label="Back to connections"
 			onclick={requestLeaveHome}
 		>
-			<BrandMark size="sm" />
+			<Mascot mood={guarding ? 'alert' : 'idle'} playful />
 		</button>
 	</header>
 
 	<div
 		bind:this={listEl}
-		class="flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden px-1.5 py-2"
+		class="flex w-full flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto px-1.5 py-1"
 	>
 		<Draggable
 			ids={sessionIds}
@@ -211,7 +213,7 @@
 			{#snippet children(drag)}
 				<div
 					class={cn(
-						'flex w-full flex-col items-center gap-1.5',
+						'flex w-full flex-col items-center gap-2',
 						drag.draggingId && 'cursor-grabbing select-none',
 					)}
 					role="listbox"
@@ -219,11 +221,7 @@
 				>
 					{#each sessions as s (s.profile.id)}
 						{@const active = mode === 'explorer' && activeId === s.profile.id}
-						{@const hex = colorHex(s.profile.colorId)}
-						{@const initial = connectionInitial(
-							s.profile.name,
-							String(s.profile.engine),
-						)}
+						{@const initial = connectionInitial(s.profile.name, String(s.profile.engine))}
 						{@const label = `${s.profile.name} · ${engineLabel(s.profile.engine)}`}
 						{@const dragging = drag.draggingId === s.profile.id}
 						{@const edge = drag.dropEdge(s.profile.id)}
@@ -236,7 +234,7 @@
 								dragging && 'pointer-events-none cursor-grabbing opacity-35',
 							)}
 							role="presentation"
-							style="--connection-color: {hex}"
+							style:--connection-color={colorHex(s.profile.colorId)}
 							onpointerdown={(e) => drag.start(e, s.profile.id)}
 						>
 							{#if edge === 'before' || edge === 'after'}
@@ -248,18 +246,21 @@
 									aria-hidden="true"
 								></span>
 							{/if}
+							<!-- Flush with the rail edge (8px left of the tile), like the side pane footer's stripe. -->
+							<span
+								class={cn(
+									'absolute top-1/2 -left-2 h-4 w-stripe -translate-y-1/2 rounded-r-full bg-conn transition-[opacity,transform] duration-180 ease-standard',
+									active ? 'opacity-100' : 'scale-y-0 opacity-0',
+								)}
+								aria-hidden="true"
+							></span>
 							<button
 								type="button"
 								draggable="false"
 								class={cn(
-									'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
-									'text-title leading-none font-semibold transition-[border-color,box-shadow,background-color] duration-150',
-									'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
-									canReorder &&
-										(drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
-									active
-										? 'conn-ring conn-tint border-(--connection-color)'
-										: 'border-line bg-raised hover:border-line-strong hover:bg-hover',
+									'conn-tile size-control rounded-md text-body transition-[box-shadow,transform] duration-150 ease-standard active:scale-[0.92]',
+									active && 'conn-ring',
+									canReorder && (drag.draggingId ? 'cursor-grabbing' : 'cursor-grab'),
 								)}
 								title={canReorder
 									? `${label} · Drag to reorder · Right-click for actions`
@@ -277,119 +278,56 @@
 									menu = { id: s.profile.id, x: e.clientX, y: e.clientY }
 								}}
 							>
-								<span
-									class="absolute inset-x-0 top-0 h-0.5 bg-conn"
-									aria-hidden="true"
-								></span>
-								<span
-									class="select-none"
-									style="color: var(--connection-color)"
-									aria-hidden="true"
-								>
-									{initial}
-								</span>
+								<span class="select-none" aria-hidden="true">{initial}</span>
 							</button>
 						</div>
 					{/each}
 
-					<button
-						type="button"
-						class={cn(
-							'grid size-9 place-items-center rounded-lg border border-dashed border-line',
-							'text-fg-muted transition-colors',
-							'hover:border-accent hover:bg-accent-soft hover:text-accent-text',
-							'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
-						)}
-						title="Open another connection"
-						aria-label="Open another connection"
-						onclick={onopen}
-					>
-						<Icon name="plus" class="size-4" />
-					</button>
+					<IconButton label="Open another connection" variant="quiet" onclick={onopen}>
+						<Icon name="plus" />
+					</IconButton>
 				</div>
 			{/snippet}
 
 			{#snippet preview({ id })}
 				{@const s = sessionById(id)}
 				{#if s}
-					{@const hex = colorHex(s.profile.colorId)}
-					{@const initial = connectionInitial(
-						s.profile.name,
-						String(s.profile.engine),
-					)}
-					<div
-						class={cn(
-							'relative grid size-9 place-items-center overflow-hidden rounded-lg border',
-							'text-title leading-none font-semibold',
-							'border-line bg-raised',
-						)}
-						style="--connection-color: {hex}"
+					<span
+						class="conn-tile size-control rounded-md text-body shadow-md"
+						style:--connection-color={colorHex(s.profile.colorId)}
 					>
-						<span
-							class="absolute inset-x-0 top-0 h-0.5 bg-conn"
-							aria-hidden="true"
-						></span>
-						<span
-							class="select-none"
-							style="color: var(--connection-color)"
-							aria-hidden="true"
-						>
-							{initial}
-						</span>
-					</div>
+						{connectionInitial(s.profile.name, String(s.profile.engine))}
+					</span>
 				{/if}
 			{/snippet}
 		</Draggable>
 
-		<div
-			class="mt-1 flex w-full flex-col items-center gap-1.5 border-t border-line pt-2"
-			role="toolbar"
-			aria-label="Queries"
-		>
-			<button
-				type="button"
-				class={cn(
-					'grid size-9 place-items-center rounded-lg border transition-colors',
-					'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
-					mode === 'saved-queries'
-						? 'border-accent bg-accent-soft text-accent-text'
-						: 'border-line bg-raised text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg',
-				)}
-				title="Saved queries"
-				aria-label="Saved queries"
-				aria-pressed={mode === 'saved-queries'}
+		<span class="h-px w-5 shrink-0 bg-line" aria-hidden="true"></span>
+
+		<div class="flex flex-col items-center gap-1" role="toolbar" aria-label="Queries">
+			<IconButton
+				label="Saved queries"
+				variant="quiet"
+				active={mode === 'saved-queries'}
 				onclick={() => onmode('saved-queries')}
 			>
-				<Icon name="bookmark" class="size-4" />
-			</button>
-
-			<button
-				type="button"
-				class={cn(
-					'grid size-9 place-items-center rounded-lg border transition-colors',
-					'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-1',
-					mode === 'history'
-						? 'border-accent bg-accent-soft text-accent-text'
-						: 'border-line bg-raised text-fg-muted hover:border-line-strong hover:bg-hover hover:text-fg',
-				)}
-				title="Query history"
-				aria-label="Query history"
-				aria-pressed={mode === 'history'}
+				<Icon name="bookmark" />
+			</IconButton>
+			<IconButton
+				label="Query history"
+				variant="quiet"
+				active={mode === 'history'}
 				onclick={() => onmode('history')}
 			>
-				<Icon name="history" class="size-4" />
-			</button>
+				<Icon name="history" />
+			</IconButton>
 		</div>
 	</div>
 
-	<footer
-		class="flex min-h-statusbar w-full shrink-0 flex-col items-center justify-center gap-1 border-t border-line bg-raised py-1.5"
-		title="{sessions.length} session{sessions.length === 1 ? '' : 's'}"
-	>
+	<footer class="flex w-full shrink-0 flex-col items-center gap-1 py-2">
 		<IconButton
 			label="Keyboard shortcuts"
 			variant="quiet"
-			size="sm"
 			active={appShortcutsUi.open}
 			onclick={() => appShortcutsUi.toggle()}
 			aria-expanded={appShortcutsUi.open}
@@ -397,10 +335,7 @@
 		>
 			<Icon name="help" />
 		</IconButton>
-		<SettingsModal buttonSize="sm" buttonVariant="quiet" />
-		<span class="font-mono text-caption tabular-nums text-fg-muted">
-			{sessions.length}
-		</span>
+		<SettingsModal buttonSize="md" buttonVariant="quiet" />
 	</footer>
 </aside>
 

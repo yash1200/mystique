@@ -210,7 +210,7 @@ Never flood the entire UI with the connection hue. Use **accents**:
 | Connection tab (inactive) | 3–4px left stripe or 8px circle in connection color |
 | Connection tab (active) | Stripe + soft background tint `color-mix(in srgb, var(--conn) 12%, var(--raised))` |
 | Workspace tab | 2px top micro-stripe in parent connection color (`bg-conn`); stronger when active |
-| Sessions rail | Color-capped monogram tile (name initial); **PROD** warning pip; right-click for refresh / disconnect |
+| Sessions rail | `conn-tile` monogram (name initial); the active one gets `conn-ring` and an edge stripe; the dog pricks its ears on PROD; right-click for refresh / disconnect |
 | Workspace shell | `--connection-color` scoped on the workspace root; `data-env="production"` when applicable |
 | Sidebar tree root | Small color chip beside connection name |
 | Query running indicator | Spinner uses connection color |
