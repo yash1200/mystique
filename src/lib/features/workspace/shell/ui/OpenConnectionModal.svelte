@@ -153,16 +153,16 @@
 								<span class="flex min-w-0 items-center gap-2">
 									<span class="min-w-0 truncate font-medium">{conn.name}</span>
 									{#if conn.environment === 'production'}
-										<Pill tone="warning" uppercase>Prod</Pill>
+										<Pill tone="warning" uppercase compact>Prod</Pill>
 									{/if}
 									{#if conn.readOnly}
-										<Pill tone="info" uppercase>RO</Pill>
+										<Pill tone="info" uppercase compact>RO</Pill>
 									{/if}
 									{#if conn.favorite}
 										<span class="flex text-warning [&_svg]:size-3"><Icon name="star-filled" /></span>
 									{/if}
 								</span>
-								<span class="truncate font-mono text-[0.71875rem] text-fg-muted">
+								<span class="truncate font-mono text-caption text-fg-muted">
 									{engineLabel(conn.engine)} · {connectionTarget(conn)}
 								</span>
 							</span>
