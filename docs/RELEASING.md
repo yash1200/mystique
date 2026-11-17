@@ -118,14 +118,20 @@ version with it by hand.
 
 ## CI
 
-`.github/workflows/release-macos.yml` is run by hand for an existing tag
-(Actions › release-macos › Run workflow). It builds Apple silicon and
-attaches the files, `latest.json` included, to a draft release. A tag push
-does not start it, because `pnpm release` pushes the tag itself. Repository
-secrets: `APPLE_CERTIFICATE` (base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`,
-`APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, and
-the updater key as `TAURI_SIGNING_PRIVATE_KEY` (the key file's text) and
+`.github/workflows/release.yml` is run by hand for an existing tag
+(Actions › release › Run workflow). It builds macOS (Apple silicon, Intel),
+Windows (x64, ARM64 NSIS installers) and Linux (x64, ARM64: `.deb`, `.rpm`,
+`.AppImage`), all ad-hoc / unsigned. The files go to the tag's release: a
+draft if there is none, or added to the one `pnpm release` published (same
+names are replaced). `latest.json` is then rebuilt from every update
+signature, keeping platforms already in it. A tag push does not start it,
+because `pnpm release` pushes the tag itself. Repository secrets: the updater
+key as `TAURI_SIGNING_PRIVATE_KEY` (the key file's text) and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+For a Developer ID build later, pass `APPLE_CERTIFICATE` (base64 `.p12`),
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD` and `APPLE_TEAM_ID` to the build step on macOS.
 
 ```bash
 base64 -i DeveloperID.p12 | pbcopy   # paste as APPLE_CERTIFICATE
