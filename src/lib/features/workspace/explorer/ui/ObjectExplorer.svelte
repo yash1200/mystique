@@ -12,7 +12,8 @@
 		Select,
 		type ContextMenuItem,
 	} from '#core/ui'
-	import { cn } from '#core/util'
+	import { cn, copyTextToClipboard } from '#core/util'
+	import { showToast } from '#features/toast'
 	import {
 		adminOpsApply,
 		defaultCapabilitiesForEngine,
@@ -399,15 +400,18 @@
 	const admin = $derived(caps.tableAdmin)
 	const showModel = $derived(caps.supportsModelView || caps.supportsErDiagram)
 
+	/** Same label and value as the tab menu's copy. */
+	const COPY_NAME: ContextMenuItem = { id: 'copy-name', label: 'Copy entity name', icon: 'copy' }
+
 	const tableMenuItems = $derived.by((): ContextMenuItem[] => {
 		const t = tableMenu?.table
 		if (!t) return []
 		const spec = objectKindSpec(caps, t.kind)
 		if (!spec.browsable) {
-			// Functions, types, triggers…: the definition is all the explorer offers.
+			// Functions, types, triggers…: the definition and the name are all the explorer offers.
 			return admin.createStatement
-				? [{ id: 'create', label: 'View definition' }]
-				: []
+				? [{ id: 'create', label: 'View definition' }, COPY_NAME]
+				: [COPY_NAME]
 		}
 		const isView = !spec.editable
 		const mutable = adminOpsApply(t.kind)
@@ -431,6 +435,7 @@
 				icon: 'schema',
 			})
 		}
+		items.push(COPY_NAME)
 		items.push({
 			id: 'export',
 			label: 'Export data…',
@@ -494,6 +499,13 @@
 	function onMenuPick(id: string) {
 		const ctx = tableMenu
 		tableMenu = null
+		if (ctx && id === 'copy-name') {
+			void copyTextToClipboard(ctx.table.name).then((res) => {
+				if (res.ok) showToast('success', 'Name copied')
+				else if (!res.cancelled) showToast('danger', res.error || 'Copy failed')
+			})
+			return
+		}
 		if (!ctx || !ontableaction) return
 		const { table } = ctx
 		if (id === 'open') {
