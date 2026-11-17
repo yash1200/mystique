@@ -1,15 +1,16 @@
 # Desktop builds for an existing version tag, run by hand
-# (Actions › release › Run workflow). Releases are normally published from a
-# Mac with `pnpm release` (docs/RELEASING.md), which pushes the tag, so a tag
-# push does not start this.
+# (Actions › release › Run workflow) after `pnpm release <version>`
+# (docs/RELEASING.md) has bumped, tagged and published the release. A tag push
+# does not start this.
 #
 # Builds macOS (Apple silicon, Intel), Windows (x64, ARM64) and Linux (x64,
 # ARM64: .deb, .rpm, .AppImage), all ad-hoc / unsigned: macOS uses
 # signingIdentity "-" from tauri.conf.json. The files go to the tag's release
-# (a draft is created if there is none; an existing one, e.g. from
-# `pnpm release`, gets the files added and same-named ones replaced). Then
+# (a draft is created if there is none; same-named files are replaced). Then
 # latest.json is rebuilt once from every updater signature, so parallel jobs
-# never race on it and platforms already in it are kept.
+# never race on it and platforms already in it are kept. Last, the release is
+# published and marked latest: installed apps only look at the latest
+# release, so it becomes latest only once latest.json is there.
 #
 # Repository secrets (updater key only):
 #   TAURI_SIGNING_PRIVATE_KEY           text of ~/.tauri/mystique.key
@@ -85,7 +86,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      # Same names as scripts/release.mjs, so a CI build replaces a local one.
+      # One archive name per platform; publish maps the names to latest.json keys.
       - name: Collect
         shell: bash
         run: |
@@ -153,3 +154,6 @@ jobs:
           done
           cat latest.json
           gh release upload "$TAG" latest.json --clobber
+
+      - name: Mark latest
+        run: gh release edit "$TAG" --draft=false --latest

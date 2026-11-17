@@ -57,43 +57,36 @@ same identity, so "Always Allow" sticks. Other Macs won't trust it.
 
 ## Publishing a release (auto-update)
 
-Releases are Apple silicon only for now. Installed apps check
+Installed apps check
 `https://github.com/yash1200/mystique/releases/latest/download/latest.json`
 at launch (and from **Mystique › Check for Updates…** or **Settings › About**).
 If it names a newer version, a card in the bottom-right offers it. **Update**
 downloads in the background, installs, then asks to restart.
 
-One command does it all (`scripts/ship.sh`):
+Two steps:
 
 ```bash
-pnpm ship 1.0.4                    # notes drafted from the commits since the last tag
-pnpm ship 1.0.4 --edit             # …opened in $EDITOR first
-pnpm ship 1.0.4 --notes notes.md   # your own Markdown notes
-pnpm ship 1.0.4 --dry-run          # checks and notes only
+pnpm release 1.0.9                   # notes drafted from the commits since the last tag
+pnpm release 1.0.9 --notes notes.md  # …or your own Markdown notes
+pnpm release 1.0.9 --dry-run         # checks and notes only
 ```
 
-It checks everything first (clean `main` equal to `origin/main`, a newer
-version, no existing tag or release, GitHub push access, the updater key),
-then bumps, commits and pushes the version, and runs `pnpm release`. If the
-build or upload fails after the push, run the same command again: it skips
-the bump and carries on. By hand, the same steps are:
+then **Actions › release › Run workflow** with `v1.0.9` (or `1.0.9`).
 
-```bash
-pnpm bump 1.0.4
-git commit -am "chore(release): version 1.0.4" && git push
-pnpm release --notes notes.md      # Markdown shown on the release page
-```
+`pnpm release` (`scripts/release.mjs`) checks everything first: on `main`, a
+clean tree equal to `origin/main`, a newer version, no existing tag or
+release, GitHub push access. Then it bumps the version in `package.json`,
+`src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `Cargo.lock`,
+commits and pushes, tags `v<version>` and pushes the tag, and publishes the
+GitHub release, not yet marked latest. If it stops part way, run the same
+command again: a bump or tag already pushed is reused.
 
-`pnpm release` (`scripts/release.mjs`) refuses to run unless the tree is clean
-and `HEAD` is `origin/main`. It builds with `src-tauri/tauri.release.conf.json`
-(which turns on the signed update archive), writes `latest.json`, tags
-`v<version>`, and publishes the release with the `.dmg`, the
-`.app.tar.gz`, its `.sig` and `latest.json`. `--dry-run` stops before tagging;
-`--skip-build` reuses the last build. Set `APPLE_SIGNING_IDENTITY` (and the
-notarization variables above) to ship a Developer ID build.
+The workflow builds every platform into that release, writes `latest.json`,
+and only then marks the release latest, so installed apps never see a newest
+release without update files.
 
-`gh` must be able to push to the repo: `gh auth switch -u yash1200`, or
-`GH_TOKEN=$(gh auth token -u yash1200) pnpm release …`.
+`gh` must be able to push to the repo: the script uses `GH_TOKEN`, else
+`gh auth token -u yash1200`.
 
 ### The updater key
 
@@ -102,7 +95,7 @@ public half is `plugins.updater.pubkey` in `tauri.conf.json`; the private
 half is `~/.tauri/mystique.key` (password protected).
 
 ```bash
-# Once: keep the key password in the login keychain for `pnpm release`.
+# Once: keep the key password in the login keychain (for local signed builds).
 security add-generic-password -a "$USER" -s mystique-updater-key -w
 ```
 
@@ -121,11 +114,13 @@ version with it by hand.
 `.github/workflows/release.yml` is run by hand for an existing tag
 (Actions › release › Run workflow). It builds macOS (Apple silicon, Intel),
 Windows (x64, ARM64 NSIS installers) and Linux (x64, ARM64: `.deb`, `.rpm`,
-`.AppImage`), all ad-hoc / unsigned. The files go to the tag's release: a
-draft if there is none, or added to the one `pnpm release` published (same
-names are replaced). `latest.json` is then rebuilt from every update
-signature, keeping platforms already in it. A tag push does not start it,
-because `pnpm release` pushes the tag itself. Repository secrets: the updater
+`.AppImage`), all ad-hoc / unsigned. The files go to the tag's release: the
+one `pnpm release` published, or a draft if there is none (same names are
+replaced). `latest.json` is then rebuilt from every update signature, keeping
+platforms already in it, and the release is published and marked latest. A
+tag push does not start it, because `pnpm release` pushes the tag itself.
+Linux builds run on Ubuntu 26.04, so they need a distro at least that new.
+Repository secrets: the updater
 key as `TAURI_SIGNING_PRIVATE_KEY` (the key file's text) and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 

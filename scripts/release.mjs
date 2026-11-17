@@ -1,45 +1,66 @@
 #!/usr/bin/env node
 /**
- * Build and publish a macOS (Apple silicon) release with auto-update files.
+ * Release a version: bump it, push, tag, and publish the GitHub release.
+ * CI then builds every platform into that release
+ * (Actions › release › Run workflow, with the same version).
  *
- *   pnpm bump 1.0.3 && git commit -am "chore(release): version 1.0.3" && git push
- *   pnpm release --notes notes.md
+ *   pnpm release 1.0.9                   # notes drafted from the commits since the last tag
+ *   pnpm release 1.0.9 --notes notes.md  # your own notes (Markdown)
+ *   pnpm release 1.0.9 --dry-run         # checks and notes only; changes nothing
  *
- * Steps: check the tree is clean and pushed, build with the updater key
- * (`src-tauri/tauri.release.conf.json` turns the update archive on), write
- * `latest.json`, tag `v<version>`, and publish the GitHub release with the
- * .dmg, the update archive, its signature and `latest.json`. Installed apps
- * read `releases/latest/download/latest.json`, so publishing is the switch.
+ * Everything is checked before anything changes. After a failure, run the same
+ * command again: a bump or tag already pushed is reused.
  *
- * Updater key (see docs/RELEASING.md):
- *   TAURI_SIGNING_PRIVATE_KEY           key text or path (default ~/.tauri/mystique.key)
- *   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  else the keychain item "mystique-updater-key"
- * Apple signing, if set, is read by Tauri as in scripts/release-macos.sh.
- * GitHub: `gh` must be able to push to the repo (or set GH_TOKEN).
+ * The release is published but not marked latest. The workflow marks it latest
+ * once latest.json is uploaded, so installed apps never find a newest release
+ * without update files.
  *
- * Options:
- *   --notes <file>       release notes (Markdown) for the release and latest.json
- *   --skip-build         publish the artifacts already in the bundle folder
- *   --bundle-dir <dir>   where the bundle is (default target/aarch64-apple-darwin/release/bundle)
- *   --dry-run            build and write latest.json, but do not tag or publish
+ * GitHub: a login that can push to the repo (GH_TOKEN, else `gh auth token -u yash1200`).
  */
-import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const REPO = 'yash1200/mystique'
-const TARGET = 'aarch64-apple-darwin'
-/** `latest.json` platform key for this build. Intel and Windows join later. */
-const PLATFORM = 'darwin-aarch64'
-const KEYCHAIN_ITEM = 'mystique-updater-key'
+const GH_USER = 'yash1200'
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+
+/** Each file holding the app version, and the one field in it: `before`, version, `after`. */
+export const VERSION_FILES = [
+	{ file: 'package.json', pattern: /^(\t"version": ")([^"]+)(",)$/m },
+	{ file: 'src-tauri/Cargo.toml', pattern: /^(\[package\]\nname = "mystique"\nversion = ")([^"]+)(")$/m },
+	{ file: 'src-tauri/tauri.conf.json', pattern: /^(\t"version": ")([^"]+)(",)$/m },
+	{ file: 'Cargo.lock', pattern: /^(\[\[package\]\]\nname = "mystique"\nversion = ")([^"]+)(")$/m },
+]
+
+/** True when `next` is a higher x.y.z than `current` (pre-release suffixes are not ranked). */
+export function isNewer(next, current) {
+	const a = next.split(/[.-]/).slice(0, 3).map(Number)
+	const b = current.split(/[.-]/).slice(0, 3).map(Number)
+	for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]
+	return false
+}
+
+/** `text` with its version field set to `version`, and the version it had; null when the field is missing. */
+export function setVersion(text, pattern, version) {
+	const match = pattern.exec(text)
+	if (!match) return null
+	return {
+		current: match[2],
+		text: text.replace(pattern, (_, before, _old, after) => `${before}${version}${after}`),
+	}
+}
 
 function fail(message) {
 	console.error(`release: ${message}`)
 	process.exit(1)
+}
+
+function step(message) {
+	console.log(`\n\x1b[1m==> ${message}\x1b[0m`)
 }
 
 function run(cmd, args, opts = {}) {
@@ -56,145 +77,135 @@ function tryRun(cmd, args) {
 }
 
 function parseArgs(argv) {
-	const opts = { notes: null, skipBuild: false, dryRun: false, bundleDir: null }
+	const opts = { version: null, notes: null, dryRun: false }
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
-		if (a === '--notes') opts.notes = argv[++i]
-		else if (a === '--skip-build') opts.skipBuild = true
+		if (a === '--notes') opts.notes = argv[++i] ?? fail('--notes needs a file')
 		else if (a === '--dry-run') opts.dryRun = true
-		else if (a === '--bundle-dir') opts.bundleDir = argv[++i]
-		else fail(`unknown option ${a}`)
+		else if (a === '-h' || a === '--help') {
+			console.log('usage: pnpm release <version> [--notes notes.md] [--dry-run]')
+			process.exit(0)
+		} else if (a.startsWith('-')) fail(`unknown option ${a}`)
+		else if (opts.version) fail('one version only')
+		else opts.version = a.trim().replace(/^v/, '')
 	}
+	if (!opts.version) fail('usage: pnpm release <version>   e.g. pnpm release 1.0.9')
+	if (!SEMVER.test(opts.version)) fail(`"${opts.version}" is not a version (x.y.z).`)
 	return opts
 }
 
-const opts = parseArgs(process.argv.slice(2))
-if (process.platform !== 'darwin') fail('macOS releases are built on a Mac.')
+/** Notes from the commits since the last tag, release bumps left out. */
+function draftNotes() {
+	const last = tryRun('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*'])
+	const log = run('git', ['log', '--no-merges', '--format=%s', last ? `${last}..HEAD` : 'HEAD'])
+	const changes = log
+		.split('\n')
+		.filter((s) => s && !/^chore\(release\)/.test(s))
+		.map((s) => `- ${s.replace(/^(feat|fix|perf|refactor|docs|chore|test|build|ci)(\([^)]*\))?: /, '')}`)
+	return [
+		'## Changes',
+		'',
+		changes.length ? changes.join('\n') : '- Maintenance release.',
+		'',
+		'## Install',
+		'',
+		'Download the file for your system below. Mystique 1.0.3 and later update themselves.',
+		'',
+		'macOS builds are not notarized: on first launch, right-click Mystique in Applications and choose **Open**.',
+	].join('\n')
+}
 
-const version = JSON.parse(readFileSync(join(ROOT, 'src-tauri/tauri.conf.json'), 'utf8')).version
-const tag = `v${version}`
-const notes = opts.notes ? readFileSync(resolve(opts.notes), 'utf8').trim() : ''
+function main() {
+	const opts = parseArgs(process.argv.slice(2))
+	const { version } = opts
+	const tag = `v${version}`
 
-// 1. The release must match what is on GitHub.
-if (!opts.dryRun) {
+	// 1. Checks: nothing changes before these pass.
+	step('Checking')
+	if (run('git', ['rev-parse', '--abbrev-ref', 'HEAD']) !== 'main') fail('not on main.')
 	if (run('git', ['status', '--porcelain', '--untracked-files=no'])) {
-		fail('the working tree has changes. Commit and push them first.')
+		fail('the working tree has changes. Commit or stash them first.')
 	}
 	run('git', ['fetch', '--quiet', 'origin', 'main', '--tags'])
-	if (run('git', ['rev-parse', 'HEAD']) !== run('git', ['rev-parse', 'origin/main'])) {
-		fail('HEAD is not origin/main. Push (or pull) first.')
+	const head = run('git', ['rev-parse', 'HEAD'])
+	if (head !== run('git', ['rev-parse', 'origin/main'])) fail('HEAD is not origin/main. Push or pull first.')
+
+	const edits = VERSION_FILES.map(({ file, pattern }) => {
+		const path = join(ROOT, file)
+		const edit = setVersion(readFileSync(path, 'utf8'), pattern, version)
+		if (!edit) fail(`no version field found in ${file}.`)
+		return { file, path, ...edit }
+	})
+	const currents = new Set(edits.map((e) => e.current))
+	if (currents.size > 1) {
+		fail(`the version files disagree: ${edits.map((e) => `${e.file} ${e.current}`).join(', ')}.`)
 	}
+	const [current] = currents
+	// Already at this version: a bump pushed by an earlier run that stopped later.
+	const resume = current === version
+	if (!resume && !isNewer(version, current)) fail(`${version} is not newer than the current ${current}.`)
+
 	const tagged = tryRun('git', ['rev-parse', `${tag}^{commit}`])
-	if (tagged && tagged !== run('git', ['rev-parse', 'HEAD'])) {
-		fail(`${tag} already points at another commit. Bump the version (pnpm bump).`)
-	}
-	if (tryRun('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'tagName'])) {
-		fail(`release ${tag} already exists on GitHub.`)
+	if (tagged && !(resume && tagged === head)) fail(`tag ${tag} already exists on another commit.`)
+
+	if (!process.env.GH_TOKEN) {
+		const token = tryRun('gh', ['auth', 'token', '-u', GH_USER])
+		if (!token) fail(`gh has no login for ${GH_USER}. Run \`gh auth login\`, or set GH_TOKEN.`)
+		process.env.GH_TOKEN = token
 	}
 	if (tryRun('gh', ['api', `repos/${REPO}`, '--jq', '.permissions.push']) !== 'true') {
-		fail(
-			`gh cannot push to ${REPO}. Run \`gh auth switch -u yash1200\`, or set ` +
-				'GH_TOKEN=$(gh auth token -u yash1200).',
-		)
+		fail(`this GitHub login cannot push to ${REPO}.`)
 	}
-}
+	if (tryRun('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'tagName'])) {
+		fail(`release ${tag} already exists. Run the release workflow for it.`)
+	}
+	console.log(`${current} → ${version}${resume ? ' (already bumped; resuming)' : ''}`)
 
-// 2. Build with the updater key.
-const bundleDir = resolve(opts.bundleDir ?? join(ROOT, 'target', TARGET, 'release', 'bundle'))
-if (!opts.skipBuild) {
-	const env = { ...process.env }
-	if (!env.TAURI_SIGNING_PRIVATE_KEY) {
-		const keyPath = join(homedir(), '.tauri', 'mystique.key')
-		if (!existsSync(keyPath)) fail(`no updater key: set TAURI_SIGNING_PRIVATE_KEY or create ${keyPath}.`)
-		env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(keyPath, 'utf8').trim()
+	const notes = opts.notes ? readFileSync(resolve(opts.notes), 'utf8').trim() : draftNotes()
+	const notesFile = join(ROOT, 'target', `release-notes-${tag}.md`)
+	mkdirSync(dirname(notesFile), { recursive: true })
+	writeFileSync(notesFile, `${notes}\n`)
+	step(`Release notes (${notesFile})`)
+	console.log(notes)
+
+	if (opts.dryRun) {
+		console.log('\nDry run: checks passed. Nothing was bumped, tagged or published.')
+		return
 	}
-	if (env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD == null) {
-		const fromKeychain = tryRun('security', ['find-generic-password', '-s', KEYCHAIN_ITEM, '-w'])
-		if (fromKeychain == null) {
-			fail(
-				`no key password: set TAURI_SIGNING_PRIVATE_KEY_PASSWORD, or store it once with\n` +
-					`  security add-generic-password -a "$USER" -s ${KEYCHAIN_ITEM} -w`,
-			)
+
+	// 2. Bump, commit, push.
+	if (!resume) {
+		step(`Bumping to ${version}`)
+		for (const e of edits) {
+			writeFileSync(e.path, e.text)
+			console.log(`${e.file}: ${e.current} → ${version}`)
 		}
-		env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = fromKeychain
+		run('git', ['add', ...edits.map((e) => e.file)])
+		run('git', ['commit', '-q', '-m', `chore(release): version ${version}`])
+		run('git', ['push', '-q', 'origin', 'main'], { stdio: 'inherit' })
 	}
-	const build = spawnSync(
-		'pnpm',
+
+	// 3. Tag and publish (not latest: the workflow flips that once the update files are up).
+	step(`Tagging and publishing ${tag}`)
+	if (!tagged) run('git', ['tag', '-a', tag, '-m', `Mystique ${version}`])
+	run('git', ['push', '-q', 'origin', tag], { stdio: 'inherit' })
+	run(
+		'gh',
 		[
-			'tauri',
-			'build',
-			'--target',
-			TARGET,
-			'--bundles',
-			'app,dmg',
-			'--config',
-			'src-tauri/tauri.release.conf.json',
+			'release', 'create', tag,
+			'--repo', REPO,
+			'--verify-tag',
+			'--title', `Release ${version}`,
+			'--notes-file', notesFile,
+			'--latest=false',
 		],
-		{ cwd: ROOT, env, stdio: 'inherit' },
+		{ stdio: 'inherit' },
 	)
-	if (build.status !== 0) fail('the build failed.')
+
+	step('Done')
+	console.log(`https://github.com/${REPO}/releases/tag/${tag}`)
+	console.log(`Next: Actions › release › Run workflow with ${tag}:`)
+	console.log(`  https://github.com/${REPO}/actions/workflows/release.yml`)
 }
 
-// 3. The files to publish.
-const dmg = join(bundleDir, 'dmg', `Mystique_${version}_aarch64.dmg`)
-const archive = join(bundleDir, 'macos', 'Mystique.app.tar.gz')
-for (const file of [dmg, archive, `${archive}.sig`]) {
-	if (!existsSync(file)) fail(`missing ${file}. Build first, or check --bundle-dir.`)
-}
-const outDir = join(bundleDir, 'release', tag)
-mkdirSync(outDir, { recursive: true })
-// One archive name per platform, so Intel and Windows can sit beside it later.
-const archiveName = `Mystique_${version}_aarch64.app.tar.gz`
-copyFileSync(archive, join(outDir, archiveName))
-copyFileSync(`${archive}.sig`, join(outDir, `${archiveName}.sig`))
-copyFileSync(dmg, join(outDir, `Mystique_${version}_aarch64.dmg`))
-
-const latest = {
-	version,
-	notes: notes || `See https://github.com/${REPO}/releases/tag/${tag}`,
-	pub_date: new Date().toISOString(),
-	platforms: {
-		[PLATFORM]: {
-			signature: readFileSync(`${archive}.sig`, 'utf8').trim(),
-			url: `https://github.com/${REPO}/releases/download/${tag}/${archiveName}`,
-		},
-	},
-}
-writeFileSync(join(outDir, 'latest.json'), `${JSON.stringify(latest, null, 2)}\n`)
-const files = [`Mystique_${version}_aarch64.dmg`, archiveName, `${archiveName}.sig`, 'latest.json'].map(
-	(f) => join(outDir, f),
-)
-console.log(`\nRelease files for ${tag} in ${outDir}:`)
-for (const f of files) console.log(`  ${f.slice(outDir.length + 1)}`)
-
-if (opts.dryRun) {
-	console.log('\nDry run: nothing tagged or published.')
-	process.exit(0)
-}
-
-// 4. Tag and publish.
-if (!tryRun('git', ['rev-parse', `${tag}^{commit}`])) {
-	run('git', ['tag', '-a', tag, '-m', `Mystique ${version}`])
-}
-run('git', ['push', 'origin', tag], { stdio: 'inherit' })
-const notesFile = join(outDir, 'notes.md')
-writeFileSync(notesFile, notes ? `${notes}\n` : `Mystique ${version}.\n`)
-run(
-	'gh',
-	[
-		'release',
-		'create',
-		tag,
-		...files,
-		'--repo',
-		REPO,
-		'--verify-tag',
-		'--title',
-		`Release ${version}`,
-		'--notes-file',
-		notesFile,
-		'--latest',
-	],
-	{ stdio: 'inherit' },
-)
-console.log(`\nPublished ${tag}. Installed apps see it on their next update check.`)
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main()
