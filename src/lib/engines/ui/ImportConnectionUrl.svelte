@@ -74,7 +74,7 @@
 			id={INPUT_ID}
 			inset="both"
 			class="font-mono text-data"
-			style={filled ? 'padding-right: 5.5rem' : undefined}
+			style={filled ? 'padding-right: 4rem' : undefined}
 			{placeholder}
 			bind:value={url}
 			invalid={!!error}
@@ -94,7 +94,9 @@
 			{#if importing}
 				<Spinner size="sm" class="text-fg-muted" />
 			{:else if filled}
-				<span class="animate-rise"><Pill tone="success" uppercase>Filled</Pill></span>
+				<span class="animate-rise"
+					><Pill tone="success" uppercase>Filled</Pill></span
+				>
 			{/if}
 		</span>
 	</div>
