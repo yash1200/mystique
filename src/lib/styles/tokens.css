@@ -288,6 +288,8 @@
 /* Derived: the selected-row and selected-text wash, from the theme accent. */
 :root {
 	--selected: color-mix(in oklab, var(--accent) 18%, transparent);
+	/* Same wash on the app background, for sticky cells that scrolled content passes under. */
+	--selected-solid: color-mix(in oklab, var(--accent) 18%, var(--bg));
 }
 
 [data-density='compact'] {

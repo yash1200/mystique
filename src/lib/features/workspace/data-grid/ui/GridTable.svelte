@@ -527,9 +527,9 @@
 										: isNew
 											? 'bg-info/12 font-medium text-info'
 											: rowSelected
-												? 'bg-selected text-fg-muted'
+												? 'bg-selected-solid text-fg-muted'
 												: rowHasCell(i)
-													? 'bg-selected font-medium text-fg'
+													? 'bg-selected-solid font-medium text-fg'
 													: stripe
 														? 'bg-surface text-fg-muted'
 														: 'bg-app text-fg-muted',
@@ -583,7 +583,7 @@
 												: isNew
 													? 'bg-info/12'
 													: rowSelected
-														? 'bg-selected'
+														? 'bg-selected-solid'
 														: stripe
 															? 'bg-surface'
 															: 'bg-app'),

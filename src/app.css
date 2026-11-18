@@ -52,6 +52,7 @@
 	--color-pressed: var(--s3);
 	--color-scrim: var(--scrim);
 	--color-selected: var(--selected);
+	--color-selected-solid: var(--selected-solid);
 
 	/* —— Text —— */
 	--color-fg: var(--text);
