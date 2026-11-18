@@ -18,6 +18,8 @@ export interface LargeCell {
 	preview: string
 	totalChars: number
 	locator?: LargeCellLocator | null
+	/** The whole text, sent when there is no key to fetch it by. */
+	full?: string | null
 }
 
 export interface LargeCellPage {
@@ -44,7 +46,7 @@ export function largeCellText(value: unknown): string {
 }
 
 export function largeCellHint(value: LargeCell): string {
-	if (value.locator && value.locator.keys.length > 0) {
+	if (value.full != null || (value.locator && value.locator.keys.length > 0)) {
 		return 'Large value. Open the cell to load the full text.'
 	}
 	return UNKEYED_LARGE_CELL
@@ -119,6 +121,11 @@ export async function resolveLargeCells(
 		for (let c = 0; c < row.length; c++) {
 			const value = row[c]
 			if (!isLargeCell(value)) continue
+			if (value.full != null) {
+				out ??= cells.map((cells) => cells.slice())
+				out[r][c] = json[c] ? parseJsonText(value.full) : value.full
+				continue
+			}
 			const locator = value.locator
 			if (!load || !locator || locator.keys.length === 0) {
 				previews++

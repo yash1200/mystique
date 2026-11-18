@@ -71,8 +71,8 @@
 		loadLarge = null,
 	}: Props = $props()
 
-	function largeHint(cell: { locator?: unknown }): string {
-		return cell.locator
+	function largeHint(cell: { locator?: unknown; full?: unknown }): string {
+		return cell.locator || cell.full != null
 			? 'Large value. Open the cell to load the full text.'
 			: QUERY_UNKEYED_LARGE_CELL
 	}
@@ -495,7 +495,7 @@
 		rowIndex={cellModal.row}
 		initialText={modalValue}
 		readonly
-		unfetchable={isLargeCell(raw) && (!largeCellFetchable(raw) || !loadLarge)}
+		unfetchable={isLargeCell(raw) && raw.full == null && (!largeCellFetchable(raw) || !loadLarge)}
 		unfetchableText={QUERY_UNKEYED_LARGE_CELL}
 		fetchChunk={isLargeCell(raw) && raw.locator && largeCellFetchable(raw) && loadLarge
 			? (offset) => loadLarge(raw.locator!, offset)

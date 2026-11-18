@@ -92,3 +92,13 @@ test('a block of values past the cap is refused before loading', async () => {
 	)
 	assert.equal(loaded, 0)
 })
+
+test('an unkeyed cell shows its preview but copies its full text', async () => {
+	const full = '{"a":"' + 'x'.repeat(40_000) + '"}'
+	const unkeyed = { $large: true as const, preview: '{"a":"xxx…', totalChars: full.length, full }
+	assert.equal(cellDisplay(unkeyed), unkeyed.preview)
+	const out = await resolveLargeCells([[unkeyed, unkeyed]], null, [true, false])
+	assert.equal(out.previews, 0)
+	assert.deepEqual(out.cells[0][0], JSON.parse(full))
+	assert.equal(out.cells[0][1], full)
+})

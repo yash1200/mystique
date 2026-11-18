@@ -118,7 +118,7 @@ export function copyTableSelection(
 export function copyTableCell(src: TableCopySource, cell: CellRef, e?: ClipboardEvent) {
 	const v = src.rows[cell.row]?.[cell.col]
 	const partial = isLargeCell(v)
-	if (partial && src.loadLarge && v.locator && v.locator.keys.length > 0) {
+	if (partial && (v.full != null || (src.loadLarge && v.locator && v.locator.keys.length > 0))) {
 		e?.preventDefault()
 		void copyCellsFull((full) => cellText(full[0]?.[0]), 'Cell copied', [[v]], src.loadLarge)
 		return

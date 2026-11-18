@@ -43,6 +43,10 @@ export async function cloneRowValues(input: {
 	for (const column of input.columns) {
 		const value = out[column.name]
 		if (!isLargeCell(value)) continue
+		if (value.full != null) {
+			out[column.name] = isJsonType(column.type) ? parseJson(value.full) : value.full
+			continue
+		}
 		const locator = value.locator
 		if (!locator || locator.keys.length === 0 || !input.fetchChunk) {
 			throw new Error(CLONE_LARGE_REFUSED)

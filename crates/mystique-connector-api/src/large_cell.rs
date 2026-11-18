@@ -1,5 +1,6 @@
 //! Large cell values cross IPC as a short preview. The full text is fetched
-//! later by key, one chunk at a time.
+//! later by key, one chunk at a time. A cell with no key carries its full
+//! text in the marker instead, since it cannot be fetched.
 //!
 //! Agent and MCP keep their own character window. This clip runs only on the
 //! grid IPC path, after the plugin has returned the real cell. File export
@@ -419,9 +420,13 @@ fn marker(value: &JsonValue, locator: Option<LargeCellLocator>) -> JsonValue {
     map.insert("$large".to_string(), JsonValue::Bool(true));
     map.insert("preview".to_string(), JsonValue::String(preview));
     map.insert("totalChars".to_string(), JsonValue::from(total));
-    if let Some(locator) = locator {
-        if let Ok(encoded) = serde_json::to_value(locator) {
+    match locator.map(serde_json::to_value) {
+        Some(Ok(encoded)) => {
             map.insert("locator".to_string(), encoded);
+        }
+        // Nothing can fetch it later, so the full text rides along for copy and the modal.
+        _ => {
+            map.insert("full".to_string(), JsonValue::String(full));
         }
     }
     JsonValue::Object(map)
@@ -527,6 +532,7 @@ mod tests {
             len = encoded.len()
         );
         assert!(!encoded.contains("NEEDLE-TOKEN"), "{encoded}");
+        assert!(cell.get("full").is_none());
         assert_eq!(cell.get("$large").and_then(|v| v.as_bool()), Some(true));
         let preview = cell
             .get("preview")
@@ -550,6 +556,7 @@ mod tests {
         );
         clip_table_preview(&mut result, None, None, "docs");
         assert!(result.rows[0][0].get("locator").is_none());
+        assert_eq!(result.rows[0][0]["full"], json!("x".repeat(40_000)));
     }
 
     #[test]

@@ -161,7 +161,8 @@ export class CellEditor {
 			type: this.#column(col)?.type ?? '',
 			text: seed !== undefined ? seed : valueToEditorText(value),
 			locator: large?.locator ?? null,
-			unfetchable: !!large && !(large.locator && large.locator.keys.length > 0),
+			unfetchable:
+				!!large && large.full == null && !(large.locator && large.locator.keys.length > 0),
 		}
 		this.#sel.focus(row, col)
 	}
