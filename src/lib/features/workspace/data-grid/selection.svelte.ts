@@ -62,6 +62,9 @@ export class GridSelection<C extends Col> {
 
 	isRowSelected = (row: number): boolean => isRowSelected(this.state, row)
 	isCellSelected = (row: number, col: C): boolean => isCellSelected(this.state, row, col)
+	readonly #cellRows = $derived(new Set(rowsInCells(this.state)))
+	/** Row holds the focused or a selected cell, so its row number stays lit while scrolling sideways. */
+	rowHasCell = (row: number): boolean => this.state.cell?.row === row || this.#cellRows.has(row)
 
 	rowList(): number[] {
 		return selectedRowList(this.state)

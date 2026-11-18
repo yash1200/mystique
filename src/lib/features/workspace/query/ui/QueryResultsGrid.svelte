@@ -448,6 +448,7 @@
 						<div
 							data-result-index
 							data-result-row={absolute}
+							data-cell-row={sel.rowHasCell(absolute) ? '' : undefined}
 							role="rowheader"
 							class="qrg-cell qrg-idx border-b border-r border-line/60 border-r-line px-2 font-mono text-caption text-fg-muted tabular-nums"
 						>
@@ -615,6 +616,12 @@
 
 	.qrg-data[aria-selected='true'] {
 		background-color: var(--color-selected);
+	}
+
+	.qrg-idx[data-cell-row] {
+		background-color: var(--color-selected);
+		color: var(--color-fg);
+		font-weight: 500;
 	}
 
 	.qrg-data[data-focus] {

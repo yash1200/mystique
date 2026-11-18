@@ -537,6 +537,7 @@
 			selectedRowIndex={sel.kind === 'rows' ? (sel.row ?? selectedRowIndex) : null}
 			isRowSelected={sel.isRowSelected}
 			isCellSelected={sel.isCellSelected}
+			rowHasCell={sel.rowHasCell}
 			selectedCell={sel.cell}
 			{originals}
 			editing={editor.editing}

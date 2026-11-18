@@ -54,6 +54,8 @@
 		isRowSelected?: (row: number) => boolean
 		/** Cells in a Shift/⌘ cell multi-selection. */
 		isCellSelected?: (row: number, col: string) => boolean
+		/** Row holds the focused or a selected cell (lights its row number). */
+		rowHasCell?: (row: number) => boolean
 		/** Spreadsheet-style focused cell (absolute row index). */
 		selectedCell: CellRef | null
 		originals: Record<string, unknown>[]
@@ -93,6 +95,7 @@
 		selectedRowIndex,
 		isRowSelected = () => false,
 		isCellSelected = () => false,
+		rowHasCell = () => false,
 		selectedCell,
 		originals,
 		editing,
@@ -525,9 +528,11 @@
 											? 'bg-info/12 font-medium text-info'
 											: rowSelected
 												? 'bg-selected text-fg-muted'
-												: stripe
-													? 'bg-surface text-fg-muted'
-													: 'bg-app text-fg-muted',
+												: rowHasCell(i)
+													? 'bg-selected font-medium text-fg'
+													: stripe
+														? 'bg-surface text-fg-muted'
+														: 'bg-app text-fg-muted',
 								)}
 								style="width: {indexW}px"
 								title={isDeleted
