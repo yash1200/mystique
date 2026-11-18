@@ -74,6 +74,7 @@
 			id={INPUT_ID}
 			inset="both"
 			class="font-mono text-data"
+			style={filled ? 'padding-right: 5.5rem' : undefined}
 			{placeholder}
 			bind:value={url}
 			invalid={!!error}
