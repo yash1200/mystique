@@ -335,6 +335,31 @@ describe('native menu', () => {
 		expect(reset).toHaveBeenCalledTimes(1)
 	})
 
+	it('lets keydown run menu chords off macOS, where the titlebar draws the menu', () => {
+		const reg = mounted(registry({ mac: false }))
+		cleanup.push(reg.declare([cmd.closeTab]))
+		const close = vi.fn()
+		cleanup.push(reg.register({ ...cmd.closeTab, run: close }))
+		const w = press(document.body, { code: 'KeyW', ctrlKey: true })
+		expect(close).toHaveBeenCalledTimes(1)
+		expect(w.defaultPrevented).toBe(true)
+	})
+
+	it('binds every titlebar menu item to a command or a titlebar action', async () => {
+		const { appMenu, LOCAL_IDS } = await import('../../src/lib/features/titlebar/menu')
+		const bound = new Set<string>([
+			...LOCAL_IDS,
+			...KEYMAP.flatMap((s) => [s.menu ?? []].flat()),
+		])
+		for (const page of ['home', 'workspace'] as const) {
+			for (const menu of appMenu({ page })) {
+				for (const item of menu.items) {
+					expect(bound.has(item.id), `${page} ${menu.label} › ${item.label}`).toBe(true)
+				}
+			}
+		}
+	})
+
 	it('runs from the menu whatever has focus', () => {
 		const reg = registry({ dialog: () => true })
 		cleanup.push(reg.declare([cmd.save]))

@@ -6,8 +6,9 @@
  * - One keydown listener (capture phase) for the whole window.
  * - Several handlers may share an id; the newest one whose `when` passes runs,
  *   so a mounted view can take over a chord from the app-wide default.
- * - A command that has a native menu item is run by the menu only. Its
- *   accelerator is the binding, and keydown leaves it alone.
+ * - On macOS a command that has a native menu item is run by the menu only.
+ *   Its accelerator is the binding, and keydown leaves it alone. Windows and
+ *   Linux have no native menu (the titlebar draws it), so keydown owns it.
  *
  * The registry knows nothing about features.
  */
@@ -67,7 +68,9 @@ type Entry = {
 }
 
 /** Typed identity: keeps `args` attached to the spec. */
-export function defineCommand<A = void>(spec: Omit<CommandSpec<A>, '__args'>): CommandSpec<A> {
+export function defineCommand<A = void>(
+	spec: Omit<CommandSpec<A>, '__args'>,
+): CommandSpec<A> {
 	return spec as CommandSpec<A>
 }
 
@@ -108,7 +111,11 @@ export function createCommandRegistry(env: RegistryEnv) {
 				specs.set(cmd.id, spec)
 				declaredHere.push(cmd.id)
 			}
-			const entry: Entry = { spec: specs.get(cmd.id)!, when: cmd.when, run: cmd.run }
+			const entry: Entry = {
+				spec: specs.get(cmd.id)!,
+				when: cmd.when,
+				run: cmd.run,
+			}
 			entries.push(entry)
 			mine.push(entry)
 		}
@@ -127,7 +134,9 @@ export function createCommandRegistry(env: RegistryEnv) {
 		try {
 			const out = entry.run(ctx)
 			if (out instanceof Promise) {
-				out.catch((err: unknown) => console.error(`[commands] ${entry.spec.id}:`, err))
+				out.catch((err: unknown) =>
+					console.error(`[commands] ${entry.spec.id}:`, err),
+				)
 			}
 		} catch (err) {
 			console.error(`[commands] ${entry.spec.id}:`, err)
@@ -135,7 +144,10 @@ export function createCommandRegistry(env: RegistryEnv) {
 	}
 
 	/** The newest handler for `pick` whose `when` passes. */
-	function first(pick: (entry: Entry) => boolean, ctx: CommandContext): Entry | null {
+	function first(
+		pick: (entry: Entry) => boolean,
+		ctx: CommandContext,
+	): Entry | null {
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i]!
 			if (!pick(entry)) continue
@@ -148,7 +160,12 @@ export function createCommandRegistry(env: RegistryEnv) {
 	/** Run from code. Focus scope does not apply; `when` does. */
 	function run<A>(command: string | CommandSpec<A>, args?: A): boolean {
 		const id = typeof command === 'string' ? command : command.id
-		const ctx: CommandContext = { source: 'call', args, event: null, focus: null }
+		const ctx: CommandContext = {
+			source: 'call',
+			args,
+			event: null,
+			focus: null,
+		}
 		const entry = first((e) => e.spec.id === id, ctx)
 		if (!entry) return false
 		invoke(entry, ctx)
@@ -158,22 +175,32 @@ export function createCommandRegistry(env: RegistryEnv) {
 	/** True when `run` would find a handler. */
 	function available(command: string | CommandSpec, args?: unknown): boolean {
 		const id = typeof command === 'string' ? command : command.id
-		const ctx: CommandContext = { source: 'call', args, event: null, focus: null }
+		const ctx: CommandContext = {
+			source: 'call',
+			args,
+			event: null,
+			focus: null,
+		}
 		return first((e) => e.spec.id === id, ctx) != null
 	}
 
 	/** A native menu item was chosen (or its accelerator pressed). */
 	function runMenu(menuId: string): boolean {
-		const ctx: CommandContext = { source: 'menu', args: undefined, event: null, focus: null }
+		const ctx: CommandContext = {
+			source: 'menu',
+			args: undefined,
+			event: null,
+			focus: null,
+		}
 		const entry = first((e) => menuIds(e.spec).includes(menuId), ctx)
 		if (!entry) return false
 		invoke(entry, ctx)
 		return true
 	}
 
-	/** True when keydown handles this spec (a native menu item owns it otherwise). */
+	/** True when keydown handles this spec (a native menu item owns it on macOS). */
 	function keyOwned(spec: CommandSpec): boolean {
-		return !!spec.keys && !spec.menu
+		return !!spec.keys && (!spec.menu || !env.mac())
 	}
 
 	/** Dispatch one keydown. True when a command took it. */
@@ -185,12 +212,19 @@ export function createCommandRegistry(env: RegistryEnv) {
 			const entry = entries[i]!
 			const { spec } = entry
 			if (!keyOwned(spec)) continue
-			if (!bindingsFor(spec.keys, mac).some((b) => matchesBinding(event, b, mac))) {
+			if (
+				!bindingsFor(spec.keys, mac).some((b) => matchesBinding(event, b, mac))
+			) {
 				continue
 			}
 			focus ??= focusOf(event.target, env.dialogOpen())
 			if (!allowedIn(spec.scope, focus)) continue
-			const ctx: CommandContext = { source: 'key', args: undefined, event, focus }
+			const ctx: CommandContext = {
+				source: 'key',
+				args: undefined,
+				event,
+				focus,
+			}
 			if (entry.when && !entry.when(ctx)) continue
 			event.preventDefault()
 			event.stopImmediatePropagation()
@@ -218,7 +252,17 @@ export function createCommandRegistry(env: RegistryEnv) {
 		return specs.get(id)
 	}
 
-	return { declare, register, run, available, runMenu, handleKey, mount, list, get }
+	return {
+		declare,
+		register,
+		run,
+		available,
+		runMenu,
+		handleKey,
+		mount,
+		list,
+		get,
+	}
 }
 
 export type CommandRegistry = ReturnType<typeof createCommandRegistry>

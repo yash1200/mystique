@@ -5,8 +5,8 @@
  * Every command rejects with an `IpcError` (see `./error`).
  */
 export * from './engines'
-export * from './runs'
-export * from './menu'
-export * from './quit'
 export * from './error'
 export { Channel, invoke } from './invoke'
+export * from './menu.svelte'
+export * from './quit'
+export * from './runs'

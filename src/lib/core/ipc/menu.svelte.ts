@@ -1,5 +1,6 @@
-/** Native app menu (Tauri). */
+/** The app menu: native on macOS, drawn by the custom titlebar elsewhere. */
 import { invoke } from '@tauri-apps/api/core'
+import { isMacPlatform } from '../util/platform'
 
 export type NativeMenuPage = 'home' | 'workspace'
 
@@ -13,8 +14,14 @@ export type NativeMenuState = {
 	hasForm?: boolean
 }
 
+/** What the current page enables in the menu. The titlebar menu reads it. */
+export const menuState = $state<{ current: NativeMenuState }>({
+	current: { page: 'home' },
+})
+
 export function setNativeMenu(state: NativeMenuState): void {
-	void invoke('set_native_menu', { state })
+	menuState.current = state
+	if (isMacPlatform()) void invoke('set_native_menu', { state })
 }
 
 /** The one event menu.rs emits for a chosen item; the payload is the item id. */

@@ -4,13 +4,15 @@
 //! - Window / plugin lifecycle
 //! - Open local DB path via Tauri path API
 //! - IPC adapters → [`mystique_core::AppServices`]
-//! - Page-aware native app menu (Home vs Workspace)
+//! - Page-aware native app menu on macOS (Home vs Workspace); Windows and
+//!   Linux draw theirs in the custom titlebar
 //! - Logging (`MYSTIQUE_LOG`, app log dir) — see [`logging`]
 //!
 //! Business logic lives in `mystique-core`, not here.
 
 mod ipc;
 mod logging;
+#[cfg(target_os = "macos")]
 mod menu;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,9 +24,8 @@ use mystique_core::{AppDatabase, AppServices};
 use mystique_mcp::McpService;
 use tauri::{image::Image, Emitter, Manager};
 
-use crate::menu::NativeMenuState;
-
 pub(crate) const APP_ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
+#[cfg(target_os = "macos")]
 pub(crate) const APP_DISPLAY_NAME: &str = "Mystique";
 
 fn apply_app_icon(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -100,16 +101,29 @@ fn confirm_quit(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
 }
 
 /// Native menu. Stays sync: no keychain and no SQLite. See `ipc/mod.rs`.
+#[cfg(target_os = "macos")]
 #[tauri::command]
-fn set_native_menu(app: tauri::AppHandle, state: NativeMenuState) -> ipc::IpcResult<()> {
+fn set_native_menu(app: tauri::AppHandle, state: menu::NativeMenuState) -> ipc::IpcResult<()> {
     crate::ipc::guard_sync(|| {
         menu::apply_menu(&app, &state).map_err(|e| ipc::IpcError::internal(e.to_string()))
     })
 }
 
+/// Windows and Linux have no native menu: the custom titlebar draws it.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn set_native_menu() -> ipc::IpcResult<()> {
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(|app| menu::build_menu(app, &menu::NativeMenuState::default()))
+        .on_menu_event(|app, event| menu::handle_menu_event(app, event.id().as_ref()));
+    builder
         // No JS import: its injected click handler opens `target="_blank"`
         // http(s)/mailto links (agent chat markdown) in the default browser.
         .plugin(tauri_plugin_opener::init())
@@ -121,8 +135,6 @@ pub fn run() {
         .manage(ipc::updates::PendingUpdate::default())
         // `relaunch` after an update is installed.
         .plugin(tauri_plugin_process::init())
-        .menu(|app| menu::build_menu(app, &NativeMenuState::default()))
-        .on_menu_event(|app, event| menu::handle_menu_event(app, event.id().as_ref()))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" && hold_quit(window.app_handle()) {

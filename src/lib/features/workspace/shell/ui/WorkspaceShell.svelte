@@ -1,18 +1,13 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
-	import { resolve } from '$app/paths'
-	import type {
-		ConnectionProfile,
-		TableMeta,
-	} from '#core/contracts'
+	import { commands } from '#core/commands'
+	import type { ConnectionProfile, TableMeta } from '#core/contracts'
 	import {
-		errorMessage,
 		closeEngineSession,
 		commitPinnedTab,
+		errorMessage,
 		rollbackPinnedTab,
 		setNativeMenu,
 	} from '#core/ipc'
-	import { commands } from '#core/commands'
 	import { closeTopDialog } from '#core/ui'
 	import { setAppTitle } from '#core/util'
 	import {
@@ -24,7 +19,6 @@
 		sshHostKeys,
 		testSessionWithPassword,
 	} from '#features/connections'
-	import { appChrome, cmd } from '#lib/app'
 	import {
 		catalogColumnsCache,
 		catalogStore,
@@ -32,7 +26,6 @@
 		ensureLiveCatalog,
 	} from '#features/workspace/catalog'
 	import { modelStore } from '#features/workspace/er'
-	import { tablePreview, tableSync } from '#features/workspace/table'
 	import {
 		historyStore,
 		querySave,
@@ -41,32 +34,36 @@
 		refreshSavedQueries,
 		savedStore,
 	} from '#features/workspace/query'
-	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
+		closeStep,
+		dropEditBuffer,
 		probeSessionHealth,
 		reopenEngineSession,
+		saveTableTab,
+		saveThenClose,
+		selectedDatabases,
 		sessionDatabase,
 		startSessionHealthWatch,
-		closeStep,
-		saveThenClose,
-		dropEditBuffer,
-		saveTableTab,
-		selectedDatabases,
 		timedUnlocks,
 		workspaceSession,
 		workspaceStudio,
 	} from '#features/workspace/session'
 	import { structureStore } from '#features/workspace/structure'
+	import { tablePreview, tableSync } from '#features/workspace/table'
 	import { TransferHost } from '#features/workspace/transfer'
+	import { appChrome, cmd } from '#lib/app'
+	import { goto } from '$app/navigation'
+	import { resolve } from '$app/paths'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import ConnectionInfoModal from './ConnectionInfoModal.svelte'
 	import OpenConnectionModal from './OpenConnectionModal.svelte'
 	import OpenTransactionModal from './OpenTransactionModal.svelte'
 	import type { SideNavMode } from './SessionsRail.svelte'
 	import SessionsRail from './SessionsRail.svelte'
 	import UnsavedCloseModal from './UnsavedCloseModal.svelte'
-	import WriteGuardModal from './WriteGuardModal.svelte'
 	import WorkspaceMainPane from './WorkspaceMainPane.svelte'
 	import WorkspaceSidePane from './WorkspaceSidePane.svelte'
+	import WriteGuardModal from './WriteGuardModal.svelte'
 
 	const sessions = $derived(workspaceSession.sessions)
 	const activeId = $derived(workspaceSession.activeConnectionId)
@@ -400,7 +397,9 @@
 	})
 
 	function quickConnect(id: string) {
-		if (workspaceSession.sessions.some((session) => session.profile.id === id)) {
+		if (
+			workspaceSession.sessions.some((session) => session.profile.id === id)
+		) {
 			workspaceSession.setActiveConnection(id)
 			return
 		}
@@ -456,27 +455,27 @@
 </script>
 
 <div
-	class="flex h-screen w-screen overflow-hidden bg-app"
+	class="flex h-full w-full overflow-hidden bg-app"
 	style={activeSession
 		? `--connection-color: ${colorHex(activeSession.profile.colorId)}`
 		: undefined}
 	data-env={activeSession?.profile.environment ?? undefined}
 >
 	{#if appChrome.sessionRailOpen}
-	<SessionsRail
-		onselect={onSelectConnection}
-		ondisconnect={handleDisconnect}
-		onrefresh={(id) => void refreshConnection(id)}
-		onnewquery={openNewQueryOn}
-		onmetrics={(id) => workspaceSession.openMetrics(id)}
-		onopen={() => {
-			pickerError = null
-			pickerOpen = true
-		}}
-		onmode={setSideMode}
-		onreorder={(movedId, beforeId) =>
-			workspaceSession.reorderSessions(movedId, beforeId)}
-	/>
+		<SessionsRail
+			onselect={onSelectConnection}
+			ondisconnect={handleDisconnect}
+			onrefresh={(id) => void refreshConnection(id)}
+			onnewquery={openNewQueryOn}
+			onmetrics={(id) => workspaceSession.openMetrics(id)}
+			onopen={() => {
+				pickerError = null
+				pickerOpen = true
+			}}
+			onmode={setSideMode}
+			onreorder={(movedId, beforeId) =>
+				workspaceSession.reorderSessions(movedId, beforeId)}
+		/>
 	{/if}
 
 	<WorkspaceSidePane />

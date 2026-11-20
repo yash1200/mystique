@@ -1,8 +1,6 @@
-//! Native app menu. Rebuilt when the frontend reports Home vs Workspace.
-
-// The menu builders split on `#[cfg(target_os = "macos")]` blocks. The macOS
-// block is not the tail expression at parse time, so its `return` is needed.
-#![allow(clippy::needless_return)]
+//! Native app menu (macOS only). Rebuilt when the frontend reports Home vs
+//! Workspace. Windows and Linux draw their menu in the custom titlebar
+//! (`src/lib/features/titlebar/menu.ts`), which mirrors this one.
 
 use serde::Deserialize;
 use tauri::{
@@ -56,40 +54,20 @@ pub fn build_menu(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Men
     let edit_menu = edit_menu(app)?;
     let view_menu = view_menu(app, state.page)?;
     let window_menu = window_menu(app)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        let app_menu = app_menu_macos(app)?;
-        let help_menu = help_menu(app, false)?;
-        return Menu::with_items(
-            app,
-            &[
-                &app_menu,
-                &file_menu,
-                &connections_menu,
-                &edit_menu,
-                &view_menu,
-                &window_menu,
-                &help_menu,
-            ],
-        );
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let help_menu = help_menu(app, true)?;
-        Menu::with_items(
-            app,
-            &[
-                &file_menu,
-                &connections_menu,
-                &edit_menu,
-                &view_menu,
-                &window_menu,
-                &help_menu,
-            ],
-        )
-    }
+    let app_menu = app_menu(app)?;
+    let help_menu = help_menu(app)?;
+    Menu::with_items(
+        app,
+        &[
+            &app_menu,
+            &file_menu,
+            &connections_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ],
+    )
 }
 
 fn item(
@@ -114,28 +92,7 @@ fn close_window_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
 
 fn file_menu_home(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let close_window = close_window_item(app)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        return Submenu::with_items(app, "File", true, &[&close_window]);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
-        Submenu::with_items(
-            app,
-            "File",
-            true,
-            &[
-                &settings,
-                &PredefinedMenuItem::separator(app)?,
-                &close_window,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::quit(app, None)?,
-            ],
-        )
-    }
+    Submenu::with_items(app, "File", true, &[&close_window])
 }
 
 fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Submenu<Wry>> {
@@ -170,45 +127,19 @@ fn file_menu_workspace(app: &AppHandle, state: &NativeMenuState) -> tauri::Resul
         Some("Shift+CmdOrCtrl+T"),
     )?;
     let close_window = close_window_item(app)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        return Submenu::with_items(
-            app,
-            "File",
-            true,
-            &[
-                &new_query,
-                &save_query,
-                &close_tab,
-                &reopen_tab,
-                &PredefinedMenuItem::separator(app)?,
-                &close_window,
-            ],
-        );
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
-        Submenu::with_items(
-            app,
-            "File",
-            true,
-            &[
-                &new_query,
-                &save_query,
-                &close_tab,
-                &reopen_tab,
-                &PredefinedMenuItem::separator(app)?,
-                &settings,
-                &PredefinedMenuItem::separator(app)?,
-                &close_window,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::quit(app, None)?,
-            ],
-        )
-    }
+    Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[
+            &new_query,
+            &save_query,
+            &close_tab,
+            &reopen_tab,
+            &PredefinedMenuItem::separator(app)?,
+            &close_window,
+        ],
+    )
 }
 
 fn connections_menu_home(app: &AppHandle, state: &NativeMenuState) -> tauri::Result<Submenu<Wry>> {
@@ -330,57 +261,17 @@ fn view_menu(app: &AppHandle, page: MenuPage) -> tauri::Result<Submenu<Wry>> {
         let saved = item(app, "workspace_view_saved", "Saved Queries", true, None)?;
         let history = item(app, "workspace_view_history", "History", true, None)?;
         let go_home = item(app, "workspace_go_home", "Go to Home", true, None)?;
-
-        #[cfg(target_os = "macos")]
-        {
-            return Submenu::with_items(
-                app,
-                "View",
-                true,
-                &[
-                    &explorer,
-                    &saved,
-                    &history,
-                    &PredefinedMenuItem::separator(app)?,
-                    &go_home,
-                    &PredefinedMenuItem::separator(app)?,
-                    &zoom_in,
-                    &zoom_out,
-                    &zoom_reset,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::fullscreen(app, None)?,
-                ],
-            );
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            return Submenu::with_items(
-                app,
-                "View",
-                true,
-                &[
-                    &explorer,
-                    &saved,
-                    &history,
-                    &PredefinedMenuItem::separator(app)?,
-                    &go_home,
-                    &PredefinedMenuItem::separator(app)?,
-                    &zoom_in,
-                    &zoom_out,
-                    &zoom_reset,
-                ],
-            );
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
         return Submenu::with_items(
             app,
             "View",
             true,
             &[
+                &explorer,
+                &saved,
+                &history,
+                &PredefinedMenuItem::separator(app)?,
+                &go_home,
+                &PredefinedMenuItem::separator(app)?,
                 &zoom_in,
                 &zoom_out,
                 &zoom_reset,
@@ -390,27 +281,21 @@ fn view_menu(app: &AppHandle, page: MenuPage) -> tauri::Result<Submenu<Wry>> {
         );
     }
 
-    #[cfg(not(target_os = "macos"))]
-    Submenu::with_items(app, "View", true, &[&zoom_in, &zoom_out, &zoom_reset])
+    Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[
+            &zoom_in,
+            &zoom_out,
+            &zoom_reset,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )
 }
 
 fn window_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
-    #[cfg(target_os = "macos")]
-    {
-        return Submenu::with_items(
-            app,
-            "Window",
-            true,
-            &[
-                &PredefinedMenuItem::minimize(app, None)?,
-                &PredefinedMenuItem::maximize(app, None)?,
-                &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::bring_all_to_front(app, None)?,
-            ],
-        );
-    }
-
-    #[cfg(not(target_os = "macos"))]
     Submenu::with_items(
         app,
         "Window",
@@ -418,46 +303,22 @@ fn window_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         &[
             &PredefinedMenuItem::minimize(app, None)?,
             &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::bring_all_to_front(app, None)?,
         ],
     )
 }
 
-fn help_menu(app: &AppHandle, include_about: bool) -> tauri::Result<Submenu<Wry>> {
+fn help_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let shortcuts = item(app, "help_shortcuts", "Keyboard Shortcuts", true, None)?;
-    if include_about {
-        let about = about_item(app)?;
-        let updates = check_updates_item(app)?;
-        Submenu::with_items(
-            app,
-            "Help",
-            true,
-            &[
-                &shortcuts,
-                &PredefinedMenuItem::separator(app)?,
-                &updates,
-                &about,
-            ],
-        )
-    } else {
-        Submenu::with_items(app, "Help", true, &[&shortcuts])
-    }
+    Submenu::with_items(app, "Help", true, &[&shortcuts])
 }
 
-/// Runs the frontend's update check (`app.check-updates`).
-fn check_updates_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
-    item(app, "app_check_updates", "Check for Updates…", true, None)
-}
-
-/// Opens the app's own About dialog (`app.about`), not the OS panel, so it
-/// follows the theme and carries the update status.
-fn about_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
-    item(app, "app_about", "About Mystique", true, None)
-}
-
-#[cfg(target_os = "macos")]
-fn app_menu_macos(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
-    let about = about_item(app)?;
-    let updates = check_updates_item(app)?;
+fn app_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+    // About opens the app's own dialog (`app.about`), not the OS panel, so it
+    // follows the theme and carries the update status.
+    let about = item(app, "app_about", "About Mystique", true, None)?;
+    let updates = item(app, "app_check_updates", "Check for Updates…", true, None)?;
     let settings = item(app, "app_settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let shortcuts = item(app, "app_shortcuts", "Keyboard Shortcuts", true, None)?;
 

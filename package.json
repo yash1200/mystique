@@ -67,6 +67,7 @@
 		"#features/settings": "./src/lib/features/settings/index.js",
 		"#features/shortcuts": "./src/lib/features/shortcuts/index.js",
 		"#features/toast": "./src/lib/features/toast/index.js",
+		"#features/titlebar": "./src/lib/features/titlebar/index.js",
 		"#features/updater": "./src/lib/features/updater/index.js",
 		"#features/workspace": "./src/lib/features/workspace/index.js",
 		"#features/workspace/agent": "./src/lib/features/workspace/agent/index.js",

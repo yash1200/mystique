@@ -36,7 +36,7 @@
 	onMount(home.mount)
 </script>
 
-<div class="flex h-screen w-screen overflow-hidden bg-app">
+<div class="flex h-full w-full overflow-hidden bg-app">
 	{#if appChrome.homeSidebarOpen}
 		<ConnectionSidebar />
 	{/if}

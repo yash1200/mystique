@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
-	import { page } from '$app/state'
 	import type { ConnectionProfile } from '#core/contracts'
 	import { errorMessage } from '#core/ipc'
 	import {
@@ -9,8 +7,10 @@
 		isConnectCancelled,
 		pluginConfigForSession,
 	} from '#features/connections'
-	import { onMount } from 'svelte'
 	import { workspaceSession } from '#features/workspace/session'
+	import { goto } from '$app/navigation'
+	import { page } from '$app/state'
+	import { onMount } from 'svelte'
 	import WorkspaceShell from './WorkspaceShell.svelte'
 
 	let ready = $state(false)
@@ -114,7 +114,7 @@
 </script>
 
 {#if bootError}
-	<div class="flex h-screen items-center justify-center bg-app p-6">
+	<div class="flex h-full items-center justify-center bg-app p-6">
 		<div class="max-w-md text-center">
 			<p class="text-body text-danger">{bootError}</p>
 			<a class="mt-3 inline-block text-body text-accent-text" href="/"
@@ -126,7 +126,7 @@
 	<WorkspaceShell />
 {:else}
 	<div
-		class="flex h-screen items-center justify-center bg-app text-caption text-fg-muted"
+		class="flex h-full items-center justify-center bg-app text-caption text-fg-muted"
 	>
 		Opening workspace…
 	</div>

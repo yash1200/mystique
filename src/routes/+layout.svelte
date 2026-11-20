@@ -26,6 +26,7 @@
 	import { PasswordPromptModal, SshHostKeyModal } from '#features/connections'
 	import { appSettingsUi, type SettingsSection } from '#features/settings'
 	import { appShortcutsUi, KeyboardShortcutsModal } from '#features/shortcuts'
+	import { TitleBar } from '#features/titlebar'
 	import { ToastContext } from '#features/toast'
 	import { UpdateNotice, updater } from '#features/updater'
 	import {
@@ -35,6 +36,7 @@
 	} from '#features/workspace/quick-open'
 	import { resetGuard } from '#features/workspace/session'
 	import { appPrefs, cmd, KEYMAP } from '#lib/app'
+	import { getCurrentWindow } from '@tauri-apps/api/window'
 	import { onDestroy, onMount } from 'svelte'
 	import '../app.css'
 
@@ -82,6 +84,8 @@
 		},
 		{ ...cmd.shortcuts, run: () => appShortcutsUi.show() },
 		{ ...cmd.about, run: () => appAboutUi.show() },
+		// Windows/Linux only: macOS's native menu closes the window itself.
+		{ ...cmd.closeWindow, run: () => getCurrentWindow().close() },
 		{ ...cmd.checkUpdates, run: () => void updater.check({ manual: true }) },
 		{ ...cmd.reset, run: () => resetGuard.request() },
 		{ ...cmd.zoomIn, run: () => zoomBy(0.1) },
@@ -126,7 +130,12 @@
 	{#snippet corner()}
 		<UpdateNotice />
 	{/snippet}
-	{@render children()}
+	<div class="flex h-screen flex-col">
+		<TitleBar />
+		<div class="relative min-h-0 flex-1">
+			{@render children()}
+		</div>
+	</div>
 	<Lazy component={QuickOpen} when={quickOpen.open} fallback="none" />
 	<Lazy
 		component={ResetConfirmModal}
@@ -150,10 +159,20 @@
 			: `${quitHeld ?? 0} exports or imports are still running. Quitting cancels them: partial export files are removed, and rows an import already wrote stay in the table.`}
 	>
 		{#snippet footer()}
-			<Button variant="ghost" size="sm" disabled={quitting} onclick={() => (quitHeld = null)}>
+			<Button
+				variant="ghost"
+				size="sm"
+				disabled={quitting}
+				onclick={() => (quitHeld = null)}
+			>
 				Keep running
 			</Button>
-			<Button variant="danger" size="sm" disabled={quitting} onclick={() => void quitAnyway()}>
+			<Button
+				variant="danger"
+				size="sm"
+				disabled={quitting}
+				onclick={() => void quitAnyway()}
+			>
 				Cancel and quit
 			</Button>
 		{/snippet}

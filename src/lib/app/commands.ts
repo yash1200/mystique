@@ -3,8 +3,8 @@
  *
  * Features register the handlers (`commands.register`) while they are
  * mounted; the root layout declares this list once, and the shortcuts view
- * reads it back from the registry. A command with a `menu` id is run by the
- * menu accelerator in the desktop app, so its `keys` must match menu.rs
+ * reads it back from the registry. On macOS a command with a `menu` id is run
+ * by the native menu accelerator, so its `keys` must match menu.rs
  * (checked by scripts/workspace/commands.test.ts).
  *
  * Rows without a registered handler document keys a component handles itself
@@ -52,6 +52,13 @@ export const cmd = {
 		title: 'Check for updates',
 		group: 'app',
 		menu: 'app_check_updates',
+	}),
+	closeWindow: defineCommand({
+		id: 'app.close-window',
+		title: 'Close window',
+		group: 'app',
+		keys: 'Mod+Shift+W',
+		menu: 'window_close',
 	}),
 	reset: defineCommand({
 		id: 'app.reset',
@@ -407,8 +414,18 @@ export const cmd = {
 		group: 'grid',
 		keys: 'Mod+Delete',
 	}),
-	gridCopy: defineCommand({ id: 'grid.copy', title: 'Copy cell', group: 'grid', keys: 'Mod+C' }),
-	gridPaste: defineCommand({ id: 'grid.paste', title: 'Paste', group: 'grid', keys: 'Mod+V' }),
+	gridCopy: defineCommand({
+		id: 'grid.copy',
+		title: 'Copy cell',
+		group: 'grid',
+		keys: 'Mod+C',
+	}),
+	gridPaste: defineCommand({
+		id: 'grid.paste',
+		title: 'Paste',
+		group: 'grid',
+		keys: 'Mod+V',
+	}),
 	gridEdit: defineCommand({
 		id: 'grid.edit',
 		title: 'Edit cell',
@@ -491,4 +508,6 @@ export const cmd = {
 }
 
 /** Every command, in the order the shortcuts view lists them. */
-export const KEYMAP: readonly CommandSpec[] = Object.values(cmd) as CommandSpec[]
+export const KEYMAP: readonly CommandSpec[] = Object.values(
+	cmd,
+) as CommandSpec[]

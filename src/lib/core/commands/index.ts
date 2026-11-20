@@ -5,7 +5,7 @@
  * unregister). The keymap — ids, titles, bindings, menu ids — is declared once
  * at startup, so the shortcuts view lists exactly what the keys do.
  */
-import { listenMenuCommands } from '../ipc/menu'
+import { listenMenuCommands } from '../ipc/menu.svelte'
 import { openDialogCount } from '../ui/dialog-stack'
 import { isMacPlatform } from '../util/platform'
 import { createCommandRegistry } from './registry'

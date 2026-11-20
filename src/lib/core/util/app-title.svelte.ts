@@ -1,6 +1,9 @@
 /** Product name shown in the OS / browser window title bar. */
 const APP_TITLE = 'Mystique'
 
+/** The current window title, for the custom titlebar (the OS one is hidden). */
+export const appTitle = $state({ current: APP_TITLE })
+
 /** Monotonic token so overlapping async setTitle calls don't clobber a newer title. */
 let titleGen = 0
 
@@ -14,12 +17,13 @@ function formatAppTitle(connectionName?: string | null): string {
 	return name ? `${APP_TITLE} · ${name}` : APP_TITLE
 }
 
-/** Update the OS/browser window title only (no in-app chrome). */
+/** Update the window title: the OS one and the custom titlebar's. */
 export async function setAppTitle(
 	connectionName?: string | null,
 ): Promise<string> {
 	const title = formatAppTitle(connectionName)
 	const gen = ++titleGen
+	appTitle.current = title
 	if (typeof document !== 'undefined') {
 		document.title = title
 	}
