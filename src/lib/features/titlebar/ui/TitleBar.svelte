@@ -4,6 +4,7 @@
 	import { ContextMenu, type ContextMenuItem } from '#core/ui'
 	import { appTitle, cn, isMacPlatform } from '#core/util'
 	import { getCurrentWindow } from '@tauri-apps/api/window'
+	import { exit } from '@tauri-apps/plugin-process'
 	import { onMount } from 'svelte'
 	import { appMenu, LOCAL_IDS, LOCAL_SHORTCUTS } from '../menu'
 
@@ -30,7 +31,8 @@
 		edit_select_all: () => document.execCommand('selectAll'),
 		window_minimize: () => getCurrentWindow().minimize(),
 		window_maximize: () => getCurrentWindow().toggleMaximize(),
-		app_quit: () => getCurrentWindow().close(),
+		// A real quit: closing the window only hides it while MCP is on.
+		app_quit: () => exit(0),
 	}
 
 	function shortcut(id: string): string | undefined {
@@ -164,7 +166,7 @@
 				type="button"
 				class="caption close"
 				aria-label="Close"
-				onclick={() => void local.app_quit()}
+				onclick={() => void getCurrentWindow().close()}
 			>
 				<svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg>
 			</button>

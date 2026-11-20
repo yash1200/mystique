@@ -6,6 +6,7 @@
 //! - IPC adapters → [`mystique_core::AppServices`]
 //! - Page-aware native app menu on macOS (Home vs Workspace); Windows and
 //!   Linux draw theirs in the custom titlebar
+//! - Background mode: with MCP on, closing hides to a tray icon — see [`tray`]
 //! - Logging (`MYSTIQUE_LOG`, app log dir) — see [`logging`]
 //!
 //! Business logic lives in `mystique-core`, not here.
@@ -14,6 +15,7 @@ mod ipc;
 mod logging;
 #[cfg(target_os = "macos")]
 mod menu;
+mod tray;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -87,6 +89,8 @@ fn hold_quit(app: &tauri::AppHandle) -> bool {
         *held = Some(std::time::Instant::now());
     }
     tracing::info!(running, "quit held: transfers are running");
+    // The window asks, so it must be on screen (it may be in the background).
+    tray::show_window(app);
     let _ = app.emit(QUIT_REQUESTED, running);
     true
 }
@@ -137,7 +141,13 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" && hold_quit(window.app_handle()) {
+                if window.label() != "main" {
+                    return;
+                }
+                if tray::keeps_running(window.app_handle()) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else if hold_quit(window.app_handle()) {
                     api.prevent_close();
                 }
             }
@@ -191,6 +201,7 @@ pub fn run() {
                 quit_held_at: std::sync::Mutex::new(None),
             });
             apply_app_icon(app).map_err(|e| format!("app icon: {e}"))?;
+            tray::create(app).map_err(|e| format!("tray icon: {e}"))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -312,6 +323,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
+            // Dock icon clicked while the window is in the background.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                tray::show_window(app);
+                return;
+            }
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
                 if hold_quit(app) {
                     api.prevent_exit();
