@@ -63,7 +63,7 @@ at launch (and from **Mystique › Check for Updates…** or **Settings › Abou
 If it names a newer version, a card in the bottom-right offers it. **Update**
 downloads in the background, installs, then asks to restart.
 
-Two steps:
+One step:
 
 ```bash
 pnpm release 1.0.9                   # notes drafted from the commits since the last tag
@@ -71,14 +71,14 @@ pnpm release 1.0.9 --notes notes.md  # …or your own Markdown notes
 pnpm release 1.0.9 --dry-run         # checks and notes only
 ```
 
-then **Actions › release › Run workflow** with `v1.0.9` (or `1.0.9`).
-
 `pnpm release` (`scripts/release.mjs`) checks everything first: on `main`, a
 clean tree equal to `origin/main`, a newer version, no existing tag or
 release, GitHub push access. Then it bumps the version in `package.json`,
 `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `Cargo.lock`,
 commits and pushes, tags `v<version>` and pushes the tag, and publishes the
-GitHub release, not yet marked latest. If it stops part way, run the same
+GitHub release, not yet marked latest. Last, it starts the release workflow
+for the tag (`gh workflow run`); if that fails, start it by hand: **Actions ›
+release › Run workflow** with `v1.0.9`. If it stops part way, run the same
 command again: a bump or tag already pushed is reused.
 
 The workflow builds every platform into that release, writes `latest.json`,
@@ -111,8 +111,8 @@ version with it by hand.
 
 ## CI
 
-`.github/workflows/release.yml` is run by hand for an existing tag
-(Actions › release › Run workflow). It builds macOS (Apple silicon, Intel),
+`.github/workflows/release.yml` runs for an existing tag: `pnpm release`
+starts it, or run it by hand (Actions › release › Run workflow). It builds macOS (Apple silicon, Intel),
 Windows (x64, ARM64 NSIS installers) and Linux (x64, ARM64: `.deb`, `.rpm`,
 `.AppImage`), all ad-hoc / unsigned. The files go to the tag's release: the
 one `pnpm release` published, or a draft if there is none (same names are

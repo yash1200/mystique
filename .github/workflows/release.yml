@@ -1,7 +1,7 @@
-# Desktop builds for an existing version tag, run by hand
-# (Actions › release › Run workflow) after `pnpm release <version>`
-# (docs/RELEASING.md) has bumped, tagged and published the release. A tag push
-# does not start this.
+# Desktop builds for an existing version tag. `pnpm release <version>`
+# (docs/RELEASING.md) starts it once it has bumped, tagged and published the
+# release; it can also be run by hand (Actions › release › Run workflow). A
+# tag push does not start this.
 #
 # Builds macOS (Apple silicon, Intel), Windows (x64, ARM64) and Linux (x64,
 # ARM64: .deb, .rpm, .AppImage), all ad-hoc / unsigned: macOS uses

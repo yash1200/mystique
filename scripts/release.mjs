@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * Release a version: bump it, push, tag, and publish the GitHub release.
- * CI then builds every platform into that release
- * (Actions › release › Run workflow, with the same version).
+ * Release a version: bump it, push, tag, publish the GitHub release, and start
+ * the release workflow, which builds every platform into that release.
  *
  *   pnpm release 1.0.9                   # notes drafted from the commits since the last tag
  *   pnpm release 1.0.9 --notes notes.md  # your own notes (Markdown)
@@ -202,10 +201,26 @@ function main() {
 		{ stdio: 'inherit' },
 	)
 
+	// 4. Build every platform into it.
+	step(`Starting the release workflow for ${tag}`)
+	const actions = `https://github.com/${REPO}/actions/workflows/release.yml`
+	let started = true
+	try {
+		run('gh', ['workflow', 'run', 'release.yml', '--repo', REPO, '--ref', 'main', '-f', `tag=${tag}`], {
+			stdio: 'inherit',
+		})
+	} catch {
+		// The release is already published: say how to start the build by hand.
+		started = false
+	}
+
 	step('Done')
 	console.log(`https://github.com/${REPO}/releases/tag/${tag}`)
-	console.log(`Next: Actions › release › Run workflow with ${tag}:`)
-	console.log(`  https://github.com/${REPO}/actions/workflows/release.yml`)
+	if (started) console.log(`Builds: ${actions}`)
+	else {
+		console.log(`Could not start the workflow. Actions › release › Run workflow with ${tag}:`)
+		console.log(`  ${actions}`)
+	}
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main()
