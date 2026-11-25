@@ -6319,7 +6319,7 @@ dependencies = [
 
 [[package]]
 name = "mystique"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "base64 0.23.1",
  "futures-executor",
