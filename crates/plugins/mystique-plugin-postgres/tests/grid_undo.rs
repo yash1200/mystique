@@ -133,3 +133,36 @@ async fn a_row_that_cannot_be_read_back_saves_without_an_undo() {
     assert_eq!(rows, vec![vec![json!(5)]]);
     run(s, "DROP TABLE s5_grid_undo_json", QueryMode::Write).await;
 }
+
+#[tokio::test]
+#[ignore = "needs local Postgres"]
+async fn edited_jsonb_text_saves_as_a_document_not_a_string() {
+    let session = session().await;
+    let s = session.as_ref();
+    run(
+        s,
+        "DROP TABLE IF EXISTS s5_grid_jsonb; \
+         CREATE TABLE s5_grid_jsonb (id int PRIMARY KEY, doc jsonb); \
+         INSERT INTO s5_grid_jsonb VALUES (1, '{\"a\":1}')",
+        QueryMode::Write,
+    )
+    .await;
+    let mut input = edits("s5_grid_jsonb");
+    input.columns = vec![column("id", "int4"), column("doc", "jsonb")];
+    // The grid and the value dialog send the edited JSON as text.
+    input.updates = vec![TableRowUpdate {
+        original: [("id".into(), json!(1)), ("doc".into(), json!({"a": 1}))]
+            .into_iter()
+            .collect(),
+        values: [("doc".into(), json!("{\"a\":2}"))].into_iter().collect(),
+    }];
+    s.apply_table_edits(&input).await.expect("save");
+    let rows = run(
+        s,
+        "SELECT jsonb_typeof(doc), doc->>'a' FROM s5_grid_jsonb WHERE id = 1",
+        QueryMode::Read,
+    )
+    .await;
+    run(s, "DROP TABLE s5_grid_jsonb", QueryMode::Write).await;
+    assert_eq!(rows, vec![vec![json!("object"), json!("2")]]);
+}

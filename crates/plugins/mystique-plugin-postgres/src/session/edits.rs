@@ -4,7 +4,8 @@ use bytes::{BufMut, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use mystique_connector_api::{
     affected_mismatch, keyless_ambiguous, overlay_catalog_pk, rollback_stale, rows_hash,
-    ApplyTableEditsInput, ApplyTableEditsResult, ConnectorError, ConnectorResult, GridUndo,
+    ApplyTableEditsInput, ApplyTableEditsResult, ColumnInfo, ConnectorError, ConnectorResult,
+    GridUndo,
 };
 use mystique_sql::dml::{plan_table_edits, EditPlan};
 use mystique_sql::{SqlDialect, SqlPlaceholder};
@@ -31,6 +32,7 @@ pub(super) async fn apply_table_edits(
     .await?;
     let mut owned = edits.clone();
     overlay_catalog_pk(&mut owned.columns, &described);
+    parse_json_drafts(&mut owned, &described);
     let plan = plan_table_edits(SqlDialect::Postgres, SqlPlaceholder::Dollar, &owned)?;
     let previews = plan.previews();
     if edits.dry_run {
@@ -55,6 +57,38 @@ pub(super) async fn apply_table_edits(
         save_id: None,
         undo,
     })
+}
+
+/// The grid sends an edited json/jsonb cell as its text. Bound as-is, Postgres
+/// stores a JSON string (`"{\"a\":1}"`), so parse it into the document first.
+/// Only written values: `original` keeps locating the row as it was read.
+fn parse_json_drafts(edits: &mut ApplyTableEditsInput, described: &[ColumnInfo]) {
+    let json_cols: Vec<&str> = described
+        .iter()
+        .filter(|c| matches!(c.data_type.as_str(), "json" | "jsonb"))
+        .map(|c| c.name.as_str())
+        .collect();
+    if json_cols.is_empty() {
+        return;
+    }
+    let values = edits
+        .updates
+        .iter_mut()
+        .map(|u| &mut u.values)
+        .chain(edits.inserts.iter_mut().map(|i| &mut i.values));
+    for row in values {
+        for (name, value) in row.iter_mut() {
+            if !json_cols.contains(&name.as_str()) {
+                continue;
+            }
+            if let JsonValue::String(text) = value {
+                // Unparseable text stays a JSON string, as before.
+                if let Ok(parsed) = serde_json::from_str(text) {
+                    *value = parsed;
+                }
+            }
+        }
+    }
 }
 
 pub(super) async fn apply_grid_undo(
@@ -440,8 +474,57 @@ fn nbase_groups(
 
 #[cfg(test)]
 mod tests {
-    use super::encode_numeric;
+    use super::{encode_numeric, parse_json_drafts};
     use bytes::BytesMut;
+    use mystique_connector_api::{ApplyTableEditsInput, ColumnInfo};
+    use mystique_sql::dml::{TableRowInsert, TableRowUpdate};
+    use serde_json::json;
+
+    fn col(name: &str, data_type: &str) -> ColumnInfo {
+        ColumnInfo {
+            name: name.into(),
+            data_type: data_type.into(),
+            nullable: true,
+            pk: false,
+            enum_values: None,
+            default_value: None,
+            references: None,
+        }
+    }
+
+    #[test]
+    fn json_cell_text_is_saved_as_the_document() {
+        let text = json!(r#"{"a":1}"#);
+        let mut edits = ApplyTableEditsInput {
+            table: "t".into(),
+            schema: None,
+            database: None,
+            columns: vec![],
+            updates: vec![TableRowUpdate {
+                original: [("doc".into(), text.clone())].into_iter().collect(),
+                values: [
+                    ("doc".into(), text.clone()),
+                    ("note".into(), text.clone()),
+                    ("raw".into(), json!("not json")),
+                ]
+                .into_iter()
+                .collect(),
+            }],
+            inserts: vec![TableRowInsert {
+                values: [("doc".into(), json!("[1,2]"))].into_iter().collect(),
+            }],
+            deletes: vec![],
+            dry_run: false,
+        };
+        let described = [col("doc", "jsonb"), col("note", "text"), col("raw", "json")];
+        parse_json_drafts(&mut edits, &described);
+        let update = &edits.updates[0];
+        assert_eq!(update.values["doc"], json!({"a": 1}));
+        assert_eq!(update.values["note"], text, "text columns stay text");
+        assert_eq!(update.values["raw"], json!("not json"));
+        assert_eq!(update.original["doc"], text, "originals untouched");
+        assert_eq!(edits.inserts[0].values["doc"], json!([1, 2]));
+    }
 
     #[test]
     fn numeric_one_uses_postgres_base_10000() {
